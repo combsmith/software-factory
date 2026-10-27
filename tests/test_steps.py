@@ -12,6 +12,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -46,9 +47,10 @@ PASS = RECORD["pass"]
 
 
 def ran(step, *given):
-    """The step's exit and what it printed."""
+    """The step's exit and what it printed, its Release the one its environment names as `RELEASE`."""
     printed = io.StringIO()
-    with contextlib.redirect_stdout(printed):
+    environ = given[1] if len(given) > 1 and isinstance(given[1], dict) else {}
+    with contextlib.redirect_stdout(printed), support.releasing(environ):
         code = steps.run(step, *given)
     return code, printed.getvalue()
 
@@ -78,10 +80,116 @@ class Shared(unittest.TestCase):
         self.assertEqual(ran(lambda: (_ for _ in ()).throw(ValueError("GitHub said something"))), (1, "step_failed\n"))
 
 
+class ReleaseName(unittest.TestCase):
+    """The Release a step runs as, read from its own checkout's tags (the ruling on issue 196's Release name)."""
+
+    def repo(self, d, *tags):
+        env = dict(steps.GIT_ENV, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t", HOME=d)
+        for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "x"]) + tuple(["tag", t] for t in tags):
+            subprocess.run(["git"] + args, cwd=d, env=env, check=True, capture_output=True)
+
+    def test_the_release_is_its_one_tag(self):
+        for tags, want in ((("factory/v0.3.1",), "factory/v0.3.1"),
+                           (("factory/v0.3.1", "factory/v0-next"), "factory/v0.3.1"),
+                           (("factory/v0.3.1", "a-tag", "v0.3.1"), "factory/v0.3.1")):
+            with tempfile.TemporaryDirectory() as d:
+                self.repo(d, *tags)
+                self.assertEqual(steps.release(d), want, tags)
+                self.assertRegex(steps.commit(d), r"^[0-9a-f]{40}$")
+        # None, the Channel's alone, or a name a Release's tag is not, is no Release; two refuse rather than pick.
+        for tags, want in (((), "release_untagged"), (("factory/v0-next",), "release_untagged"),
+                           (("factory/v0.3.01", "factory/v1.2"), "release_untagged"),
+                           (("factory/v0.3.1", "factory/v0.3.2"), "release_twice")):
+            with tempfile.TemporaryDirectory() as d:
+                self.repo(d, *tags)
+                with self.assertRaisesRegex(steps.Stop, "^%s$" % want, msg=tags):
+                    steps.release(d)
+        with tempfile.TemporaryDirectory() as d:
+            for read in (steps.release, steps.commit):
+                with self.assertRaisesRegex(steps.Stop, "^release_unreadable$"):
+                    read(d)     # no repository at all
+        # It asks git for the tags on HEAD, in an environment of its own.
+        seen = []
+
+        def run(args, **kw):
+            seen.append((args, kw["env"]))
+            return subprocess.CompletedProcess(args, 0, "factory/v1.0.0\n", "")
+        self.assertEqual(steps.release("/x", run), "factory/v1.0.0")
+        for said in ("not a sha\n", "abc\n", ""):
+            with self.assertRaisesRegex(steps.Stop, "^release_unreadable$", msg=said):
+                steps.commit("/x", lambda args, **kw: subprocess.CompletedProcess(args, 0, said, ""))
+        self.assertEqual(seen, [(["git", "tag", "--points-at", "HEAD"], steps.GIT_ENV)])
+
+    def test_the_first_job_hands_on_the_commit_it_checked_out(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "github_output")
+            with unittest.mock.patch.object(steps, "commit", lambda: "a" * 40):
+                self.assertEqual(steps.handed_on({"GITHUB_OUTPUT": out}), "commit " + "a" * 40)
+            self.assertEqual(pathlib.Path(out).read_text(), "commit=%s\n" % ("a" * 40))
+
+    def test_a_step_with_no_release_reads_no_key(self):
+        # apply and the act refuse before a key or a token is read, so no credential is held under no Release.
+        _, printed, _, calls = Apply().go({"RELEASE": "factory/v0-next"})
+        self.assertEqual((printed, calls["minted"]), ("release_untagged\n", []))
+        used = []
+        with tempfile.TemporaryDirectory() as d:
+            code, printed = ran(approve_step.step, [NAME, ITEM, PASS, "o"], {approve_step.TOKEN: "t"}, d,
+                                lambda: 0, lambda token: used.append(token))
+        self.assertEqual((code, printed, used), (1, "release_untagged\n", []))
+
+
+class WorkflowForm(unittest.TestCase):
+    def test_each_step_takes_the_runs_inputs_from_its_environment_and_its_folders_by_name(self):
+        # A workflow's run: line is `python3 -m <module>` alone, so a step with no argument reads the Run's three inputs
+        # from its environment, and its folders by their fixed names.
+        env = {"NAME": NAME, "ITEM": ITEM, "PASS": PASS}
+        self.assertEqual(steps.given([], env, steps.INPUTS, ("task",)), [NAME, ITEM, PASS, "task"])
+        self.assertEqual(steps.given(["a", "b"], env, steps.INPUTS, ("task",)), ["a", "b"])
+        self.assertEqual(steps.given([], {}, ("NAME",), ("applied", "outcome")), [None, "applied", "outcome"])
+        seen = []
+        for module, folders in ((read, ["task"]), (verify, ["result", "verdict"]), (apply_step, ["result", "applied"]),
+                                (outcome, ["applied", "outcome", "reader-outcome"]), (approve_step, ["applied"])):
+            with tempfile.TemporaryDirectory() as d:
+                with unittest.mock.patch.object(steps, "given", lambda a, e, i, f: seen.append((module, list(f))) or
+                                                (_ for _ in ()).throw(steps.Stop("seen"))):
+                    ran(module.step, [], env, d)
+        self.assertEqual(seen, [(m, f) for m, f in ((read, ["task"]), (verify, ["result", "verdict"]),
+                                                    (apply_step, ["result", "applied"]),
+                                                    (outcome, ["applied", "outcome", "reader-outcome"]),
+                                                    (approve_step, ["applied"]))])
+
+    def test_run_hands_on_the_digest_alone_as_its_steps_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "github_output")
+            with unittest.mock.patch.object(run, "job", lambda paths, env, config: "sha256:" + "a" * 64), \
+                    unittest.mock.patch.object(run, "from_folder", lambda folder, result: [folder, result]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(run.main([], {"GITHUB_OUTPUT": out}), 0)
+            self.assertEqual(pathlib.Path(out).read_text(), "digest=sha256:%s\n" % ("a" * 64))
+
+
+
+def recorded_spy(module, calls: list):
+    """`module.applied.recorded`, patched to keep what each caller asks it, the Lenses' names and the authority table
+    among it, and to answer as it does (issue 338)."""
+    real = module.applied.recorded
+
+    def spy(transport, repo, runs, numbers, lenses, authority):
+        calls.append({"repo": repo, "numbers": list(numbers), "lenses": set(lenses), "authority": authority})
+        return real(transport, repo, runs, numbers, lenses, authority)
+    return unittest.mock.patch.object(module.applied, "recorded", spy)
+
+
+AUTHORITY = json.loads((ROOT / "config" / "authority.json").read_text())
+
+
 class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
-    def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, refs=TAGS):
+    def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
+           refs=TAGS, commit=CHECKED_OUT):
+        """`commit` is what `steps.commit()` gives, or a function that stands in for it."""
         calls = {"minted": [], "revoked": 0, "tags": []}
 
         def tags_read(transport, repo):
@@ -99,16 +207,28 @@ class Reader(unittest.TestCase):
             return "the reader's transport", revoke
         facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT)
         pulled = {"head": {"sha": first}, "number": 42}
+        listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
+        calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
+
+        def snapshot(*a, **k):
+            calls["recorded"].append(k["recorded"])
+            calls["opener"].append(k.get("opener", "not told"))
+            return facts, "title", head
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(identity, "from_key", from_key), \
                 unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(record)), \
+                unittest.mock.patch.object(read.steps, "commit", commit if callable(commit) else lambda: commit), \
                 unittest.mock.patch.object(read.tags, "read", tags_read), \
-                unittest.mock.patch.object(read.facts_, "snapshot", lambda *a, **k: (facts, "title", head)), \
+                unittest.mock.patch.object(read.records, "runs",
+                                           lambda *a, **k: calls["listed"].append(a[3]) or copy.deepcopy(listed)), \
+                recorded_spy(read, calls["asked"]), \
+                unittest.mock.patch.object(read.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(read.facts_, "opener_of", lambda *told: (12, "Bot")), \
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change):
             code, printed = ran(read.step, argv or [NAME, ITEM, PASS, "task"],
-                                environ if environ is not None else {read.KEY: "the key", read.COMMIT: CHECKED_OUT}, d)
+                                environ if environ is not None else {read.KEY: "the key"}, d)
             folder = pathlib.Path(d, "task")
             files = sorted(p.name for p in folder.iterdir()) if folder.is_dir() else None
             kept = {n: (folder / n).read_bytes() for n in files or ()}
@@ -122,10 +242,19 @@ class Reader(unittest.TestCase):
         self.assertEqual(json.loads(kept["record.json"]), RECORD)
         self.assertEqual((json.loads(kept["texts.json"]), json.loads(kept["findings.json"])), ([], []))
         self.assertEqual(json.loads(kept["role.json"])["name"], "pr-review")
+        # The threads are held to what the item's Lenses recorded, read from the run records (issue 338).
+        self.assertEqual(calls["recorded"], [({}, True)])
+        # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
+        self.assertEqual(calls["listed"], [["run.yml", "approve.yml"]])
+        self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
+        # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
+        self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False)])
         # Minted once, for the home repo, with reads alone, and revoked once.
         (app, repo, wanted, key), = calls["minted"]
         self.assertEqual((app, repo, key, calls["revoked"]), ("combsmith-sf-reader", HOME, "the key", 1))
         self.assertEqual(set(wanted.values()), {"read"})
+        # The pull request is read with the App that opens pull requests, as the pass reads it (issue 295).
+        self.assertEqual(calls["opener"], [(12, "Bot")])
         # What `run` takes from the folder is what the reader wrote.
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "task"))
@@ -161,6 +290,12 @@ class Reader(unittest.TestCase):
                 pathlib.Path(d, folder, "outcome.json").write_bytes(said)
             env = {"RELEASE": "factory/v0.3.2"}
             self.assertEqual(ran(outcome.step, [NAME, "applied", "o", "task"], env, d), (1, "release_moved\n"))
+            # The workflow's form: the run job's `reader-outcome` artifact, downloaded to the folder of its name.
+            os.rename(os.path.join(d, "task"), os.path.join(d, "reader-outcome"))
+            self.assertEqual(ran(outcome.step, [], dict(env, NAME=NAME), d), (1, "release_moved\n"))
+            self.assertEqual(json.loads(pathlib.Path(d, "outcome", "outcome.json").read_bytes()),
+                             json.loads(kept["outcome.json"]))
+            os.rename(os.path.join(d, "reader-outcome"), os.path.join(d, "task"))
             self.assertEqual(json.loads(pathlib.Path(d, "o", "outcome.json").read_bytes()), json.loads(kept["outcome.json"]))
             # Without the reader's folder, or under another Release than the reader's, `apply`'s word stands.
             self.assertEqual(ran(outcome.step, [NAME, "applied", "o2"], env, d), (1, "run_failed\n"))
@@ -179,11 +314,15 @@ class Reader(unittest.TestCase):
         # Never the pass record's Release in its place: with none named, nothing is written but the code.
         for change in ({"refs": None}, {"refs": {"factory/v0-next": CHECKED_OUT}},
                        {"refs": dict(TAGS, **{"factory/v0.3.2": CHECKED_OUT})},
-                       {"environ": {read.KEY: "the key"}}, {"environ": {read.KEY: "the key", read.COMMIT: "HEAD"}},
-                       {"environ": {read.KEY: "the key", read.COMMIT: CHECKED_OUT.upper()}}):
+                       {"commit": None}, {"commit": "HEAD"}, {"commit": CHECKED_OUT.upper()}):
             with self.subTest(change=change):
                 code, printed, files, _, calls = self.go(**change)
                 self.assertEqual((code, printed, files, calls["revoked"]), (1, "release_unresolved\n", [], 1))
+        # The commit is the job's own, `steps.commit()`, read before any key: a checkout it cannot read mints nothing.
+        def unreadable():
+            raise steps.Stop("release_unreadable")
+        code, printed, files, _, calls = self.go(commit=unreadable)
+        self.assertEqual((code, printed, calls["minted"]), (1, "release_unreadable\n", []))
 
     def test_the_reader_fails_closed(self):
         def varied(change):
@@ -271,15 +410,21 @@ class Verify(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "result"))
             pathlib.Path(d, "result", "result.json").write_bytes(data)
-            self.assertEqual(ran(verify.step, ["result", "verdict"], {"RUN_DIGEST": digest}, d)[0], 0)
+            ok = {"RUN_DIGEST": digest, "RELEASE": result["release"]}
+            self.assertEqual(ran(verify.step, ["result", "verdict"], ok, d)[0], 0)
+            # A commit no Release tag names is refused first; a Result of another Release than the job's, refused.
+            self.assertEqual(ran(verify.step, ["result", "v4"], {"RUN_DIGEST": digest}, d), (1, "release_untagged\n"))
+            self.assertEqual(ran(verify.step, ["result", "v5"], dict(ok, RELEASE="factory/v9.9.9"), d),
+                             (1, "release_differs\n"))
             said = json.loads(pathlib.Path(d, "verdict", "verdict.json").read_text())
             self.assertEqual((said["checks"], said["digest"], said["run"]), ("not_run", digest, result["run"]))
             for environ, want in (({"RUN_DIGEST": "sha256:" + "0" * 64}, "result_not_the_runs"),
                                   ({}, "digest_unreadable"), ({"RUN_DIGEST": "abc"}, "digest_unreadable")):
+                environ = dict(environ, RELEASE=result["release"])
                 self.assertEqual(ran(verify.step, ["result", "v2"], environ, d), (1, want + "\n"), environ)
             pathlib.Path(d, "result", "result.json").write_bytes(b"{}")
-            self.assertEqual(ran(verify.step, ["result", "v3"], {"RUN_DIGEST": "sha256:" + hashlib.sha256(b"{}").hexdigest()},
-                                 d), (1, "result_unreadable\n"))
+            self.assertEqual(ran(verify.step, ["result", "v3"], {"RUN_DIGEST": "sha256:" + hashlib.sha256(b"{}").hexdigest(),
+                                                                 "RELEASE": result["release"]}, d), (1, "result_unreadable\n"))
 
 
 NEEDS = json.dumps({"run": {"result": "success", "outputs": {}}, "verify": {"result": "success", "outputs": {}}})
@@ -379,7 +524,7 @@ class Apply(unittest.TestCase):
         # A Run of another Release than the pass that admitted it writes nothing.
         code, _, ended, calls = self.go({"RELEASE": "factory/v0.3.2"})
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "release_differs", []))
-        self.assertEqual(self.go({"RELEASE": "v1"})[:3], (1, "release_unreadable\n", None))
+        self.assertEqual(self.go({"RELEASE": "v1"})[:3], (1, "release_untagged\n", None))
         # No Decision for this Run: superseded, and the job is never asked.
         code, _, ended, calls = self.go(record=None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"], calls["revoked"]),
@@ -468,7 +613,7 @@ class Approve(unittest.TestCase):
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
         with tempfile.TemporaryDirectory() as d:
-            self.assertEqual(ran(approve_step.step, [NAME, ITEM, PASS, "o"], {}, d), (1, "release_unreadable\n"))
+            self.assertEqual(ran(approve_step.step, [NAME, ITEM, PASS, "o"], {}, d), (1, "release_untagged\n"))
         # A record that cannot be read, or a Decision not the run-name's: nothing asked, and the step fails by its code.
         elsewhere = copy.deepcopy(RECORD)
         for e in elsewhere["pull_requests"]:
@@ -532,6 +677,15 @@ class ControllerKey(unittest.TestCase):
             effects.controller_token({"CONTROLLER_APP_KEY": "k"}, config, 0)
         # The status's checks: write, which the App is granted; the tracking issue's write waits on its grant.
         self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"checks": "write"}, "k")])
+        # The workflow's form, with no argument: the pass's own folder, `pass/`, and written.json into it.
+        out = tc.passed(tc.reads(pulls=[]))
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, "pass"))
+            pathlib.Path(d, "pass", "pass.json").write_text(json.dumps(out["record"]))
+            pathlib.Path(d, "pass", "writes.json").write_text(json.dumps(writes_.plan(out)))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(effects.main([], {}, d), 0)
+            self.assertTrue(pathlib.Path(d, "pass", "written.json").is_file())
         # The step fails when GitHub did not revoke the token, and only then.
         out = tc.passed(tc.reads(pulls=[]))
         with tempfile.TemporaryDirectory() as d:
@@ -553,8 +707,9 @@ class Reread(unittest.TestCase):
         facts = support.facts()
         whole = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, with_head=False):
-            whole.append(runs_whole)
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, with_head=False, opener=None, *,
+                     recorded):
+            whole.append((runs_whole, recorded))
             return facts, "t", HEAD
         from controller import configuration
         config = configuration.load(ROOT, RELEASE, "pr-review")
@@ -567,14 +722,29 @@ class Reread(unittest.TestCase):
                         reread.item("t", config, 42, support.NOW, lambda: support.NOW)
                 else:
                     self.assertIsNone(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["active_runs"])
-        self.assertEqual(whole, [False, False])
+        # A list read short holds the threads to nothing recorded, and they are not whole (issue 338).
+        self.assertEqual(whole, [(False, ({}, False)), (False, ({}, False))])
+        asked_ = []
         with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(listed)), \
+                recorded_spy(reread, asked_), \
                 unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (facts, "t", HEAD)), \
                 unittest.mock.patch.object(reread.pause_, "read",
                                            lambda transport, org, repos: {"org": None, "repos": {HOME: None}}):
             got = reread.item("t", config, 42, support.NOW, lambda: support.NOW)
         self.assertEqual(got[:3], (facts, HEAD, listed["runs"]))
+        # What the item's model Lenses recorded is read from that list, held to the authority table (issue 338).
+        self.assertEqual(asked_, [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         self.assertEqual((got[3]["paused"], got[3]["active_runs"], got[3]["passes_since"]), (False, 1, None))
+        # The pull request is read with the App that opens pull requests, as the pass reads it (issue 295).
+        told = []
+        with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(listed)), \
+                unittest.mock.patch.object(reread.facts_, "snapshot",
+                                           lambda *a, **k: told.append(k.get("opener", "not told")) or (facts, "t", HEAD)), \
+                unittest.mock.patch.object(reread.facts_, "opener_of", lambda *a: (12, "Bot")), \
+                unittest.mock.patch.object(reread.pause_, "read",
+                                           lambda transport, org, repos: {"org": None, "repos": {HOME: None}}):
+            reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+        self.assertEqual(told, [(12, "Bot")])
         # The Pause is read again, on the org and the item's repo, and a Pause or one unreadable is the context's.
         asked = []
 

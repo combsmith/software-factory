@@ -89,6 +89,24 @@ class Matching(unittest.TestCase):
             # A write whose key cannot be read is matched to nothing, whatever was recorded on its item.
             self.assertEqual(kinds(check(seen(dict(write, key=None)), recorded([done]))), [(write["by"], write["kind"])])
 
+    def test_a_resolution_is_matched_to_the_role_whose_run_recorded_it(self):  # decision 0067
+        # A thread's id outlives its reopening, so a resolution is matched only to an Effect a Run of the resolver's own
+        # Role recorded, by the run records: another Role's, or one whose Run is not among them, covers nothing.
+        done = applied(("resolve_thread", "PRRT_t", "applied"))
+        mine = run(name=done["run"], role="pr-review")
+        # Role matching alone: with no pass job's token, the Run is no dispatch to reconcile.
+        accounts = dict(KNOWN, workflow_token=None, roles=dict(KNOWN["roles"], **{
+            "dev-lead": {"id": 5000004, "type": "Bot", "login": "combsmith-sf-dev-lead[bot]"}}))
+        self.assertEqual(check(seen(wrote("pr-review", "resolution", "PRRT_t")), recorded([done]), records(mine),
+                               accounts=accounts)["unmatched"], [])
+        for by, runs in (("dev-lead", records(mine)), ("pr-review", records()),
+                         ("pr-review", records(dict(mine, role="dev-lead")))):
+            found = check(seen(wrote(by, "resolution", "PRRT_t")), recorded([done]), runs, accounts=accounts)
+            self.assertEqual(kinds(found), [(by, "resolution")], (by, runs))
+        # Run records not read whole bind no resolution to its Role: reconciliation is short, and calls none unmatched.
+        found = check(seen(wrote("pr-review", "resolution", "PRRT_t")), recorded([done]), None, accounts=accounts)
+        self.assertEqual((found["unmatched"], found["short"]), ([], True))
+
     def test_the_controllers_writes_are_matched_to_what_the_pass_recorded(self):  # decision 0051
         status = written(("status_on_item", ITEM, None, "CR_s", "applied"))
         self.assertEqual(check(seen(wrote("controller", "check_run", "CR_s")), recorded(written_=[status]))["unmatched"],
@@ -128,7 +146,7 @@ class Matching(unittest.TestCase):
                                        ("comment", "K", "applied"), ("resolve_thread", "K", "applied"))])
         for write in (wrote("approver", "push", "K"), wrote("approver", "review", "K"), wrote("approver", "comment", "K"),
                       wrote("approver", "resolution", "K"), wrote("pr-review", "label"), wrote("pr-review", "merge"),
-                      wrote("pr-review", "approval", "K"), wrote("pr-review", "resolution", "K"),
+                      wrote("pr-review", "approval", "K"),
                       wrote("approver", "dismissal"), wrote("approver", "close")):
             self.assertEqual(kinds(check(seen(write), everything)), [(write["by"], write["kind"])], write)
 
@@ -194,8 +212,9 @@ class Matching(unittest.TestCase):
         self.assertEqual(check(seen(), recorded(), records(old_rerun), accounts=TOKEN)["unmatched"], [])
         # Until the pass job's token's account is set, no dispatch is reconciled, and run records not read leave
         # nothing short (ruling 2).
-        self.assertEqual(check(seen(), recorded(), records(r))["unmatched"], [])
-        self.assertIs(check(seen(), recorded(), None)["short"], False)
+        unset = dict(KNOWN, workflow_token=None)
+        self.assertEqual(check(seen(), recorded(), records(r), accounts=unset)["unmatched"], [])
+        self.assertIs(check(seen(), recorded(), None, accounts=unset)["short"], False)
 
 
 class Short(unittest.TestCase):
@@ -330,6 +349,9 @@ class SeenPort(unittest.TestCase):
                   {"event": "labeled", "actor": PERSON, "created_at": AT}]
         threads_ = [{"id": "PRRT_n", "isResolved": True, "resolvedBy": None},
                     {"id": "PRRT_a", "isResolved": True, "resolvedBy": {"login": "donpetry-bot", "databaseId": 281750570}},
+                    # A Role App's resolution, which GraphQL types a User: told by its account id (decision 0067).
+                    {"id": "PRRT_r", "isResolved": True, "resolvedBy": {"login": "combsmith-sf-pr-review[bot]",
+                                                                        "databaseId": 5000002}},
                     {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry", "databaseId": 36422719}},
                     {"id": "PRRT_o", "isResolved": False, "resolvedBy": None}]
         runs = [check_run(5364144, "CR_r"), check_run(5364130, "CR_c"), check_run(15368, "CR_x")]
@@ -345,7 +367,7 @@ class SeenPort(unittest.TestCase):
                           ("pr-review", "close", None), ("pr-review", "review_request", None),
                           ("controller", "assignment", None), ("controller", "other", "milestoned"),
                           ("unattributed", "resolution", "PRRT_n"),
-                          ("approver", "resolution", "PRRT_a"), ("pr-review", "check_run", "CR_r"),
+                          ("approver", "resolution", "PRRT_a"), ("pr-review", "resolution", "PRRT_r"), ("pr-review", "check_run", "CR_r"),
                           ("controller", "check_run", "CR_c")])
         # A merge by anyone is read for an Override; and what was seen is seen/1.
         self.assertEqual(merged, [{"item": ITEM, "at": AT}])

@@ -16,7 +16,7 @@ Not built yet, by the stories that hold their rules: push.py, eval/run.py.
 | A Task too long for one argument is refused before the CLI starts | `tests/test_harness.py::test_a_task_too_long_for_one_argument_is_refused_before_the_cli_starts` |
 | An issue's Run is found among the issues; an Effect is claimed only from what was read back | `tests/test_harness.py::test_an_issues_run_is_found_among_the_issues`, `tests/test_apply.py::test_an_effect_is_claimed_only_from_what_was_read_back` |
 | The CLI is handed `result/1` resolved, with the Harness's fields removed and status and Effects narrowed | `tests/test_harness.py::test_the_cli_is_handed_result_1_resolved_and_narrowed` |
-| The CLI's version is held to the pin before and after the call | `tests/test_harness.py::test_the_version_is_held_before_and_after_the_call` |
+| The CLI's version is held to the pin before and after the call; a step runs as its checkout's one Release tag | `tests/test_harness.py::test_the_version_is_held_before_and_after_the_call`, `tests/test_steps.py::test_the_release_is_its_one_tag` |
 | The Harness fills `release` and `usage` from the CLI's own answer, and keeps none of the model's prose | `tests/test_harness.py::test_a_result_the_engine_wrote_is_filled_and_kept` |
 | An answer that does not validate is a `failed` Result, `result_invalid`, with empty lists | `tests/test_harness.py::test_an_answer_that_does_not_validate_is_no_result` |
 | A CLI that fails or runs past its time is a `failed` Result | `tests/test_harness.py::test_a_cli_that_fails_or_runs_past_its_time_is_a_failed_result` |

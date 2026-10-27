@@ -21,6 +21,7 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | No repo and Intent family is served by two Channels | `examples/invalid/rings.a-repo-on-two-channels.json` |
 | A Release reaches `stable` only with Runs behind it, each Effect read back, and an eval for each changed Intent | `examples/invalid/rings.promotion-with-no-runs.json`, `examples/invalid/rings.promotion-without-evals.json` |
 | The tags are read whole or not at all, and nothing is read at any tag | `tests/test_release.py::test_tags_are_read_whole_or_not_at_all`, `tests/test_release.py::test_a_move_reads_refs_and_nothing_at_any_tag` |
+| Each page GitHub links is read, of this list alone and to a bound | `tests/test_release.py::test_each_page_github_links_is_read_and_only_this_lists` |
 | A fixture holds no credential, and no header a trial's fixture drops | `tests/test_release.py::test_the_refs_github_answered_are_read_as_the_port_reads_them` |
 | The step sends each write through the token it is given, reads it back, and records each move of `next` | `tests/test_release_step.py::test_a_cut_creates_the_release_moves_next_reads_each_back_and_records_the_deployment` |
 | It stops at the first write GitHub refused, or not read back, read twice, on its commit as the one Release planned | `tests/test_release_step.py::test_a_write_not_read_back_stops_the_step_there` |

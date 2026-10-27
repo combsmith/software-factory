@@ -7,7 +7,8 @@ name's spelling (decision 0005, L-57): `machine_user` is the User the caller nam
 `lens` is a Bot the caller names as a Lens's App, read as that Lens's name; any other Bot is `app`; any other User is
 `human`. A User's write access is read from the repository's collaborator permission, `admin`, `maintain` or `write`,
 never `triage`, once a login for the snapshot and never from an association (the Maintainer's ruling on #222); the
-machine user's too, since its approval stands only while it can write. An App's is never asked. A User whose login
+machine user's too, since its approval stands only while it can write. An App's write access is never asked; the same
+read types a thread's resolver by its id where its comments cannot (decision 0067). A User whose login
 ends `[bot]`, or is no login GitHub gives, is refused: the read was wrong.
 
 The timeline and the reviews are read page by page, following the `link` header's next page, and are whole only when
@@ -64,19 +65,45 @@ class Accounts:
 
     def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=()):
         self.transport, self.repo, self.approver = transport, repo, tuple(approver)
-        self.lenses, self.factory, self.access = dict(lenses), set(factory), {}
+        self.lenses, self.factory, self.answers = dict(lenses), set(factory), {}
+
+    def _permission(self, login: str) -> dict:
+        """The repo's permission answer for `login`, read once a login for all the reader serves."""
+        if login not in self.answers:
+            path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
+            # An answer that failed is kept too, one that never came among them, so a login is asked once however
+            # often it appears.
+            try:
+                answer = self.transport.send(request("GET", path))
+            except Unanswered:
+                answer = {"status": "no answer", "body": None}
+            ok = answer["status"] == 200 and isinstance(answer["body"], dict)
+            self.answers[login] = answer["body"] if ok else answer["status"]
+        if not isinstance(self.answers[login], dict):
+            raise Unanswered("the permission of %s answered %s" % (login, self.answers[login]))
+        return self.answers[login]
 
     def _can_write(self, login: str) -> bool:
-        if login not in self.access:
-            path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
-            answer = self.transport.send(request("GET", path))
-            if answer["status"] != 200 or not isinstance(answer["body"], dict):
-                raise Unanswered("the permission of %s answered %d" % (login, answer["status"]))
-            level = answer["body"].get("permission")
-            if level not in PERMISSIONS:
-                raise Unanswered("a permission GitHub does not give: %r" % (level,))
-            self.access[login] = level in WRITE
-        return self.access[login]
+        level = self._permission(login).get("permission")
+        if level not in PERMISSIONS:
+            raise Unanswered("a permission GitHub does not give: %r" % (level,))
+        return level in WRITE
+
+    def typed(self, login, ident):
+        """The type, a User or a Bot, of the account `ident` by the repo's permission read of `login`, which answers
+        the account with its id and type (trials/P-53.json); None where that read fails, or answers another id, or no
+        type GitHub gives. The login only asks: what answers is held to the id."""
+        if not (isinstance(login, str) and login and isinstance(ident, int) and not isinstance(ident, bool)
+                and ident >= 1):
+            return None
+        try:
+            user = self._permission(login).get("user")
+        except Unanswered:
+            return None
+        if not isinstance(user, dict) or user.get("id") != ident or isinstance(user.get("id"), bool) \
+                or user.get("type") not in ("User", "Bot"):
+            return None
+        return user["type"]
 
     @staticmethod
     def account(raw_actor) -> tuple:

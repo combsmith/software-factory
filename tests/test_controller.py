@@ -17,7 +17,7 @@ import tempfile
 import unittest
 import unittest.mock
 
-from adapters import github, records
+from adapters import acceptance, github, records
 import controller.__main__ as entry
 from controller import pass_, shared
 from kernel.decide import decide
@@ -505,7 +505,7 @@ class Chain(unittest.TestCase):
         self.assertEqual(start("watch", RELAY, cfg=held), "public")
         self.assertEqual(start("workflow_dispatch", TOKEN, cfg=held), "dispatch")
         self.assertEqual({k: CONTROLLER["accounts"][k] for k in ("workflow_token", "relay", "controller", "maintainer")},
-                         {"workflow_token": None, "relay": None, "controller": None,
+                         {"workflow_token": {"id": 41898282, "type": "Bot"}, "relay": None, "controller": None,
                           "maintainer": {"login": "don-petry", "id": 36422719}})
         self.assertEqual(passed(dict(reads(), started=None))["record"]["started_by"], "dispatch")
 
@@ -794,7 +794,7 @@ class Entry(unittest.TestCase):
         env.update(environ)
         slept, printed = [], io.StringIO()
         sleep = lambda seconds: slept.append((seconds, len(hub.sent)))
-        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed):
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed), support.releasing(env):
             code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
                                                                                               if v is not None},
                               base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect)
@@ -844,17 +844,29 @@ class Entry(unittest.TestCase):
     def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock):
-            handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock()))
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded):
+            handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener,
+                           recorded))
             return support.facts(item=dict(support.ITEM, number=number)), "A title"
-        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot):
+        from tests.test_steps import recorded_spy
+        asked = []
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), recorded_spy(entry, asked):
             code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        # What each open pull request's model Lenses recorded is read once a pass, held to the authority table.
+        authority = json.loads((ROOT / "config" / "authority.json").read_text())
+        self.assertEqual(asked, [{"repo": self.HOME, "numbers": [7], "lenses": {"pr-review"}, "authority": authority}])
         self.assertEqual(code, 0)
         self.assertEqual([e["facts"]["item"]["number"] for e in files["pass.json"]["pull_requests"]], [7])
         self.assertEqual(files["view/items.json"]["items"][0]["untrusted"]["title"], "A title")
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
-                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z")])
+                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None, ({}, True))])
+        # The App that opens pull requests, as the configuration names it, is said to each snapshot (issue 295).
+        handed.clear()
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry, "opener", lambda *told: (12, "Bot")):
+            self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual(handed[0][8], (12, "Bot"))
         # A list of runs read short is said to each snapshot.
         table = self.table(numbers=[7])
         path = "/repos/%s/actions/workflows/run.yml/runs?branch=main&event=workflow_dispatch&per_page=100" % self.HOME
@@ -863,6 +875,8 @@ class Entry(unittest.TestCase):
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot):
             self.run_entry(Hub(table))
         self.assertIs(handed[0][6], False)
+        # And holds its threads to nothing recorded, not whole: a Lens Run the list missed may have recorded one.
+        self.assertEqual(handed[0][9], ({}, False))
         # The accounts as controller/1 holds them, each by id and type; the dispatcher is the pass's token's alone.
         held = copy.deepcopy(CONTROLLER)
         held["accounts"].update(lenses=[{"lens": "pr-review", "login": "combsmith-sf-pr-review[bot]", "id": 11}],
@@ -872,8 +886,32 @@ class Entry(unittest.TestCase):
         self.assertEqual(entry.accounts(held), ({"agent": {(12, "Bot")}, "maintainer": set(), "dependency": set()},
                                                 (0, "User"), {(11, "Bot"): "pr-review"},
                                                 {(11, "Bot"), (12, "Bot"), (13, "Bot")}))
-        self.assertEqual(entry.dispatcher(CONTROLLER), (0, "Bot"))
+        self.assertEqual(entry.dispatcher(dict(CONTROLLER, accounts=dict(CONTROLLER["accounts"], workflow_token=None))),
+                         (0, "Bot"))
         self.assertEqual(entry.dispatcher(config()["controller"]), (41898282, "Bot"))
+
+    def test_the_app_that_opens_pull_requests_is_read_from_the_configuration_by_its_role(self):  # issue 295
+        # In slice 1 no Role opens a pull request, so none is bound to an issue by its branch.
+        loaded = entry.configuration(ROOT, "factory/v0.3.1")
+        self.assertIsNone(entry.opener(loaded["controller"], loaded["kernel"], loaded["apps"]))
+        # The App of the Role named for open-pull-request, by the account controller/1 holds for that Role.
+        kernel = copy.deepcopy(loaded["kernel"])
+        kernel["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
+        apps = dict(loaded["apps"], **{"dev-lead": dict(loaded["apps"]["pr-review"], name="combsmith-sf-dev-lead")})
+        held = copy.deepcopy(loaded["controller"])
+        held["accounts"]["roles"]["dev-lead"] = {"id": 12, "type": "Bot", "login": "combsmith-sf-dev-lead[bot]"}
+        self.assertEqual(entry.opener(held, kernel, apps), (12, "Bot"))
+        # A Role named whose App, or whose App's account, cannot be told is untold, never nobody.
+        unheld = copy.deepcopy(held)
+        unheld["accounts"]["roles"]["dev-lead"] = None
+        other = copy.deepcopy(held)
+        other["accounts"]["roles"]["dev-lead"]["login"] = "combsmith-sf-pr-review[bot]"
+        renamed = copy.deepcopy(held)
+        renamed["accounts"]["roles"]["dev-lead"]["login"] = "another[bot]"
+        for told, app_list in ((unheld, apps), (other, apps), (held, loaded["apps"]),
+                               (held, dict(apps, **{"dev-lead": dict(apps["dev-lead"], name="another")})),
+                               (renamed, dict(apps, **{"dev-lead": dict(apps["dev-lead"], name="another")}))):
+            self.assertEqual(entry.opener(told, kernel, app_list), acceptance.UNTOLD)
 
     def test_the_entry_waits_out_the_read_gap_before_it_reads(self):  # decision 0043
         from tests.test_adapters import a_pass, a_record, pass_stored, pass_zip, passes_listed
@@ -899,7 +937,7 @@ class Entry(unittest.TestCase):
         self.assertIsNone(files["pass.json"]["context"]["passes_since"])
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
-        for environ, want in (({"RELEASE": None}, "release_unreadable"), ({"RELEASE": "v1"}, "release_unreadable"),
+        for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
                               ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
                               ({entry.KEY: None}, "key_unreadable"), ({entry.KEY: ""}, "key_unreadable")):
             hub = Hub(self.table())
@@ -925,9 +963,16 @@ class Entry(unittest.TestCase):
             hub = Hub(self.table())
             env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
             self.assertEqual(entry.main(["../elsewhere"], env, base=os.path.join(d, "inside"), connect=hub.connect), 2)
-            self.assertEqual(entry.main([], env, base=d, connect=hub.connect), 2)
+            os.makedirs(os.path.join(d, entry.FOLDER))
+            self.assertEqual(entry.main([], env, base=d, connect=hub.connect), 2)     # its folder already there
             self.assertEqual(entry.main(["."], env, base=d, connect=hub.connect), 2)
             self.assertEqual(hub.sent, [])
+        # The workflow's form, with no argument: the pass is written into a new folder of its own, `pass/`.
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()), support.releasing(env):
+            self.assertEqual(entry.main([], env, base=d, clock=lambda: self.CLOCK, sleep=lambda s: None,
+                                        connect=Hub(self.table()).connect), 0)
+            self.assertTrue(pathlib.Path(d, entry.FOLDER, "pass.json").is_file())
+            self.assertEqual(os.stat(os.path.join(d, entry.FOLDER)).st_mode & 0o777, 0o700)
 
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
