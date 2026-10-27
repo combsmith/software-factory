@@ -1,4 +1,4 @@
-# 0069. A pull request the Factory opens is bound to its issue by its branch, never its body
+# 0068. A pull request the Factory opens is bound to its issue by its branch, never its body
 
 Status: accepted. Taken as working rulings on 2026-10-26, which the Maintainer may overturn in review, for "Acceptance: a pull request is bound to the issue it serves by its Run or branch, not by its author's closing link" (issue 295). It closes the known limit of `docs/decisions/0047-an-issue-asks-for-an-acceptance-contract-only-by-an-intent-that-asks-or-a-persons-label.md`, whose closing references a pull request's author writes, and gives the design's work branch, "named from the issue's number and the count of pull requests the Factory has ever opened for it" ("The hand-over"), its form. Decision 0047 is not edited; its Boundaries row now names the test.
 
