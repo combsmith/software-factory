@@ -89,7 +89,7 @@ class Matching(unittest.TestCase):
             # A write whose key cannot be read is matched to nothing, whatever was recorded on its item.
             self.assertEqual(kinds(check(seen(dict(write, key=None)), recorded([done]))), [(write["by"], write["kind"])])
 
-    def test_a_resolution_is_matched_to_the_role_whose_run_recorded_it(self):  # decision 0068
+    def test_a_resolution_is_matched_to_the_role_whose_run_recorded_it(self):  # decision 0067
         # A thread's id outlives its reopening, so a resolution is matched only to an Effect a Run of the resolver's own
         # Role recorded, by the run records: another Role's, or one whose Run is not among them, covers nothing.
         done = applied(("resolve_thread", "PRRT_t", "applied"))
@@ -349,7 +349,7 @@ class SeenPort(unittest.TestCase):
                   {"event": "labeled", "actor": PERSON, "created_at": AT}]
         threads_ = [{"id": "PRRT_n", "isResolved": True, "resolvedBy": None},
                     {"id": "PRRT_a", "isResolved": True, "resolvedBy": {"login": "donpetry-bot", "databaseId": 281750570}},
-                    # A Role App's resolution, which GraphQL types a User: told by its account id (decision 0068).
+                    # A Role App's resolution, which GraphQL types a User: told by its account id (decision 0067).
                     {"id": "PRRT_r", "isResolved": True, "resolvedBy": {"login": "combsmith-sf-pr-review[bot]",
                                                                         "databaseId": 5000002}},
                     {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry", "databaseId": 36422719}},

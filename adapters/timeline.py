@@ -8,7 +8,7 @@ name's spelling (decision 0005, L-57): `machine_user` is the User the caller nam
 `human`. A User's write access is read from the repository's collaborator permission, `admin`, `maintain` or `write`,
 never `triage`, once a login for the snapshot and never from an association (the Maintainer's ruling on #222); the
 machine user's too, since its approval stands only while it can write. An App's write access is never asked; the same
-read types a thread's resolver by its id where its comments cannot (decision 0068). A User whose login
+read types a thread's resolver by its id where its comments cannot (decision 0067). A User whose login
 ends `[bot]`, or is no login GitHub gives, is refused: the read was wrong.
 
 The timeline and the reviews are read page by page, following the `link` header's next page, and are whole only when

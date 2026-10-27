@@ -1,4 +1,4 @@
-# 0068. A thread's resolver is told by its account, never by resolvedBy's type
+# 0067. A thread's resolver is told by its account, never by resolvedBy's type
 
 Status: accepted. The Factory Builder's rulings of 2026-10-26 on
 "Threads port: a thread's resolver is read from its timeline event, by id and type (P-49)" (issue 331), from trial P-49

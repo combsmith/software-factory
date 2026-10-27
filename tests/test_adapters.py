@@ -1998,7 +1998,7 @@ class Threads(unittest.TestCase):
         pull = {"number": 55, "base": {"repo": {"full_name": canary()}}}
         return found[0], lambda: threads.read(router, pull, timeline.Accounts(router, canary(), MACHINE, {}))
 
-    def test_an_apps_resolution_is_read_as_the_apps_by_its_comment_author(self):  # issue 331, decision 0068
+    def test_an_apps_resolution_is_read_as_the_apps_by_its_comment_author(self):  # issue 331, decision 0067
         # trials/P-49.json (issue 282): the trial-author App resolved one of its two threads. resolvedBy names the App's
         # bot by the id its comments carry, typed a User, which says nothing; the thread's own comment author, a Bot
         # of that id, says who. The read is whole, and the resolver is the App, as the thread's opener is.
@@ -2020,7 +2020,7 @@ class Threads(unittest.TestCase):
         self.assertTrue(whole)
         return got[0], router
 
-    def test_a_resolver_is_typed_by_its_account_never_by_resolved_bys_type(self):  # issue 331, decision 0068
+    def test_a_resolver_is_typed_by_its_account_never_by_resolved_bys_type(self):  # issue 331, decision 0067
         from kernel import derive, gate
         config = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), approver=APPROVER)
         facts_ = {"threads": [], "class": "maintainer", "author": "don-petry"}
@@ -2058,7 +2058,7 @@ class Threads(unittest.TestCase):
         th, _ = self.resolved(("someone", True), opened=("someone", 1, "User"), permissions={"someone": "admin"})
         self.assertEqual(th["resolved_by"], None)
 
-    def test_an_account_is_typed_by_the_permission_read_held_to_its_id(self):  # issue 331, decision 0068
+    def test_an_account_is_typed_by_the_permission_read_held_to_its_id(self):  # issue 331, decision 0067
         # The permission read answers the account, its id and type (trials/P-53.json): a type is taken only for the id
         # asked, never for a read that failed, another id, or a type GitHub does not give an account.
         router = Router(github.Replay([]), {"don-petry": "admin", "gone": "missing"},
