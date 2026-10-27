@@ -7840,6 +7840,10 @@ MUTANTS = ISSUE + [
     ("an issue's Run is read for a pull request's threads", 'adapters/applied.py',
      'item["type"] != "pull_request"',
      'False', ('tests.test_adapters.Recorded.test_a_lens_runs_applied_record_is_read_by_the_one_github_run_its_name_names',)),
+    # Issue 138: a rename is read with both its names, as the compare the port reads names them (trials/P-43.json).
+    ("a renamed file's old name is dropped", 'adapters/pull.py',
+     '        paths.append({"path": name, "previous": before})\n', '        paths.append({"path": name, "previous": None})\n',
+     ('tests.test_adapters.ChangedPaths.test_a_renamed_file_is_read_with_its_old_name_from_a_fixture',)),
     # The Release's rules (#197, PR 1).
     ('a cut of a commit the facts are not of is planned', 'release/cut.py',
      '    if not wanted or not sha(commit) or facts.get("commit") != commit:',

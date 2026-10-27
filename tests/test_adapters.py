@@ -755,10 +755,17 @@ class ChangedPaths(unittest.TestCase):
             self.assertIs(pull.changed_paths(github.Replay([as_compare(answer, data)]), data, PINNED_BASE)["complete"], False, change)
 
     def test_a_renamed_file_is_read_with_its_old_name_from_a_fixture(self):
-        # trials/P-43.json (issue 250) records a rename: REST names its old path, as the synthetic case above does.
-        found = exchanges("P-43")
-        self.assertTrue(any(row.get("previous_filename") for e in found if isinstance(e["response"]["body"], list)
-                            for row in e["response"]["body"] if isinstance(row, dict)))
+        # trials/P-43.json records a rename, a copy GitHub lists as added and an edit, and the compare the port reads them
+        # by, read after the trial (issue 138): the port gives the rename both names, and the list is whole.
+        got = pull.changed_paths(github.Replay([exchanges("P-43")[29]]), body("P-43", 8),
+                                 "54ccf0807156a4352d19390205cc30efa1373b39")
+        self.assertEqual(got, {"changed_paths": [{"path": "p3/README.md", "previous": None},
+                                                 {"path": "p43/README-copied.md", "previous": None},
+                                                 {"path": "trial-notes/p-43-renamed.md", "previous": "trial-notes/p-1.md"}],
+                               "complete": True})
+        # The pull request's own list of files, which the port does not read, names the same three the same way.
+        listed = [(r["filename"], r.get("previous_filename")) for r in body("P-43", 10)]
+        self.assertEqual(listed, [(p["path"], p["previous"]) for p in got["changed_paths"]])
 
 
 WORKFLOW = "p17-p22-run-records.yml"     # the trial's workflow, standing in for a Role's in these tests
