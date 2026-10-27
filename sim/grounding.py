@@ -343,7 +343,7 @@ ASKS = {
     "a_dependency_bot_updates_a_lens_pin": {
         "P-45": "When a dependency bot updates an Action's pin in a workflow file",
     },
-    "an_acceptance_result_names_its_content": {"P-42": "or a result for any criterion of a contract"},
+    "an_acceptance_result_names_its_content": {"P-42": "keep that conclusion until the content changes"},
     "a_short_acceptance_read_says_so": {
         "P-43": "run records, acceptance results and the files a pull request changes, say when it was cut short",
     },
