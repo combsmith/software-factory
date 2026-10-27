@@ -12,7 +12,7 @@ the issue is held or declined, and a person none while it is declined: the Contr
 | Every change of State made here is declared in `lifecycle/pull_request.json`, with who made it | `tests/test_simulator.py::test_every_change_of_state_is_checked_with_who_made_it` |
 | Every change of State the issue's world makes is declared, with who made it, and the exploration of every change finds it | `tests/test_issue_simulator.py::test_invariants_hold_under_faults` |
 | A failure names its seed, and the seed replays | `tests/test_simulator.py::test_a_seed_replays_exactly`, `tests/test_issue_simulator.py::test_a_seed_replays_exactly` |
-| A rule the fake applies about GitHub is marked `# GitHub: <code>` where it is applied, and listed once in `grounding.py` with its trials and its fixture in `trials/`, one or a tuple, or none. Verify prints each with none | `tools/check_trials.py` |
+| A rule the fake applies about GitHub is marked `# GitHub: <code>` where it is applied, and listed once in `grounding.py` with its trials, each quoting in `ASKS` what its row asks, and its fixture, or none | `tools/check_trials.py` |
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | Until then it names that trial, or says in one sentence why none can; `make verify` prints which | `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
 | A grounded rule is read as it states, or named with why not; a recorded refusal is no answer | `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`, `tests/test_adapters.py::test_a_recorded_refusal_is_no_answer` |

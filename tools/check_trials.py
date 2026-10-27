@@ -8,8 +8,9 @@ the schema, which cannot express it: `tools/redact_trial.py` applies the same ru
 before anyone reads it.
 
 Each rule the fake GitHub applies is listed in `sim/grounding.py` and marked where a world under
-`sim/` applies it. A fixture named there must exist and be valid. A rule with no fixture is unverified,
-and `verify` prints it.
+`sim/` applies it. A trial a rule names has a row in section 6 of the design whose question asks it,
+in the words the rule quotes (issue 265). A fixture named there must exist and be valid. A rule with
+no fixture is unverified, and `verify` prints it.
 
 Nothing in this repo reads the canary at run time: a fixture arrives by pull request. So nothing
 names the canary but a document, a fixture and the fixture's schema, and the declaration of where
@@ -82,6 +83,10 @@ DESIGN = "docs/architecture/software-factory-design.md"
 WORD = re.compile(r"[A-Za-z]{2,}")
 SECOND = re.compile(r"[.!?]\s+\S")       # a sentence that ends before the reason does
 ROW = re.compile(r"^\| (P-[1-9][0-9]*) \|", re.M)
+# A row's question is its second cell. A rule a row asks quotes the words of that question that ask it (issue 265): at
+# least this many, so that a quote names a question and not a word every row has.
+QUESTION = re.compile(r"^\| (P-[1-9][0-9]*) \| (.*?) \| ", re.M)
+QUOTED_WORDS = 4
 FENCED = re.compile(r"^```.*?^```", re.M | re.S)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
@@ -528,23 +533,37 @@ def _headers(data) -> list:
 WORLDS = ("world.py", "issues.py")
 
 
-def rules(root: pathlib.Path = ROOT) -> list:
-    """The rules in `sim/grounding.py`, read as a literal; a ValueError says why they cannot be."""
+def _literal(root: pathlib.Path, name: str):
+    """The literal `sim/grounding.py` assigns to `name`; a ValueError says why it cannot be read."""
     path = root / "sim" / "grounding.py"
     try:
         tree = ast.parse(path.read_text(), str(path))
     except (OSError, SyntaxError) as err:
         raise ValueError("cannot be read: %s" % err)
     for node in tree.body:
-        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["RULES"]:
+        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == [name]:
             try:
-                found = ast.literal_eval(node.value)
+                return ast.literal_eval(node.value)
             except ValueError:
-                raise ValueError("RULES must be a literal, so that a check can read it")
-            if not isinstance(found, (tuple, list)) or not all(isinstance(r, tuple) and len(r) == 5 for r in found):
-                raise ValueError("RULES must be a tuple of (code, rule, trials, fixture, note)")
-            return list(found)
-    raise ValueError("holds no RULES")
+                raise ValueError("%s must be a literal, so that a check can read it" % name)
+    raise ValueError("holds no %s" % name)
+
+
+def rules(root: pathlib.Path = ROOT) -> list:
+    """The rules in `sim/grounding.py`, read as a literal; a ValueError says why they cannot be."""
+    found = _literal(root, "RULES")
+    if not isinstance(found, (tuple, list)) or not all(isinstance(r, tuple) and len(r) == 5 for r in found):
+        raise ValueError("RULES must be a tuple of (code, rule, trials, fixture, note)")
+    return list(found)
+
+
+def asks(root: pathlib.Path = ROOT) -> dict:
+    """What each trial a rule names asks of it, `{code: {trial: quote}}`, the words of the trial's question in section
+    6 that ask it, read as a literal from `sim/grounding.py`; a ValueError says why they cannot be (issue 265)."""
+    found = _literal(root, "ASKS")
+    if not isinstance(found, dict) or not all(isinstance(v, dict) for v in found.values()):
+        raise ValueError("ASKS must be a dict of {code: {trial: the words of its question that ask it}}")
+    return found
 
 
 def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
@@ -596,9 +615,9 @@ def _examples(root: pathlib.Path) -> list:
     return problems
 
 
-def section_6(root: pathlib.Path) -> set:
-    """The trials section 6 of the design has a row for, outside any fenced block, or None when the design cannot be
-    read. A row anywhere else in the design is no trial."""
+def _section_6(root: pathlib.Path):
+    """Section 6 of the design with its fenced blocks taken out, or None when the design cannot be read. A row
+    anywhere else in the design, or in a fenced block, is no trial."""
     try:
         text = (root / DESIGN).read_text(encoding="utf-8")
     except (OSError, ValueError):
@@ -606,7 +625,19 @@ def section_6(root: pathlib.Path) -> set:
     start = text.find("\n## 6. ")
     end = text.find("\n## ", start + 1) if start >= 0 else -1
     section = text[start:end if end >= 0 else len(text)] if start >= 0 else ""
-    return set(ROW.findall(FENCED.sub("", section)))
+    return FENCED.sub("", section)
+
+
+def section_6(root: pathlib.Path) -> set:
+    """The trials section 6 of the design has a row for, or None when the design cannot be read."""
+    section = _section_6(root)
+    return None if section is None else set(ROW.findall(section))
+
+
+def questions(root: pathlib.Path) -> dict:
+    """What each trial's row in section 6 asks, its second cell, or None when the design cannot be read."""
+    section = _section_6(root)
+    return None if section is None else dict(QUESTION.findall(section))
 
 
 def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
@@ -615,9 +646,15 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
     except ValueError as err:
         problems.append("sim/grounding.py: %s" % err)
         return
-    rows = section_6(root)
+    rows, asked = section_6(root), questions(root)
     if rows is None:
         problems.append("%s cannot be read, so no trial a rule names can be found in section 6" % DESIGN)
+    try:
+        quoted = asks(root)
+    except ValueError as err:
+        problems.append("sim/grounding.py: %s" % err)
+        quoted = None
+    named = {}
     seen = set()
     for code, rule, trials, fixture, note in listed:
         if not isinstance(code, str) or not CODE.match(code):
@@ -631,10 +668,20 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         if not isinstance(trials, tuple) or not all(isinstance(t, str) and TRIAL.match(t) for t in trials):
             problems.append("sim/grounding.py: %s: %r is not a tuple of trials of section 6" % (code, trials))
             continue
+        named[code] = trials
         for trial in trials if rows is not None else ():
             if trial not in rows:
                 problems.append("sim/grounding.py: %s: %s has no row in section 6; add the trial there first"
                                 % (code, trial))
+                continue
+            # A trial a rule names asks it in its row: the rule quotes the words of the row's question that do, so a
+            # row that never asked it, or stops asking it, refuses the rule (issue 265).
+            quote = (quoted.get(code) or {}).get(trial) if quoted is not None else None
+            if quoted is not None and asked is not None and not (
+                    isinstance(quote, str) and len(WORD.findall(quote)) >= QUOTED_WORDS and quote in asked.get(trial, "")):
+                problems.append("sim/grounding.py: %s: %s's row in section 6 does not ask it; quote in ASKS the words "
+                                "of its question that do, at least %d, or name the trial whose row does"
+                                % (code, trial, QUOTED_WORDS))
         # A rule no trial asks names the trial that will, or says in one sentence why none can (issue 190); a rule a
         # trial asks, or a fixture grounds, says nothing more.
         if not trials and fixture is None:
@@ -663,6 +710,11 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
             elif valid[fixture]["trial"] not in trials:
                 problems.append("sim/grounding.py: %s: %s records %s, and %s asks this"
                                 % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
+    # A quote is of a trial its rule names, and of no other.
+    for code, by_trial in sorted((quoted or {}).items(), key=lambda kv: str(kv[0])):
+        for trial in sorted(set(by_trial) - set(named.get(code) or ())):
+            problems.append("sim/grounding.py: ASKS quotes %s for %s, which %s; take it out"
+                            % (trial, code, "names no such trial" if code in named else "is no rule"))
     # Each world marks the rules it applies: the pull request's in world.py, the issue's in issues.py. Only these two
     # are read, so a mark in any other file counts for nothing.
     marked = set()
