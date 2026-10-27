@@ -54,6 +54,7 @@
     {"lens": "verify", "path": "adapters/", "is": "the ports, whose tests verify runs"},
     {"lens": "verify", "path": "controller/", "is": "the Controller, whose tests verify runs"},
     {"lens": "verify", "path": "harness/", "is": "the Harness, which gives the review its Task and takes its answer"},
+    {"lens": "verify", "path": "release/", "is": "the Release's rules and ring file, whose tests and check verify runs"},
     {"lens": "pr-review", "path": "roles/pr-review.*", "is": "the review Role's manifest and its prompt beside it"},
     {"lens": "pr-review", "path": "roles/pr-review/", "is": "the review Role's own files"},
     {"lens": "pr-review", "path": "config/rubric-pr-review.json", "is": "a rubric"},
