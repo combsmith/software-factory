@@ -2394,6 +2394,22 @@ class Recorded(unittest.TestCase):
                               *applied_stored("o/r", 39100000001, lens_applied(self.LATER)))[26]
         self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
 
+    def test_only_a_later_review_that_succeeded_supersedes(self):  # issue 347, the Claude review of #355
+        # A later Run of the Lens on the current content that failed, was cancelled or timed out reviewed nothing, and one
+        # that adjudicated re-read Findings without reviewing the change: neither releases a thread that is gone. A
+        # Run that did not succeed may list no record at all, and is read as recording nothing, whole.
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            later = dict(lens_run(self.LATER, conclusion=conclusion), content_id="sha256:new",
+                         started_at="2026-10-21T17:00:00Z")
+            for record in ("whole", None):
+                recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=later, later_record=record)
+                self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1],
+                                 (conclusion, record))
+        adjudicated = dict(lens_run(self.LATER), intent="adjudicate-findings", content_id="sha256:new",
+                           started_at="2026-10-21T17:00:00Z")
+        recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=adjudicated)
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
+
     def test_a_later_review_whose_record_is_read_short_releases_nothing(self):  # issue 347
         self.assertFalse(self.held([thread_node("PRRT_1")], self.two_runs([finding_on("PRRT_7")], [], later_record="x"),
                                    content_id="sha256:new")[1])
@@ -2516,7 +2532,7 @@ class Snapshot(unittest.TestCase):
         # hands its content id to the threads, so the later review supersedes the record and the threads are whole.
         content = "sha256:" + body("P-29.base", 24)["before the base moved"]
         old = {"lens": "pr-review", "run": "r_01JA6Z", "content_id": "sha256:old", "started_at": "2026-10-21T16:00:00Z"}
-        fresh = dict(old, run="r_01JA9B", content_id=content, started_at="2026-10-21T17:00:00Z")
+        fresh = dict(old, run="r_01JA9B", content_id=content, started_at="2026-10-21T17:00:00Z", reviewed=True)
         gone = ({"PRRT_gone": {"lens": "pr-review", "category": "functional", "severity": "major", "runs": ["r_01JA6Z"]}},
                 True, [old, fresh])
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
