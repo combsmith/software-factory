@@ -863,7 +863,11 @@ class Authority(unittest.TestCase):
     def test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app(self):  # section 5.4, decision 0005
         wide = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=["submit_review",
                                                                                          "create_check_run"])])
-        self.assertTrue(caught(self.team({"pr-review": wide}), "pr-review permits create_check_run, beyond the ceiling"))
+        waiting = json.loads((ROOT / "config" / "apps.json").read_text())
+        waiting["needs"]["effect:create_check_run"] = {"waits_on": "the grant"}
+        waiting["apps"]["pr-review"]["permissions"]["checks"]["needs"].remove("effect:create_check_run")
+        self.assertTrue(caught(self.team({"pr-review": wide}, waiting),
+                               "pr-review permits create_check_run, beyond the ceiling"))
         self.assertTrue(caught(self.team({"pr-review": self.review(app="combsmith-sf-nobody")}),
                                "names no App of config/apps.json"))
         # An App named is one that exists, whether or not the Role writes yet (Argon's read).
@@ -877,11 +881,8 @@ class Authority(unittest.TestCase):
         apps = json.loads((ROOT / "config" / "apps.json").read_text())
         apps["apps"]["pr-review"]["permissions"]["pull_requests"]["level"] = "read"
         self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
-        # Granted and mapped, it is within the ceiling.
-        apps = json.loads((ROOT / "config" / "apps.json").read_text())
-        apps["needs"]["effect:create_check_run"] = {"permission": "checks", "level": "write"}
-        apps["apps"]["pr-review"]["permissions"]["checks"] = {"level": "write", "needs": ["effect:create_check_run"]}
-        self.assertEqual(self.team({"pr-review": wide}, apps), [])
+        # Granted and mapped, as config/apps.json has it since 2026-10-27, it is within the ceiling.
+        self.assertEqual(self.team({"pr-review": wide}), [])
 
     def test_an_intent_of_class_gate_names_an_eval_set_of_its_own(self):  # section 5.4
         for evals in ("evals/nothing-here", "evals/context"):
@@ -1056,11 +1057,11 @@ class Apps(unittest.TestCase):
         # permission GitHub granted that the data leaves out, one the data names that was not granted, and a level
         # that differs are each caught, and so is an app_id whose installation is another App's, or none.
         self.assertEqual(self.check(), [])
-        self.installed["combsmith-sf-controller"]["permissions"]["issues"] = "read"
+        self.installed["combsmith-sf-controller"]["permissions"]["deployments"] = "read"
         self.installed["combsmith-sf-reader"]["permissions"].pop("checks")
         self.apps["pr-review"]["permissions"]["contents"]["level"] = "write"
         problems = self.check()
-        self.assertTrue(caught(problems, "controller: issues is absent in the data and read as GitHub granted it"))
+        self.assertTrue(caught(problems, "controller: deployments is absent in the data and read as GitHub granted it"))
         self.assertTrue(caught(problems, "reader: checks is read in the data and absent as GitHub granted it"))
         self.assertTrue(caught(problems, "pr-review: contents is write in the data and read as GitHub granted it"))
         self.setUp()
@@ -1155,7 +1156,7 @@ class Apps(unittest.TestCase):
         self.reached["combsmith-sf-pr-review"]["total_count"] = 3
         repos = self.reached["combsmith-sf-reader"]["repositories"]
         repos[1] = json.loads(json.dumps(repos[0]))
-        self.fixture["exchanges"][3]["response"]["body"]["total_count"] = 18
+        self.fixture["exchanges"][3]["response"]["body"]["total_count"] = 19
         problems = self.check()
         call = "its read GET /installation/repositories?per_page=100"
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s has a link header, so it is one page of more"
@@ -1164,7 +1165,7 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists combsmith/software-factory more than once"
                                          % call))
         self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
-                                         "17 of the 18 it counts"))
+                                         "18 of the 19 it counts"))
         for app in ("controller", "pr-review", "reader"):
             self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories"
                                              % app))

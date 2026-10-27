@@ -464,10 +464,9 @@ class Pause(unittest.TestCase):
         self.assertEqual(effects.brake(pause.read(github.Replay([missing]), "x", ["combsmith/software-factory"]), "x",
                                        ["combsmith/software-factory"]), "pause_unreadable")
 
-    @pending
     def test_the_pause_is_read_as_github_holds_the_variable(self):
-        # The Controller's App reads FACTORY_PAUSED on the org and on a repo once the Maintainer grants it the
-        # variables' read (#193's ruling 3); until the trial records both answers, this test is expected to fail.
+        # The Controller's App reads FACTORY_PAUSED on the org and on a repo, granted the variables' read (#193's
+        # ruling 3): P-52 recorded both answers on 2026-10-27.
         found = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
                  for e in json.loads(path.read_text()).get("exchanges", [])
                  if "/actions/variables/FACTORY_PAUSED" in str((e.get("request") or {}).get("call", ""))]
