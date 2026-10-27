@@ -8046,6 +8046,24 @@ MUTANTS = ISSUE + [
     ('a next page is not held to this repo', 'adapters/tags.py',
      ' or not _ours(transport, repo, paged, known):',
      ':', ('tests.test_release.Tags.test_each_page_github_links_is_read_and_only_this_lists',)),
+    # Issue 347: a later review by the same Lens on the current content supersedes its earlier records.
+    ('a later review supersedes nothing', 'adapters/applied.py',
+     '        if finding.get("runs") and all(run in later for run in finding["runs"]):\n            continue\n', '', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
+    ("the Runs read whole are not handed on", 'adapters/applied.py',
+     '        out[number] = (threads, True, read[number])\n', '        out[number] = (threads, True, [])\n', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
+    ("another Lens's review supersedes", 'adapters/applied.py',
+     'any(f["lens"] == r["lens"] and f["run"]', 'any(f["run"]', ('tests.test_adapters.Recorded.test_a_review_by_another_lens_supersedes_nothing',)),
+    ('a review on other content supersedes', 'adapters/applied.py',
+     'fresh = [r for r in read if r.get("content_id") == content_id and start(r) is not None]',
+     'fresh = [r for r in read if start(r) is not None]', ('tests.test_adapters.Recorded.test_a_review_on_other_content_or_before_supersedes_nothing',)),
+    ('a review that started at the same time supersedes', 'adapters/applied.py',
+     'start(f) > start(r) for f in fresh', 'start(f) >= start(r) for f in fresh', ('tests.test_adapters.Recorded.test_a_review_on_other_content_or_before_supersedes_nothing',)),
+    ('a start that cannot be read is read', 'adapters/applied.py',
+     'return when if isinstance(when, str) and TIME.fullmatch(when) else None', 'return when if isinstance(when, str) else None', ('tests.test_adapters.Recorded.test_a_review_on_other_content_or_before_supersedes_nothing',)),
+    ('a thread the later review records is released', 'adapters/applied.py',
+     'all(run in later for run in finding["runs"])', 'any(run in later for run in finding["runs"])', ('tests.test_adapters.Recorded.test_a_thread_both_reviews_record_is_still_held_to_its_opener',)),
+    ('the snapshot does not tell the threads its content', 'adapters/facts.py',
+     'raw), recorded, content["content_id"])', 'raw), recorded)', ('tests.test_adapters.Snapshot.test_a_snapshot_tells_the_threads_its_content_so_a_later_review_supersedes',)),
 ]
 
 
