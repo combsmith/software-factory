@@ -14,7 +14,8 @@
       "level": "write"
     },
     "effect:create_check_run": {
-      "waits_on": "the pr-review App's grant of checks: write, registered by the Maintainer and read again by trial P-39 (Maintainer, 2026-10-22)"
+      "permission": "checks",
+      "level": "write"
     },
     "effect:enqueue_merge": {
       "waits_on": "trial P-2"
@@ -36,7 +37,8 @@
       "level": "write"
     },
     "write:tracking_issue": {
-      "waits_on": "the Controller's notification story"
+      "permission": "issues",
+      "level": "write"
     },
     "write:write_view": {
       "waits_on": "the view App, combsmith-sf-view, registered with the feed story (Maintainer, 2026-10-14)"
@@ -59,6 +61,10 @@
     },
     "read:release.checks": {
       "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and checks: read, and read again by trial P-39 (Maintainer, 2026-10-21; checks: read, 2026-10-26)"
+    },
+    "read:pass.pause": {
+      "permission": "actions_variables",
+      "level": "read"
     },
     "read:facts.item": {
       "permission": "metadata",
@@ -131,6 +137,10 @@
       "permission": "checks",
       "level": "read"
     },
+    "read:facts.acceptance": {
+      "permission": "issues",
+      "level": "read"
+    },
     "read:records.runs": {
       "permission": "actions",
       "level": "read"
@@ -176,6 +186,12 @@
             "read:records.artifacts"
           ]
         },
+        "actions_variables": {
+          "level": "read",
+          "needs": [
+            "read:pass.pause"
+          ]
+        },
         "checks": {
           "level": "write",
           "needs": [
@@ -189,6 +205,13 @@
             "read:facts.content_id",
             "read:facts.diff",
             "read:facts.last_pusher"
+          ]
+        },
+        "issues": {
+          "level": "write",
+          "needs": [
+            "write:tracking_issue",
+            "read:facts.acceptance"
           ]
         },
         "metadata": {
@@ -228,16 +251,40 @@
         "combsmith/software-factory-canary"
       ],
       "permissions": {
+        "actions": {
+          "level": "read",
+          "needs": [
+            "read:records.runs",
+            "read:records.artifacts"
+          ]
+        },
+        "checks": {
+          "level": "write",
+          "needs": [
+            "effect:create_check_run",
+            "read:facts.checks"
+          ]
+        },
         "contents": {
           "level": "read",
           "needs": [
-            "read:facts.content_id"
+            "read:facts.content_id",
+            "read:facts.diff",
+            "read:facts.last_pusher"
+          ]
+        },
+        "issues": {
+          "level": "read",
+          "needs": [
+            "read:facts.acceptance"
           ]
         },
         "metadata": {
           "level": "read",
           "needs": [
-            "read:facts.item"
+            "read:facts.item",
+            "read:facts.targets_protected",
+            "read:facts.actor.can_write"
           ]
         },
         "pull_requests": {
@@ -247,7 +294,15 @@
             "effect:resolve_thread",
             "effect:comment",
             "read:facts.state",
-            "read:facts.label_events"
+            "read:facts.label_events",
+            "read:facts.class",
+            "read:facts.is_draft",
+            "read:facts.author",
+            "read:facts.mergeable",
+            "read:facts.last_push_at",
+            "read:facts.last_writer_action_at",
+            "read:facts.reviews",
+            "read:facts.threads"
           ]
         }
       }

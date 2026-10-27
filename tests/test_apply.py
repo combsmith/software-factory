@@ -113,7 +113,7 @@ class Identity(unittest.TestCase):
         self.assertEqual(identity.permissions(review, APPS["needs"], []), {})
         # An Effect whose need waits or is not in the table, or that the App was not granted, is never minted for.
         needs = dict(APPS["needs"], **{"effect:create_check_run": {"waits_on": "the grant"}})
-        for effects, table, code in ((["create_check_run"], APPS["needs"], "effect_not_grantable"),
+        for effects, table, code in ((["assign"], APPS["needs"], "effect_not_grantable"),
                                      (["create_check_run"], needs, "effect_not_grantable"),
                                      (["enqueue_merge"], APPS["needs"], "effect_not_grantable")):
             with self.assertRaisesRegex(identity.Refused, "^%s$" % code):
@@ -686,17 +686,16 @@ class RoleWrites(unittest.TestCase):
         effects.role_write(hub, ITEM, "create_check_run", info, LOGIN)
         self.assertEqual(hub.sent[1]["body"]["output"]["annotations"][0]["annotation_level"], "notice")
 
-    @support.pending
     def test_the_role_app_is_granted_what_apply_reads_again(self):  # the Maintainer, 2026-10-22
-        # Waits on combsmith-sf-pr-review's registration of checks, actions and issues, and trial P-39 run again:
-        # apply reads the item and the run records again with the Role App's own token, read-only.
+        # Granted, and read again by trial P-39 on 2026-10-27: apply reads the item and the run records again with
+        # the Role App's own token, read-only.
         self.assertEqual(identity.granted(APPS["apps"]["pr-review"], APPS["needs"], apply.READS, "read"),
                          {"actions": "read", "checks": "read", "contents": "read", "issues": "read",
                           "metadata": "read", "pull_requests": "read"})
 
     def test_what_apply_reads_again_is_read_only_and_within_the_apps_grant(self):  # the Maintainer, 2026-10-22
         # As the App will be granted it: each read need served by its permission, and a read token is never a writer's.
-        needs = dict(APPS["needs"], **{"read:facts.acceptance": {"permission": "issues", "level": "read"}})
+        needs = APPS["needs"]
         grants = {}
         for name in apply.READS:
             need = needs[name]
@@ -711,11 +710,11 @@ class RoleWrites(unittest.TestCase):
             with self.assertRaisesRegex(identity.Refused, "^read_not_granted$"):
                 identity.granted(short, needs, apply.READS, "read")
         with self.assertRaisesRegex(identity.Refused, "^read_not_grantable$"):
-            identity.granted(app, APPS["needs"], apply.READS, "read")
+            identity.granted(app, {n: m for n, m in needs.items() if n != "read:facts.acceptance"}, apply.READS,
+                             "read")
 
-    @support.pending
     def test_the_role_app_is_granted_checks_to_write_its_check_run(self):  # the Maintainer, 2026-10-22
-        # Waits on the registration of checks: write for combsmith-sf-pr-review and trial P-39 run again.
+        # Granted, and read again by trial P-39 on 2026-10-27.
         self.assertEqual(identity.permissions(APPS["apps"]["pr-review"], APPS["needs"], ["create_check_run"]),
                          {"checks": "write"})
 
@@ -845,7 +844,7 @@ class Job(unittest.TestCase):
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
 
     def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None,
-           revoked=True):
+           revoked=True, config=None):
         calls = {"mint": [], "revoke": 0, "written": []}
 
         def read():
@@ -868,7 +867,7 @@ class Job(unittest.TestCase):
                 return write(kind, req)
             surfaces = {c["finding"]: "PRRT_kw7" for c in req.get("comments", ())}
             return {"state": "applied", "key": "PRR_kwDOA7", "surfaces": surfaces}
-        record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, self.CONFIG, NOW)
+        record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, config or self.CONFIG, NOW)
         self.assertEqual(shared.errors(record, "applied"), [])
         self.assertEqual(shared.errors(ended, "outcome"), [])
         return record, ended, calls
@@ -977,7 +976,8 @@ class Job(unittest.TestCase):
         # A token that cannot be minted, or an Effect the App may not write, writes nothing.
         record, ended, calls = self.go(review_only, mint_refuses="token_refused")
         self.assertEqual((ended["outcome"], ended["reason"], calls["written"]), ("environment", "token_refused", []))
-        record, ended, calls = self.go(result())
+        waiting = dict(self.CONFIG, needs=dict(APPS["needs"], **{"effect:create_check_run": {"waits_on": "the grant"}}))
+        record, ended, calls = self.go(result(), config=waiting)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]),
                          ("environment", "effect_not_grantable", []))
         self.assertEqual([e["state"] for e in record["effects"]], ["refused", "refused"])

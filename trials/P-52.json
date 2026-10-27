@@ -1,0 +1,237 @@
+{
+  "schema": "trial/1",
+  "trial": "P-52",
+  "question": "Can the controller's installation token, with the Variables permission at repository read alone, read FACTORY_PAUSED on a repo it acts in, and the org's FACTORY_PAUSED shared with that repo, and by which route?",
+  "pass": "Written before the run, at the top of tools/trial_p52_pause.sh: pass if the token's permissions name the Variables permission at read and nothing at the org; the repo read answers 200 with the repo's FACTORY_PAUSED; and the org's FACTORY_PAUSED is read with that token by at least one route, the org endpoint or the repo's list of org variables, answering 200 with its name and value. Fail otherwise. Run at the Maintainer's terminal with the controller's key, one token minted and revoked, and FACTORY_PAUSED set to false beforehand on the canary and on the org, shared with the canary alone.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-27T22:40:33Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172571513/access_tokens: the controller's installation token, asked for no narrower permissions, so they are what the App was granted. Of the answer the script keeps the token's permissions and repository selection alone",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": {
+          "permissions": {
+            "actions": "read",
+            "actions_variables": "read",
+            "checks": "write",
+            "contents": "read",
+            "issues": "write",
+            "metadata": "read",
+            "pull_requests": "read"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/variables/FACTORY_PAUSED",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "131",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 22:40:34 GMT",
+          "etag": "\"1c41828ebc95e04330e31a18d8f1366f0ac911daec13195d8c4d3129acd46788\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "actions_variables=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C9C2:3018CB:345E469:ABE210D:6AE12862",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1793144434",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1"
+        },
+        "body": {
+          "name": "FACTORY_PAUSED",
+          "value": "false",
+          "created_at": "2026-10-22T17:55:03Z",
+          "updated_at": "2026-10-22T17:55:03Z"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "GET /orgs/combsmith/actions/variables/FACTORY_PAUSED",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-length": "179",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 22:40:34 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "organization_actions_variables=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C9C3:30CE76:33A2EFF:A9B76FC:6AE12862",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793144434",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "2"
+        },
+        "body": {
+          "message": "Resource not accessible by integration",
+          "documentation_url": "https://docs.github.com/rest/actions/variables#get-an-organization-variable",
+          "status": "403"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/organization-variables?per_page=100",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "1331",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 22:40:35 GMT",
+          "etag": "\"c9b936caa6ccd40873d586879df749684062cae16a236d36a845aab7c25e5f60\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "actions_variables=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C9C5:3E1B8:3CBA384:CA57EFB:6AE12862",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793144434",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "3"
+        },
+        "body": {
+          "variables": [
+            {
+              "name": "AGENTS_PAUSED",
+              "value": "false",
+              "created_at": "2026-10-24T14:24:01Z",
+              "updated_at": "2026-10-27T16:41:00Z"
+            },
+            {
+              "name": "AI_DUCK_ENGINE",
+              "value": "gemini,claude",
+              "created_at": "2026-09-27T10:57:18Z",
+              "updated_at": "2026-09-27T10:57:18Z"
+            },
+            {
+              "name": "AI_ENGINES",
+              "value": "claude,gemini",
+              "created_at": "2026-09-27T10:56:03Z",
+              "updated_at": "2026-09-27T10:56:03Z"
+            },
+            {
+              "name": "CANARY_AUTO_CUT",
+              "value": "true",
+              "created_at": "2026-07-04T12:59:05Z",
+              "updated_at": "2026-10-14T14:42:49Z"
+            },
+            {
+              "name": "CANARY_AUTO_PROMOTE",
+              "value": "true",
+              "created_at": "2026-07-03T20:24:55Z",
+              "updated_at": "2026-10-15T02:33:23Z"
+            },
+            {
+              "name": "DEV_LEAD_NOCHANGE_EPOCH",
+              "value": "2026-10-14T06:00:00Z",
+              "created_at": "2026-10-14T03:03:15Z",
+              "updated_at": "2026-10-14T03:03:15Z"
+            },
+            {
+              "name": "FACTORY_PAUSED",
+              "value": "false",
+              "created_at": "2026-10-22T17:55:04Z",
+              "updated_at": "2026-10-22T17:55:04Z"
+            },
+            {
+              "name": "PR_LIMITS_ORG_CAP",
+              "value": "60",
+              "created_at": "2026-10-02T13:03:38Z",
+              "updated_at": "2026-10-07T01:41:44Z"
+            }
+          ],
+          "total_count": 8
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token: the token revoked",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[0].response.body.token",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

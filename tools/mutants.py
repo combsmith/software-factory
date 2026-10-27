@@ -5328,6 +5328,13 @@ MUTANTS = ISSUE + [
     ("P-52 keeps the mint's whole answer", "tools/trial_p52_pause.sh",
      'json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},', 'json.dump(dict(answer, permissions=answer.get("permissions")),',
      ('tests.test_tools.PauseReadTrial.test_one_token_reads_three_times_and_is_revoked_and_never_kept',)),
+    # P-39 read again on 2026-10-27: the review Role's App is granted what apply reads again and its check run.
+    ("the review Role's App is granted no read of the checks", "config/apps.json",
+     '            "effect:create_check_run",\n            "read:facts.checks"\n', '            "effect:create_check_run"\n',
+     ("tests.test_apply.RoleWrites.test_the_role_app_is_granted_what_apply_reads_again",)),
+    ("the review Role's App is granted no check run", "config/apps.json",
+     '          "needs": [\n            "effect:create_check_run",\n', '          "needs": [\n',
+     ("tests.test_apply.RoleWrites.test_the_role_app_is_granted_checks_to_write_its_check_run",)),
     # Issue 312: P-51, the pinned CLI's sandbox and writes outside the work directory, against a stand-in CLI and P-50's stub.
     ("P-51's write outside may land", P51,
      'held = part["probe_ran"] and len(exits) == len(names) and not any(landed.values())', 'held = part["probe_ran"]',
