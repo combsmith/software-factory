@@ -169,11 +169,26 @@ class WorkflowForm(unittest.TestCase):
             self.assertEqual(pathlib.Path(out).read_text(), "digest=sha256:%s\n" % ("a" * 64))
 
 
+
+def recorded_spy(module, calls: list):
+    """`module.applied.recorded`, patched to keep what each caller asks it, the Lenses' names and the authority table
+    among it, and to answer as it does (issue 338)."""
+    real = module.applied.recorded
+
+    def spy(transport, repo, runs, numbers, lenses, authority):
+        calls.append({"repo": repo, "numbers": list(numbers), "lenses": set(lenses), "authority": authority})
+        return real(transport, repo, runs, numbers, lenses, authority)
+    return unittest.mock.patch.object(module.applied, "recorded", spy)
+
+
+AUTHORITY = json.loads((ROOT / "config" / "authority.json").read_text())
+
+
 class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
-    def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, refs=TAGS,
-           commit=CHECKED_OUT):
+    def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
+           refs=TAGS, commit=CHECKED_OUT):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it."""
         calls = {"minted": [], "revoked": 0, "tags": []}
 
@@ -192,9 +207,11 @@ class Reader(unittest.TestCase):
             return "the reader's transport", revoke
         facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT)
         pulled = {"head": {"sha": first}, "number": 42}
-        calls["opener"] = []
+        listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
+        calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
 
         def snapshot(*a, **k):
+            calls["recorded"].append(k["recorded"])
             calls["opener"].append(k.get("opener", "not told"))
             return facts, "title", head
         with tempfile.TemporaryDirectory() as d, \
@@ -202,6 +219,9 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(record)), \
                 unittest.mock.patch.object(read.steps, "commit", commit if callable(commit) else lambda: commit), \
                 unittest.mock.patch.object(read.tags, "read", tags_read), \
+                unittest.mock.patch.object(read.records, "runs",
+                                           lambda *a, **k: calls["listed"].append(a[3]) or copy.deepcopy(listed)), \
+                recorded_spy(read, calls["asked"]), \
                 unittest.mock.patch.object(read.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(read.facts_, "opener_of", lambda *told: (12, "Bot")), \
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
@@ -222,6 +242,13 @@ class Reader(unittest.TestCase):
         self.assertEqual(json.loads(kept["record.json"]), RECORD)
         self.assertEqual((json.loads(kept["texts.json"]), json.loads(kept["findings.json"])), ([], []))
         self.assertEqual(json.loads(kept["role.json"])["name"], "pr-review")
+        # The threads are held to what the item's Lenses recorded, read from the run records (issue 338).
+        self.assertEqual(calls["recorded"], [({}, True)])
+        # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
+        self.assertEqual(calls["listed"], [["run.yml", "approve.yml"]])
+        self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
+        # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
+        self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False)])
         # Minted once, for the home repo, with reads alone, and revoked once.
         (app, repo, wanted, key), = calls["minted"]
         self.assertEqual((app, repo, key, calls["revoked"]), ("combsmith-sf-reader", HOME, "the key", 1))
@@ -680,8 +707,9 @@ class Reread(unittest.TestCase):
         facts = support.facts()
         whole = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, with_head=False, opener=None):
-            whole.append(runs_whole)
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, with_head=False, opener=None, *,
+                     recorded):
+            whole.append((runs_whole, recorded))
             return facts, "t", HEAD
         from controller import configuration
         config = configuration.load(ROOT, RELEASE, "pr-review")
@@ -694,13 +722,18 @@ class Reread(unittest.TestCase):
                         reread.item("t", config, 42, support.NOW, lambda: support.NOW)
                 else:
                     self.assertIsNone(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["active_runs"])
-        self.assertEqual(whole, [False, False])
+        # A list read short holds the threads to nothing recorded, and they are not whole (issue 338).
+        self.assertEqual(whole, [(False, ({}, False)), (False, ({}, False))])
+        asked_ = []
         with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(listed)), \
+                recorded_spy(reread, asked_), \
                 unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (facts, "t", HEAD)), \
                 unittest.mock.patch.object(reread.pause_, "read",
                                            lambda transport, org, repos: {"org": None, "repos": {HOME: None}}):
             got = reread.item("t", config, 42, support.NOW, lambda: support.NOW)
         self.assertEqual(got[:3], (facts, HEAD, listed["runs"]))
+        # What the item's model Lenses recorded is read from that list, held to the authority table (issue 338).
+        self.assertEqual(asked_, [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         self.assertEqual((got[3]["paused"], got[3]["active_runs"], got[3]["passes_since"]), (False, 1, None))
         # The pull request is read with the App that opens pull requests, as the pass reads it (issue 295).
         told = []

@@ -8,8 +8,8 @@ it is GitHub's `resolvedBy`, by its account id alone: GraphQL types it a User wh
 gives, or else to the repo's permission read of its login, which answers the account's id and type
 (trials/P-53.json), once a login a pass. A resolver neither answers, or that GitHub names none for, has `resolved_by`
 null, and the Kernel defers on that thread alone (`unreadable_thread`). A thread whose first comment was deleted reads
-its reply as its opener, since GitHub keeps no link to the comment (trials/P-53.json); holding it to the Lens's own
-record waits on the collector. Each actor is told by its account id and type,
+its reply as its opener, since GitHub keeps no link to the comment (trials/P-53.json); `adapters/applied.py` holds it
+to the Lens's own record. Each actor is told by its account id and type,
 never by a name's spelling (decision 0005, L-57), and its write access read once a login, as `adapters/timeline.py`
 does. No comment's text is read. A thread whose opener GitHub no longer names, a deleted account's, is refused with the
 snapshot, as an unreadable actor is anywhere: the known cost is that such a pull request is never read whole. A thread
@@ -17,7 +17,7 @@ deleted and another made between two pages leaves the count the same and one unr
 
 A thread a person opened is `human`, with no severity (section 3.3). Any other thread, a Lens's among them, has neither:
 a required Lens's category and severity come from its own Finding record, in its Run's `applied/1`, joined by
-`surface.key` (decision 0038), and no Run uploads one until `harness/` builds `apply`. A thread is a Lens's only when
+`surface.key` (decisions 0038 and 0069) in `adapters/applied.py`, never here. A thread is a Lens's only when
 its author is that Lens's own App, by account id and type, as the caller names it: an outside reviewer's, CodeRabbit's
 or Codex's, is no required Lens's, and gates nothing. The Kernel reads a required model Lens's own App's open thread
 with neither as unreadable, and defers on it alone (`kernel/derive.py`'s `unreadable_thread`).
