@@ -55,9 +55,26 @@ def tree(files: dict) -> pathlib.Path:
     return root
 
 
+def running_test():
+    """The test case whose method is running, found up the stack; None outside one, as in setUpClass."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        case = frame.f_locals.get("self")
+        if isinstance(case, unittest.TestCase):
+            return case
+        frame = frame.f_back
+    return None
+
+
 def clone(files: dict) -> pathlib.Path:
-    """A copy of this repo with `files` written over it."""
-    root = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "repo"
+    """A copy of this repo with `files` written over it, removed when the test that made it ends (issue 344). A copy
+    is the tree as `tools/walk.py` reads it, megabytes, with no other working tree in it; a run that kept every
+    copy to its end held gigabytes, and a run killed before its end left them all behind."""
+    made = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+    case = running_test()
+    if case is not None:
+        case.addCleanup(shutil.rmtree, str(made), True)
+    root = made / "repo"
     walk.copy(ROOT, root)
     for rel, text in files.items():
         path = root / rel
@@ -7227,3 +7244,19 @@ except OSError:
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("is inside the repo", done.stderr)
+
+
+class Copies(unittest.TestCase):
+    def test_a_copy_of_the_repo_is_removed_when_the_test_that_made_it_ends(self):  # issue 344
+        made = []
+
+        class Case(unittest.TestCase):
+            def test_it(self):
+                made.append(clone({"x.txt": "x"}))
+                self.assertTrue((made[0] / "x.txt").is_file())
+        result = unittest.TestResult()
+        Case("test_it").run(result)
+        self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
+        self.assertFalse(made[0].parent.exists())
+        # A copy is the tree as tools/walk.py reads it: no other working tree, and megabytes.
+        self.assertLess(sum(f.stat().st_size for f in walk.files(ROOT)), 64 * 2 ** 20)
