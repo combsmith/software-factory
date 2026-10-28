@@ -8444,6 +8444,14 @@ MUTANTS = ISSUE + [
      'or body.get("total_count") != len(runs) or len(runs) != 1', 'or len(runs) != 1', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
     ("a verify suite's run that is no object is read", 'adapters/candidate.py',
      '            or not isinstance(runs[0], dict):\n        return False\n    return runs[0]', ':\n        return False\n    return runs[0]', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
+    # Muse's read of #379 (decision 0080).
+    ("a verify suite's id that is a boolean is read", 'adapters/candidate.py',
+     'if type(suite) is not int or suite < 1:', 'if not isinstance(suite, int) or suite < 1:', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
+    ("a verify suite's id of naught is read", 'adapters/candidate.py',
+     'if type(suite) is not int or suite < 1:', 'if type(suite) is not int or suite < 0:', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
+    ('a verify suite not answered is an error', 'adapters/candidate.py',
+     '    try:\n        answer = transport.send(request("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (repo, suite)))\n    except Unanswered:\n        return False\n',
+     '    answer = transport.send(request("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (repo, suite)))\n', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
 ]
 
 

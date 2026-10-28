@@ -78,10 +78,10 @@ def verify_runs(commit=D, conclusion="success", app=candidate.ACTIONS_APP, more=
               200, {"total_count": len(runs), "check_runs": runs})
 
 
-def verify_suite(commit=D, path=candidate.VERIFY_WORKFLOW, runs=None, total=None, status=200):
+def verify_suite(commit=D, path=candidate.VERIFY_WORKFLOW, runs=None, total=None, status=200, suite=SUITE):
     """The verify check run's suite's workflow runs, read by the suite's id, as the actions runs list gives them."""
-    runs = [{"id": 901, "path": path, "head_sha": commit, "check_suite_id": SUITE}] if runs is None else runs
-    return ex("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (REPO, SUITE), status,
+    runs = [{"id": 901, "path": path, "head_sha": commit, "check_suite_id": suite}] if runs is None else runs
+    return ex("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (REPO, suite), status,
               {"total_count": len(runs) if total is None else total, "workflow_runs": runs})
 
 
@@ -175,11 +175,15 @@ class Candidate(unittest.TestCase):
                                           "check_suite_id": SUITE + 1}])):
             with self.subTest(suite=suite["response"]["body"]):
                 self.assertFalse(candidate.verified(github.Replay([verify_runs(), suite]), REPO, D))
-        for change in ({"check_suite": None}, {"check_suite": {"id": True}}, {"check_suite": {"id": 0}}):
+        # A suite id that is no positive integer is none, though a suite of that number would answer as verify's.
+        for change, suite in (({"check_suite": None}, []), ({"check_suite": {"id": True}}, [verify_suite(suite=1)]),
+                              ({"check_suite": {"id": 0}}, [verify_suite(suite=0)])):
             with self.subTest(change=change):
                 answered = verify_runs()
                 answered["response"]["body"]["check_runs"][0].update(change)
-                self.assertFalse(candidate.verified(github.Replay([answered]), REPO, D))
+                self.assertFalse(candidate.verified(github.Replay([answered] + suite), REPO, D))
+        # A suite that is not answered is no verify, and is not an error.
+        self.assertFalse(candidate.verified(github.Replay([verify_runs()]), REPO, D))
         # An answer that is no 200 is none, whatever its body holds.
         failed = verify_runs()
         failed["response"]["status"] = 500
