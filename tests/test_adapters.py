@@ -1352,6 +1352,24 @@ class Timeline(unittest.TestCase):
             with self.assertRaises(github.Unanswered, msg=level):
                 self.accounts(odd).actor({"login": "x", "id": 1, "type": "User"})
 
+    def test_a_reopening_is_read_from_the_timeline(self):  # issue 378, trials/P-7.reopened.json
+        # Canary pull request 61, closed and then approved by the machine user, was reopened with no push: the timeline
+        # names the reopening, by a User at its time, and the approval given while it was closed reads APPROVED again.
+        found = exchanges("P-7.reopened")
+        events = found[0]["response"]["body"]
+        self.assertEqual(timeline.reopened_at(events), "2026-10-28T03:11:05Z")
+        approval = [r for r in found[1]["response"]["body"] if r["user"]["login"] == APPROVER][-1]
+        self.assertEqual(approval["state"], "APPROVED")
+        self.assertLess(approval["submitted_at"], timeline.reopened_at(events))
+        # The latest reopening is the one read; none is None; one whose time cannot be read refuses the read.
+        reopening = [e for e in events if e["event"] == "reopened"][0]
+        later = dict(reopening, created_at="2026-10-29T00:00:00Z")
+        self.assertEqual(timeline.reopened_at([reopening, later]), "2026-10-29T00:00:00Z")
+        self.assertEqual(timeline.reopened_at([later, reopening]), "2026-10-29T00:00:00Z")
+        self.assertIsNone(timeline.reopened_at([e for e in events if e["event"] != "reopened"]))
+        with self.assertRaises(github.Unanswered):
+            timeline.reopened_at([dict(reopening, created_at="yesterday")])
+
     def test_reviews_are_read_with_their_commit_content_and_who_dismissed_them(self):
         # trials/P-7.json: the reviewer App's and the machine user's approvals were dismissed, by the Maintainer and by
         # the trial-author App, and the machine user approved again at the new head. The timeline says who dismissed
@@ -2597,6 +2615,19 @@ class Snapshot(unittest.TestCase):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW, kept, recorded=NOTHING)
         self.assertEqual(kept, {})
+
+    def test_a_snapshot_holds_when_the_pull_request_was_last_reopened(self):  # issue 378
+        # The timeline the snapshot reads gives the reopening: none on P-28's, and P-7.reopened's shape once one is there.
+        got, _ = self.read(1)
+        self.assertIsNone(got["last_reopened_at"])
+        seq = self.sequence(1)
+        reopening = [e for e in exchanges("P-7.reopened")[0]["response"]["body"] if e["event"] == "reopened"][0]
+        seq[5] = copy.deepcopy(seq[5])
+        seq[5]["response"]["body"] = seq[5]["response"]["body"] + [reopening]
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, recorded=NOTHING)
+        self.assertEqual(got["last_reopened_at"], reopening["created_at"])
 
     def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
         seq = self.sequence(1)
