@@ -1437,6 +1437,14 @@ class Convergence(unittest.TestCase):
             f = facts(reviews=rv, last_reopened_at=reopened)
             self.assertEqual(derive.standing_approval(f, CONFIG) is not None, stands, reopened)
             self.assertEqual(go(f, REVIEWED).get("action") == "issue_approval", not stands, reopened)
+        # A reopening's time that cannot be read leaves the reviews unread: the Kernel defers, and approves nothing.
+        for unreadable in ("", "yesterday", 12345, True, "missing"):
+            f = facts(reviews=rv, last_reopened_at=unreadable)
+            if unreadable == "missing":
+                del f["last_reopened_at"]
+            d = go(f, REVIEWED)
+            self.assertNotIn(d.get("action"), ("issue_approval", "enqueue"), unreadable)
+            self.assertTrue(derive.unreadable_reviews(f, CONFIG), unreadable)
         # Whether it was reopened is read from the timeline: on a timeline not read whole, no approval stands.
         f = facts(reviews=rv)
         f["complete"] = dict(f["complete"], timeline=False)

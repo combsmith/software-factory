@@ -115,11 +115,19 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
         return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
     # Recovered only for the content the Decision approved: an approval of the head read is this act's only while that
     # head carries the same content; otherwise the Kernel decides (Argon's read).
+    # And only while the pull request is open: one closed under an earlier attempt holds an approval that attempt
+    # claimed nothing for, and a re-run must not claim it now (issue 378).
     done = {"state": None}
-    if facts.get("content_id") == decided["content_id"]:
+    if facts.get("content_id") == decided["content_id"] and facts.get("state") == "open":
         done = port.recover(item, head)
         if done["fault"] is not None:
             return _records(run, release, "refused", None, (done["fault"], done["reason"]))
+        # An approval submitted before the pull request was last reopened does not stand (decision 0079): it is no
+        # approval of this act's to recover, and a fresh one is sent if the Kernel still wants one.
+        reopened = facts.get("last_reopened_at")
+        if done["state"] == "already_applied" and reopened is not None and not (
+                isinstance(done.get("at"), str) and done["at"] > reopened):
+            done = {"state": None}
     others, context = _left_out(runs, context, run, config["github_run"])
     wanted = still_wanted(decided, decide(facts, others, context, config["kernel"], now))
     if done["state"] == "already_applied":

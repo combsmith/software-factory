@@ -221,7 +221,7 @@ class TheAct(unittest.TestCase):
                              ({"status": 200, "body": {"head": {"sha": HEAD}}}, ("environment", "github_unavailable")),
                              (None, ("environment", "github_unavailable"))):
             done, ended, github = act(GitHub({("GET", PULL): answer}))
-            self.assertEqual((fault(ended), github.writes()), (want, []), answer)
+            self.assertEqual((fault(ended), effect(done)[1], github.writes()), (want, "refused", []), answer)
 
     def test_a_pull_request_closed_under_the_act_claims_no_approval(self):  # issue 378, trials/P-7.refused.json
         # A pull request closed or merged between the act's read and its approval took the approval all the same: read
@@ -238,6 +238,31 @@ class TheAct(unittest.TestCase):
         for after in ({"status": 500, "body": {}}, None, {"status": 200, "body": {"state": "open"}}):
             done, ended, github = act(GitHub({("GET", PULL): [opened, after]}))
             self.assertEqual((fault(ended), effect(done)[1:3]), (("environment", "not_read_back"), ("failed", None)), after)
+
+    def test_an_approval_from_before_a_reopening_is_not_recovered(self):  # issue 378, decision 0079
+        # The approver's approval of the head, submitted before the pull request was last reopened, does not stand: it
+        # is not this act's to recover, and the act sends a fresh one, which the Kernel still wants. One submitted after
+        # the reopening stands, and is recovered with nothing sent.
+        earlier = review(at="2026-10-11T12:15:00Z")
+        listed = {"status": 200, "body": [dict(LANDED, submitted_at="2026-10-11T12:15:00Z")]}
+        done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}),
+                                  read=reads(facts(reviews=[earlier], last_reopened_at="2026-10-11T12:20:00Z")))
+        self.assertEqual((effect(done), fault(ended), len(github.writes())), (("approve", "applied", NODE, None),
+                                                                            (None, None), 1))
+        later = review(at="2026-10-11T12:25:00Z")
+        listed = {"status": 200, "body": [dict(LANDED, submitted_at="2026-10-11T12:25:00Z")]}
+        done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}),
+                                  read=reads(facts(reviews=[later], last_reopened_at="2026-10-11T12:20:00Z")))
+        self.assertEqual((effect(done), len(github.writes())), (("approve", "already_applied", NODE, None), 0))
+
+    def test_a_re_run_claims_no_approval_of_a_pull_request_now_closed(self):  # issue 378, decision 0079
+        # An earlier attempt's approval of a pull request closed under it claimed nothing; a re-run that finds the pull
+        # request closed recovers nothing either, so the approval stays one no Effect recorded.
+        listed = {"status": 200, "body": [dict(LANDED, submitted_at="2026-10-11T12:15:00Z")]}
+        done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}),
+                                  read=reads(facts(state="closed")))
+        self.assertEqual((effect(done)[1:3], fault(ended), github.writes()), (("refused", None),
+                                                                            ("superseded", "not_wanted"), []))
 
     def test_a_run_no_decision_issued_an_approval_for_finds_none_and_writes_nothing(self):  # section 3.5
         admitted = record(runs=[])

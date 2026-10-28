@@ -775,8 +775,8 @@ def _approval(review, head: str, login: str) -> bool:
 
 def approval_of(transport, item: dict, head: str, login: str) -> dict:
     """The approver's approval of `head` that stands, recovered as a review by this actor on this commit (section 3.6):
-    `{state, key, fault, reason}`, `already_applied` with its node id, or a state of None where there is none. A list
-    that cannot be read, or that may be cut short, recovers nothing."""
+    `{state, key, fault, reason}`, `already_applied` with its node id and when it was submitted, `at`, or a state of
+    None where there is none. A list that cannot be read, or that may be cut short, recovers nothing."""
     answer = _asked(transport, request("GET", "/repos/%s/pulls/%d/reviews?per_page=100" % (item["repo"], item["number"])))
     listed = _body(answer, 200)
     if not isinstance(listed, list) or len(listed) >= 100:
@@ -787,7 +787,8 @@ def approval_of(transport, item: dict, head: str, login: str) -> dict:
     mine = [r for r in listed if isinstance(r, dict) and r.get("commit_id") == head and isinstance(r.get("user"), dict)
             and r["user"].get("login") == login]
     if mine and _approval(mine[-1], head, login):
-        return {"state": "already_applied", "key": mine[-1]["node_id"], "fault": None, "reason": None}
+        return {"state": "already_applied", "key": mine[-1]["node_id"], "fault": None, "reason": None,
+                "at": mine[-1].get("submitted_at")}
     return {"state": None, "key": None, "fault": None, "reason": None}
 
 
@@ -801,7 +802,7 @@ def _open_at(transport, pull: str, head: str, state: str):
             or not isinstance(now["head"].get("sha"), str):
         # The pull request read again cannot be read: whose fault, by its status alone (Codex on PR 321).
         fault, reason = _trouble(again, "github_unavailable")
-        return {"state": "failed", "key": None, "fault": fault, "reason": reason}
+        return {"state": state, "key": None, "fault": fault, "reason": reason}
     if now.get("state") != "open" or now.get("merged") is True:
         return {"state": state, "key": None, "fault": "superseded", "reason": "not_open"}
     if now["head"].get("sha") != head:

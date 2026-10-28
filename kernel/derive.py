@@ -573,8 +573,11 @@ def unreadable_reviews(facts: dict, config: dict) -> bool:
 
     Any of them could be a request for changes from a person with write access, or a person's approval of the
     acceptance contract or of this content, so nothing may converge on it; a missing fact is never given a default
-    (I-13).
+    (I-13). An approval stands only if given after the last reopening (decision 0079), so a reopening's time that
+    cannot be read leaves every review unread.
     """
+    if "last_reopened_at" not in facts or not (facts["last_reopened_at"] is None or is_time(facts["last_reopened_at"])):
+        return True
     for rv in facts["reviews"]:
         if not isinstance(rv, dict) or rv.get("state") not in t.REVIEW_STATES:
             return True
