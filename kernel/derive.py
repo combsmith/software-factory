@@ -918,14 +918,19 @@ def standing_approval(facts: dict, config: dict):
 
     Only the approver's approval stands: the machine user's, which readable_actor holds to the approver's name, while
     it has write access, without which GitHub does not count it. A person's approval answers that person's request for
-    changes, and approves no content.
+    changes, and approves no content. One submitted before the pull request was last reopened does not stand, though
+    GitHub reads it approved again (trials/P-7.reopened.json, issue 378): it may have been given while the pull
+    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole.
     """
+    if facts["complete"]["timeline"] is not True:
+        return None
     for rv in facts["reviews"]:
         if (
             rv["by"]["kind"] == t.MACHINE_USER
             and rv["by"]["can_write"] is True
             and rv["state"] == "approved"
             and rv["content_id"] == facts["content_id"]
+            and (facts["last_reopened_at"] is None or rv["submitted_at"] > facts["last_reopened_at"])
         ):
             return rv
     return None

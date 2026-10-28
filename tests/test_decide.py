@@ -1426,6 +1426,22 @@ class Convergence(unittest.TestCase):
         rv = [review(commit="c0", content="sha256:0000")]
         self.assertEqual(go(facts(reviews=rv), REVIEWED)["action"], "issue_approval")
 
+    def test_an_approval_from_before_a_reopening_never_stands(self):  # issue 378, trials/P-7.reopened.json
+        # GitHub takes an approval of a closed pull request, and reads it approved again once the pull request is
+        # reopened with no push. An approval submitted before the last reopening may have been given while it was
+        # closed: it never stands, and the Kernel issues the approval again. One submitted after it stands.
+        rv = [review(at="2026-10-11T12:15:00Z")]
+        self.assertNotEqual(go(facts(reviews=rv), REVIEWED).get("action"), "issue_approval")
+        for reopened, stands in (("2026-10-11T12:20:00Z", False), ("2026-10-11T12:15:00Z", False),
+                                 ("2026-10-11T12:10:00Z", True), (None, True)):
+            f = facts(reviews=rv, last_reopened_at=reopened)
+            self.assertEqual(derive.standing_approval(f, CONFIG) is not None, stands, reopened)
+            self.assertEqual(go(f, REVIEWED).get("action") == "issue_approval", not stands, reopened)
+        # Whether it was reopened is read from the timeline: on a timeline not read whole, no approval stands.
+        f = facts(reviews=rv)
+        f["complete"] = dict(f["complete"], timeline=False)
+        self.assertIsNone(derive.standing_approval(f, CONFIG))
+
     def test_approver_is_never_the_author_or_last_pusher(self):  # I-26
         for who in ("author", "last_pusher"):
             d = go(facts(**{who: "donpetry-bot"}), REVIEWED)

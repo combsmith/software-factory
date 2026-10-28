@@ -157,6 +157,18 @@ def events(transport, pull: dict) -> tuple:
     return _pages(transport, "/repos/%s/issues/%d/timeline?per_page=%d" % (repo, pull["number"], PAGE))
 
 
+def reopened_at(timeline: list):
+    """When the pull request was last reopened, from its timeline's `reopened` events, or None if it never was
+    (trials/P-7.reopened.json). A reopening whose time cannot be read refuses the read."""
+    found = None
+    for event in timeline:
+        event = _object(event, "the timeline")
+        if event.get("event") == "reopened":
+            at = _time(event.get("created_at"))
+            found = at if found is None or at > found else found
+    return found
+
+
 def label_events(timeline: list, accounts: Accounts) -> list:
     """Every labeled and unlabeled event, with its label, who made it and when, as the timeline lists them."""
     found = []

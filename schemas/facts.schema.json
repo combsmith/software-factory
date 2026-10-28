@@ -18,6 +18,7 @@
     "changed_paths",
     "label_events",
     "last_push_at",
+    "last_reopened_at",
     "last_writer_action_at",
     "reviews",
     "threads",
@@ -162,6 +163,14 @@
     },
     "last_push_at": {
       "$ref": "#/$defs/time"
+    },
+    "last_reopened_at": {
+      "description": "When the pull request was last reopened, from its timeline's `reopened` event (trials/P-7.reopened.json), or null if it never was. An approval submitted before it does not stand (issue 378)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "last_writer_action_at": {
       "type": [
