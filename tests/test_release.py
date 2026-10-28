@@ -351,6 +351,10 @@ class Rings(unittest.TestCase):
         self.assertEqual(check_release.ring_problems(rings), [])
         twice = dict(rings, serves=rings["serves"] + [dict(rings["serves"][0], channel="stable")])
         self.assertEqual(len(check_release.ring_problems(twice)), 1)
+        # One repo spelled in another case is the same repo (decision 0080, Muse's read of #340).
+        cased = dict(rings, serves=rings["serves"] + [dict(rings["serves"][0], repo=rings["serves"][0]["repo"].upper(),
+                                                           channel="stable")])
+        self.assertEqual(len(check_release.ring_problems(cased)), 1)
         other = dict(rings, serves=rings["serves"] + [dict(rings["serves"][0], family="other-family", channel="stable")])
         self.assertEqual(check_release.ring_problems(other), [])
         majors = dict(rings, channels=dict(rings["channels"], stable={"tag": "factory/v1-stable"}))

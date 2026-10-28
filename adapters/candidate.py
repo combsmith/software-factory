@@ -4,7 +4,9 @@ for the Release asked. It hands `release/cut.py` its facts, `{commit, on_main, v
 nothing: the rules are the cut's, and the verdict the eval job's own, `harness.eval.verdict`.
 
 Each fact fails closed. A comparison that cannot be read is not on `main`, read by its branch's ref; a `verify` that cannot be read, or that more
-than one App reports, did not pass. The gate reads the eval job's one successful dispatch on the commit, its
+than one App reports, did not pass. A `verify` counts only as the Kernel's `verify` Lens is read: its check, from
+GitHub Actions, run by the workflow file `.github/workflows/verify.yml` (`config/defaults.json`, P-35), read here by
+the check run's suite's one workflow run; any other workflow's job of that name is no `verify` (decision 0080). The gate reads the eval job's one successful dispatch on the commit, its
 `eval-report` artifact, and the set's manifest at that commit, through the transport, never a file of the checkout. Any
 of them not read whole, and any verdict but `pass`, closes the gate with its code, which `cut.plan` reads as
 `eval_gate_closed`. Nothing here executes a file of the commit."""
@@ -21,6 +23,7 @@ from release import cut
 
 VERIFY = "verify"                   # the check run `verify.yml`'s job reports, on the merge group main took
 ACTIONS_APP = 15368                 # GitHub Actions, the one App whose `verify` counts
+VERIFY_WORKFLOW = ".github/workflows/verify.yml"    # the one workflow whose `verify` counts, as the Kernel's Lens reads it
 EVAL_WORKFLOW = "eval.yml"
 REPORT, MEMBER = "eval-report", "eval-report.json"
 SET = "evals/pr-review/cases.json"
@@ -56,7 +59,8 @@ def on_main(transport, repo: str, commit: str, branch: str = "main") -> bool:
 
 
 def verified(transport, repo: str, commit: str) -> bool:
-    """Whether GitHub Actions' one `verify` check run on `commit`, the latest of its name, concluded success."""
+    """Whether GitHub Actions' one `verify` check run on `commit`, the latest of its name, concluded success, and was run
+    by `verify.yml`: its check suite's one workflow run, read by the suite's id, is of that file and that commit."""
     try:
         answer = transport.send(request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&filter=latest&per_page=100"
                                         % (repo, commit, VERIFY)))
@@ -69,8 +73,23 @@ def verified(transport, repo: str, commit: str) -> bool:
     ours = [r for r in runs if isinstance(r, dict) and r.get("name") == VERIFY]
     if len(ours) != 1 or len(runs) != 1 or _dict(ours[0].get("app")).get("id") != ACTIONS_APP:
         return False
-    return ours[0].get("head_sha") == commit and ours[0].get("status") == "completed" \
-        and ours[0].get("conclusion") == "success"
+    if not (ours[0].get("head_sha") == commit and ours[0].get("status") == "completed"
+            and ours[0].get("conclusion") == "success"):
+        return False
+    suite = _dict(ours[0].get("check_suite")).get("id")
+    if type(suite) is not int or suite < 1:
+        return False
+    try:
+        answer = transport.send(request("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (repo, suite)))
+    except Unanswered:
+        return False
+    body = answer["body"]
+    runs = body.get("workflow_runs") if answer["status"] == 200 and isinstance(body, dict) else None
+    if not isinstance(runs, list) or body.get("total_count") != len(runs) or len(runs) != 1 \
+            or not isinstance(runs[0], dict):
+        return False
+    return runs[0].get("path") == VERIFY_WORKFLOW and runs[0].get("head_sha") == commit \
+        and runs[0].get("check_suite_id") == suite
 
 
 def _manifest(transport, repo: str, commit: str):

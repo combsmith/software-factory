@@ -14,7 +14,9 @@ for a cut (a cut asked with no version is of the next patch of `next`'s major, a
 for a move or a rollback, and `RELEASE_TOKEN`, the release App's token. Through that token alone it reads the
 `factory/` tags, and, but for a rollback, the commit's facts (`adapters/candidate.py`); plans; sends each write and
 reads the tags again after it, once more if need be, stopping at the first not read back on its commit as the one
-Release planned; and records a Deployment of each move of `next` once read back. A rollback reads no fact and passes
+Release planned. Just before it moves `next` it reads the tags once more, and stops, `channel_moved`, where `next` is
+no longer where the plan read it: a step run beside it, or a person, moved it, and the plan was made of another state
+(decision 0080). A hand move between that read and the write is not seen, since a ref's update compares nothing; and records a Deployment of each move of `next` once read back. A rollback reads no fact and passes
 no gate, so it works while the Factory is broken. It prints what it did, by codes alone, and exits 0, or 1 with the
 code that stopped it. Nothing here reads a file at any tag.
 
@@ -119,6 +121,12 @@ def run(environ: dict, connect, rings=READ, controller=READ) -> tuple:
     # The Release every write is of: the version cut, or the one the Channel moves to, by the refs read before.
     released = writes[0][1] if writes[0][0] == "create" else current.resolve(writes[0][2], refs)
     for write in writes:
+        if write[0] == "move":
+            now = tags.read(transport, repo)
+            if now is None:
+                return done, "refs_unreadable"
+            if now.get(write[1]) != refs.get(write[1]):
+                return done, "channel_moved"
         if not tags.write(transport, repo, write, refs):
             return done, "write_unanswered"
         after = tags.read(transport, repo)
