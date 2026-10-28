@@ -5210,6 +5210,9 @@ MUTANTS = ISSUE + [
     ("the review Role does not permit its check run", "roles/pr-review.json",
      '"submit_review",\n        "create_check_run"\n', '"submit_review"\n',
      ("tests.test_tools.Authority.test_the_review_role_permits_its_check_run_now_its_app_is_granted_it",)),
+    ("the App says nothing of a head that never moved", "tools/trial_as_app.sh",
+     '[ "$read_head" = "$pushed" ] || echo "trial_as_app: the push made', '[ "$read_head" = "$pushed" ] || true "trial_as_app: the push made',
+     ("tests.test_tools.AppThreads.test_a_head_github_never_moves_is_read_five_times_and_said_so",)),
     ("the App's failed redaction leaves its partial clean file", "tools/trial_as_app.sh",
      '        rm -f "${1%.raw}.clean"\n', '', ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
     # Issue 282: the App's review threads, run against a stand-in gh, curl and openssl.

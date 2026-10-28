@@ -244,7 +244,7 @@ text = sys.stdin.read().replace("\r\n", "\n")
 # line nor the last ends the headers.
 starts = [m.start(1) for m in re.finditer(r"(?:\A|\n\n)(HTTP/[0-9.]+ [0-9]{3})", text)]
 cut = text.find("\n\n", starts[-1]) if starts else -1
-head, body = (text[:cut], text[cut + 2:]) if cut >= 0 else (text, "")
+head, body = (text[starts[-1]:cut], text[cut + 2:]) if cut >= 0 else (text, "")
 try:
     data = json.loads(body)
 except ValueError:
@@ -289,7 +289,7 @@ for attempt in 1 2 3 4 5; do
     as_installation GET "repos/$repo/pulls/$pr"
     read_head=$(value "$out/$id.clean" head.sha)
     [ "$read_head" = "$pushed" ] && break
-    sleep 2
+    if [ "$attempt" -lt 5 ]; then sleep 2; fi
 done
 echo "Pull request $pr, branch $branch, head $read_head"
 [ "$read_head" = "$pushed" ] || echo "trial_as_app: the push made $pushed, and the pull request still read $read_head" >&2

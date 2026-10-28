@@ -4898,7 +4898,7 @@ if "/contents/" in path:
 if path.endswith("/pulls") and method == "POST":
     answer(201, {"number": 7})
 if path.endswith("/pulls/7") and method == "GET":
-    stale = state.get("pushed") and not state.get("moved")
+    stale = os.environ.get("STANDIN_STALE") == "always" or (state.get("pushed") and not state.get("moved"))
     state["moved"] = bool(state.get("pushed"))
     answer(200, {"number": 7, "state": "open", "head": {"sha": ("c" if stale else "b") * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
 if path.endswith("/pulls/7/reviews"):
@@ -4948,6 +4948,13 @@ esac
                              capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
         return bin_, ran
 
+    def test_a_head_github_never_moves_is_read_five_times_and_said_so(self):
+        bin_, ran = self.run_threads(STANDIN_STALE="always")
+        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+        reads = [c for c in calls if any(a.endswith("/pulls/7") for a in c["argv"]) and "GET" in c["argv"]]
+        self.assertEqual(len(reads), 5)
+        self.assertIn("the push made " + "b" * 40 + ", and the pull request still read " + "c" * 40, ran.stderr)
+
     def test_the_token_is_read_after_the_last_status_lines_headers(self):
         # The mint's answer as curl -i prints it: through a proxy a block of its own comes first, and GitHub
         # pretty-prints an empty list across a blank line, which once hid the window's token, unread and unrevoked.
@@ -4962,6 +4969,7 @@ esac
                                  text=True, timeout=60)
             self.assertEqual((ran.returncode, ran.stdout), (0, token), answer[:40])
             self.assertNotIn(token, kept.read_text())
+            self.assertTrue(kept.read_text().startswith("HTTP/2 201"), kept.read_text()[:40])
 
     def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
         bin_, ran = self.run_threads()
@@ -5805,6 +5813,8 @@ if method == "POST" and url.endswith("/access_tokens"):
     code = status("mint", 201)
     body = {"token": "''' + "ghs_" + "P" * 36 + r'''", "expires_at": "2026-10-22T19:00:00Z",
             "permissions": {"actions_variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"}
+    if (here / "status-notoken").exists():
+        body.pop("token")
     print(json.dumps(body) + "\n" + str(code), end="")
     sys.exit(0)
 if method == "DELETE":
@@ -5879,14 +5889,21 @@ esac
         folder = self.stand_in(mint=403)
         out, ran = self.run_script(folder)
         self.assertEqual(ran.returncode, 1)
-        self.assertIn("no token was minted", ran.stderr)
+        self.assertIn("the mint was refused", ran.stderr)
         # The stand-in's refusal carries a token all the same, and the trap revokes it before the script ends; nothing
-        # else is asked.
+        # else is asked, and the token is said nowhere.
         said = self.calls(folder)
         self.assertEqual(len(said), 2, said)
         self.assertIn("installation/token", json.dumps(said[1]))
         self.assertIn("stopped with a token live", ran.stderr)
         self.assertFalse((out / "token.json").exists())
+        self.assertNotIn("ghs_", ran.stdout + ran.stderr)
+        self.assertFalse(any("ghs_" in f.read_text() for f in out.rglob("*") if f.is_file()) if out.exists() else False)
+        # A refusal that carries no token revokes nothing: one call, the mint.
+        folder = self.stand_in(mint=403, notoken=1)
+        out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual(len(self.calls(folder)), 1)
 
     def test_a_revocation_refused_stops_it_and_says_so(self):
         folder = self.stand_in(revoke=500)
