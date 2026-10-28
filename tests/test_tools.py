@@ -860,6 +860,11 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(self.team({"pr-review": self.review(), "pr-review-two": twin}),
                                "security is owned by ['pr-review', 'pr-review-two']"))
 
+    def test_the_review_role_permits_its_check_run_now_its_app_is_granted_it(self):  # decision 0059, Muse on #364
+        manifest = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        review = next(i for i in manifest["intents"] if i["name"] == "review-change")
+        self.assertEqual(review["permitted_effects"], ["submit_review", "create_check_run"])
+
     def test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app(self):  # section 5.4, decision 0005
         wide = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=["submit_review",
                                                                                          "create_check_run"])])
@@ -4884,12 +4889,18 @@ if path == "repos/%s" % repo:
     answer(200, {"full_name": repo, "default_branch": "main"})
 if path.endswith("/git/ref/heads/main"):
     answer(200, {"object": {"sha": "a" * 40}})
-if path.endswith("/git/refs") or "/contents/" in path:
+if path.endswith("/git/refs"):
     answer(201, {"ok": True})
+if "/contents/" in path:
+    # The commit the push makes; GitHub then reads the pull request's head as the old one once, as it did in window 2.
+    state["pushed"] = True
+    answer(201, {"commit": {"sha": "b" * 40}})
 if path.endswith("/pulls") and method == "POST":
     answer(201, {"number": 7})
 if path.endswith("/pulls/7") and method == "GET":
-    answer(200, {"number": 7, "state": "open", "head": {"sha": "b" * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
+    stale = state.get("pushed") and not state.get("moved")
+    state["moved"] = bool(state.get("pushed"))
+    answer(200, {"number": 7, "state": "open", "head": {"sha": ("c" if stale else "b") * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
 if path.endswith("/pulls/7/reviews"):
     state["reviews"] += 1
     answer(200, {"id": state["reviews"]})
@@ -4937,9 +4948,28 @@ esac
                              capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
         return bin_, ran
 
+    def test_the_token_is_read_after_the_last_status_lines_headers(self):
+        # The mint's answer as curl -i prints it: through a proxy a block of its own comes first, and GitHub
+        # pretty-prints an empty list across a blank line, which once hid the window's token, unread and unrevoked.
+        token = "ghs_" + "Q" * 36
+        body = json.dumps({"token": token, "repositories": [], "permissions": {"contents": "write"}}, indent=2)
+        script = self.SCRIPT.read_text()
+        parse = re.search(r"/access_tokens\" \|\n    python3 -I -c '\n(.*?)' \"\$raw\"\)", script, re.S).group(1)
+        for answer in ("HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n" + body.replace("[]", "[\n\n  ]"),
+                       "HTTP/1.1 200 Connection established\r\n\r\nHTTP/2 201 \r\nx: y\r\n\r\n" + body):
+            kept = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "02.raw"
+            ran = subprocess.run([sys.executable, "-I", "-c", parse, str(kept)], input=answer, capture_output=True,
+                                 text=True, timeout=60)
+            self.assertEqual((ran.returncode, ran.stdout), (0, token), answer[:40])
+            self.assertNotIn(token, kept.read_text())
+
     def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
         bin_, ran = self.run_threads()
         self.assertEqual(ran.returncode, 0, ran.stderr)
+        # The head it says is the commit its push made, read again until GitHub moved the pull request to it (window 2
+        # printed the head before the push).
+        self.assertIn("head " + "b" * 40, ran.stdout)
+        self.assertNotIn("still read", ran.stderr)
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
         calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
         curl_calls = [json.loads(line) for line in (bin_ / "curl-calls").read_text().splitlines()]
@@ -5850,7 +5880,12 @@ esac
         out, ran = self.run_script(folder)
         self.assertEqual(ran.returncode, 1)
         self.assertIn("no token was minted", ran.stderr)
-        self.assertEqual(len(self.calls(folder)), 1)
+        # The stand-in's refusal carries a token all the same, and the trap revokes it before the script ends; nothing
+        # else is asked.
+        said = self.calls(folder)
+        self.assertEqual(len(said), 2, said)
+        self.assertIn("installation/token", json.dumps(said[1]))
+        self.assertIn("stopped with a token live", ran.stderr)
         self.assertFalse((out / "token.json").exists())
 
     def test_a_revocation_refused_stops_it_and_says_so(self):
