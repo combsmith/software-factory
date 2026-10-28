@@ -25,7 +25,7 @@ Maintainer's terminal and recorded by `tools/context_eval.py` with no text of th
 | The fetch takes its token from its own environment alone, and reads with it, never writes | `tests/test_evals.py::test_the_fetch_step_takes_its_token_from_its_environment_alone` |
 | The job reads and writes a file of its own directory alone, named by one part | `tests/test_evals.py::test_the_job_reads_and_writes_a_file_of_its_own_directory_alone` |
 | A step of the job prints counts and codes, never what it raised | `tests/test_evals.py::test_a_step_says_counts_and_codes_and_never_what_it_raised` |
-| The review Intent's set has its cases, and the cutover waits on them | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases`, not held yet |
+| The review Intent's set has its cases, and the cutover waits on them | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases` |
 | A run's record holds paths, first words, counts and verdicts, and no word of the model's | `tests/test_tools.py::test_the_record_holds_paths_counts_and_verdicts_and_no_model_text` |
 | What cannot be read makes no record | `tests/test_tools.py::test_what_cannot_be_read_makes_no_record` |
 | The runner gives the CLI the named environment alone and judges by the held-out test, `make verify` and the mutation check | `tests/test_tools.py::test_a_run_is_judged_and_recorded_with_no_model_text` |
