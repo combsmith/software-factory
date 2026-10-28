@@ -3450,6 +3450,11 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
         self.assertTrue(caught(problems, "exchanges[1].response.headers.X-GitHub-SSO is not a header a fixture may keep"))
         self.assertFalse(caught(problems, "X-RateLimit-Used"))
+        # What the asking token may do is not kept: no rule needs it, and it advertises the Maintainer's scopes.
+        data["exchanges"][1]["response"]["headers"]["x-oauth-scopes"] = "admin:org, delete_repo, repo"
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "exchanges[1].response.headers.x-oauth-scopes is not a header a fixture may keep"))
+        self.assertNotIn("x-oauth-scopes", check_trials.HEADERS)
 
     def test_every_example_of_a_fixture_and_the_folder_notes_are_scanned(self):
         data = json.loads((ROOT / "examples" / "invalid" / "trial.run-outside-the-canary.json").read_text())
@@ -3920,6 +3925,12 @@ class Trials(unittest.TestCase):
             "a-write-carried-by-a-command-line": "carries a GraphQL write that is not one of WRITES",
             "a-write-carried-inside-an-answer-on-another-repos-node": "carries a write of enqueuePullRequest on a node no read",
             "a-write-on-a-node-a-read-naming-another-repo-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            # Only a read answered 200 ties a node, never a refused one or a write's answer; a comment hides no write, nor
+            # does another field of a GraphQL body.
+            "a-write-on-a-node-a-refused-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-on-a-node-a-post-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-behind-a-comment-in-a-command-line": "carries a GraphQL write that is not one of WRITES",
+            "a-write-in-another-field-of-a-graphql-body": "carries a GraphQL write that is not one of WRITES",
             "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
             "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
         }
