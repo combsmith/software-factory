@@ -2893,8 +2893,8 @@ REFUSALS = {
     ("P-44", 3): "runs",               # a list of runs GitHub did not find
     ("P-52", 2): "pause",              # the org's own variable, refused the Controller's token: the Pause unreadable
     # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
-    ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 18): None,
-    ("P-2.least", 28): None,
+    ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 19): None,
+    ("P-2.least", 30): None,
 }
 
 

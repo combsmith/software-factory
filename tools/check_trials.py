@@ -321,7 +321,28 @@ def _bound(args: str, key: str, variables: dict):
 WRITES = {"enqueuePullRequest": "pullRequestId", "dequeuePullRequest": "id", "enablePullRequestAutoMerge": "pullRequestId",
           "convertPullRequestToDraft": "pullRequestId", "resolveReviewThread": "threadId"}
 WRITE = re.compile(r"^\s*mutation\s*\(\s*\$id\s*:\s*ID!\s*\)\s*\{\s*(\w+)\s*\(\s*input\s*:\s*\{\s*(\w+)\s*:\s*\$id"
-                   r"(?:\s*,\s*mergeMethod\s*:\s*[A-Z]+)?\s*\}\s*\)\s*\{")
+                   r"(\s*,\s*mergeMethod\s*:\s*[A-Z]+)?\s*\}\s*\)\s*\{")
+# The canary's repository id, as its reads answer it (trials/P-49.json, trials/P-2.least.json). A node id GitHub issues
+# today is a prefix and base64url of msgpack [0, the repository's id, ...]: a write is held to a node of the canary by it.
+CANARY_ID = 1414593263
+
+
+def node_repo(node: str):
+    """The repository id a node id of GitHub's current form names, or None when it cannot be read as one."""
+    prefix, _, encoded = node.partition("_") if isinstance(node, str) else ("", "", "")
+    if not prefix.isalpha() or not encoded or not re.fullmatch(r"[A-Za-z0-9_-]+", encoded):
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+    except (ValueError, TypeError):
+        return None
+    if len(raw) < 3 or not 0x92 <= raw[0] <= 0x9f or raw[1] != 0:
+        return None
+    tag, rest = raw[2], raw[3:]
+    if tag <= 0x7f:
+        return tag
+    width = {0xcc: 1, 0xcd: 2, 0xce: 4, 0xcf: 8}.get(tag)
+    return int.from_bytes(rest[:width], "big") if width and len(rest) >= width else None
 
 
 def written(request: dict):
@@ -333,7 +354,8 @@ def written(request: dict):
             or not isinstance(variables, dict) or set(variables) != {"id"} or not isinstance(variables["id"], str):
         return None
     found = WRITE.match(query)
-    if not found or WRITES.get(found.group(1)) != found.group(2):
+    if not found or WRITES.get(found.group(1)) != found.group(2) \
+            or (found.group(3) and found.group(1) != "enablePullRequestAutoMerge"):
         return None
     depth, at = 1, found.end()
     while at < len(query) and depth:
@@ -509,6 +531,9 @@ def _repos(data: dict, installed) -> list:
         if write and write[1] not in nodes:
             out.append((where + ".body", "writes %s on a node no read of the canary alone in this fixture answered"
                         % write[0]))
+        elif write and node_repo(write[1]) != CANARY_ID:
+            out.append((where + ".body", "writes %s on a node that is not the canary's by its id: %s"
+                        % (write[0], node_repo(write[1]) or "an id that cannot be read")))
         owners, repos, wrong = _asked(request)
         out += [(where + ".call", what) for what in wrong]
         forks_named = {r.split("/")[0] for r in repos if fork(r)} - _orgs_named(request)

@@ -1242,8 +1242,9 @@ class Apps(unittest.TestCase):
                                          "table maps to pull_requests write"))
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
-        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("read:facts.queue")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 185"))
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:dequeue_merge")
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:dequeue_merge, which waits on the "
+                                             "Maintainer's grant of contents: write"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
@@ -3852,7 +3853,7 @@ class Trials(unittest.TestCase):
         # Window 2's answers are GraphQL writes, which name a node and no repo: a fixture may record one of WRITES, by
         # its one `id`, on a node a read of the canary alone in the same fixture answered, and nothing else.
         data = json.loads((ROOT / "examples" / "invalid" / "trial.a-write-on-a-node-no-read-answered.json").read_text())
-        data["exchanges"][1]["request"]["body"]["variables"]["id"] = "PR_kwA7"
+        data["exchanges"][1]["request"]["body"]["variables"]["id"] = data["exchanges"][0]["response"]["body"]["node_id"]
         self.assertEqual(check_trials.fixture_problems(data), [])
         for field, key in check_trials.WRITES.items():
             query = "mutation($id: ID!) { %s(input: {%s: $id}) { clientMutationId } }" % (field, key)
@@ -3860,6 +3861,13 @@ class Trials(unittest.TestCase):
                              (field, "N"))
             for wrong in (query.replace(key, "other"), query + " query { viewer { login } }", query.replace("$id", '"N"', 1)):
                 self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": wrong, "variables": {"id": "N"}}}))
+        # A merge method rides only on auto-merge; and a node id names its repository, read as GitHub writes it.
+        merged = "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id, mergeMethod: SQUASH}) { clientMutationId } }"
+        self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": merged, "variables": {"id": "N"}}}))
+        self.assertEqual(check_trials.node_repo("PR_kwDOVFD6788AAAABLI32PA"), check_trials.CANARY_ID)
+        self.assertEqual(check_trials.node_repo("PRRT_kwDOVFD6786w86vx"), check_trials.CANARY_ID)
+        for unreadable in ("", "PR_", "PR_!!", "MDExOlB1bGxSZXF1ZXN0MQ==", "PR_AAAA"):
+            self.assertIsNone(check_trials.node_repo(unreadable), unreadable)
         # The node a read answered is held only when that read is of the canary alone.
         outside = json.loads(json.dumps(data))
         outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
@@ -3906,6 +3914,7 @@ class Trials(unittest.TestCase):
             # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
             "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
             "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-on-another-repos-node-a-canary-read-holds": "on a node that is not the canary's by its id: 999999",
             "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
             "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
         }

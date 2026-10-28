@@ -26,7 +26,7 @@
         },
         "body": {
           "number": 7,
-          "node_id": "PR_kwA7",
+          "node_id": "PR_kwDOVFD67wc",
           "state": "open"
         }
       }
@@ -45,7 +45,7 @@
         "body": {
           "query": "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { state } } }",
           "variables": {
-            "id": "PR_kwA7"
+            "id": "PR_kwDOVFD67wc"
           }
         }
       },
