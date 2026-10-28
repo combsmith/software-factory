@@ -6,7 +6,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   `eval_set_empty`, before any credential is used (ruling 8);
 - `fetch` reads each case from the private home through `adapters/heldout.py`, with the Maintainer's read-only token, into
   a scratch directory outside the workspace, on a runner thrown away when the job ends;
-- `run` gives each case to the review Intent and scores its Result with `tools/eval_result.py` (the ruling's PR 2);
+- `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
+  (`harness/task.admitted`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too.
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails prints one code and
@@ -183,7 +184,17 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
                 (case["role"], case["intent"]) != (found["role"], found["intent"]):
             assessed[entry["id"]] = ("unreadable", ["not_this_set"])
             continue
-        said = eval_result.score(case, review(case))
+        # A case the review cannot be asked of, or not in time, is unreadable by its code; whatever else the review
+        # raised is unanswered, so that one case's fault leaves the report whole and the run failed.
+        try:
+            result = review(case)
+        except Stop as stop:
+            assessed[entry["id"]] = ("unreadable", [stop.code if stop.code in eval_result_codes() else "unanswered"])
+            continue
+        except Exception:
+            assessed[entry["id"]] = ("unreadable", ["unanswered"])
+            continue
+        said = eval_result.score(case, result)
         assessed[entry["id"]] = (said["verdict"], list(dict.fromkeys(said["reasons"])))
     return assessed
 

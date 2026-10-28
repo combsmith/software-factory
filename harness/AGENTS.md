@@ -3,7 +3,7 @@
 The Harness: the jobs that carry one Run. `task.py` builds the Task from the Decision that admitted the Run, `engine.py` runs the CLI on it, with no tool and no secret but its own, and `run.py` writes the Result and its digest alone. `apply.py` reads the item
 again, refuses what may not be written, writes the Effects with a token narrowed to them and records what it read back; `approve.py` is the approving act, a Run with no Engine, through the machine user's token alone (decision 0055). Steps: `read.py`, the
 reader's; `verify.py`; `apply_step.py` and `outcome.py`; `approve_step.py`; `reread.py`, the item read again; `steps.py`, their files. `eval/` is the eval job's steps (decision 0053; rules in `evals/AGENTS.md`). Every test drives a stand-in for the CLI.
-Not built yet, by the stories that hold their rules: push.py, eval/run.py.
+Not built yet, by the stories that hold their rules: push.py.
 
 | Rule | Held by |
 |---|---|

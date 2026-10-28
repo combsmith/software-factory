@@ -78,7 +78,7 @@ SHIMS = {}
 # jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196). The release job
 # moves the Release every Run calls, so it cannot be one: it runs main's file, and release_problems holds every line of
 # it (issue 197's ruling 4′).
-SHAPED = {"eval.yml": ("shim",), "run-jobs.yml": ("install",), "release.yml": ("shim",)}
+SHAPED = {"eval.yml": ("shim", "install"), "run-jobs.yml": ("install",), "release.yml": ("shim",)}
 # The one workflow that wakes on another's end, and the one job granted a write (issue 196's ruling 4).
 WAKES = "poller.yml"
 # The Run's lane (issue 196's ruling 6): one concurrency group for each Work item, on the one job that calls the Run's
@@ -447,7 +447,15 @@ EVAL_STEP = "python3 -m harness.eval.%s"
 # The one upload the eval job may run, by its commit, as CHECKOUT is the one checkout: an action in the one job that
 # holds both credentials can read them both (decision 0053), so a bump of it edits this too.
 UPLOAD = ("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", "# v7.0.2")
-EVAL_ORDER = ("checkout", "plan", "fetch", "run", "upload", "judge")
+EVAL_ORDER = ("checkout", "plan", "fetch", "install", "run", "upload", "judge")
+# The CLI's install, the one the Run's jobs hold word for word in RUN_JOBS_FILE: the eval job installs the CLI a live
+# Run does, at the Engine's pin and by the vendor's checksum, between the fetch and the model's step (issue 309,
+# amendment 1). Its version and checksum are given under env:, as RUN_JOBS_FILE gives them.
+CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
+                   "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
+                   'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c',
+                   "chmod 0755 /tmp/claude",
+                   "sudo mv /tmp/claude /usr/local/bin/claude"]
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
 # What each step may be given, under with: or env:, exactly: a step's own keys beside these are refused.
 EVAL_GIVEN = {
@@ -458,7 +466,10 @@ EVAL_GIVEN = {
     # secret's value there, and nowhere a variable's.
     "fetch": {"env": {"HELDOUT_TOKEN": "${{ secrets.HELDOUT_TOKEN }}", "HELDOUT_OWNER": "${{ secrets.HELDOUT_OWNER }}",
                       "HELDOUT_REPO": "${{ secrets.HELDOUT_REPO }}"}},
-    "run": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"}},
+    # The CLI's version and checksum are the Engine's pin's, given at the check (eval_problems).
+    "install": {"env": {"CLI_VERSION": None, "CLI_CHECKSUM": None}},
+    "run": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}",
+                    "CLAUDE_CLI": "/usr/local/bin/claude"}},
     "upload": {"with": {"name": "eval-report", "path": "eval-report.json", "if-no-files-found": "error",
                         "retention-days": "90"}},
     "judge": {},
@@ -1029,22 +1040,32 @@ def _kind(step: dict) -> str:
             return "checkout"
         return "upload" if (uses, step["uses"]["comment"]) == UPLOAD else None
     command = _lines(step.get("run"))
+    if "uses" not in step and step.get("run", {}).get("value") == "|" and command == CLI_INSTALL_RUN:
+        return "install"
     for name in EVAL_ORDER:
         if name not in EVAL_ACTIONS and command == [EVAL_STEP % name] and "uses" not in step:
             return name
     return None
 
 
-def eval_problems(text: str) -> list:
+def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
     """What is wrong with eval.yml's shape (issue 309, ruling 10), each a sentence. It runs on `workflow_dispatch` alone,
     with one input, the Release it judges, and one job, `eval`, on the environment `factory-eval`, granted
     `contents: read` alone and given no env: of its own. Its steps are EVAL_ORDER, each given exactly what EVAL_GIVEN
     says and nothing else: the Maintainer's token for the held-out home by `fetch` alone, the model's
     credential by `run` alone, so no step holds both, and the upload takes the report alone. Every other spelling is
-    refused: a check reads what it names, never what it can guess."""
+    refused: a check reads what it names, never what it can guess. The CLI's install is CLI_INSTALL_RUN, word for word,
+    given the Engine's pin in config/harness.json and its checksum in CLI_CHECKSUMS, as the Run's jobs' is."""
     entries, bad = read(text)
     if bad:
         return ["line %d is not in the narrow form" % bad[0]]
+    try:
+        version = json.loads((root / "config" / "harness.json").read_text())["engine"]["version"]
+    except (OSError, ValueError, KeyError, TypeError):
+        version = None
+    if not isinstance(version, str) or version not in CLI_CHECKSUMS:
+        return ["config/harness.json pins no CLI whose checksum CLI_CHECKSUMS holds, so no install of it can be held"]
+    given_of = dict(EVAL_GIVEN, install={"env": {"CLI_VERSION": version, "CLI_CHECKSUM": CLI_CHECKSUMS[version]}})
     problems = []
     # Nothing above the job: an env: or a default there would reach every step, the model's among them.
     if {e["key"]: e["value"] for e in entries if e["path"] == []} != EVAL_TOP:
@@ -1077,9 +1098,9 @@ def eval_problems(text: str) -> list:
         for under in ("with", "env"):
             given = {e["key"]: e["value"] for e in entries if e["step"] == number
                      and e["path"] == ["jobs", EVAL_JOB, "steps", under]}
-            if given != EVAL_GIVEN[kind].get(under, {}):
-                problems.append("its %s step is given under %s: %s, exactly" % (kind, under, EVAL_GIVEN[kind].get(under, {})))
-            if under in step and (step[under]["value"] or under not in EVAL_GIVEN[kind]):
+            if given != given_of[kind].get(under, {}):
+                problems.append("its %s step is given under %s: %s, exactly" % (kind, under, given_of[kind].get(under, {})))
+            if under in step and (step[under]["value"] or under not in given_of[kind]):
                 problems.append("its %s step has a %s: it is not given" % (kind, under))
     return problems
 
@@ -1361,7 +1382,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: holds the job %s and no other, or it is not the eval job's workflow"
                             % (path.relative_to(root), EVAL_JOB))
         if path.name == EVAL_WORKFLOW:
-            problems += ["%s: %s" % (path.relative_to(root), p) for p in eval_problems(raw(path))]
+            problems += ["%s: %s" % (path.relative_to(root), p) for p in eval_problems(raw(path), root)]
         else:
             for number, line in enumerate(raw(path).split("\n"), 1):
                 if MODEL_SECRET.search(line) and path.name not in MODEL_WORKFLOWS:

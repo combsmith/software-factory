@@ -9,6 +9,7 @@ import json
 import pathlib
 import re
 import unittest
+import unittest.mock
 from unittest import mock
 
 from tests.support import pending
@@ -17,46 +18,9 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SET = ROOT / "evals" / "pr-review" / "cases.json"
-# The eval job's workflow as issue 309's ruling 10 shapes it, for the check to hold: the live file lands with its `run`
-# step's Task (the ruling's PR 2), and until then this text is the shape.
-EVAL_WORKFLOW = """name: factory
-on:
-  workflow_dispatch:
-    inputs:
-      release:
-        required: true
-        type: string
-permissions: {}
-jobs:
-  eval:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    permissions:
-      contents: read
-    environment: factory-eval
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: python3 -m harness.eval.plan
-        env:
-          RELEASE: ${{ inputs.release }}
-      - run: python3 -m harness.eval.fetch
-        env:
-          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}
-          HELDOUT_OWNER: ${{ secrets.HELDOUT_OWNER }}
-          HELDOUT_REPO: ${{ secrets.HELDOUT_REPO }}
-      - run: python3 -m harness.eval.run
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: eval-report
-          path: eval-report.json
-          if-no-files-found: error
-          retention-days: 90
-      - run: python3 -m harness.eval.judge
-"""
+# The eval job's workflow, the live file, as issue 309's ruling 10 and its first amendment shape it: the planted faults
+# below are made from it.
+EVAL_WORKFLOW = (ROOT / ".github" / "workflows" / "eval.yml").read_text()
 
 
 def load(rel: str):
@@ -242,6 +206,8 @@ class TheSet(unittest.TestCase):
         # since eval_problems holds every line of it, and keeps every other rule.
         self.assertEqual([r for r in check_workflows.lint(EVAL_WORKFLOW) if r[0] not in check_workflows.SHAPED["eval.yml"]], [])
         token = "          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}\n"
+        install = EVAL_WORKFLOW[EVAL_WORKFLOW.index("      - env:\n          CLI_VERSION"):
+                                EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.run\n")]
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         broken = {
             "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "its fetch step is given under env"),
@@ -305,12 +271,36 @@ class TheSet(unittest.TestCase):
             "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
                                       "nothing else above its job"),
             "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
+            # The CLI's install, between the fetch and the model's step, at the Engine's pin by its checksum, word for
+            # word as the Run's jobs install it (issue 309, amendment 1).
+            "the CLI at another version": (EVAL_WORKFLOW.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.305"'),
+                                           "its install step is given under env"),
+            "the CLI by another checksum": (EVAL_WORKFLOW.replace('CLI_CHECKSUM: "520bc6', 'CLI_CHECKSUM: "000000'),
+                                            "its install step is given under env"),
+            "the model's credential at the install": (EVAL_WORKFLOW.replace('          CLI_VERSION: "2.1.306"\n',
+                                                                            '          CLI_VERSION: "2.1.306"\n' + model),
+                                                      "its install step is given under env"),
+            "the CLI unchecked": (EVAL_WORKFLOW.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
+                                  "in that order"),
+            "the CLI's block folded": (EVAL_WORKFLOW.replace("        run: |\n          url=", "        run: >\n          url="),
+                                       "in that order"),
+            "the CLI after the model": (EVAL_WORKFLOW.replace(install, "").replace(
+                "      - uses: actions/upload-artifact", install + "      - uses: actions/upload-artifact"), "in that order"),
+            "the CLI from another path": (EVAL_WORKFLOW.replace("CLAUDE_CLI: /usr/local/bin/claude", "CLAUDE_CLI: /tmp/claude"),
+                                          "its run step is given under env"),
             "a second job": (EVAL_WORKFLOW + "  other:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"
                                              "    environment: factory-poller\n    steps:\n      - run: make verify\n",
                              "it holds the job eval and no other"),
         }
         for why, (text, words) in broken.items():
+            self.assertNotEqual(text, EVAL_WORKFLOW, why)
             self.assertTrue(caught(check_workflows.eval_problems(text), words), why)
+        # The install is the one the Run's jobs hold word for word, and a pin with no checksum holds no install at all.
+        self.assertIn("\n".join("          " + line for line in check_workflows.CLI_INSTALL_RUN),
+                      check_workflows.RUN_JOBS_FILE)
+        unpinned = clone({"config/harness.json": json.dumps(dict(load("config/harness.json"), engine=dict(
+            load("config/harness.json")["engine"], version="9.9.9")))})
+        self.assertTrue(caught(check_workflows.eval_problems(EVAL_WORKFLOW, unpinned), "pins no CLI whose checksum"))
         # Run whole: the shape is held in eval.yml, and no other workflow names its environment, the home or its steps.
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW}))
         self.assertEqual(problems, [])
@@ -595,6 +585,88 @@ class EvalJob(unittest.TestCase):
             with self.assertRaises(job.Stop) as stopped:
                 job.within(self.work, name)
             self.assertEqual(stopped.exception.code, "path_outside", name)
+
+    def reviewed(self):
+        """A held-out case of the review Intent, as #183 writes them: its facts name the content its diff is, so its
+        Task is a live Run's Task of that content. Made from tests/test_harness.py's change; nothing of the home."""
+        from tests import test_harness as live
+        case = dict(load("examples/eval-case.json"), id="poc-reviewed", facts=live.facts(), diff=live.DIFF.decode())
+        return case, live
+
+    def test_a_case_is_reviewed_by_the_task_and_the_engine_a_live_run_is(self):  # issue 309, ruling 5
+        # What is measured is what runs: the case's Task is the one a live Run admitted for the same content is given,
+        # but for its Run id, and the CLI is called as a live Run calls it, the Task as data, with no tool.
+        from harness import engine, task
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        env = dict(live.JOB, HELDOUT_TOKEN="a-stand-in-held-out-token", HELDOUT_OWNER="o")
+        with unittest.mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = step.reviewer(env, "factory/v0.1.0", cli, live.Clock(0.0, 0.0, 1.0, 2.0))(case)
+        self.assertEqual((result["status"], result["run"]), ("completed", live.RUN))
+        asked, = cli.asked()
+        given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
+        config = dict(live.config(), release="factory/v0.1.0")
+        config["harness"] = live.HARNESS
+        manifest = load("roles/pr-review.json")
+        self.assertEqual(given, task.build(live.record(), live.RUN, live.facts(), [], manifest, [], config, live.DIFF))
+        self.assertTrue(engine.no_tool(asked["args"]))
+        # The model's credential reaches the CLI, and nothing of the home: not its token, nor where it is.
+        self.assertEqual(asked["env"]["CLAUDE_CODE_OAUTH_TOKEN"], live.TOKEN)
+        self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
+        self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
+
+    def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
+        from harness.eval import run as step
+        from harness import eval as job
+        case, live = self.reviewed()
+        # A case whose facts do not name the content its diff is, or that is no pull request's, is no case of this
+        # set: no Task, and nothing asked of the model.
+        for bad in (dict(case, diff=case["diff"] + "+more\n"), dict(case, facts=dict(case["facts"], item={"x": 1})),
+                    dict(case, facts=dict(case["facts"], content_id=None))):
+            cli = live.CLI()
+            with self.assertRaises(job.Stop) as stopped:
+                step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, 0.0))(bad)
+            self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
+        # Less time left than a case's tier allows: the step starts no case, and the case is unanswered.
+        cli = live.CLI()
+        late = live.HARNESS["limits"]["standard"]["seconds"]
+        review = step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late + 1))
+        with self.assertRaises(job.Stop) as stopped:
+            review(case)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
+        # With just the tier's time left, it is asked.
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with unittest.mock.patch.object(step, "run_id", lambda: live.RUN):
+            step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late, 1.0, 2.0))(case)
+        self.assertEqual(len(cli.asked()), 1)
+
+    def test_the_run_step_writes_the_report_whatever_a_case_raised(self):  # issue 309, ruling 4
+        # A case the review raises on is unanswered, one it cannot be asked of is unreadable by its code, and the
+        # report of every case is written all the same, so that the upload finds it and judge fails the run.
+        from harness import eval as job
+        from harness.eval import run as step
+        # A step module once imported takes its function's name in the package: each is read through its module too.
+        plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
+        self.assertEqual(self.step(plan), "planned 2 cases")
+        self.assertEqual(self.step(fetch, self.home(self.cases)), "fetched 2 of 2 cases")
+        said = {"poc-two": job.Stop("not_this_set")}
+
+        def review(case):
+            if case["id"] in said:
+                raise said[case["id"]]
+            raise RuntimeError("a fault that quotes %s" % case["diff"])
+        self.assertEqual(self.step(job.score, review), "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
+                         [("unreadable", ["unanswered"]), ("unreadable", ["not_this_set"])])
+        self.assertEqual(self.step(judge), "case_failed")
+        # The step itself, as the workflow runs it: the checkout's Role and configuration, each case Stopped here
+        # because the example's facts do not name its diff, and the report written.
+        (self.work / job.REPORT).unlink()
+        self.assertEqual(self.step(step.step), "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual({tuple(c["reasons"]) for c in written["cases"]}, {("not_this_set",)})
 
     def test_a_step_says_counts_and_codes_and_never_what_it_raised(self):
         # Whatever a step raised is never printed: its message could quote a case or name the home.

@@ -112,6 +112,19 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     with open(diff, "rb") as f:
         change = f.read()
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
+    result = answer(the_task, job_env, config, call, clock, session or str(uuid.uuid4()))
+    data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
+    digest = "sha256:" + hashlib.sha256(data).hexdigest()
+    # The Result is its own user's alone to read, as every step's files are (`harness/steps.py`).
+    os.makedirs(out, 0o700)
+    steps.write(out, "result.json", data)
+    steps.write(out, "result.sha256", (digest + "\n").encode())
+    return digest
+
+
+def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.monotonic, session: str = None) -> dict:
+    """The Result of `the_task`: the Engine's, or a failed one for the Factory's own fault read before the CLI starts.
+    A live Run and a held-out case are answered by this one function (issue 309, ruling 5)."""
     session = session or str(uuid.uuid4())
     fault, told = None, None
     if the_task["intent"] in REVIEWING and any(o["kind"] == "diff" for o in the_task["omitted"]):
@@ -125,17 +138,9 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
             fault = "rubric_unreadable"
     if fault:
         # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
-        result = engine.failed(the_task, fault, engine.usage_of(config["harness"], session))
-    else:
-        result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
-                            session, told)
-    data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
-    digest = "sha256:" + hashlib.sha256(data).hexdigest()
-    # The Result is its own user's alone to read, as every step's files are (`harness/steps.py`).
-    os.makedirs(out, 0o700)
-    steps.write(out, "result.json", data)
-    steps.write(out, "result.sha256", (digest + "\n").encode())
-    return digest
+        return engine.failed(the_task, fault, engine.usage_of(config["harness"], session))
+    return engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock, session,
+                      told)
 
 
 RUN_ID = re.compile(r"r_[0-9A-Z]{6,26}")

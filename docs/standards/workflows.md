@@ -174,7 +174,8 @@ things: the download is held to HTTPS, and it reads its rules, `.gitleaks.toml` 
 head it scans, which can neither hide a file with `.gitattributes` nor pass over one with `gitleaks:allow` (decision 0023). Trial P-8's tick probe,
 whose one step was `exit 0` since GitHub refuses a step that runs nothing, was a second while it ran, and went with its exemption when the trial was
 recorded (`trials/P-8.ticks.json`). A second is the CLI's install in `.github/workflows/run-jobs.yml`, which the check holds word for word: the
-Engine's pin, over HTTPS, checked against the sha256 the vendor's release manifest gives.
+Engine's pin, over HTTPS, checked against the sha256 the vendor's release manifest gives. The eval job's install in `.github/workflows/eval.yml` is
+the same block, given the same pin and checksum, between its fetch and its model's step, so that what is measured is the CLI a Run calls.
 
 Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: a limit of ten lines, and nothing fetched but by push-protection.md, "Required CI job", which runs as the org wrote it.
 Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`, `examples/workflows/invalid/install.a-decision-in-shell.yml`, `examples/workflows/invalid/install.a-step-that-only-exits.yml`, `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word`, `tests/test_tools.py::test_the_secret_scan_reads_the_bases_configuration`
