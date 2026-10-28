@@ -35,7 +35,8 @@
       "name": "review-change",
       "tier": "standard",
       "permitted_effects": [
-        "submit_review"
+        "submit_review",
+        "create_check_run"
       ],
       "budget_class": "gate",
       "evals": "evals/pr-review"

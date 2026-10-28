@@ -370,6 +370,7 @@ class World:
         ctx = {"paused": False, "active_runs": active, "model_deferred_until": None,
                "passes_since": self.at(self.chain), "unidentified_runs": []}
         if self.pausing():
+            # GitHub: the_pause_is_read_with_the_controllers_token
             if self.pause_reading is None:
                 del ctx["paused"]       # the Controller could not read whether Admission is paused
             else:

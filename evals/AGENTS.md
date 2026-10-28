@@ -28,7 +28,7 @@ Maintainer's terminal and recorded by `tools/context_eval.py` with no text of th
 | A case that names other content, or comes too late, is not reviewed; the step's time is held inside the job's | `tests/test_evals.py::test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed` |
 | The report is written whatever a case raised | `tests/test_evals.py::test_the_run_step_writes_the_report_whatever_a_case_raised` |
 | A step of the job prints counts and codes, never what it raised | `tests/test_evals.py::test_a_step_says_counts_and_codes_and_never_what_it_raised` |
-| The review Intent's set has its cases, and the cutover waits on them | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases`, not held yet |
+| The review Intent's set has its cases, and the cutover waits on them | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases` |
 | A run's record holds paths, first words, counts and verdicts, and no word of the model's | `tests/test_tools.py::test_the_record_holds_paths_counts_and_verdicts_and_no_model_text` |
 | What cannot be read makes no record | `tests/test_tools.py::test_what_cannot_be_read_makes_no_record` |
 | The runner gives the CLI the named environment alone and judges by the held-out test, `make verify` and the mutation check | `tests/test_tools.py::test_a_run_is_judged_and_recorded_with_no_model_text` |

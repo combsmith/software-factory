@@ -329,12 +329,12 @@ class TheSet(unittest.TestCase):
                                               ".github/workflows/other.yml": other}))
         self.assertTrue(caught(problems, "other.yml: line"), problems)
 
-    @pending
     def test_the_review_intents_eval_set_has_its_cases(self):
         # Decision 0010: an Intent family is cut over only after its eval set exists. The cases are written in the
-        # private home by a session opened there, and this manifest then carries their hashes (issue 183).
+        # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
+        # with a Finding and as many of a change that was right: forty at least, though the manifest keeps no case's kind.
         manifest = json.loads(SET.read_text())
-        self.assertGreaterEqual(manifest["count"], 20)
+        self.assertGreaterEqual(manifest["count"], 40)
 
     @pending
     def test_a_fresh_agent_given_the_repo_adds_a_rule_and_passes_the_check(self):
@@ -411,10 +411,12 @@ class EvalJob(unittest.TestCase):
 
     def test_a_set_of_no_case_ends_the_run_before_anything_is_read(self):
         import os
-        # Ruling 8: the set this repo holds today has no case; the run says so and makes nothing, not even the scratch.
+        # Ruling 8: a set of no case ends the run, which says so and makes nothing, not even the scratch.
         from harness import eval as job
-        self.assertEqual(self.step_root(job.plan), "eval_set_empty")
+        self.set({})
+        self.assertEqual(self.step(job.plan), "eval_set_empty")
         self.assertEqual(list(self.temp.iterdir()), [])
+        self.set(self.cases)
         for env, code in (({"RELEASE": "v0.1.0"}, "release_unreadable"), ({"RELEASE": None}, "release_unreadable"),
                           ({"GITHUB_SHA": "a" * 39}, "commit_unreadable"),
                           # A relative path is refused, even one to a directory that could be the scratch.
@@ -437,13 +439,6 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         try:
             return step(dict(self.env), self.root, work)
-        except job.Stop as stop:
-            return stop.code
-
-    def step_root(self, step):
-        from harness import eval as job
-        try:
-            return step(dict(self.env), ROOT, self.work)
         except job.Stop as stop:
             return stop.code
 
