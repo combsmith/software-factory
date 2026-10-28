@@ -676,8 +676,8 @@ class EvalJob(unittest.TestCase):
             step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, 0.0))(dict(case, diff="\ud800"))
         self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
         # Only the eval job builds a Task from an admission it holds itself; every other Task is a pass record's.
-        callers = sorted(str(p.relative_to(ROOT)) for p in ROOT.rglob("*.py") if "from_admission(" in p.read_text()
-                         and not str(p.relative_to(ROOT)).startswith(("tests/", ".claude/")))
+        callers = sorted(p.relative_to(ROOT).as_posix() for p in walk.files(ROOT) if p.suffix == ".py"
+                         and not p.relative_to(ROOT).as_posix().startswith("tests/") and "from_admission(" in p.read_text())
         self.assertEqual(callers, ["harness/eval/run.py", "harness/task.py"])
 
     def test_the_run_step_writes_the_report_whatever_a_case_raised(self):  # issue 309, ruling 4
