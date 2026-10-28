@@ -2387,6 +2387,11 @@ class Recorded(unittest.TestCase):
         # Without it, or told no current content, the record still holds the pull request.
         self.assertFalse(self.held([thread_node("PRRT_1")], recorded_)[1])
         self.assertFalse(self.held([thread_node("PRRT_1")], recorded_[:2], content_id="sha256:new")[1])
+        # No current content is none, though a later Run's record names no content in the same way.
+        for none in (None, ""):
+            later = dict(lens_run(self.LATER), content_id=none, started_at="2026-10-21T17:00:00Z")
+            recorded_none = self.two_runs([finding_on("PRRT_7")], [], later_run=later)
+            self.assertFalse(self.held([thread_node("PRRT_1")], recorded_none, content_id=none)[1], none)
         # A problem that still stands is raised again by the later review, on a thread of its own, held to its opener.
         recorded_ = self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_9")])
         self.assertTrue(self.held([thread_node("PRRT_9", LENS)], recorded_, content_id="sha256:new")[1])
@@ -3306,6 +3311,13 @@ class Rules(unittest.TestCase):
         gone = self.answer()
         gone["response"].update(status=404, body={"message": "Not Found"})
         self.assertEqual(self.read(gone), unreadable)
+        # An answer that is no 200 is none, though its body is the file's.
+        refused = self.answer()
+        refused["response"]["status"] = 404
+        self.assertEqual(self.read(refused), unreadable)
+        # A size that is no integer is none, though it counts the file's bytes.
+        whole = self.answer()
+        self.assertEqual(self.read(self.answer(size=float(whole["response"]["body"]["size"]))), unreadable)
         # A directory's answer is a list of its entries.
         listing = self.answer()
         listing["response"]["body"] = [listing["response"]["body"]]
@@ -3314,7 +3326,7 @@ class Rules(unittest.TestCase):
         class Unasked:
             def send(self, req):
                 raise AssertionError("asked %s" % req)
-        for repo, sha in (("o", self.SHA), ("o/..", self.SHA), ("o/r/x", self.SHA), ("o/r", "main"), ("o/r", "B" * 40),
+        for repo, sha in (("o", self.SHA), ("o/..", self.SHA), ("o/.", self.SHA), ("o/r/x", self.SHA), ("o/r", "main"), ("o/r", "B" * 40),
                           (None, self.SHA), ("o/r", None)):
             self.assertEqual(self.read(repo=repo, sha=sha, transport=Unasked()), unreadable, (repo, sha))
         # A read the transport cannot answer is unreadable.

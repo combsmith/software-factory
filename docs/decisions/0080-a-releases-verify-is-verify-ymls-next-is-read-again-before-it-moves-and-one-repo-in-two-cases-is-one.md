@@ -32,4 +32,5 @@ its write, a ring check that missed one spelling, and readings no test held.
 | Each name only `.github/workflows/release.yml` may hold, named in another workflow, is refused | `tests/test_release_workflow.py::test_only_release_yml_names_the_release_jobs_environment_key_token_or_step` |
 | A step of bare text, and a `with:` given a text, are refused in `.github/workflows/release.yml` | `tests/test_release_workflow.py::test_each_counter_example_is_refused_for_its_one_fault` |
 | A Run whose Release moved and whose token was not revoked leaves no outcome | `tests/test_steps.py::test_a_run_on_another_release_than_its_pass_builds_no_task` |
+| An empty `with:` on the step that takes none, and a step of text after the steps' keys, are refused in `.github/workflows/release.yml` | `tests/test_release_workflow.py::test_each_counter_example_is_refused_for_its_one_fault` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
