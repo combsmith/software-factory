@@ -8603,6 +8603,10 @@ MUTANTS = ISSUE + [
      '"step": {"run", "env"}}', '"step": {"run", "env", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     ("a step of text after a step's keys is not read", 'tools/check_workflows.py',
      'if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):', 'if lead < indent or not raw.lstrip(" ").startswith("- "):', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    # Muse's read of #383: the one reader of the list refuses a pattern no path may hold.
+    ("the hooks read a path with a control character or a backslash", "tools/hooks/protected.py",
+     '    if any(re.search(r"[\\x00-\\x1f\\x7f\\\\]", p) for p, _ in paths):\n', "    if False:\n",
+     ("tests.test_hooks.RulesChanged.test_a_path_with_a_control_character_or_a_backslash_is_refused",)),
 ]
 
 
