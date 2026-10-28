@@ -109,10 +109,12 @@ KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "
                 "output_tokens_details"}
 # The headers a fixture may keep, compared in lower case. Any other is left out: allow what is named.
 # age and if-none-match: the records port keeps a read's age, and may ask by its etag (decision 0036, ruling 4).
+# x-oauth-scopes is not among them: it names what the token that asked may do, the Maintainer's admin scopes among
+# them, which no rule needs and a public repo should not advertise (the orchestrator's ruling, 2026-10-28).
 HEADERS = {"accept", "age", "cache-control", "content-length", "if-none-match", "content-type", "date", "etag", "last-modified", "link",
            "location", "retry-after", "server", "user-agent", "vary", "x-accepted-github-permissions",
            "x-accepted-oauth-scopes", "x-github-api-version", "x-github-media-type", "x-github-request-id",
-           "x-oauth-scopes", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",
+           "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",
            "x-ratelimit-resource", "x-ratelimit-used"}
 # What a credential looks like inside any string, at any length and in any case.
 SHAPES = re.compile("|".join((
@@ -351,6 +353,7 @@ def written(request: dict):
     body = request.get("body") if isinstance(request, dict) and isinstance(request.get("body"), dict) else {}
     query, variables = body.get("query"), body.get("variables")
     if request.get("via") != "graphql" or not isinstance(query, str) or '"' in query or "#" in query \
+            or set(body) != {"query", "variables"} \
             or not isinstance(variables, dict) or set(variables) != {"id"} or not isinstance(variables["id"], str):
         return None
     found = WRITE.match(query)
@@ -364,8 +367,9 @@ def written(request: dict):
     return (found.group(1), variables["id"]) if depth == 0 and query[at:].strip() == "}" else None
 
 
-# One repeated class before the brace, so the match is linear in the text (Sonar's S8786).
-MUTATION = re.compile(r"\bmutation\b[\s\w$:!,()\[\]]*\{")
+# Anything but a brace between the word and its brace, a GraphQL comment among it, in one repeated class, so the match
+# is linear in the text (Sonar's S8786).
+MUTATION = re.compile(r"\bmutation\b[^{}]*\{")
 
 
 def _sent_writes(value) -> list:
@@ -382,6 +386,14 @@ def _sent_writes(value) -> list:
     elif isinstance(value, str) and MUTATION.search(value):
         out.append(None)
     return out
+
+
+def _a_read(request: dict) -> bool:
+    """Whether a request reads: a GraphQL query, or a REST GET. Only a read's answer ties a node to a repo."""
+    if request.get("via") == "graphql":
+        body = request.get("body") if isinstance(request.get("body"), dict) else {}
+        return isinstance(body.get("query"), str) and body["query"].lstrip().startswith(("query", "{"))
+    return request.get("via") == "rest" and isinstance(request.get("call"), str) and request["call"].startswith("GET ")
 
 
 def _nodes(value) -> set:
@@ -538,7 +550,7 @@ def _repos(data: dict, installed) -> list:
     for exchange in data.get("exchanges") or []:
         request = exchange.get("request") if isinstance(exchange, dict) else None
         response = exchange.get("response") if isinstance(exchange, dict) and isinstance(exchange.get("response"), dict) else {}
-        if isinstance(request, dict) and not written(request):
+        if isinstance(request, dict) and _a_read(request) and response.get("status") == 200:
             owners, repos, wrong = _asked(request)
             if not wrong and repos == {canary} and set(_named(response.get("body"))) <= {canary}:
                 nodes |= _nodes(response.get("body"))
@@ -557,7 +569,12 @@ def _repos(data: dict, installed) -> list:
         # A write carried any other way, by a command line, a workflow, or inside an answer, is held as one sent: one of
         # WRITES, on a node of the canary a read here answered; a mutation in any other text is refused.
         response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
-        carried = _sent_writes({k: v for k, v in request.items() if not (k == "body" and request.get("via") == "graphql")}) \
+        # A GraphQL request's own query and variables are its read or its write, held above; any other field of its body
+        # is scanned as the rest of the exchange is.
+        body = request.get("body") if isinstance(request.get("body"), dict) else {}
+        own = request.get("via") == "graphql"
+        carried = _sent_writes({k: v for k, v in request.items() if not (own and k == "body")}) \
+            + _sent_writes({k: v for k, v in body.items() if k not in ("query", "variables")} if own else {}) \
             + _sent_writes(response)
         for sent in carried:
             held = written({"via": "graphql", "body": sent}) if sent is not None else None
