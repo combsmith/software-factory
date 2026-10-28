@@ -338,9 +338,10 @@ class TheSet(unittest.TestCase):
 
     def test_the_review_intents_eval_set_has_its_cases(self):
         # Decision 0010: an Intent family is cut over only after its eval set exists. The cases are written in the
-        # private home by a session opened there, and this manifest then carries their hashes (issue 183).
+        # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
+        # with a Finding and as many of a change that was right: forty at least, though the manifest keeps no case's kind.
         manifest = json.loads(SET.read_text())
-        self.assertGreaterEqual(manifest["count"], 20)
+        self.assertGreaterEqual(manifest["count"], 40)
 
     @pending
     def test_a_fresh_agent_given_the_repo_adds_a_rule_and_passes_the_check(self):
