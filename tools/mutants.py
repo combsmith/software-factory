@@ -893,6 +893,9 @@ ISSUE = [
 
 MUTANTS = ISSUE + [
     # Issue 378: the approving act approves only a pull request open at the commit, and claims none closed under it.
+    ('an approval is recovered on a timeline read short', 'harness/approve.py',
+     ' \\\n            and (facts.get("complete") or {}).get("timeline") is True:',
+     ':', ("tests.test_approve",)),
     ("a reopening's time that cannot be read is read", 'kernel/derive.py',
      '    if "last_reopened_at" not in facts or not (facts["last_reopened_at"] is None or is_time(facts["last_reopened_at"])):\n        return True\n    for rv in facts["reviews"]:',
      '    for rv in facts["reviews"]:', ("tests.test_decide",)),
@@ -900,8 +903,8 @@ MUTANTS = ISSUE + [
      '            done = {"state": None}\n',
      '            pass\n', ("tests.test_approve",)),
     ("a closed pull request's approval is recovered", 'harness/approve.py',
-     ' and facts.get("state") == "open":',
-     ':', ("tests.test_approve",)),
+     ' and facts.get("state") == "open" \\\n',
+     ' \\\n', ("tests.test_approve",)),
     ('a pull request not read before the approval fails it', 'adapters/effects.py',
      '        return {"state": state, "key": None, "fault": fault, "reason": reason}',
      '        return {"state": "failed", "key": None, "fault": fault, "reason": reason}', ("tests.test_approve",)),

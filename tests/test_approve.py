@@ -255,6 +255,16 @@ class TheAct(unittest.TestCase):
                                   read=reads(facts(reviews=[later], last_reopened_at="2026-10-11T12:20:00Z")))
         self.assertEqual((effect(done), len(github.writes())), (("approve", "already_applied", NODE, None), 0))
 
+    def test_no_approval_is_recovered_on_a_timeline_read_short(self):  # issue 378, Codex on PR 380
+        # A timeline read short may hide the last reopening, so an approval of the head is not recovered on it: the
+        # Kernel defers, and the act claims nothing.
+        f = facts()
+        f["complete"] = dict(f["complete"], timeline=False)
+        listed = {"status": 200, "body": [dict(LANDED, submitted_at="2026-10-11T12:15:00Z")]}
+        done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}), read=reads(f))
+        self.assertEqual((effect(done)[1:3], github.writes()), (("refused", None), []))
+        self.assertEqual([r["path"] for r in github.log if r["method"] == "GET"], ["/user"])
+
     def test_a_re_run_claims_no_approval_of_a_pull_request_now_closed(self):  # issue 378, decision 0079
         # An earlier attempt's approval of a pull request closed under it claimed nothing; a re-run that finds the pull
         # request closed recovers nothing either, so the approval stays one no Effect recorded.

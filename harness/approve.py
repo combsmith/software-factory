@@ -116,9 +116,11 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
     # Recovered only for the content the Decision approved: an approval of the head read is this act's only while that
     # head carries the same content; otherwise the Kernel decides (Argon's read).
     # And only while the pull request is open: one closed under an earlier attempt holds an approval that attempt
-    # claimed nothing for, and a re-run must not claim it now (issue 378).
+    # claimed nothing for, and a re-run must not claim it now (issue 378). And only on a timeline read whole, which
+    # alone can say the pull request's last reopening (Codex on PR 380).
     done = {"state": None}
-    if facts.get("content_id") == decided["content_id"] and facts.get("state") == "open":
+    if facts.get("content_id") == decided["content_id"] and facts.get("state") == "open" \
+            and (facts.get("complete") or {}).get("timeline") is True:
         done = port.recover(item, head)
         if done["fault"] is not None:
             return _records(run, release, "refused", None, (done["fault"], done["reason"]))
