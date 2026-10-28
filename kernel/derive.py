@@ -573,8 +573,11 @@ def unreadable_reviews(facts: dict, config: dict) -> bool:
 
     Any of them could be a request for changes from a person with write access, or a person's approval of the
     acceptance contract or of this content, so nothing may converge on it; a missing fact is never given a default
-    (I-13).
+    (I-13). An approval stands only if given after the last reopening (decision 0079), so a reopening's time that
+    cannot be read leaves every review unread.
     """
+    if "last_reopened_at" not in facts or not (facts["last_reopened_at"] is None or is_time(facts["last_reopened_at"])):
+        return True
     for rv in facts["reviews"]:
         if not isinstance(rv, dict) or rv.get("state") not in t.REVIEW_STATES:
             return True
@@ -918,14 +921,19 @@ def standing_approval(facts: dict, config: dict):
 
     Only the approver's approval stands: the machine user's, which readable_actor holds to the approver's name, while
     it has write access, without which GitHub does not count it. A person's approval answers that person's request for
-    changes, and approves no content.
+    changes, and approves no content. One submitted before the pull request was last reopened does not stand, though
+    GitHub reads it approved again (trials/P-7.reopened.json, issue 378): it may have been given while the pull
+    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole.
     """
+    if facts["complete"]["timeline"] is not True:
+        return None
     for rv in facts["reviews"]:
         if (
             rv["by"]["kind"] == t.MACHINE_USER
             and rv["by"]["can_write"] is True
             and rv["state"] == "approved"
             and rv["content_id"] == facts["content_id"]
+            and (facts["last_reopened_at"] is None or rv["submitted_at"] > facts["last_reopened_at"])
         ):
             return rv
     return None

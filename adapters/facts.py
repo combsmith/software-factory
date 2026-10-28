@@ -82,6 +82,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
         "changed_paths": paths["changed_paths"],
         "label_events": labels,
         "last_push_at": pushed_at or now,
+        "last_reopened_at": timeline.reopened_at(events),
         "last_writer_action_at": writer["last_writer_action_at"],
         "reviews": reviews,
         "threads": found,
