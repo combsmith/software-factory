@@ -791,11 +791,35 @@ def approval_of(transport, item: dict, head: str, login: str) -> dict:
     return {"state": None, "key": None, "fault": None, "reason": None}
 
 
+def _open_at(transport, pull: str, head: str, state: str):
+    """None while the pull request is open at `head`; else the act's result, in `state`: a pull request closed or
+    merged is `not_open`, one at another head `head_moved`, both a change under the act; one that cannot be read is
+    whose fault its status says."""
+    again = _asked(transport, request("GET", pull))
+    now = _body(again, 200)
+    if not isinstance(now, dict) or now.get("state") not in ("open", "closed") or not isinstance(now.get("head"), dict) \
+            or not isinstance(now["head"].get("sha"), str):
+        # The pull request read again cannot be read: whose fault, by its status alone (Codex on PR 321).
+        fault, reason = _trouble(again, "github_unavailable")
+        return {"state": "failed", "key": None, "fault": fault, "reason": reason}
+    if now.get("state") != "open" or now.get("merged") is True:
+        return {"state": state, "key": None, "fault": "superseded", "reason": "not_open"}
+    if now["head"].get("sha") != head:
+        return {"state": state, "key": None, "fault": "superseded", "reason": "head_moved"}
+    return None
+
+
 def approve(transport, item: dict, head: str, login: str) -> dict:
     """The approval of `head`, sent once and read back: `{state, key, fault, reason}`. `applied` only with the node id
     of the approver's own approval of that commit, read back by the id GitHub answered (L-41). Whose fault a failure
-    was is read from its status and from the pull request read again, never from GitHub's words (ruling 6)."""
+    was is read from its status and from the pull request read again, never from GitHub's words (ruling 6).
+
+    GitHub takes an approval of a pull request that is closed (trials/P-7.refused.json, issue 378), so the pull request
+    is read open at `head` before the approval is sent, and nothing is sent to one that is not."""
     pull = "/repos/%s/pulls/%d" % (item["repo"], item["number"])
+    closed = _open_at(transport, pull, head, "refused")
+    if closed is not None:
+        return closed
     answer = _asked(transport, request("POST", pull + "/reviews", body={"commit_id": head, "event": "APPROVE"}))
     review = _body(answer, 200)
     if not isinstance(review, dict):
@@ -807,17 +831,12 @@ def approve(transport, item: dict, head: str, login: str) -> dict:
         if 200 <= status < 300:
             # GitHub took it and the answer cannot be read: the approval may stand, and nothing is claimed for it.
             return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}
-        # Any other refusal is the item's, while the pull request is open at the commit; a head that moved or a close
-        # is a change under the act.
-        again = _asked(transport, request("GET", pull))
-        now = _body(again, 200)
-        if not isinstance(now, dict) or now.get("state") not in ("open", "closed") or not isinstance(now.get("head"), dict) \
-                or not isinstance(now["head"].get("sha"), str):
-            # The pull request read again cannot be read: whose fault, by its status alone (Codex on PR 321).
-            fault, reason = _trouble(again, "github_unavailable")
-            return {"state": "failed", "key": None, "fault": fault, "reason": reason}
-        if now.get("state") != "open" or now["head"].get("sha") != head:
-            return {"state": "failed", "key": None, "fault": "superseded", "reason": "head_moved"}
+        # Any other refusal is the item's, while the pull request is open at the commit; one closed or at another head
+        # since it was read is a change under the act. GitHub refuses an approval of a commit a push left behind, but
+        # takes one of a pull request that is closed (trials/P-7.refused.json), so a close is read here, not assumed.
+        changed = _open_at(transport, pull, head, "failed")
+        if changed is not None:
+            return changed
         return {"state": "failed", "key": None, "fault": "item", "reason": "approval_refused"}
     rid = review.get("id")
     back = _body(_asked(transport, request("GET", pull + "/reviews/%d" % rid)), 200) if type(rid) is int else None

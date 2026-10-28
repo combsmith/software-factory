@@ -38,7 +38,7 @@ def record(f=None, runs=REVIEWED, ctx=None, entry_run=RUN) -> dict:
 
 class GitHub:
     """A stand-in GitHub: each request is logged and answered from `answers` by method and path, else a 404. An answer
-    of None is no answer at all."""
+    of None is no answer at all; a list is answered in turn, its last kept for every request after."""
 
     def __init__(self, over=None):
         self.log = []
@@ -54,6 +54,8 @@ class GitHub:
     def send(self, req):
         self.log.append(req)
         answer = self.answers.get((req["method"], req["path"]), {"status": 404, "body": {"message": "Not Found"}})
+        if isinstance(answer, list):
+            answer = answer.pop(0) if len(answer) > 1 else answer[0]
         if answer is None:
             raise Unanswered("no answer")
         return dict(answer, headers={})
@@ -110,8 +112,8 @@ class TheAct(unittest.TestCase):
         self.assertEqual(fault(ended), (None, None))
         self.assertEqual((done["run"], ended["run"], done["findings"]), (RUN, RUN, []))
         self.assertEqual([(r["method"], r["path"]) for r in github.log],
-                         [("GET", "/user"), ("GET", PULL + "/reviews?per_page=100"), ("POST", PULL + "/reviews"),
-                          ("GET", PULL + "/reviews/7")])
+                         [("GET", "/user"), ("GET", PULL + "/reviews?per_page=100"), ("GET", PULL),
+                          ("POST", PULL + "/reviews"), ("GET", PULL + "/reviews/7")])
         # The commit approved is the one just read, never the pull request by number alone; nothing else is in it.
         self.assertEqual(github.writes(), [("POST", PULL + "/reviews", {"commit_id": HEAD, "event": "APPROVE"})])
 
@@ -196,10 +198,30 @@ class TheAct(unittest.TestCase):
         other = "ab" * 20
         landed = dict(LANDED, commit_id=other)
         github = GitHub({("POST", PULL + "/reviews"): {"status": 200, "body": landed},
-                         ("GET", PULL + "/reviews/7"): {"status": 200, "body": landed}})
+                         ("GET", PULL + "/reviews/7"): {"status": 200, "body": landed},
+                         ("GET", PULL): {"status": 200, "body": {"state": "open", "head": {"sha": other}}}})
         done, ended, github = act(github, read=reads(head=other))
         self.assertEqual((github.writes(), effect(done)[1]),
                          ([("POST", PULL + "/reviews", {"commit_id": other, "event": "APPROVE"})], "applied"))
+
+    def test_a_pull_request_not_open_at_the_commit_is_never_approved(self):  # issue 378, trials/P-7.refused.json
+        # GitHub takes an approval of a closed pull request, so the act reads the pull request open at the commit it
+        # approves before it sends anything: one closed, merged or at another head since the act read it is a change
+        # under the act, refused with nothing sent; one that cannot be read is whose fault its status says.
+        for pull, want, state in (({"state": "closed", "head": {"sha": HEAD}}, ("superseded", "not_open"), "refused"),
+                                  ({"state": "closed", "merged": True, "head": {"sha": HEAD}}, ("superseded", "not_open"),
+                                   "refused"),
+                                  ({"state": "open", "merged": True, "head": {"sha": HEAD}}, ("superseded", "not_open"),
+                                   "refused"),
+                                  ({"state": "open", "head": {"sha": "f" * 40}}, ("superseded", "head_moved"), "refused")):
+            done, ended, github = act(GitHub({("GET", PULL): {"status": 200, "body": pull}}))
+            self.assertEqual((fault(ended), effect(done)[1:], github.writes()), (want, (state, None, want[1]), []), pull)
+        for answer, want in (({"status": 500, "body": {}}, ("environment", "github_unavailable")),
+                             ({"status": 403, "body": {}}, ("environment", "token_refused")),
+                             ({"status": 200, "body": {"head": {"sha": HEAD}}}, ("environment", "github_unavailable")),
+                             (None, ("environment", "github_unavailable"))):
+            done, ended, github = act(GitHub({("GET", PULL): answer}))
+            self.assertEqual((fault(ended), github.writes()), (want, []), answer)
 
     def test_a_run_no_decision_issued_an_approval_for_finds_none_and_writes_nothing(self):  # section 3.5
         admitted = record(runs=[])
@@ -330,7 +352,8 @@ class TheAct(unittest.TestCase):
         def posting(answer, pull=None, back=None):
             over = {("POST", PULL + "/reviews"): answer}
             if pull is not None:
-                over[("GET", PULL)] = pull
+                # Open at the commit as the act reads it before the approval, then as it is read again after.
+                over[("GET", PULL)] = [{"status": 200, "body": {"state": "open", "head": {"sha": HEAD}}}, pull]
             if back is not None:
                 over[("GET", PULL + "/reviews/7")] = back
             return GitHub(over)
@@ -364,7 +387,7 @@ class TheAct(unittest.TestCase):
             (posting(None), None, ("environment", "github_unavailable"), "failed"),
             (posting({"status": 422, "body": {"message": "x"}}), None, ("item", "approval_refused"), "failed"),
             (posting({"status": 422, "body": {}}, pull=moved), None, ("superseded", "head_moved"), "failed"),
-            (posting({"status": 422, "body": {}}, pull=closed), None, ("superseded", "head_moved"), "failed"),
+            (posting({"status": 422, "body": {}}, pull=closed), None, ("superseded", "not_open"), "failed"),
             (posting({"status": 422, "body": {}}, pull={"status": 500, "body": {}}), None,
              ("environment", "github_unavailable"), "failed"),
             # The pull request read again is classed by its own status, and an answer missing its parts is unreadable
