@@ -8469,6 +8469,9 @@ MUTANTS = ISSUE + [
     ('the plan keeps no time', 'harness/eval/__init__.py',
      ', "planned_at": now()}',
      '}', ('tests.test_evals.EvalJob.test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run',)),
+    ('a module named install is the install', 'tools/check_workflows.py',
+     'EVAL_ACTIONS | {"install"}',
+     'EVAL_ACTIONS', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
 ]
 
 

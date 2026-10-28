@@ -283,6 +283,8 @@ class TheSet(unittest.TestCase):
             "the model's credential at the install": (EVAL_WORKFLOW.replace('          CLI_VERSION: "2.1.306"\n',
                                                                             '          CLI_VERSION: "2.1.306"\n' + model),
                                                       "its install step is given under env"),
+            "the CLI's install a module of its own": (EVAL_WORKFLOW.replace(
+                install[install.index("        run: |"):], "        run: python3 -m harness.eval.install\n"), "in that order"),
             "the CLI unchecked": (EVAL_WORKFLOW.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
                                   "in that order"),
             "the CLI's block folded": (EVAL_WORKFLOW.replace("        run: |\n          url=", "        run: >\n          url="),

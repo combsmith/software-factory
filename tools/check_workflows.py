@@ -1045,8 +1045,9 @@ def _kind(step: dict) -> str:
     command = _lines(step.get("run"))
     if "uses" not in step and step.get("run", {}).get("value") == "|" and command == CLI_INSTALL_RUN:
         return "install"
+    # The install is its block alone: a module of that name is no install, and is refused as a step of no kind.
     for name in EVAL_ORDER:
-        if name not in EVAL_ACTIONS and command == [EVAL_STEP % name] and "uses" not in step:
+        if name not in EVAL_ACTIONS | {"install"} and command == [EVAL_STEP % name] and "uses" not in step:
             return name
     return None
 
