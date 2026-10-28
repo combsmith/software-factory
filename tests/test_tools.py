@@ -5131,6 +5131,7 @@ esac
                                                              "GET repos/%s/pulls/7/comments?per_page=100"]),
             (("controller", "issue-comments", "7", "metadata=read,pull_requests=read"), ["GET repos/%s/issues/7/comments?since=2026-01-01T00:00:00Z&per_page=100"]),
             (("controller", "label", "7", "factory:hold"), ["POST repos/%s/issues/7/labels", "DELETE repos/%s/issues/7/labels/factory:hold"]),
+            (("controller", "label", "7", "factory:hold", "pull_requests=write"), ["POST repos/%s/issues/7/labels", "DELETE repos/%s/issues/7/labels/factory:hold"]),
             (("controller", "pause", "metadata=read,actions_variables=read"), ["GET repos/%s/actions/variables/FACTORY_PAUSED",
                                                                        "GET repos/%s/actions/organization-variables?per_page=100"]),
         ]
@@ -5141,7 +5142,7 @@ esac
             # One token, minted for the one repo and narrowed where the action narrows it, reaching gh by its environment.
             body = json.loads(minted[1]["sent"])
             self.assertEqual(body["repositories"], [check_trials.CANARY], args)
-            narrowed = args[2] if args[1] == "pause" else args[3] if args[1] in ("enqueue", "dequeue", "resolve", "burst", "queue", "issue-comments") and len(args) > 3 else None
+            narrowed = args[2] if args[1] == "pause" else args[4] if args[1] == "label" and len(args) > 4 else args[3] if args[1] in ("enqueue", "dequeue", "resolve", "burst", "queue", "issue-comments") and len(args) > 3 else None
             self.assertEqual(body.get("permissions"), dict(p.split("=") for p in narrowed.split(",")) if narrowed else None, args)
             self.assertEqual({c["token"] for c in calls}, {self.TOKEN}, args)
             self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls + minted), args)
@@ -5212,7 +5213,8 @@ esac
                      ("pr-review", "pause", "actions_variables=read"), ("controller", "pause", "actions_variables=read;rm"),
                      ("controller", "pause", "actions_variables=read", "7"),
                      ("trial-author", "enqueue", "7", "contents=write;rm"), ("trial-author", "dequeue", "7"),
-                     ("trial-author", "automerge", "7"), ("controller", "enqueue", "7", "contents=write")):
+                     ("trial-author", "automerge", "7"), ("controller", "enqueue", "7", "contents=write"),
+                     ("controller", "label", "7", "factory:hold", "pull_requests=write;rm")):
             ran, calls, minted, out = self.run_window(*args)
             self.assertEqual(ran.returncode, 2, args)
             self.assertEqual((calls, minted), ([], []), args)

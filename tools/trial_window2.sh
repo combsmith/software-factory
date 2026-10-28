@@ -19,7 +19,7 @@
 #   bash tools/trial_window2.sh pr-review check KEY REPO SHA NAME              # a check run, completed and successful
 #   bash tools/trial_window2.sh controller queue KEY REPO PR PERMISSIONS       # the queue read, and the pull request's
 #                                                                               # issue and review comments (#306), narrowed
-#   bash tools/trial_window2.sh controller label KEY REPO PR LABEL             # a label added, then removed
+#   bash tools/trial_window2.sh controller label KEY REPO PR LABEL [PERMISSIONS] # a label added, then removed, narrowed
 #   bash tools/trial_window2.sh controller issue-comments KEY REPO N PERMISSIONS # an issue's comments since a time (#306)
 #   bash tools/trial_window2.sh controller pause KEY REPO PERMISSIONS          # FACTORY_PAUSED, the repo's and the org's
 #                                                                               # as the repo lists it, narrowed (P-52b)
@@ -48,7 +48,7 @@ who=$1 action=$2 key=$3 repo=$4 target=$5
 shift 5
 case "$who/$action/$#" in
     trial-author/comments/2|trial-author/enqueue/1|trial-author/dequeue/1|trial-author/resolve/1|trial-author/burst/1|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
-    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;
+    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/label/2|controller/issue-comments/1) ;;
     controller/pause/0) ;;
     *) usage ;;
 esac
@@ -77,8 +77,9 @@ case "$action" in
         case "$review" in ""|*[!0-9]*) usage ;; esac ;;
     check) check_name=$1
         case "$check_name" in ""|*[!A-Za-z0-9\ /_.:-]*) echo "NAME is a check's name: letters, digits, space, / _ . : -" >&2; exit 2 ;; esac ;;
-    label) label=$1
-        case "$label" in ""|*[!A-Za-z0-9:_.-]*) echo "LABEL is letters, digits and : _ . -" >&2; exit 2 ;; esac ;;
+    label) label=$1 narrow=${2:-}
+        case "$label" in ""|*[!A-Za-z0-9:_.-]*) echo "LABEL is letters, digits and : _ . -" >&2; exit 2 ;; esac
+        case "$narrow" in *[!a-z_=,]*) usage ;; esac ;;
 esac
 [ -f "$key" ] && [ -r "$key" ] || { echo "no readable file at the key's path" >&2; exit 2; }
 for tool in curl openssl gh python3; do
