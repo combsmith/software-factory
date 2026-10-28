@@ -21,6 +21,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 
 from tools import eval_result
 from tools.jsonschema_lite import SchemaError, validate
@@ -129,9 +130,16 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         (place / "cases").mkdir(mode=0o700)
     except OSError:
         raise Stop("scratch_unreadable") from None
+    # When the plan was made, the job's own start to within its checkout: the run step's time is counted from it, so
+    # that the fetch and the install spend it too (the run step's BUDGET).
     _write(place, "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
-                                 "set": {"count": found["count"], "sha256": digest}})
+                                 "set": {"count": found["count"], "sha256": digest}, "planned_at": now()})
     return "planned %d cases" % found["count"]
+
+
+def now() -> int:
+    """The runner's clock, in whole seconds since the epoch: the one clock every step of the job reads alike."""
+    return int(time.time())
 
 
 def _planned(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> tuple:
@@ -169,9 +177,12 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     one that is no `eval-case/1` of this set's Role and Intent is `unreadable`, `not_this_set`; every other is given to
     `review`, which returns its `result/1`, and scored against the case by `tools/eval_result.py`."""
-    assessed = {}
+    assessed, interrupted = {}, False
     for entry in found["cases"]:
         code = why.get(entry["id"], "not_found") if isinstance(why, dict) else "not_found"
+        if interrupted:
+            # An interrupt asks nothing more of the model: every case after it is unanswered, and the report is written.
+            code = "unanswered"
         if code is not None:
             assessed[entry["id"]] = ("unreadable", [code if code in eval_result_codes() else "unanswered"])
             continue
@@ -193,6 +204,10 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             assessed[entry["id"]] = ("unreadable", [stop.code if stop.code in eval_result_codes() else "unanswered"])
             continue
         except Exception:
+            assessed[entry["id"]] = ("unreadable", ["unanswered"])
+            continue
+        except BaseException:
+            interrupted = True
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
             continue
         said = eval_result.score(case, result)

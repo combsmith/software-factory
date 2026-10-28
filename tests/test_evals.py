@@ -611,7 +611,7 @@ class EvalJob(unittest.TestCase):
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         env = dict(live.JOB, HELDOUT_TOKEN="a-stand-in-held-out-token", HELDOUT_OWNER="o")
         with mock.patch.object(step, "run_id", lambda: live.RUN):
-            result = step.reviewer(env, "factory/v0.1.0", cli, live.Clock(0.0, 0.0, 1.0, 2.0))(case)
+            result = step.reviewer(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
         self.assertEqual((result["status"], result["run"]), ("completed", live.RUN))
         asked, = cli.asked()
         given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
@@ -635,26 +635,26 @@ class EvalJob(unittest.TestCase):
                     dict(case, facts=dict(case["facts"], content_id=None))):
             cli = live.CLI()
             with self.assertRaises(job.Stop) as stopped:
-                step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, 0.0))(bad)
+                step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(bad)
             self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
         # Less time left than a case's tier allows: the step starts no case, and the case is unanswered.
         cli = live.CLI()
         late = live.HARNESS["limits"]["standard"]["seconds"]
-        review = step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late + 1))
+        review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late + 1))
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
         # Less time left than the tier allows and the Engine's two reads of the CLI's version: not started either.
         cli = live.CLI()
-        review = step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late - step.VERSION_READS + 1))
+        review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS + 1))
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
         # With just that time left, it is asked.
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         with mock.patch.object(step, "run_id", lambda: live.RUN):
-            step.reviewer(live.JOB, "factory/v0.1.0", cli,
-                          live.Clock(0.0, step.BUDGET - late - step.VERSION_READS, 1.0, 2.0))(case)
+            step.reviewer(live.JOB, "factory/v0.1.0", 0, cli,
+                          live.Clock(step.BUDGET - late - step.VERSION_READS, 1.0, 2.0))(case)
         self.assertEqual(len(cli.asked()), 1)
         # The limit is the case's own tier's, read from the configuration, never a constant.
         from harness import run as running
@@ -662,18 +662,18 @@ class EvalJob(unittest.TestCase):
         longer["harness"]["limits"]["standard"]["seconds"] = late * 2
         cli = live.CLI()
         with mock.patch.object(step.live, "configuration", lambda: longer):
-            review = step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late - step.VERSION_READS))
+            review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS))
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
-        # The step's time is held inside the job's: the workflow's timeout, which tools/check_workflows.py holds, less a
-        # quarter of an hour for the steps around it.
+        # The job's time is held inside its timeout, which tools/check_workflows.py holds, counted from when the plan
+        # was made, less ten minutes for the checkout before it and the upload and judge after the step.
         from tools import check_workflows
-        self.assertEqual(step.BUDGET, (int(check_workflows.EVAL_RUNNER["timeout-minutes"]) - 15) * 60)
+        self.assertEqual(step.BUDGET, (int(check_workflows.EVAL_RUNNER["timeout-minutes"]) - 10) * 60)
         # A diff that cannot be the bytes of any content, a lone surrogate, is no case of this set either.
         cli = live.CLI()
         with self.assertRaises(job.Stop) as stopped:
-            step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, 0.0))(dict(case, diff="\ud800"))
+            step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(dict(case, diff="\ud800"))
         self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
         # Only the eval job builds a Task from an admission it holds itself; every other Task is a pass record's.
         callers = sorted(p.relative_to(ROOT).as_posix() for p in walk.files(ROOT) if p.suffix == ".py"
@@ -706,6 +706,50 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(step.step), "scored 2 of 2 cases, 0 passed")
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({tuple(c["reasons"]) for c in written["cases"]}, {("not_this_set",)})
+
+    def test_an_interrupt_asks_nothing_more_and_the_report_is_written(self):  # issue 309, ruling 4
+        # A cancel that lands during a case's call ends the asking: that case and every one after it are unanswered,
+        # nothing more is asked of the model, and the report is written for the upload.
+        from harness import eval as job
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        asked = []
+
+        def review(case):
+            asked.append(case["id"])
+            raise KeyboardInterrupt
+        self.assertEqual(self.step(job.score, review), "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((len(asked), [(c["verdict"], c["reasons"]) for c in written["cases"]]),
+                         (1, [("unreadable", ["unanswered"])] * 2))
+
+    def test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run(self):  # issue 309, ruling 5
+        # Through the step as the workflow runs it: each case's Task names the Release the dispatch named, which plan
+        # kept, and a Run id of its own, in the form a pass mints one; the time is counted from the plan's.
+        from harness import engine, task
+        from harness import eval as job
+        from harness.eval import run as step
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        case, live = self.reviewed()
+        cases = {i: (json.dumps(dict(case, id=i), indent=2) + "\n").encode() for i in ("poc-one", "poc-two")}
+        self.set(cases)
+        with mock.patch.object(job, "now", lambda: 1000):
+            self.assertEqual(self.step(plan), "planned 2 cases")
+        self.assertEqual(json.loads((self.temp / "heldout" / "plan.json").read_text())["planned_at"], 1000)
+        self.step(fetch, self.home(cases))
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        self.assertEqual(self.step(step.step, cli, lambda: 1000.0, env=live.JOB), "scored 2 of 2 cases, 0 passed")
+        report = json.loads((self.work / job.REPORT).read_text())
+        given = [json.loads(c["args"][2].split(engine.TASK, 1)[1]) for c in cli.asked()]
+        self.assertEqual(len(given), 2, report)
+        self.assertEqual([g["release"] for g in given], ["factory/v0.1.0"] * 2)
+        runs = [g["run"] for g in given]
+        self.assertTrue(all(live.run.RUN_ID.fullmatch(r) for r in runs) and len(set(runs)) == 2, runs)
+        # A plan whose time cannot be read starts no case.
+        kept = json.loads((self.temp / "heldout" / "plan.json").read_text())
+        (self.temp / "heldout" / "plan.json").write_text(json.dumps(dict(kept, planned_at="soon")))
+        self.assertEqual(self.step(step.step, live.CLI(), lambda: 1000.0), "scratch_unreadable")
 
     def test_a_step_says_counts_and_codes_and_never_what_it_raised(self):
         # Whatever a step raised is never printed: its message could quote a case or name the home.

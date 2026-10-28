@@ -19,9 +19,10 @@ import time
 from harness import run as live, task as tasks
 from harness.eval import Stop, _planned, exit_with, score
 
-# The seconds this step may spend: the job's 120 minutes (tools/check_workflows.py, EVAL_RUNNER) less a quarter of an
-# hour for checkout, plan, fetch and the install before it, and the upload and judge after it.
-BUDGET = 105 * 60
+# The seconds the job may spend before the last case is started, counted from when `plan` was made: the job's 120
+# minutes (tools/check_workflows.py, EVAL_RUNNER) less ten for the checkout before it, the upload and judge after the
+# step, and the slack of a runner's clock. The fetch and the install spend it, as the cases do.
+BUDGET = 110 * 60
 # What a case may cost beyond its tier's own seconds: the Engine asks the CLI its version before the call and after it,
 # each within this many seconds (harness/engine.py).
 VERSION_READS = 2 * 30
@@ -33,15 +34,16 @@ def run_id() -> str:
     return "r_" + "".join(ALPHABET[b % 32] for b in os.urandom(20))
 
 
-def reviewer(env: dict, release: str, call=None, clock=time.monotonic):
+def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
     """The review Intent, as `assess` asks it: a case's `result/1`, or Stop with the code that says why there is none.
     Its Task is the case's, built as a live Run's; a case whose facts do not name the content its diff is
     (`content_id`, the sha256 of the diff), or of no review, is `not_this_set`, and nothing is asked of the model. The
-    configuration and the manifest are the checkout's own, the Release's, as a live Run's are."""
+    configuration and the manifest are the checkout's own, the Release's, as a live Run's are. `began` is when `plan`
+    was made, by `clock`, the runner's own: no case is started once less time is left of BUDGET than it may take."""
     config = dict(live.configuration(), release=release)
     with open(os.path.join(str(live.ROOT), "roles", "pr-review.json"), encoding="utf-8") as f:
         manifest = json.load(f)
-    deadline = clock() + BUDGET
+    deadline = began + BUDGET
 
     def review(case: dict) -> dict:
         facts = case["facts"]
@@ -57,9 +59,12 @@ def reviewer(env: dict, release: str, call=None, clock=time.monotonic):
     return review
 
 
-def step(env, root, workspace, call=None, clock=time.monotonic):
+def step(env, root, workspace, call=None, clock=time.time):
     kept, _, _ = _planned(env, root, workspace)
-    return score(env, root, workspace, reviewer(env, kept["release"], call, clock))
+    began = kept.get("planned_at")
+    if not isinstance(began, int) or isinstance(began, bool):
+        raise Stop("scratch_unreadable")
+    return score(env, root, workspace, reviewer(env, kept["release"], began, call, clock))
 
 
 if __name__ == "__main__":
