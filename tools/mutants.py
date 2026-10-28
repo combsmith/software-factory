@@ -6128,7 +6128,7 @@ MUTANTS = ISSUE + [
      '    if {e["key"]: e["value"] for e in entries if e["path"] == []} != EVAL_TOP:\n',
      '    if False:\n', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
     ("an action of the eval job may be a step of this repo's", 'tools/check_workflows.py',
-     '        if name not in EVAL_ACTIONS and command',
+     '        if name not in EVAL_ACTIONS | {"install"} and command',
      '        if command', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
     ("another workflow may name the eval job's environment in another case", 'tools/check_workflows.py',
      ', re.I)    # GitHub', ')    # GitHub',
