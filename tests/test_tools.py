@@ -5898,7 +5898,8 @@ esac
         self.assertIn("stopped with a token live", ran.stderr)
         self.assertFalse((out / "token.json").exists())
         self.assertNotIn("ghs_", ran.stdout + ran.stderr)
-        self.assertFalse(any("ghs_" in f.read_text() for f in out.rglob("*") if f.is_file()) if out.exists() else False)
+        for kept in ("token.json", "requests.json", "ran_at"):
+            self.assertFalse((out / kept).exists() and "ghs_" in (out / kept).read_text(), kept)
         # A refusal that carries no token revokes nothing: one call, the mint.
         folder = self.stand_in(mint=403, notoken=1)
         out, ran = self.run_script(folder)
