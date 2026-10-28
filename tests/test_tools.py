@@ -4998,8 +4998,9 @@ class WindowTwoApps(unittest.TestCase):
 import json, os, pathlib, sys
 here = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
+sent = sys.stdin.read() if "--input" in args else None
 with open(here / "calls", "a") as calls:
-    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN")}) + "\n")
+    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN"), "sent": sent}) + "\n")
 def answer(status, body):
     # With a header the redaction takes out, as GitHub sends, so its report is printed.
     print("HTTP/2.0 %d X\nContent-Type: application/json\nAccess-Control-Allow-Origin: *\n" % status)
@@ -5147,6 +5148,10 @@ esac
             self.assertNotIn(self.TOKEN, (out / "exchanges.json").read_text() + ran.stdout + ran.stderr, args)
             # A write on a pull request names it by the node id GitHub gave, and nothing the redaction said; each
             # exchange is numbered once, the read of the node id among them.
+            # A check run is posted under the name the action was given, never the repo's (window 2's I).
+            if args[1] == "check":
+                posted = [json.loads(c["sent"]) for c in calls if c.get("sent") and "check-runs" in " ".join(c["argv"])]
+                self.assertEqual([(p["name"], p["head_sha"]) for p in posted], [(args[3], args[2])], args)
             if args[1] in ("enqueue", "automerge", "dequeue"):
                 written = [c["argv"] for c in calls if c["argv"][1] == "graphql"]
                 self.assertEqual([a for w in written for a in w if a.startswith("id=")], ["id=PR_kwDOA7"], args)

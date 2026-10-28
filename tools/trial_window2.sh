@@ -75,8 +75,8 @@ case "$action" in
         case "$narrow" in ""|*[!a-z_=,]*) usage ;; esac ;;
     dismiss) review=$1
         case "$review" in ""|*[!0-9]*) usage ;; esac ;;
-    check) name=$1
-        case "$name" in ""|*[!A-Za-z0-9\ /_.:-]*) echo "NAME is a check's name: letters, digits, space, / _ . : -" >&2; exit 2 ;; esac ;;
+    check) check_name=$1
+        case "$check_name" in ""|*[!A-Za-z0-9\ /_.:-]*) echo "NAME is a check's name: letters, digits, space, / _ . : -" >&2; exit 2 ;; esac ;;
     label) label=$1
         case "$label" in ""|*[!A-Za-z0-9:_.-]*) echo "LABEL is letters, digits and : _ . -" >&2; exit 2 ;; esac ;;
 esac
@@ -399,8 +399,8 @@ check)
     as_installation POST "repos/$repo/check-runs" "$(python3 -I -c '
 import json, sys
 print(json.dumps({"name": sys.argv[1], "head_sha": sys.argv[2], "status": "completed", "conclusion": "success",
-                  "output": {"title": "A platform trial", "summary": "Posted by the pr-review App under this name."}}))' "$name" "$target")"
-    echo "check run $name on $target: answered $(said)" ;;
+                  "output": {"title": "A platform trial", "summary": "Posted by the pr-review App under this name."}}))' "$check_name" "$target")"
+    echo "check run $check_name on $target: answered $(said)" ;;
 pause)
     as_installation GET "repos/$repo/actions/variables/FACTORY_PAUSED"
     echo "the repo's FACTORY_PAUSED answered $(said)"
