@@ -771,7 +771,11 @@ class EvalJob(unittest.TestCase):
                     raise TimeoutError("the CLI was called with: --- a/kernel/x.py")
                 except TimeoutError:
                     raise KeyboardInterrupt
-            self.assertEqual(job.main(interrupted), 1)
+            try:
+                code = job.main(interrupted)
+            except KeyboardInterrupt:   # one that escapes main is reported by Python, quoting what it was chained to
+                code = "the interrupt escaped main"
+            self.assertEqual(code, 1)
         self.assertEqual((out.getvalue(), err.getvalue()),
                          ("eval_step_failed\neval_set_empty\nplanned 2 cases\neval_step_failed\n", ""))
 
