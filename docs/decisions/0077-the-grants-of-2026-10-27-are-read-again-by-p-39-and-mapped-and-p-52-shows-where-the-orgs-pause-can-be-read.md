@@ -13,7 +13,15 @@ leaves each of them otherwise as it is.
 | The review Role's App | Gains `checks` at write, for `effect:create_check_run` and `read:facts.checks`; `actions` at read, for the run records; `issues` at read, for `read:facts.acceptance`; and `actions_variables` at read, for `read:pass.pause`, which the Maintainer granted later the same day and P-39 read. Its grants serve every read `apply` makes again, and `roles/pr-review.json` permits `create_check_run` | Decisions 0054 and 0059: the pull request that records the grant maps the needs and adds the Effect |
 | `actions_variables` | GitHub's own name for the Variables permission, as the registration, the installation and the token each answered it, is a permission the schema allows | A name not in the schema is refused |
 | P-52 | Passed on 2026-10-27 (`trials/P-52.json`): with Variables at repository read alone, the token reads the repo's `FACTORY_PAUSED`, and the org's as the repo's list of the org's variables names it; the org's own endpoint answers 403, asking for the organization's Variables permission. The fake's Pause is grounded on it | No organization permission is asked for: the repo's list reads what the repo's workflows see |
-| The org's Pause in the pass | Still asked at the org's own endpoint by `adapters/pause.py`, so it reads unreadable on every pass and nothing is admitted until issue 362 moves the read to the repo's list, where a list read whole that does not name it is unreadable, never unset: the org's variable is shared with every repo the Factory serves, and a repo it is not shared with stays idle. `apply` reads the Pause again with its own App's token, and refuses on a Pause it cannot read: issue 362 builds that read, on the grant recorded here (the orchestrator's rulings of 2026-10-27) | Not one line, so not folded in here; it fails closed meanwhile |
+| The org's Pause in the pass | Still asked at the org's own endpoint by `adapters/pause.py`, so it reads unreadable on every pass and nothing is admitted until "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found" (issue 362) moves the read to the repo's list, where a list read whole that does not name it is unreadable, never unset: the org's variable is shared with every repo the Factory serves, and a repo it is not shared with stays idle. `apply` reads the Pause again with its own App's token, and refuses on a Pause it cannot read: issue 362 builds that read, on the grant recorded here (the orchestrator's rulings of 2026-10-27) | Not one line, so not folded in here; it fails closed meanwhile |
+
+## Why
+
+The Maintainer's sitting of 2026-10-27 changed two Apps' registrations, and `tools/check_apps.py` holds the data to
+what P-39 last read, so the grants are read again and mapped in one change. P-52 asked whether the controller's
+token reaches the Pause before a need is written for it; it reaches the repo's, and the org's only through the
+repo's list. A narrowed mint in the second machine-user window, P-52b, whose fixture comes with that window's,
+answered `actions_variables` as asked, so the name the pass asks for is one GitHub takes in a token request.
 
 ## Boundaries
 
