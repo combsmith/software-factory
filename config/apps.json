@@ -18,10 +18,10 @@
       "level": "write"
     },
     "effect:enqueue_merge": {
-      "waits_on": "the Maintainer's grant of contents: write to the App that enqueues, which trial P-2 showed the queue takes (2026-10-28)"
+      "waits_on": "the queue App, combsmith-sf-queue, with contents and pull-request write alone, which trial P-2 showed the queue takes, registered by the Maintainer and read again by trial P-39 (issue 381; Maintainer, 2026-10-28)"
     },
     "effect:dequeue_merge": {
-      "waits_on": "the Maintainer's grant of contents: write to the App that enqueues, which trial P-2 showed the queue takes (2026-10-28)"
+      "waits_on": "the queue App, combsmith-sf-queue, with contents and pull-request write alone, which trial P-2 showed the queue takes, registered by the Maintainer and read again by trial P-39 (issue 381; Maintainer, 2026-10-28)"
     },
     "effect:assign": {
       "waits_on": "the Controller's notification story"

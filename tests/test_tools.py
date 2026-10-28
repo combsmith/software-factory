@@ -1244,7 +1244,7 @@ class Apps(unittest.TestCase):
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:dequeue_merge")
         self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:dequeue_merge, which waits on the "
-                                             "Maintainer's grant of contents: write"))
+                                             "queue App, combsmith-sf-queue"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
