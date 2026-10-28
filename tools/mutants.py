@@ -4660,7 +4660,7 @@ MUTANTS = ISSUE + [
      'errors = data.get("errors") if isinstance(data, dict) else None\n', 'errors = None\n',
      ("tests.test_tools.WindowTwoApps.test_a_graphql_refusal_is_said_as_one_though_it_answers_200",)),
     ("the window's resolve is not narrowed", 'tools/trial_window2.sh',
-     '    enqueue|resolve) narrow=${1:-}\n', '    enqueue|resolve) narrow=${1:-}; [ "$action" = enqueue ] || narrow=""\n',
+     '    enqueue|resolve|burst) narrow=${1:-}\n', '    enqueue|resolve|burst) narrow=${1:-}; [ "$action" = enqueue ] || narrow=""\n',
      ("tests.test_tools.WindowTwoApps.test_each_action_asks_what_it_says_with_one_token_for_the_repo_revoked_last",)),
     ("the window's token is not narrowed", 'tools/trial_window2.sh',
      'if sys.argv[2]:\n    body["permissions"]', 'if False:\n    body["permissions"]',

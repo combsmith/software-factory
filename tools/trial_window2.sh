@@ -7,6 +7,8 @@
 #   bash tools/trial_window2.sh trial-author enqueue KEY REPO PR PERMISSIONS   # enqueuePullRequest, the token narrowed (P-2)
 #   bash tools/trial_window2.sh trial-author dequeue KEY REPO PR PERMISSIONS   # dequeuePullRequest, the token narrowed (P-2)
 #   bash tools/trial_window2.sh trial-author resolve KEY REPO PR PERMISSIONS   # every open thread another opened, narrowed (P-5)
+#   bash tools/trial_window2.sh trial-author burst KEY REPO PR PERMISSIONS     # every open thread it opened, one after another,
+#                                                                               # as fast as answered, narrowed (P-23)
 #   bash tools/trial_window2.sh pr-review enqueue KEY REPO PR                  # enqueuePullRequest
 #   bash tools/trial_window2.sh pr-review automerge KEY REPO PR                # enablePullRequestAutoMerge, squash
 #   bash tools/trial_window2.sh pr-review dequeue KEY REPO PR PERMISSIONS      # dequeuePullRequest, the token narrowed
@@ -45,7 +47,7 @@ usage() {
 who=$1 action=$2 key=$3 repo=$4 target=$5
 shift 5
 case "$who/$action/$#" in
-    trial-author/comments/2|trial-author/enqueue/1|trial-author/dequeue/1|trial-author/resolve/1|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
+    trial-author/comments/2|trial-author/enqueue/1|trial-author/dequeue/1|trial-author/resolve/1|trial-author/burst/1|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
     pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;
     controller/pause/0) ;;
     *) usage ;;
@@ -67,7 +69,7 @@ case "$action" in
         case "$file" in ""|/*|*..*|*" "*) echo "FILE is a path in the pull request's head" >&2; exit 2 ;; esac
         case "$count" in ""|*[!0-9]*) usage ;; esac
         [ "$count" -ge 1 ] && [ "$count" -le 50 ] || { echo "COUNT is 1 to 50" >&2; exit 2; } ;;
-    enqueue|resolve) narrow=${1:-}
+    enqueue|resolve|burst) narrow=${1:-}
         case "$narrow" in *[!a-z_=,]*) usage ;; esac ;;
     dequeue|queue|issue-comments) narrow=$1
         case "$narrow" in ""|*[!a-z_=,]*) usage ;; esac ;;

@@ -5121,6 +5121,7 @@ esac
             (("pr-review", "resolve", "7"), ["read", "resolveReviewThread", "resolveReviewThread", "resolveReviewThread",
                                               "resolveReviewThread", "read"]),
             (("pr-review", "burst", "7"), ["read", "resolveReviewThread", "resolveReviewThread", "read"]),
+            (("trial-author", "burst", "7", "contents=write,pull_requests=write"), ["read", "resolveReviewThread", "resolveReviewThread", "read"]),
             (("trial-author", "resolve", "7", "contents=write,pull_requests=write"), ["read", "resolveReviewThread", "resolveReviewThread",
                                                                                 "resolveReviewThread", "read"]),
             (("pr-review", "dismiss", "7", "99"), ["PUT repos/%s/pulls/7/reviews/99/dismissals", "GET repos/%s/pulls/7/reviews/99"]),
@@ -5139,7 +5140,7 @@ esac
             # One token, minted for the one repo and narrowed where the action narrows it, reaching gh by its environment.
             body = json.loads(minted[1]["sent"])
             self.assertEqual(body["repositories"], [check_trials.CANARY], args)
-            narrowed = args[2] if args[1] == "pause" else args[3] if args[1] in ("enqueue", "dequeue", "resolve", "queue", "issue-comments") and len(args) > 3 else None
+            narrowed = args[2] if args[1] == "pause" else args[3] if args[1] in ("enqueue", "dequeue", "resolve", "burst", "queue", "issue-comments") and len(args) > 3 else None
             self.assertEqual(body.get("permissions"), dict(p.split("=") for p in narrowed.split(",")) if narrowed else None, args)
             self.assertEqual({c["token"] for c in calls}, {self.TOKEN}, args)
             self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls + minted), args)
