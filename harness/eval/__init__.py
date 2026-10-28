@@ -7,7 +7,7 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
 - `fetch` reads each case from the private home through `adapters/heldout.py`, with the Maintainer's read-only token, into
   a scratch directory outside the workspace, on a runner thrown away when the job ends;
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
-  (`harness/task.admitted`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
+  (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too.
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails prints one code and
@@ -272,8 +272,8 @@ def main(step, *given) -> int:
     except Stop as stop:
         print(stop.code)
         return 1
-    except Exception:       # a message or a traceback could quote a case or name the home: a code alone
-        print("eval_step_failed")
+    except BaseException:   # a message or a traceback could quote a case or name the home: a code alone, even for an
+        print("eval_step_failed")   # interrupt, whose default report would print what it was chained to
         return 1
     print(said)
     return 0

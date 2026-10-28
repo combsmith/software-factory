@@ -134,11 +134,11 @@ def build(record: dict, run: str, facts: dict, texts: list, role: dict, findings
     entry = decision_of(record, run)
     if entry is None:
         raise Refused("no Decision in pass %s admitted Run %s" % (record.get("pass"), run))
-    return admitted(entry["decision"]["admit"], entry["decision"]["item"], run, facts, texts, role, findings, config,
-                    diff)
+    return from_admission(entry["decision"]["admit"], entry["decision"]["item"], run, facts, texts, role, findings, config,
+                          diff)
 
 
-def admitted(admit: dict, item: dict, run: str, facts: dict, texts: list, role: dict, findings: list, config: dict,
+def from_admission(admit: dict, item: dict, run: str, facts: dict, texts: list, role: dict, findings: list, config: dict,
              diff: bytes = None) -> dict:
     """The Task of Run `run`, admitted for `admit`'s Role, Intent and content on `item`, validated, or Refused. `build`
     reads the admission from the pass record; the eval job gives a held-out case's own, so that a case's Task is built

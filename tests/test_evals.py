@@ -9,7 +9,6 @@ import json
 import pathlib
 import re
 import unittest
-import unittest.mock
 from unittest import mock
 
 from tests.support import pending
@@ -226,6 +225,10 @@ class TheSet(unittest.TestCase):
             "the token on the job": (EVAL_WORKFLOW.replace("    environment: factory-eval\n",
                                                            "    environment: factory-eval\n    env:\n" + token[4:]),
                                      "its job has exactly"),
+            "a shorter timeout": (EVAL_WORKFLOW.replace("timeout-minutes: 120", "timeout-minutes: 20"),
+                                  "with a timeout of 120 minutes"),
+            "another runner": (EVAL_WORKFLOW.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-24.04-big"),
+                               "its job runs on ubuntu-24.04"),
             "another environment": (EVAL_WORKFLOW.replace("environment: factory-eval", "environment: factory-run"),
                                     "runs on the environment factory-eval"),
             "a write": (EVAL_WORKFLOW.replace("      contents: read\n", "      contents: read\n      actions: read\n"),
@@ -601,7 +604,7 @@ class EvalJob(unittest.TestCase):
         case, live = self.reviewed()
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         env = dict(live.JOB, HELDOUT_TOKEN="a-stand-in-held-out-token", HELDOUT_OWNER="o")
-        with unittest.mock.patch.object(step, "run_id", lambda: live.RUN):
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
             result = step.reviewer(env, "factory/v0.1.0", cli, live.Clock(0.0, 0.0, 1.0, 2.0))(case)
         self.assertEqual((result["status"], result["run"]), ("completed", live.RUN))
         asked, = cli.asked()
@@ -635,11 +638,41 @@ class EvalJob(unittest.TestCase):
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
-        # With just the tier's time left, it is asked.
+        # Less time left than the tier allows and the Engine's two reads of the CLI's version: not started either.
+        cli = live.CLI()
+        review = step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late - step.VERSION_READS + 1))
+        with self.assertRaises(job.Stop) as stopped:
+            review(case)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
+        # With just that time left, it is asked.
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
-        with unittest.mock.patch.object(step, "run_id", lambda: live.RUN):
-            step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late, 1.0, 2.0))(case)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            step.reviewer(live.JOB, "factory/v0.1.0", cli,
+                          live.Clock(0.0, step.BUDGET - late - step.VERSION_READS, 1.0, 2.0))(case)
         self.assertEqual(len(cli.asked()), 1)
+        # The limit is the case's own tier's, read from the configuration, never a constant.
+        from harness import run as running
+        longer = running.configuration()
+        longer["harness"]["limits"]["standard"]["seconds"] = late * 2
+        cli = live.CLI()
+        with mock.patch.object(step.live, "configuration", lambda: longer):
+            review = step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, step.BUDGET - late - step.VERSION_READS))
+        with self.assertRaises(job.Stop) as stopped:
+            review(case)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
+        # The step's time is held inside the job's: the workflow's timeout, which tools/check_workflows.py holds, less a
+        # quarter of an hour for the steps around it.
+        from tools import check_workflows
+        self.assertEqual(step.BUDGET, (int(check_workflows.EVAL_RUNNER["timeout-minutes"]) - 15) * 60)
+        # A diff that cannot be the bytes of any content, a lone surrogate, is no case of this set either.
+        cli = live.CLI()
+        with self.assertRaises(job.Stop) as stopped:
+            step.reviewer(live.JOB, "factory/v0.1.0", cli, live.Clock(0.0, 0.0))(dict(case, diff="\ud800"))
+        self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
+        # Only the eval job builds a Task from an admission it holds itself; every other Task is a pass record's.
+        callers = sorted(str(p.relative_to(ROOT)) for p in ROOT.rglob("*.py") if "from_admission(" in p.read_text()
+                         and not str(p.relative_to(ROOT)).startswith(("tests/", ".claude/")))
+        self.assertEqual(callers, ["harness/eval/run.py", "harness/task.py"])
 
     def test_the_run_step_writes_the_report_whatever_a_case_raised(self):  # issue 309, ruling 4
         # A case the review raises on is unanswered, one it cannot be asked of is unreadable by its code, and the
@@ -678,7 +711,15 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(job.main(leaks), 1)
             self.assertEqual(job.main(lambda env, root, work: (_ for _ in ()).throw(job.Stop("eval_set_empty"))), 1)
             self.assertEqual(job.main(lambda env, root, work: "planned 2 cases"), 0)
-        self.assertEqual((out.getvalue(), err.getvalue()), ("eval_step_failed\neval_set_empty\nplanned 2 cases\n", ""))
+            # An interrupt too, a cancel landing as the CLI's call times out, whose default report would quote the call.
+            def interrupted(env, root, work):
+                try:
+                    raise TimeoutError("the CLI was called with: --- a/kernel/x.py")
+                except TimeoutError:
+                    raise KeyboardInterrupt
+            self.assertEqual(job.main(interrupted), 1)
+        self.assertEqual((out.getvalue(), err.getvalue()),
+                         ("eval_step_failed\neval_set_empty\nplanned 2 cases\neval_step_failed\n", ""))
 
 
 if __name__ == "__main__":

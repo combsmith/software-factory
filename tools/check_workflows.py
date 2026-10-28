@@ -457,6 +457,9 @@ CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_
                    "chmod 0755 /tmp/claude",
                    "sudo mv /tmp/claude /usr/local/bin/claude"]
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
+# Its runner, the one the CLI's linux-x64 install is for, and its timeout, which the run step's budget is held inside
+# (harness/eval/run.py, BUDGET): a shorter one would end the job before the report is uploaded (issue 309, ruling 9).
+EVAL_RUNNER = {"runs-on": "ubuntu-24.04", "timeout-minutes": "120"}
 # What each step may be given, under with: or env:, exactly: a step's own keys beside these are refused.
 EVAL_GIVEN = {
     "checkout": {"with": {"persist-credentials": "false"}},
@@ -1081,6 +1084,8 @@ def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
     if set(inside) != EVAL_JOB_KEYS or inside["environment"]["value"] != EVAL_ENVIRONMENT:
         problems.append("its job has exactly %s, and runs on the environment %s"
                         % (", ".join(sorted(EVAL_JOB_KEYS)), EVAL_ENVIRONMENT))
+    if {k: inside[k]["value"] for k in EVAL_RUNNER if k in inside} != EVAL_RUNNER:
+        problems.append("its job runs on %(runs-on)s, with a timeout of %(timeout-minutes)s minutes" % EVAL_RUNNER)
     granted = sorted((e["key"], e["value"]) for e in entries if e["path"] == ["jobs", EVAL_JOB, "permissions"])
     if granted != [("contents", "read")]:
         problems.append("its job is granted contents: read and nothing else")
