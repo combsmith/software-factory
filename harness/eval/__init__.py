@@ -6,7 +6,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   `eval_set_empty`, before any credential is used (ruling 8);
 - `fetch` reads each case from the private home through `adapters/heldout.py`, with the Maintainer's read-only token, into
   a scratch directory outside the workspace, on a runner thrown away when the job ends;
-- `run` gives each case to the review Intent and scores its Result with `tools/eval_result.py` (the ruling's PR 2);
+- `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
+  (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too.
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails prints one code and
@@ -20,6 +21,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 
 from tools import eval_result
 from tools.jsonschema_lite import SchemaError, validate
@@ -30,6 +32,7 @@ REPORT = "eval-report.json"
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
+CASE_FAILED = "case_failed"
 
 
 class Stop(Exception):
@@ -127,9 +130,16 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         (place / "cases").mkdir(mode=0o700)
     except OSError:
         raise Stop("scratch_unreadable") from None
+    # When the plan was made, the job's own start to within its checkout: the run step's time is counted from it, so
+    # that the fetch and the install spend it too (the run step's BUDGET).
     _write(place, "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
-                                 "set": {"count": found["count"], "sha256": digest}})
+                                 "set": {"count": found["count"], "sha256": digest}, "planned_at": now()})
     return "planned %d cases" % found["count"]
+
+
+def now() -> int:
+    """The runner's clock, in whole seconds since the epoch: the one clock every step of the job reads alike."""
+    return int(time.time())
 
 
 def _planned(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> tuple:
@@ -167,9 +177,12 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     one that is no `eval-case/1` of this set's Role and Intent is `unreadable`, `not_this_set`; every other is given to
     `review`, which returns its `result/1`, and scored against the case by `tools/eval_result.py`."""
-    assessed = {}
+    assessed, interrupted = {}, False
     for entry in found["cases"]:
         code = why.get(entry["id"], "not_found") if isinstance(why, dict) else "not_found"
+        if interrupted:
+            # An interrupt asks nothing more of the model: every case after it is unanswered, and the report is written.
+            code = "unanswered"
         if code is not None:
             assessed[entry["id"]] = ("unreadable", [code if code in eval_result_codes() else "unanswered"])
             continue
@@ -183,8 +196,25 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
                 (case["role"], case["intent"]) != (found["role"], found["intent"]):
             assessed[entry["id"]] = ("unreadable", ["not_this_set"])
             continue
-        said = eval_result.score(case, review(case))
-        assessed[entry["id"]] = (said["verdict"], list(dict.fromkeys(said["reasons"])))
+        # A case the review cannot be asked of, or not in time, is unreadable by its code; whatever else the review
+        # raised is unanswered, so that one case's fault leaves the report whole and the run failed.
+        try:
+            result = review(case)
+        except Stop as stop:
+            assessed[entry["id"]] = ("unreadable", [stop.code if stop.code in eval_result_codes() else "unanswered"])
+            continue
+        except Exception:
+            assessed[entry["id"]] = ("unreadable", ["unanswered"])
+            continue
+        except BaseException:
+            interrupted = True
+            assessed[entry["id"]] = ("unreadable", ["unanswered"])
+            continue
+        said = eval_result.score(case, result)
+        # What the scorer says of a case that did not pass would tell anyone who reads the report what the case
+        # expected, and the report is public: across dispatches it would give the answer key. It is one code, the
+        # same whatever the scorer said, and the scorer's own codes never leave this step (decision 0078).
+        assessed[entry["id"]] = (PASS, []) if said["verdict"] == PASS and not said["reasons"] else ("fail", [CASE_FAILED])
     return assessed
 
 
@@ -261,8 +291,8 @@ def main(step, *given) -> int:
     except Stop as stop:
         print(stop.code)
         return 1
-    except Exception:       # a message or a traceback could quote a case or name the home: a code alone
-        print("eval_step_failed")
+    except BaseException:   # a message or a traceback could quote a case or name the home: a code alone, even for an
+        print("eval_step_failed")   # interrupt, whose default report would print what it was chained to
         return 1
     print(said)
     return 0

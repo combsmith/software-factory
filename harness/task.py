@@ -134,10 +134,18 @@ def build(record: dict, run: str, facts: dict, texts: list, role: dict, findings
     entry = decision_of(record, run)
     if entry is None:
         raise Refused("no Decision in pass %s admitted Run %s" % (record.get("pass"), run))
-    admit = entry["decision"]["admit"]
+    return from_admission(entry["decision"]["admit"], entry["decision"]["item"], run, facts, texts, role, findings, config,
+                          diff)
+
+
+def from_admission(admit: dict, item: dict, run: str, facts: dict, texts: list, role: dict, findings: list, config: dict,
+             diff: bytes = None) -> dict:
+    """The Task of Run `run`, admitted for `admit`'s Role, Intent and content on `item`, validated, or Refused. `build`
+    reads the admission from the pass record; the eval job gives a held-out case's own, so that a case's Task is built
+    by this one function, as a live Run's is (issue 309, ruling 5)."""
     # The facts are the item's as the Run reads them: the item and the content the Decision admitted, or the Run is
     # about something else, and is superseded before anything is asked.
-    kind = "facts" if entry["decision"]["item"]["type"] == "pull_request" else "issue-facts"
+    kind = "facts" if item["type"] == "pull_request" else "issue-facts"
     if shared.errors(facts, kind):
         raise Refused("the facts are no %s" % kind)
     # Facts read short are no reading of the item: a Task built from them could leave out what a person said.
@@ -147,7 +155,7 @@ def build(record: dict, run: str, facts: dict, texts: list, role: dict, findings
         raise Refused("the manifest or the texts cannot be read")
     if not isinstance(findings, list):
         raise Refused("the findings cannot be read")
-    if facts["item"] != entry["decision"]["item"] or facts["content_id"] != admit["content_id"]:
+    if facts["item"] != item or facts["content_id"] != admit["content_id"]:
         raise Refused("the facts are not of the item and content Run %s was admitted for" % run)
     if role["name"] != admit["role"]:
         raise Refused("the manifest is %s's, and Run %s is %s's" % (role["name"], run, admit["role"]))
