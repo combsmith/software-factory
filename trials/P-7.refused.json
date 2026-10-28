@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-7",
   "question": "Does the machine user's approval satisfy code-owner review and the last-push rule when an App pushed last? And does an approval given before a push still stand after it, under the ruleset that dismisses stale approvals on a push?",
-  "pass": "Written 2026-10-22T18:07:40Z, before the window, for P-7.refused: three dispatches of the machine user's approval (a closed pull request; a commit_id a push left behind; after the token is revoked), each refused, none leaving a counting approval; if (2) approves the old commit and it counts, fail. Asked in the canary, each dispatch approved at the main-only environment by the Maintainer. (1) Not refused: the approval of closed pull request 61 was taken, review 5677210714, APPROVED on its head. (2) Refused, 422: no review of 99aa98a, and 64's reviews unchanged. (3) Refused, 401, Bad credentials, after the window's token was deleted: no review on 63. (4), asked after: 61 reopened by the Maintainer with no push reads APPROVED, the approval given while it was closed counting again; it was closed again. Failed on (1): GitHub approves a closed pull request (issue 378 has the approving act refuse one that is not open).",
+  "pass": "Written 2026-10-22T18:07:40Z, before the window, for P-7.refused: three dispatches of the machine user's approval (a closed pull request; a commit_id a push left behind; after the token is revoked), each refused, none leaving a counting approval; if (2) approves the old commit and it counts, fail. Asked in the canary, each dispatch approved at the main-only environment by the Maintainer. (1) Not refused: the approval of closed pull request 61 was taken, review 5677210714, APPROVED on its head. (2) Refused, 422, \"This pull request has been updated since you started reviewing\", the run's own log naming commit 99aa98a, the first of 64's two: no review of it, and 64's reviews unchanged. (3) Refused, 401, Bad credentials, after the Maintainer deleted the window's token at donpetry-bot's settings (the environment's secret, still present then, held the dead token): no review on 63. (4), asked after: 61 reopened by the Maintainer with no push reads APPROVED, the approval given while it was closed counting again; it was closed again, as the last read shows. The reads are in the order made, each call naming its time. Failed on (1): GitHub approves a closed pull request (issue 378 has the approving act refuse one that is not open).",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-10-28T02:54:13Z",
   "exchanges": [
@@ -13,525 +13,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623628943: case (1), the machine user's approval dispatched for pull request 61, closed at 02:54:13Z, as the Maintainer, read 2026-10-28 after the window (of the answer, the run's id, workflow, title, event, state, branch, commit, attempt, times and actor are kept)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:36 GMT",
-          "etag": "W/\"fae5738884b2a0ad8097445fef65c5b4f6e5833ed55d54b140833c724c449cc5\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D751:1105C1:38253DC:B86027D:6AE275AC",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4926",
-          "x-ratelimit-reset": "1793228177",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "74"
-        },
-        "body": {
-          "id": 40623628943,
-          "name": "approve pull request 61",
-          "path": ".github/workflows/machine-user-approves.yml",
-          "event": "workflow_dispatch",
-          "status": "completed",
-          "conclusion": "success",
-          "head_branch": "main",
-          "head_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
-          "run_attempt": 1,
-          "display_title": "approve pull request 61",
-          "created_at": "2026-10-28T02:54:19Z",
-          "updated_at": "2026-10-28T02:55:50Z",
-          "actor": {
-            "login": "don-petry",
-            "type": "User"
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623628943/jobs: its job, as the Maintainer, read 2026-10-28 after the window (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:37 GMT",
-          "etag": "W/\"0d14508ac8e66026fb720495398912bb3edc946604e2637880dd0344ef73646f\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D752:2F7B10:3720A17:B56E21F:6AE275AC",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "3572",
-          "x-ratelimit-reset": "1793226416",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "1428"
-        },
-        "body": {
-          "total_count": 1,
-          "jobs": [
-            {
-              "id": 122603267149,
-              "name": "approve",
-              "status": "completed",
-              "conclusion": "success",
-              "started_at": "2026-10-28T02:55:45Z",
-              "completed_at": "2026-10-28T02:55:49Z",
-              "run_attempt": 1,
-              "steps": [
-                {
-                  "name": "Set up job",
-                  "status": "completed",
-                  "conclusion": "success",
-                  "number": 1
-                },
-                {
-                  "name": "Approve, and print only the review's id, state, commit and author",
-                  "status": "completed",
-                  "conclusion": "success",
-                  "number": 2
-                },
-                {
-                  "name": "Complete job",
-                  "status": "completed",
-                  "conclusion": "success",
-                  "number": 3
-                }
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/pulls/61/reviews: 61's reviews, as the Maintainer, read 2026-10-28 after the window (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:37 GMT",
-          "etag": "W/\"eb06bd56ef36240dc488689b3a6c70040c7ecf26ecd45760da12e6ef5542cfcc\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D753:2EED49:36DC860:B422CE3:6AE275AD",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "3571",
-          "x-ratelimit-reset": "1793226416",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "1429"
-        },
-        "body": [
-          {
-            "id": 5677210714,
-            "node_id": "PRR_kwDOVFD6788AAAABUmNcWg",
-            "state": "APPROVED",
-            "submitted_at": "2026-10-28T02:55:47Z",
-            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
-            "author_association": "MEMBER",
-            "user": {
-              "login": "donpetry-bot",
-              "type": "User"
-            },
-            "body": ""
-          }
-        ]
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623640194: case (2), the approval dispatched for pull request 64 with commit_id 99aa98a, a head a push left behind, as the Maintainer, read 2026-10-28 after the window (of the answer, the run's id, workflow, title, event, state, branch, commit, attempt, times and actor are kept)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:38 GMT",
-          "etag": "W/\"947546154f0a6d234d1be3949c2e7fd635f1095f13d7f7b8844f876c8e78562d\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D754:4F56E:37D5B6B:B76675B:6AE275AD",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4925",
-          "x-ratelimit-reset": "1793228177",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "75"
-        },
-        "body": {
-          "id": 40623640194,
-          "name": "approve pull request 64",
-          "path": ".github/workflows/machine-user-approves.yml",
-          "event": "workflow_dispatch",
-          "status": "completed",
-          "conclusion": "failure",
-          "head_branch": "main",
-          "head_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
-          "run_attempt": 1,
-          "display_title": "approve pull request 64",
-          "created_at": "2026-10-28T02:54:26Z",
-          "updated_at": "2026-10-28T02:56:00Z",
-          "actor": {
-            "login": "don-petry",
-            "type": "User"
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623640194/jobs: its job, as the Maintainer, read 2026-10-28 after the window (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:38 GMT",
-          "etag": "W/\"b37631c1c4933fa442b2ec5a3ccf84ec27720e9360bfb06285a4a7f22976551c\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D755:3207B2:399C9CD:BC7DD0E:6AE275AE",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "3570",
-          "x-ratelimit-reset": "1793226416",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "1430"
-        },
-        "body": {
-          "total_count": 1,
-          "jobs": [
-            {
-              "id": 122603299566,
-              "name": "approve",
-              "status": "completed",
-              "conclusion": "failure",
-              "started_at": "2026-10-28T02:55:55Z",
-              "completed_at": "2026-10-28T02:56:00Z",
-              "run_attempt": 1,
-              "steps": [
-                {
-                  "name": "Set up job",
-                  "status": "completed",
-                  "conclusion": "success",
-                  "number": 1
-                },
-                {
-                  "name": "Approve, and print only the review's id, state, commit and author",
-                  "status": "completed",
-                  "conclusion": "failure",
-                  "number": 2
-                },
-                {
-                  "name": "Complete job",
-                  "status": "completed",
-                  "conclusion": "success",
-                  "number": 3
-                }
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/pulls/64/reviews: 64's reviews, as the Maintainer, read 2026-10-28 after the window (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:39 GMT",
-          "etag": "W/\"00da09cafb941b92db90d44b02bc39ceaa8a85ef5d53043b510e66dfacb6f614\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D756:120909:3610536:B1ACD28:6AE275AE",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "3569",
-          "x-ratelimit-reset": "1793226416",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "1431"
-        },
-        "body": [
-          {
-            "id": 5676826266,
-            "node_id": "PRR_kwDOVFD6788AAAABUl1-mg",
-            "state": "DISMISSED",
-            "submitted_at": "2026-10-28T01:53:49Z",
-            "commit_id": "99aa98a4b50b73eb09b7f31323df44988346611c",
-            "author_association": "MEMBER",
-            "user": {
-              "login": "don-petry",
-              "type": "User"
-            }
-          },
-          {
-            "id": 5676844330,
-            "node_id": "PRR_kwDOVFD6788AAAABUl3FKg",
-            "state": "DISMISSED",
-            "submitted_at": "2026-10-28T01:56:53Z",
-            "commit_id": "706cb893291b1dc51761d73e523bd96350a57b06",
-            "author_association": "MEMBER",
-            "user": {
-              "login": "donpetry-bot",
-              "type": "User"
-            },
-            "body": ""
-          }
-        ]
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40680543036: case (3), the approval dispatched for pull request 63 after the window's token was deleted, as the Maintainer, read 2026-10-28 after the window (of the answer, the run's id, workflow, title, event, state, branch, commit, attempt, times and actor are kept)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:39 GMT",
-          "etag": "W/\"93feb87787569a5a3a530a2407410f23b8bd78bdb67f6f7b16b08d25f12b88a7\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D757:2A1965:364B902:B22519E:6AE275AF",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4924",
-          "x-ratelimit-reset": "1793228177",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "76"
-        },
-        "body": {
-          "id": 40680543036,
-          "name": "approve pull request 63",
-          "path": ".github/workflows/machine-user-approves.yml",
-          "event": "workflow_dispatch",
-          "status": "completed",
-          "conclusion": "failure",
-          "head_branch": "main",
-          "head_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
-          "run_attempt": 1,
-          "display_title": "approve pull request 63",
-          "created_at": "2026-10-28T11:30:55Z",
-          "updated_at": "2026-10-28T11:51:22Z",
-          "actor": {
-            "login": "don-petry",
-            "type": "User"
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40680543036/jobs: its job, as the Maintainer, read 2026-10-28 after the window (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:40 GMT",
-          "etag": "W/\"ba99988f6f8721912114b06a3fd21302e8cef2b7a8806ea15ad87a322acf0c5b\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D758:28B901:375DB5E:B6335EF:6AE275AF",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "3568",
-          "x-ratelimit-reset": "1793226416",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "1432"
-        },
-        "body": {
-          "total_count": 1,
-          "jobs": [
-            {
-              "id": 122789852031,
-              "name": "approve",
-              "status": "completed",
-              "conclusion": "failure",
-              "started_at": "2026-10-28T11:51:18Z",
-              "completed_at": "2026-10-28T11:51:22Z",
-              "run_attempt": 1,
-              "steps": [
-                {
-                  "name": "Set up job",
-                  "status": "completed",
-                  "conclusion": "success",
-                  "number": 1
-                },
-                {
-                  "name": "Approve, and print only the review's id, state, commit and author",
-                  "status": "completed",
-                  "conclusion": "failure",
-                  "number": 2
-                },
-                {
-                  "name": "Complete job",
-                  "status": "completed",
-                  "conclusion": "success",
-                  "number": 3
-                }
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/pulls/63/reviews: 63's reviews, as the Maintainer, read 2026-10-28 after the window (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 28 Oct 2026 22:22:40 GMT",
-          "etag": "W/\"54a1ff6e69306cd1e3d9f0460a45d7880d48c475862f2aa538da21de98c03546\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D759:2FBD23:34EE225:ADF75DF:6AE275B0",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "3567",
-          "x-ratelimit-reset": "1793226416",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "1433"
-        },
-        "body": [
-          {
-            "id": 5676810339,
-            "node_id": "PRR_kwDOVFD6788AAAABUl1AYw",
-            "state": "COMMENTED",
-            "submitted_at": "2026-10-28T01:51:18Z",
-            "commit_id": "085814d44352373c5ac0629d50267a2bc2ac2f43",
-            "author_association": "CONTRIBUTOR",
-            "user": {
-              "login": "combsmith-sf-trial-author[bot]",
-              "type": "Bot"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/issues/61/timeline?per_page=100: case (4), 61 reopened by the Maintainer at 03:11:05Z with no push, as the Maintainer (of the answer, each event's kind, id, times, state, commit and actor are kept; no text)",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/61/timeline?per_page=100: case (4), 61 reopened by the Maintainer at 03:11:05Z with no push, as the Maintainer, read at 03:11Z (of the answer, each event's kind, id, times, state, commit and actor are kept; no text)",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -549,7 +31,6 @@
           "x-accepted-oauth-scopes": "repo",
           "x-github-media-type": "github.v3; format=json",
           "x-github-request-id": "F578:332A47:8E9475:1D58C25:6AE167D7",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
           "x-ratelimit-remaining": "2639",
           "x-ratelimit-reset": "1793157164",
@@ -703,7 +184,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): case (4), 61's state, review decision and its reopening and closing, as the Maintainer",
+        "call": "POST /graphql (gh api graphql): case (4), 61's state, review decision and its reopening and closing, as the Maintainer, read at 03:11Z",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -722,7 +203,6 @@
           "x-accepted-oauth-scopes": "repo",
           "x-github-media-type": "github.v4; format=json",
           "x-github-request-id": "F57B:28CE2C:86FC12:1BD1595:6AE167D8",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
           "x-ratelimit-remaining": "4414",
           "x-ratelimit-reset": "1793157808",
@@ -785,7 +265,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/pulls/61: case (4), as the Maintainer (of the answer, its number, node id, state, draft and merged flags, mergeable state, head and author are kept)",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/61: case (4), as the Maintainer, read at 03:11Z, before it was closed again at 03:11:39Z (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -805,7 +285,6 @@
           "x-accepted-oauth-scopes": "repo",
           "x-github-media-type": "github.v3; format=json",
           "x-github-request-id": "F57D:AD3CE:8E0AA1:1D4D2B9:6AE167D9",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
           "x-ratelimit-remaining": "2637",
           "x-ratelimit-reset": "1793157164",
@@ -818,6 +297,8 @@
           "state": "open",
           "draft": false,
           "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "373e1b9d22190fa8494e9ecb87f1db3f3493780d",
           "mergeable_state": "blocked",
           "head": {
             "ref": "trial/p-2f",
@@ -837,7 +318,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/pulls/61/reviews: case (4), as the Maintainer (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/61/reviews: case (4), as the Maintainer, read at 03:11Z (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -855,7 +336,6 @@
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
           "x-github-request-id": "F57F:228B58:937A78:1E5F779:6AE167DB",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
           "x-ratelimit-remaining": "2636",
           "x-ratelimit-reset": "1793157164",
@@ -878,6 +358,819 @@
           }
         ]
       }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623628943: case (1), the machine user's approval dispatched for pull request 61, closed at 02:54:13Z, as the Maintainer, read at 22:22Z (of the answer, the run's id, workflow, title, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:36 GMT",
+          "etag": "W/\"fae5738884b2a0ad8097445fef65c5b4f6e5833ed55d54b140833c724c449cc5\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D751:1105C1:38253DC:B86027D:6AE275AC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4926",
+          "x-ratelimit-reset": "1793228177",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "74"
+        },
+        "body": {
+          "id": 40623628943,
+          "name": "approve pull request 61",
+          "path": ".github/workflows/machine-user-approves.yml",
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "success",
+          "head_branch": "main",
+          "head_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+          "run_attempt": 1,
+          "display_title": "approve pull request 61",
+          "created_at": "2026-10-28T02:54:19Z",
+          "updated_at": "2026-10-28T02:55:50Z",
+          "actor": {
+            "login": "don-petry",
+            "type": "User"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623628943/jobs: its job, as the Maintainer, read at 22:22Z (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:37 GMT",
+          "etag": "W/\"0d14508ac8e66026fb720495398912bb3edc946604e2637880dd0344ef73646f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D752:2F7B10:3720A17:B56E21F:6AE275AC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3572",
+          "x-ratelimit-reset": "1793226416",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1428"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 122603267149,
+              "name": "approve",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:55:45Z",
+              "completed_at": "2026-10-28T02:55:49Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Approve, and print only the review's id, state, commit and author",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/61/reviews: 61's reviews, as the Maintainer, read at 22:22Z (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:37 GMT",
+          "etag": "W/\"eb06bd56ef36240dc488689b3a6c70040c7ecf26ecd45760da12e6ef5542cfcc\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D753:2EED49:36DC860:B422CE3:6AE275AD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3571",
+          "x-ratelimit-reset": "1793226416",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1429"
+        },
+        "body": [
+          {
+            "id": 5677210714,
+            "node_id": "PRR_kwDOVFD6788AAAABUmNcWg",
+            "state": "APPROVED",
+            "submitted_at": "2026-10-28T02:55:47Z",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+            "author_association": "MEMBER",
+            "user": {
+              "login": "donpetry-bot",
+              "type": "User"
+            },
+            "body": ""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623640194: case (2), the approval dispatched for pull request 64 with commit_id 99aa98a, as the Maintainer, read at 22:22Z (of the answer, the run's id, workflow, title, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:38 GMT",
+          "etag": "W/\"947546154f0a6d234d1be3949c2e7fd635f1095f13d7f7b8844f876c8e78562d\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D754:4F56E:37D5B6B:B76675B:6AE275AD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4925",
+          "x-ratelimit-reset": "1793228177",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "75"
+        },
+        "body": {
+          "id": 40623640194,
+          "name": "approve pull request 64",
+          "path": ".github/workflows/machine-user-approves.yml",
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "failure",
+          "head_branch": "main",
+          "head_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+          "run_attempt": 1,
+          "display_title": "approve pull request 64",
+          "created_at": "2026-10-28T02:54:26Z",
+          "updated_at": "2026-10-28T02:56:00Z",
+          "actor": {
+            "login": "don-petry",
+            "type": "User"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40623640194/jobs: its job, as the Maintainer, read at 22:22Z (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:38 GMT",
+          "etag": "W/\"b37631c1c4933fa442b2ec5a3ccf84ec27720e9360bfb06285a4a7f22976551c\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D755:3207B2:399C9CD:BC7DD0E:6AE275AE",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3570",
+          "x-ratelimit-reset": "1793226416",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1430"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 122603299566,
+              "name": "approve",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-28T02:55:55Z",
+              "completed_at": "2026-10-28T02:56:00Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Approve, and print only the review's id, state, commit and author",
+                  "status": "completed",
+                  "conclusion": "failure",
+                  "number": 2
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/64/reviews: 64's reviews, as the Maintainer, read at 22:22Z (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:39 GMT",
+          "etag": "W/\"00da09cafb941b92db90d44b02bc39ceaa8a85ef5d53043b510e66dfacb6f614\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D756:120909:3610536:B1ACD28:6AE275AE",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3569",
+          "x-ratelimit-reset": "1793226416",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1431"
+        },
+        "body": [
+          {
+            "id": 5676826266,
+            "node_id": "PRR_kwDOVFD6788AAAABUl1-mg",
+            "state": "DISMISSED",
+            "submitted_at": "2026-10-28T01:53:49Z",
+            "commit_id": "99aa98a4b50b73eb09b7f31323df44988346611c",
+            "author_association": "MEMBER",
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          },
+          {
+            "id": 5676844330,
+            "node_id": "PRR_kwDOVFD6788AAAABUl3FKg",
+            "state": "DISMISSED",
+            "submitted_at": "2026-10-28T01:56:53Z",
+            "commit_id": "706cb893291b1dc51761d73e523bd96350a57b06",
+            "author_association": "MEMBER",
+            "user": {
+              "login": "donpetry-bot",
+              "type": "User"
+            },
+            "body": ""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40680543036: case (3), the approval dispatched for pull request 63 after the window's token was deleted at donpetry-bot's settings, as the Maintainer, read at 22:22Z (of the answer, the run's id, workflow, title, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:39 GMT",
+          "etag": "W/\"93feb87787569a5a3a530a2407410f23b8bd78bdb67f6f7b16b08d25f12b88a7\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D757:2A1965:364B902:B22519E:6AE275AF",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4924",
+          "x-ratelimit-reset": "1793228177",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "76"
+        },
+        "body": {
+          "id": 40680543036,
+          "name": "approve pull request 63",
+          "path": ".github/workflows/machine-user-approves.yml",
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "failure",
+          "head_branch": "main",
+          "head_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+          "run_attempt": 1,
+          "display_title": "approve pull request 63",
+          "created_at": "2026-10-28T11:30:55Z",
+          "updated_at": "2026-10-28T11:51:22Z",
+          "actor": {
+            "login": "don-petry",
+            "type": "User"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40680543036/jobs: its job, as the Maintainer, read at 22:22Z (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:40 GMT",
+          "etag": "W/\"ba99988f6f8721912114b06a3fd21302e8cef2b7a8806ea15ad87a322acf0c5b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D758:28B901:375DB5E:B6335EF:6AE275AF",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3568",
+          "x-ratelimit-reset": "1793226416",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1432"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 122789852031,
+              "name": "approve",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-28T11:51:18Z",
+              "completed_at": "2026-10-28T11:51:22Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Approve, and print only the review's id, state, commit and author",
+                  "status": "completed",
+                  "conclusion": "failure",
+                  "number": 2
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/63/reviews: 63's reviews, as the Maintainer, read at 22:22Z (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:22:40 GMT",
+          "etag": "W/\"54a1ff6e69306cd1e3d9f0460a45d7880d48c475862f2aa538da21de98c03546\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D759:2FBD23:34EE225:ADF75DF:6AE275B0",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3567",
+          "x-ratelimit-reset": "1793226416",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1433"
+        },
+        "body": [
+          {
+            "id": 5676810339,
+            "node_id": "PRR_kwDOVFD6788AAAABUl1AYw",
+            "state": "COMMENTED",
+            "submitted_at": "2026-10-28T01:51:18Z",
+            "commit_id": "085814d44352373c5ac0629d50267a2bc2ac2f43",
+            "author_association": "CONTRIBUTOR",
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 40623628943 --repo combsmith/software-factory-canary --log: case (1)'s run, read at 22:44Z (of the log, the approval step's lines alone are kept)",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "approve\tApprove, and print only the review's id, state, commit and author\t﻿2026-10-28T02:55:46.1459024Z ##[group]Run set -- -f event=APPROVE\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.1459830Z ^[[36;1mset -- -f event=APPROVE^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.1460694Z ^[[36;1m[ -z \"$COMMIT\" ] || set -- \"$@\" -f commit_id=\"$COMMIT\"^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.1461696Z ^[[36;1mgh api -X POST \"repos/$GH_REPO/pulls/$PR/reviews\" \"$@\" --jq '{id, state, commit_id, author: .user.login}'^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.3977175Z shell: /usr/bin/bash -e {0}\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.3978360Z env:\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.3979419Z   GH_TOKEN: ***\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.3979919Z   GH_REPO: combsmith/software-factory-canary\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.3980758Z   PR: 61\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.3981207Z   COMMIT: \napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:46.3981665Z ##[endgroup]\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:47.7333316Z {\"author\":\"donpetry-bot\",\"commit_id\":\"c74cb7c417f8d5675f69d0eead8cd51a2ee6322b\",\"id\":5677210714,\"state\":\"APPROVED\"}"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 40623640194 --repo combsmith/software-factory-canary --log: case (2)'s run, its inputs and GitHub's refusal, read at 22:44Z (of the log, the approval step's lines alone are kept)",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "approve\tApprove, and print only the review's id, state, commit and author\t﻿2026-10-28T02:55:56.7405762Z ##[group]Run set -- -f event=APPROVE\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.7407364Z ^[[36;1mset -- -f event=APPROVE^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.7408688Z ^[[36;1m[ -z \"$COMMIT\" ] || set -- \"$@\" -f commit_id=\"$COMMIT\"^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.7410594Z ^[[36;1mgh api -X POST \"repos/$GH_REPO/pulls/$PR/reviews\" \"$@\" --jq '{id, state, commit_id, author: .user.login}'^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.8243146Z shell: /usr/bin/bash -e {0}\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.8244311Z env:\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.8245805Z   GH_TOKEN: ***\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.8246505Z   GH_REPO: combsmith/software-factory-canary\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.8247642Z   PR: 64\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.8248432Z   COMMIT: 99aa98a4b50b73eb09b7f31323df44988346611c\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:56.8249253Z ##[endgroup]\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:58.0370199Z gh: Unprocessable Entity (HTTP 422)\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:58.0374380Z {\"message\":\"Unprocessable Entity\",\"errors\":[\"Review This pull request has been updated since you started reviewing. Please review the latest changes and resubmit.\"],\"documentation_url\":\"https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request\",\"status\":\"422\"}\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T02:55:58.0400590Z ##[error]Process completed with exit code 1."
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 40680543036 --repo combsmith/software-factory-canary --log: case (3)'s run, its inputs and GitHub's refusal, read at 22:44Z (of the log, the approval step's lines alone are kept)",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "approve\tApprove, and print only the review's id, state, commit and author\t﻿2026-10-28T11:51:19.5218519Z ##[group]Run set -- -f event=APPROVE\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5219057Z ^[[36;1mset -- -f event=APPROVE^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5219569Z ^[[36;1m[ -z \"$COMMIT\" ] || set -- \"$@\" -f commit_id=\"$COMMIT\"^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5220186Z ^[[36;1mgh api -X POST \"repos/$GH_REPO/pulls/$PR/reviews\" \"$@\" --jq '{id, state, commit_id, author: .user.login}'^[[0m\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5735449Z shell: /usr/bin/bash -e {0}\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5736439Z env:\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5737872Z   GH_TOKEN: ***\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5738462Z   GH_REPO: combsmith/software-factory-canary\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5739129Z   PR: 63\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5739597Z   COMMIT: \napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.5740060Z ##[endgroup]\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.8823323Z gh: Bad credentials (HTTP 401)\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.8824133Z {\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.8825329Z   \"message\": \"Bad credentials\",\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.8826235Z   \"documentation_url\": \"https://docs.github.com/rest\",\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.8827094Z   \"status\": \"401\"\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.8835008Z }\napprove\tApprove, and print only the review's id, state, commit and author\t2026-10-28T11:51:19.8849387Z ##[error]Process completed with exit code 1."
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/64/commits: 64's commits, 99aa98a the first and 706cb89 its head, as the Maintainer, read at 22:44Z",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:44:52 GMT",
+          "etag": "W/\"61c2f4eb0bd758ab3cd6f5bb30f16a4fcd1b262408f7cb82768a257c48bf826a\"",
+          "last-modified": "Wed, 28 Oct 2026 11:30:25 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DBFA:3A56E1:3882D79:B9EBDC0:6AE27AE3",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4170",
+          "x-ratelimit-reset": "1793230113",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "830"
+        },
+        "body": [
+          {
+            "sha": "99aa98a4b50b73eb09b7f31323df44988346611c",
+            "node_id": "C_kwDOVFD679oAKDk5YWE5OGE0YjUwYjczZWIwOWI3ZjMxMzIzZGY0NDk4ODM0NjYxMWM",
+            "commit": {
+              "author": {
+                "name": "combsmith-sf-trial-author[bot]",
+                "email": "344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com",
+                "date": "2026-10-28T01:53:26Z"
+              },
+              "committer": {
+                "name": "GitHub",
+                "email": "noreply@github.com",
+                "date": "2026-10-28T01:53:26Z"
+              },
+              "message": "Trial: p41/h.md, added by the trial-author App",
+              "tree": {
+                "sha": "d1804f77a12f72edfa7781a3c58e048f8bdfc74b",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/d1804f77a12f72edfa7781a3c58e048f8bdfc74b"
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/99aa98a4b50b73eb09b7f31323df44988346611c",
+              "comment_count": 0,
+              "verification": {
+                "verified": true,
+                "reason": "valid",
+                "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq4VWWCRC1aQ7uu5UhlAAA9MgQAFii2Jcqqnzx/c/C8miFMXGa\nf8An4f1pNkRaoqSNaQ4WdxX3USAmEOXT/+GJP9fzdeQlXQatTX2kV0sagwtQR6ym\nfsz912gu2c/CIyDfCn+Psgn6C2H0++XRrDtm2zJxqEMyzSJW5czhGCdSbFN1/N9S\nuj2csemL0hF0IMYHZWkhxsh6Aw/pYphZtrhBFE2iDN69vhacD9aixu32Pwlk+ggT\n9JzqUJ8JvQMvLB41afs3oDu5W1yT9ywbndVpNTQl0X8tDoC0w/0b3jzVm40GeYHz\nU8hSy1r9WdacbbzOQVLoz0SXogOmcmL7Ohqw3eXM60wUuHQHfUVrx4xU9pVgO6b5\nHu86kOlIbvczAXejqfbzTBFANt0J3JLpyZgjEAGE2imsk5Ogk5Ch0JVEEpI7f4bI\ntxE+TD84QewQfXYh5pxtICmV/btlPp1+qVhU15A2mx/tamAHM4O4bnzT8KbtQw4M\n8kfmpy34+wKZZpBEan2sR2iBYWH63bbS+Mzx5rKLo+Fx1uXeyUGiyMyo4FYNA7ie\nQreHIkMsHMMipXHunUpHUrxpf5vP0xBYiHAlpzqd5A6pOL9byB/GL6WmE/iypDa3\nJDwe6F5+OlmLbWLfyflGahLnvQj6ADmVJVaTSqAOtLUldduC6n1/oLnnAoqkmS14\nS29p/mIi858+YJyPkzoe\n=l6j9\n-----END PGP SIGNATURE-----\n",
+                "payload": "tree d1804f77a12f72edfa7781a3c58e048f8bdfc74b\nparent eaa93d4b4618c9a8e73dffc1381b9f774483e1eb\nauthor combsmith-sf-trial-author[bot] <344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com> 1793152406 -0500\ncommitter GitHub <noreply@github.com> 1793152406 -0500\n\nTrial: p41/h.md, added by the trial-author App",
+                "verified_at": "2026-10-28T01:53:27Z"
+              }
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/99aa98a4b50b73eb09b7f31323df44988346611c",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/99aa98a4b50b73eb09b7f31323df44988346611c",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/99aa98a4b50b73eb09b7f31323df44988346611c/comments",
+            "author": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "committer": {
+              "login": "web-flow",
+              "id": 19864447,
+              "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+              "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/web-flow",
+              "html_url": "https://github.com/web-flow",
+              "followers_url": "https://api.github.com/users/web-flow/followers",
+              "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+              "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+              "organizations_url": "https://api.github.com/users/web-flow/orgs",
+              "repos_url": "https://api.github.com/users/web-flow/repos",
+              "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/web-flow/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "parents": [
+              {
+                "sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/eaa93d4b4618c9a8e73dffc1381b9f774483e1eb"
+              }
+            ]
+          },
+          {
+            "sha": "706cb893291b1dc51761d73e523bd96350a57b06",
+            "node_id": "C_kwDOVFD679oAKDcwNmNiODkzMjkxYjFkYzUxNzYxZDczZTUyM2JkOTYzNTBhNTdiMDY",
+            "commit": {
+              "author": {
+                "name": "combsmith-sf-trial-author[bot]",
+                "email": "344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com",
+                "date": "2026-10-28T01:55:03Z"
+              },
+              "committer": {
+                "name": "GitHub",
+                "email": "noreply@github.com",
+                "date": "2026-10-28T01:55:03Z"
+              },
+              "message": "Trial: p41/h2.md, pushed by the trial-author App",
+              "tree": {
+                "sha": "dbf06713eaa1b79d3855aa31301c563ee292dc15",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/dbf06713eaa1b79d3855aa31301c563ee292dc15"
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/706cb893291b1dc51761d73e523bd96350a57b06",
+              "comment_count": 0,
+              "verification": {
+                "verified": true,
+                "reason": "valid",
+                "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq4VX3CRC1aQ7uu5UhlAAAnesQAKyPdLdvm08cuOlk3ok2CeGH\n2spwX7ZrEZUrTQeadcuGBXN+937ePb52OnP48lBTgCVDVC2AHo1gZ6UBEJHsluWN\nVIZJYRyffTkz9PBnucdtHMJeg0JchLEWhzgccpqDHaGnFbYFFT6plDqRHX8TTIkN\nslVA8zFi9qZapJnn+s7/JPd259wkreMDBdd7qhnD2lTMFfXGGocKz2CQt0eiodAb\n/3MBQLtXt96AUn0PR0qRSJDsAtJ1YXl6DF52L9maViFahBIL8zm+ohVkfvxWOpUS\n+91RJg5POvSx4apxMDXOj6uybXPz9EWZN/1QZ7S5esExSF1DBPAHDQwmVA+svzHx\nxJhKVmyjqB4JZZkvDxqhh3Ofa1F4LdvckC6mX4Ks3CgcIUvvvOEhehrsYwvA8vqy\nVm4bCX6yAG443fcG/Q1tsm61zYSGfm0IyjVDsyhBguFn1IMtxz0YlejD6wpTsG2G\n7u7V9CAY7kcf51YnSBPLvGKl2+KKjFTs61MRL+4jW6CxgDeLkesuXtNAvrwnFkCm\n3VHCUB3T052aiWgNghqx6Di+0/fGX/qd9nMz+LcQIdz/iJLaC6ELPYcE+FUMcRgb\nIrgjawEyKAPa9aX/UEIvMmaeDzzIQhhxWayQkDl7jhcgh+m0HAq7jl9yMpJ8t0X0\nrQqpKCfJHYftaW3YbUjW\n=6ErQ\n-----END PGP SIGNATURE-----\n",
+                "payload": "tree dbf06713eaa1b79d3855aa31301c563ee292dc15\nparent 99aa98a4b50b73eb09b7f31323df44988346611c\nauthor combsmith-sf-trial-author[bot] <344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com> 1793152503 -0500\ncommitter GitHub <noreply@github.com> 1793152503 -0500\n\nTrial: p41/h2.md, pushed by the trial-author App",
+                "verified_at": "2026-10-28T01:55:04Z"
+              }
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/706cb893291b1dc51761d73e523bd96350a57b06",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/706cb893291b1dc51761d73e523bd96350a57b06",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/706cb893291b1dc51761d73e523bd96350a57b06/comments",
+            "author": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "committer": {
+              "login": "web-flow",
+              "id": 19864447,
+              "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+              "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/web-flow",
+              "html_url": "https://github.com/web-flow",
+              "followers_url": "https://api.github.com/users/web-flow/followers",
+              "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+              "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+              "organizations_url": "https://api.github.com/users/web-flow/orgs",
+              "repos_url": "https://api.github.com/users/web-flow/repos",
+              "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/web-flow/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "parents": [
+              {
+                "sha": "99aa98a4b50b73eb09b7f31323df44988346611c",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/99aa98a4b50b73eb09b7f31323df44988346611c",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/99aa98a4b50b73eb09b7f31323df44988346611c"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/61: 61 closed again, as the Maintainer, read at 22:44Z (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18634",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:44:52 GMT",
+          "etag": "\"85df674aac631add584f520b4a8994a5af7c0c18e14f7437df60675813312367\"",
+          "last-modified": "Wed, 28 Oct 2026 11:30:23 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DBFB:1F23:1EF284:65F305:6AE27AE4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4168",
+          "x-ratelimit-reset": "1793230113",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "832"
+        },
+        "body": {
+          "number": 61,
+          "node_id": "PR_kwDOVFD6788AAAABLJ6UdA",
+          "state": "closed",
+          "draft": false,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "373e1b9d22190fa8494e9ecb87f1db3f3493780d",
+          "mergeable_state": "clean",
+          "head": {
+            "ref": "trial/p-2f",
+            "sha": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
     }
   ],
   "removed": [
@@ -893,7 +1186,12 @@
     "exchanges[9].request.headers.authorization",
     "exchanges[10].request.headers.authorization",
     "exchanges[11].request.headers.authorization",
-    "exchanges[12].request.headers.authorization"
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[14].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization"
   ],
   "verdict": "fail"
 }
