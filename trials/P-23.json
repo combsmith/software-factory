@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-23",
   "question": "How many threads may one App resolve in an hour before GitHub's secondary limits apply?",
-  "pass": "Written 2026-10-22T18:07:40Z, before the window: 30 resolutions in a row, each answered 200, with no secondary limit; the rate headers are recorded. Asked on canary pull request 63, opened by the Maintainer: the trial-author App opened 30 review threads in one review, then resolved them one after another as fast as GitHub answered, with its permissions narrowed to contents and pull_requests write, since an App resolves a thread only with contents: write (trials/P-5.json). Each of the 30 answered 200 with no GraphQL error, from 01:51:34Z to 01:52:14Z, the graphql resource's count rising from 8 to 37 of 5000. Passed.",
+  "pass": "Written 2026-10-22T18:07:40Z, before the window: 30 resolutions in a row, each answered 200, with no secondary limit; the rate headers are recorded. Asked on canary pull request 63, opened by the Maintainer: the trial-author App opened 30 review threads in one review, then resolved them one after another as fast as GitHub answered, with its permissions narrowed to contents and pull_requests write, since an App resolves a thread only with contents: write (trials/P-5.json). Each of the 30 answered 200 with no GraphQL error, from 01:51:34Z to 01:52:14Z, the graphql resource's count rising from 8 to 37 of 5000. Passed as written. The threads were the App's own, and the burst lasted 40 seconds: no hourly secondary limit was reached, so the rate the row asks about is not measured by it.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-10-28T01:51:15Z",
   "exchanges": [
