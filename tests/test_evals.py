@@ -17,46 +17,9 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SET = ROOT / "evals" / "pr-review" / "cases.json"
-# The eval job's workflow as issue 309's ruling 10 shapes it, for the check to hold: the live file lands with its `run`
-# step's Task (the ruling's PR 2), and until then this text is the shape.
-EVAL_WORKFLOW = """name: factory
-on:
-  workflow_dispatch:
-    inputs:
-      release:
-        required: true
-        type: string
-permissions: {}
-jobs:
-  eval:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    permissions:
-      contents: read
-    environment: factory-eval
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: python3 -m harness.eval.plan
-        env:
-          RELEASE: ${{ inputs.release }}
-      - run: python3 -m harness.eval.fetch
-        env:
-          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}
-          HELDOUT_OWNER: ${{ secrets.HELDOUT_OWNER }}
-          HELDOUT_REPO: ${{ secrets.HELDOUT_REPO }}
-      - run: python3 -m harness.eval.run
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: eval-report
-          path: eval-report.json
-          if-no-files-found: error
-          retention-days: 90
-      - run: python3 -m harness.eval.judge
-"""
+# The eval job's workflow, the live file, as issue 309's ruling 10 and its first amendment shape it: the planted faults
+# below are made from it.
+EVAL_WORKFLOW = (ROOT / ".github" / "workflows" / "eval.yml").read_text()
 
 
 def load(rel: str):
@@ -242,6 +205,8 @@ class TheSet(unittest.TestCase):
         # since eval_problems holds every line of it, and keeps every other rule.
         self.assertEqual([r for r in check_workflows.lint(EVAL_WORKFLOW) if r[0] not in check_workflows.SHAPED["eval.yml"]], [])
         token = "          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}\n"
+        install = EVAL_WORKFLOW[EVAL_WORKFLOW.index("      - env:\n          CLI_VERSION"):
+                                EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.run\n")]
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         broken = {
             "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "its fetch step is given under env"),
@@ -260,6 +225,10 @@ class TheSet(unittest.TestCase):
             "the token on the job": (EVAL_WORKFLOW.replace("    environment: factory-eval\n",
                                                            "    environment: factory-eval\n    env:\n" + token[4:]),
                                      "its job has exactly"),
+            "a shorter timeout": (EVAL_WORKFLOW.replace("timeout-minutes: 120", "timeout-minutes: 20"),
+                                  "with a timeout of 120 minutes"),
+            "another runner": (EVAL_WORKFLOW.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-24.04-big"),
+                               "its job runs on ubuntu-24.04"),
             "another environment": (EVAL_WORKFLOW.replace("environment: factory-eval", "environment: factory-run"),
                                     "runs on the environment factory-eval"),
             "a write": (EVAL_WORKFLOW.replace("      contents: read\n", "      contents: read\n      actions: read\n"),
@@ -305,12 +274,38 @@ class TheSet(unittest.TestCase):
             "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
                                       "nothing else above its job"),
             "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
+            # The CLI's install, between the fetch and the model's step, at the Engine's pin by its checksum, word for
+            # word as the Run's jobs install it (issue 309, amendment 1).
+            "the CLI at another version": (EVAL_WORKFLOW.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.305"'),
+                                           "its install step is given under env"),
+            "the CLI by another checksum": (EVAL_WORKFLOW.replace('CLI_CHECKSUM: "520bc6', 'CLI_CHECKSUM: "000000'),
+                                            "its install step is given under env"),
+            "the model's credential at the install": (EVAL_WORKFLOW.replace('          CLI_VERSION: "2.1.306"\n',
+                                                                            '          CLI_VERSION: "2.1.306"\n' + model),
+                                                      "its install step is given under env"),
+            "the CLI's install a module of its own": (EVAL_WORKFLOW.replace(
+                install[install.index("        run: |"):], "        run: python3 -m harness.eval.install\n"), "in that order"),
+            "the CLI unchecked": (EVAL_WORKFLOW.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
+                                  "in that order"),
+            "the CLI's block folded": (EVAL_WORKFLOW.replace("        run: |\n          url=", "        run: >\n          url="),
+                                       "in that order"),
+            "the CLI after the model": (EVAL_WORKFLOW.replace(install, "").replace(
+                "      - uses: actions/upload-artifact", install + "      - uses: actions/upload-artifact"), "in that order"),
+            "the CLI from another path": (EVAL_WORKFLOW.replace("CLAUDE_CLI: /usr/local/bin/claude", "CLAUDE_CLI: /tmp/claude"),
+                                          "its run step is given under env"),
             "a second job": (EVAL_WORKFLOW + "  other:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"
                                              "    environment: factory-poller\n    steps:\n      - run: make verify\n",
                              "it holds the job eval and no other"),
         }
         for why, (text, words) in broken.items():
+            self.assertNotEqual(text, EVAL_WORKFLOW, why)
             self.assertTrue(caught(check_workflows.eval_problems(text), words), why)
+        # The install is the one the Run's jobs hold word for word, and a pin with no checksum holds no install at all.
+        self.assertIn("\n".join("          " + line for line in check_workflows.CLI_INSTALL_RUN),
+                      check_workflows.RUN_JOBS_FILE)
+        unpinned = clone({"config/harness.json": json.dumps(dict(load("config/harness.json"), engine=dict(
+            load("config/harness.json")["engine"], version="9.9.9")))})
+        self.assertTrue(caught(check_workflows.eval_problems(EVAL_WORKFLOW, unpinned), "pins no CLI whose checksum"))
         # Run whole: the shape is held in eval.yml, and no other workflow names its environment, the home or its steps.
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW}))
         self.assertEqual(problems, [])
@@ -478,10 +473,21 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.fetch, self.home(dict(self.cases, **{first: b"changed"}))), "fetched 1 of 2 cases")
         self.assertEqual(json.loads((self.temp / "heldout" / "fetched.json").read_text()), {first: "hash_differs", "poc-two": None})
         self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
-        self.step(job.score, lambda case: wrong)
-        written = json.loads((self.work / job.REPORT).read_text())
-        self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
-                         [("unreadable", ["hash_differs"]), ("fail", ["finding_not_raised"])])
+        # The scorer says why the case failed, finding_not_raised; the report says only that it did, case_failed: what
+        # the scorer said would tell what the case expected, and the report is public (decision 0078). Nor does a step
+        # print it: the run step says counts, and judge one code.
+        self.assertEqual(eval_result.score(load("examples/eval-case.json"), wrong)["reasons"][0], "finding_not_raised")
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.score(dict(self.env), self.root, self.work,
+                                                                        lambda case: wrong)), 0)
+            self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
+        self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 0 passed\ncase_failed\n")
+        written = (self.work / job.REPORT).read_text()
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in json.loads(written)["cases"]],
+                         [("unreadable", ["hash_differs"]), ("fail", ["case_failed"])])
+        for code in ("finding_not_raised", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met",
+                     "category_differs", "severity_differs", "location_differs", "answer_disagrees_with_verdict"):
+            self.assertNotIn(code, written + out.getvalue(), code)
         self.assertEqual(self.step(job.judge), "case_failed")
         # A set changed since the plan is no set of this run, and a report that is not there passes nothing.
         (self.work / job.REPORT).unlink()
@@ -591,6 +597,166 @@ class EvalJob(unittest.TestCase):
                 job.within(self.work, name)
             self.assertEqual(stopped.exception.code, "path_outside", name)
 
+    def reviewed(self):
+        """A held-out case of the review Intent, as #183 writes them: its facts name the content its diff is, so its
+        Task is a live Run's Task of that content. Made from tests/test_harness.py's change; nothing of the home."""
+        from tests import test_harness as live
+        case = dict(load("examples/eval-case.json"), id="poc-reviewed", facts=live.facts(), diff=live.DIFF.decode())
+        return case, live
+
+    def test_a_case_is_reviewed_by_the_task_and_the_engine_a_live_run_is(self):  # issue 309, ruling 5
+        # What is measured is what runs: the case's Task is the one a live Run admitted for the same content is given,
+        # but for its Run id, and the CLI is called as a live Run calls it, the Task as data, with no tool.
+        from harness import engine, task
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        env = dict(live.JOB, HELDOUT_TOKEN="a-stand-in-held-out-token", HELDOUT_OWNER="o")
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = step.reviewer(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
+        self.assertEqual((result["status"], result["run"]), ("completed", live.RUN))
+        asked, = cli.asked()
+        given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
+        config = dict(live.config(), release="factory/v0.1.0")
+        config["harness"] = live.HARNESS
+        manifest = load("roles/pr-review.json")
+        self.assertEqual(given, task.build(live.record(), live.RUN, live.facts(), [], manifest, [], config, live.DIFF))
+        self.assertTrue(engine.no_tool(asked["args"]))
+        # The model's credential reaches the CLI, and nothing of the home: not its token, nor where it is.
+        self.assertEqual(asked["env"]["CLAUDE_CODE_OAUTH_TOKEN"], live.TOKEN)
+        self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
+        self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
+
+    def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
+        from harness.eval import run as step
+        from harness import eval as job
+        case, live = self.reviewed()
+        # A case whose facts do not name the content its diff is, or that is no pull request's, is no case of this
+        # set: no Task, and nothing asked of the model.
+        for bad in (dict(case, diff=case["diff"] + "+more\n"), dict(case, facts=dict(case["facts"], item={"x": 1})),
+                    dict(case, facts=dict(case["facts"], content_id=None))):
+            cli = live.CLI()
+            with self.assertRaises(job.Stop) as stopped:
+                step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(bad)
+            self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
+        # Less time left than a case's tier allows: the step starts no case, and the case is unanswered.
+        cli = live.CLI()
+        late = live.HARNESS["limits"]["standard"]["seconds"]
+        review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late + 1))
+        with self.assertRaises(job.Stop) as stopped:
+            review(case)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
+        # Less time left than the tier allows and the Engine's two reads of the CLI's version: not started either.
+        cli = live.CLI()
+        review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS + 1))
+        with self.assertRaises(job.Stop) as stopped:
+            review(case)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
+        # With just that time left, it is asked.
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            step.reviewer(live.JOB, "factory/v0.1.0", 0, cli,
+                          live.Clock(step.BUDGET - late - step.VERSION_READS, 1.0, 2.0))(case)
+        self.assertEqual(len(cli.asked()), 1)
+        # The limit is the case's own tier's, read from the configuration, never a constant.
+        from harness import run as running
+        longer = running.configuration()
+        longer["harness"]["limits"]["standard"]["seconds"] = late * 2
+        cli = live.CLI()
+        with mock.patch.object(step.live, "configuration", lambda: longer):
+            review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS))
+        with self.assertRaises(job.Stop) as stopped:
+            review(case)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
+        # The job's time is held inside its timeout, which tools/check_workflows.py holds, counted from when the plan
+        # was made, less ten minutes for the checkout before it and the upload and judge after the step.
+        from tools import check_workflows
+        self.assertEqual(step.BUDGET, (int(check_workflows.EVAL_RUNNER["timeout-minutes"]) - 10) * 60)
+        # A diff that cannot be the bytes of any content, a lone surrogate, is no case of this set either.
+        cli = live.CLI()
+        with self.assertRaises(job.Stop) as stopped:
+            step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(dict(case, diff="\ud800"))
+        self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
+        # Only the eval job builds a Task from an admission it holds itself; every other Task is a pass record's.
+        callers = sorted(p.relative_to(ROOT).as_posix() for p in walk.files(ROOT) if p.suffix == ".py"
+                         and not p.relative_to(ROOT).as_posix().startswith("tests/") and "from_admission(" in p.read_text())
+        self.assertEqual(callers, ["harness/eval/run.py", "harness/task.py"])
+
+    def test_the_run_step_writes_the_report_whatever_a_case_raised(self):  # issue 309, ruling 4
+        # A case the review raises on is unanswered, one it cannot be asked of is unreadable by its code, and the
+        # report of every case is written all the same, so that the upload finds it and judge fails the run.
+        from harness import eval as job
+        from harness.eval import run as step
+        # A step module once imported takes its function's name in the package: each is read through its module too.
+        plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
+        self.assertEqual(self.step(plan), "planned 2 cases")
+        self.assertEqual(self.step(fetch, self.home(self.cases)), "fetched 2 of 2 cases")
+        said = {"poc-two": job.Stop("not_this_set")}
+
+        def review(case):
+            if case["id"] in said:
+                raise said[case["id"]]
+            raise RuntimeError("a fault that quotes %s" % case["diff"])
+        self.assertEqual(self.step(job.score, review), "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
+                         [("unreadable", ["unanswered"]), ("unreadable", ["not_this_set"])])
+        self.assertEqual(self.step(judge), "case_failed")
+        # The step itself, as the workflow runs it: the checkout's Role and configuration, each case Stopped here
+        # because the example's facts do not name its diff, and the report written.
+        (self.work / job.REPORT).unlink()
+        self.assertEqual(self.step(step.step), "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual({tuple(c["reasons"]) for c in written["cases"]}, {("not_this_set",)})
+
+    def test_an_interrupt_asks_nothing_more_and_the_report_is_written(self):  # issue 309, ruling 4
+        # A cancel that lands during a case's call ends the asking: that case and every one after it are unanswered,
+        # nothing more is asked of the model, and the report is written for the upload.
+        from harness import eval as job
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        asked = []
+
+        def review(case):
+            asked.append(case["id"])
+            raise KeyboardInterrupt
+        try:
+            said = self.step(job.score, review)
+        except KeyboardInterrupt:       # an interrupt that escapes the step writes no report: a failure, not a stop
+            said = "the interrupt escaped the step"
+        self.assertEqual(said, "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((len(asked), [(c["verdict"], c["reasons"]) for c in written["cases"]]),
+                         (1, [("unreadable", ["unanswered"])] * 2))
+
+    def test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run(self):  # issue 309, ruling 5
+        # Through the step as the workflow runs it: each case's Task names the Release the dispatch named, which plan
+        # kept, and a Run id of its own, in the form a pass mints one; the time is counted from the plan's.
+        from harness import engine, task
+        from harness import eval as job
+        from harness.eval import run as step
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        case, live = self.reviewed()
+        cases = {i: (json.dumps(dict(case, id=i), indent=2) + "\n").encode() for i in ("poc-one", "poc-two")}
+        self.set(cases)
+        with mock.patch.object(job, "now", lambda: 1000):
+            self.assertEqual(self.step(plan), "planned 2 cases")
+        self.assertEqual(json.loads((self.temp / "heldout" / "plan.json").read_text())["planned_at"], 1000)
+        self.step(fetch, self.home(cases))
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        self.assertEqual(self.step(step.step, cli, lambda: 1000.0, env=live.JOB), "scored 2 of 2 cases, 0 passed")
+        report = json.loads((self.work / job.REPORT).read_text())
+        given = [json.loads(c["args"][2].split(engine.TASK, 1)[1]) for c in cli.asked()]
+        self.assertEqual(len(given), 2, report)
+        self.assertEqual([g["release"] for g in given], ["factory/v0.1.0"] * 2)
+        runs = [g["run"] for g in given]
+        self.assertTrue(all(live.run.RUN_ID.fullmatch(r) for r in runs) and len(set(runs)) == 2, runs)
+        # A plan whose time cannot be read starts no case.
+        kept = json.loads((self.temp / "heldout" / "plan.json").read_text())
+        (self.temp / "heldout" / "plan.json").write_text(json.dumps(dict(kept, planned_at="soon")))
+        self.assertEqual(self.step(step.step, live.CLI(), lambda: 1000.0), "scratch_unreadable")
+
     def test_a_step_says_counts_and_codes_and_never_what_it_raised(self):
         # Whatever a step raised is never printed: its message could quote a case or name the home.
         from harness import eval as job
@@ -601,7 +767,19 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(job.main(leaks), 1)
             self.assertEqual(job.main(lambda env, root, work: (_ for _ in ()).throw(job.Stop("eval_set_empty"))), 1)
             self.assertEqual(job.main(lambda env, root, work: "planned 2 cases"), 0)
-        self.assertEqual((out.getvalue(), err.getvalue()), ("eval_step_failed\neval_set_empty\nplanned 2 cases\n", ""))
+            # An interrupt too, a cancel landing as the CLI's call times out, whose default report would quote the call.
+            def interrupted(env, root, work):
+                try:
+                    raise TimeoutError("the CLI was called with: --- a/kernel/x.py")
+                except TimeoutError:
+                    raise KeyboardInterrupt
+            try:
+                code = job.main(interrupted)
+            except KeyboardInterrupt:   # one that escapes main is reported by Python, quoting what it was chained to
+                code = "the interrupt escaped main"
+            self.assertEqual(code, 1)
+        self.assertEqual((out.getvalue(), err.getvalue()),
+                         ("eval_step_failed\neval_set_empty\nplanned 2 cases\neval_step_failed\n", ""))
 
 
 if __name__ == "__main__":
