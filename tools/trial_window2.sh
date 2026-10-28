@@ -6,6 +6,7 @@
 #   bash tools/trial_window2.sh trial-author comments KEY REPO PR FILE COUNT   # one review, COUNT threads on FILE's line 1
 #   bash tools/trial_window2.sh trial-author enqueue KEY REPO PR PERMISSIONS   # enqueuePullRequest, the token narrowed (P-2)
 #   bash tools/trial_window2.sh trial-author dequeue KEY REPO PR PERMISSIONS   # dequeuePullRequest, the token narrowed (P-2)
+#   bash tools/trial_window2.sh trial-author resolve KEY REPO PR PERMISSIONS   # every open thread another opened, narrowed (P-5)
 #   bash tools/trial_window2.sh pr-review enqueue KEY REPO PR                  # enqueuePullRequest
 #   bash tools/trial_window2.sh pr-review automerge KEY REPO PR                # enablePullRequestAutoMerge, squash
 #   bash tools/trial_window2.sh pr-review dequeue KEY REPO PR PERMISSIONS      # dequeuePullRequest, the token narrowed
@@ -44,7 +45,7 @@ usage() {
 who=$1 action=$2 key=$3 repo=$4 target=$5
 shift 5
 case "$who/$action/$#" in
-    trial-author/comments/2|trial-author/enqueue/1|trial-author/dequeue/1|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
+    trial-author/comments/2|trial-author/enqueue/1|trial-author/dequeue/1|trial-author/resolve/1|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
     pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;
     controller/pause/0) ;;
     *) usage ;;
@@ -66,7 +67,7 @@ case "$action" in
         case "$file" in ""|/*|*..*|*" "*) echo "FILE is a path in the pull request's head" >&2; exit 2 ;; esac
         case "$count" in ""|*[!0-9]*) usage ;; esac
         [ "$count" -ge 1 ] && [ "$count" -le 50 ] || { echo "COUNT is 1 to 50" >&2; exit 2; } ;;
-    enqueue) narrow=${1:-}
+    enqueue|resolve) narrow=${1:-}
         case "$narrow" in *[!a-z_=,]*) usage ;; esac ;;
     dequeue|queue|issue-comments) narrow=$1
         case "$narrow" in ""|*[!a-z_=,]*) usage ;; esac ;;
@@ -140,6 +141,24 @@ redact() {   # RAW
 
 # The status line of the last answer.
 answered() { sed -n 1p "$out/$id.clean" 2>/dev/null | cut -d' ' -f2; }
+# What the last answer said: its status, and a GraphQL refusal's type and message, which come with a 200.
+said() {
+    python3 -I -c '
+import json, sys
+text = open(sys.argv[1]).read()
+head, gap, body = text.partition("\n\n")
+status = head.split("\n")[0].split(" ")[1] if head else "none"
+try:
+    data = json.loads(body)
+except ValueError:
+    data = None
+errors = data.get("errors") if isinstance(data, dict) else None
+if errors:
+    first = errors[0] if isinstance(errors[0], dict) else {}
+    print("%s, refused: %s: %s" % (status, first.get("type"), first.get("message")))
+else:
+    print(status)' "$out/$id.clean" 2>/dev/null || echo none
+}
 
 # As the App itself, by its JWT: the header goes to curl on its standard input, never as an argument.
 as_app() {   # METHOD PATH
@@ -328,32 +347,32 @@ print(json.dumps({"event": "COMMENT", "body": "A platform trial: %d review threa
                   "comments": [{"path": path, "line": 1, "side": "RIGHT",
                                 "body": "Trial thread %d of %d, pull request %s." % (n, count, pr)}
                                for n in range(1, count + 1)]}))' "$file" "$count" "$target")"
-    echo "pull request $target: review answered $(answered)" ;;
+    echo "pull request $target: review answered $(said)" ;;
 enqueue)
     node_of "$target"
     as_graphql "enqueuePullRequest, the App's write, on $repo's pull request $target${narrow:+, its permissions narrowed to $narrow}" \
         'mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { id state position } } }' "id=$node"
-    echo "pull request $target: enqueue answered $(answered)" ;;
+    echo "pull request $target: enqueue answered $(said)" ;;
 automerge)
     node_of "$target"
     as_graphql "enablePullRequestAutoMerge, the App's write, on $repo's pull request $target" \
         'mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: SQUASH}) { pullRequest { number autoMergeRequest { enabledBy { login __typename } mergeMethod } } } }' "id=$node"
-    echo "pull request $target: auto-merge answered $(answered)" ;;
+    echo "pull request $target: auto-merge answered $(said)" ;;
 dequeue)
     node_of "$target"
     as_graphql "dequeuePullRequest, the App's write, on $repo's pull request $target, its permissions narrowed to $narrow" \
         'mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { mergeQueueEntry { id state } } }' "id=$node"
-    echo "pull request $target: dequeue answered $(answered)" ;;
+    echo "pull request $target: dequeue answered $(said)" ;;
 queue)
     as_graphql "the merge queue of $repo's main and pull request $target's place in it, its permissions narrowed to $narrow" \
         'query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 20) { totalCount nodes { position state pullRequest { number } } } } pullRequest(number: $pr) { isInMergeQueue mergeQueueEntry { position state } } } }' \
         "owner=$owner" "name=$name" "pr=$target"
-    echo "pull request $target: queue read answered $(answered)"
+    echo "pull request $target: queue read answered $(said)"
     # Issue 306's reads, under the same narrowed token: the pull request's issue comments and its review comments.
     as_installation GET "repos/$repo/issues/$target/comments?since=$SINCE&per_page=100"
-    echo "pull request $target: issue comments answered $(answered)"
+    echo "pull request $target: issue comments answered $(said)"
     as_installation GET "repos/$repo/pulls/$target/comments?per_page=100"
-    echo "pull request $target: review comments answered $(answered)" ;;
+    echo "pull request $target: review comments answered $(said)" ;;
 resolve|burst)
     as_graphql "the review threads of $repo's pull request $target" "$THREADS" "owner=$owner" "name=$name" "pr=$target"
     if [ "$action" = resolve ]; then
@@ -365,34 +384,34 @@ resolve|burst)
     for thread in $threads; do
         count=$((count + 1))
         as_graphql "resolveReviewThread, the App's write, on a thread of $repo's pull request $target" "$RESOLVE" "id=$thread"
-        echo "thread $count: answered $(answered)"
+        echo "thread $count: answered $(said)"
     done
     as_graphql "the review threads of $repo's pull request $target" "$THREADS" "owner=$owner" "name=$name" "pr=$target"
     echo "pull request $target: $count threads asked to be resolved" ;;
 dismiss)
     as_installation PUT "repos/$repo/pulls/$target/reviews/$review/dismissals" \
         "$(python3 -I -c 'import json; print(json.dumps({"message": "A platform trial: the pr-review App dismisses this review."}))')"
-    echo "pull request $target: dismissal answered $(answered)"
+    echo "pull request $target: dismissal answered $(said)"
     as_installation GET "repos/$repo/pulls/$target/reviews/$review" ;;
 check)
     as_installation POST "repos/$repo/check-runs" "$(python3 -I -c '
 import json, sys
 print(json.dumps({"name": sys.argv[1], "head_sha": sys.argv[2], "status": "completed", "conclusion": "success",
                   "output": {"title": "A platform trial", "summary": "Posted by the pr-review App under this name."}}))' "$name" "$target")"
-    echo "check run $name on $target: answered $(answered)" ;;
+    echo "check run $name on $target: answered $(said)" ;;
 pause)
     as_installation GET "repos/$repo/actions/variables/FACTORY_PAUSED"
-    echo "the repo's FACTORY_PAUSED answered $(answered)"
+    echo "the repo's FACTORY_PAUSED answered $(said)"
     as_installation GET "repos/$repo/actions/organization-variables?per_page=100"
-    echo "the repo's list of the org's variables answered $(answered)" ;;
+    echo "the repo's list of the org's variables answered $(said)" ;;
 issue-comments)
     as_installation GET "repos/$repo/issues/$target/comments?since=$SINCE&per_page=100"
-    echo "issue $target: its comments since $SINCE answered $(answered)" ;;
+    echo "issue $target: its comments since $SINCE answered $(said)" ;;
 label)
     as_installation POST "repos/$repo/issues/$target/labels" "$(python3 -I -c 'import json, sys; print(json.dumps({"labels": [sys.argv[1]]}))' "$label")"
-    echo "label $label on $target: added, answered $(answered)"
+    echo "label $label on $target: added, answered $(said)"
     as_installation DELETE "repos/$repo/issues/$target/labels/$label"
-    echo "label $label on $target: removed, answered $(answered)" ;;
+    echo "label $label on $target: removed, answered $(said)" ;;
 esac
 
 as_installation DELETE installation/token
