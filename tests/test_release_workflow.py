@@ -99,7 +99,15 @@ class Shape(unittest.TestCase):
                                                                                   "    steps:\n    - justastring\n", 1),
                                                              "its steps are"),
             "a with given a text": (LIVE.replace('\n        with:\n', '\n        with: x\n', 1), "has a with: it is not given"),
+            # An empty `with:` on the step that takes none, and a step of text after the steps' keys (Argon's read of
+            # #379).
+            "an empty with on a step that takes none": (LIVE + "        with:\n", "its step step has exactly env, run"),
+            "a step of text after the last step": (LIVE + "      - justastring\n", "its steps are"),
         }
+        # What each step is given under `with:` and `env:` is what its keys allow there, so one given neither is refused
+        # for a key of its own.
+        for kind, keys in check_workflows.RELEASE_STEP_KEYS.items():
+            self.assertEqual(set(check_workflows.RELEASE_GIVEN[kind]), keys & {"with", "env"}, kind)
         for why, (text, words) in sorted(cases.items()):
             with self.subTest(why=why):
                 self.assertNotEqual(text, LIVE, why)
