@@ -679,6 +679,14 @@ class ControllerKey(unittest.TestCase):
         # the App on 2026-10-27.
         self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"actions_variables": "read", "checks": "write",
                                                                     "issues": "write"}, "k")])
+        # A need that still waits on its grant is not minted for, and the rest are.
+        asked.clear()
+        with unittest.mock.patch.object(effects, "CONTROLLER_NEEDS", effects.CONTROLLER_NEEDS + ("effect:dequeue_merge",)), \
+                unittest.mock.patch.object(identity, "from_key",
+                                           lambda app, repo, wanted, key, now, connect: asked.append(wanted) or
+                                           ("t", lambda: True)):
+            effects.controller_token({"CONTROLLER_APP_KEY": "k"}, config, 0)
+        self.assertEqual(asked, [{"actions_variables": "read", "checks": "write", "issues": "write"}])
         # The workflow's form, with no argument: the pass's own folder, `pass/`, and written.json into it.
         out = tc.passed(tc.reads(pulls=[]))
         with tempfile.TemporaryDirectory() as d:
