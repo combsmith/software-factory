@@ -60,6 +60,10 @@
     "read:release.checks": {
       "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and checks: read, and read again by trial P-39 (Maintainer, 2026-10-21; checks: read, 2026-10-26)"
     },
+    "read:pass.pause": {
+      "permission": "actions_variables",
+      "level": "read"
+    },
     "read:facts.item": {
       "permission": "metadata",
       "level": "read"
@@ -126,6 +130,10 @@
     },
     "read:facts.checks": {
       "permission": "checks",
+      "level": "read"
+    },
+    "read:facts.acceptance": {
+      "permission": "issues",
       "level": "read"
     },
     "read:records.runs": {

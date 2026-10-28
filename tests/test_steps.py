@@ -659,10 +659,10 @@ class Keys(unittest.TestCase):
         for key in (None, ""):
             with self.assertRaisesRegex(identity.Refused, "^key_unreadable$"):
                 identity.from_key({"app_id": 1}, HOME, {"contents": "read"}, key, 0, lambda t: None)
-        # Until the Maintainer expands the pr-review App, apply's reads cannot be minted at all (decision 0054).
+        # The pr-review App, expanded on 2026-10-27, is granted every read apply makes again, each at read (decision 0054).
         apps = json.loads((ROOT / "config" / "apps.json").read_text())
-        with self.assertRaises(identity.Refused):
-            identity.granted(apps["apps"]["pr-review"], apps["needs"], apply_step.apply.READS, "read")
+        self.assertEqual(set(identity.granted(apps["apps"]["pr-review"], apps["needs"], apply_step.apply.READS,
+                                              "read").values()), {"read"})
 
 
 class ControllerKey(unittest.TestCase):
@@ -675,8 +675,18 @@ class ControllerKey(unittest.TestCase):
                                                                                                    wanted, key)) or
                                         ("t", lambda: True)):
             effects.controller_token({"CONTROLLER_APP_KEY": "k"}, config, 0)
-        # The status's checks: write, which the App is granted; the tracking issue's write waits on its grant.
-        self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"checks": "write"}, "k")])
+        # The status's checks: write, the tracking issue's issues: write and the Pause's variables read, each granted
+        # the App on 2026-10-27.
+        self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"actions_variables": "read", "checks": "write",
+                                                                    "issues": "write"}, "k")])
+        # A need that still waits on its grant is not minted for, and the rest are.
+        asked.clear()
+        with unittest.mock.patch.object(effects, "CONTROLLER_NEEDS", effects.CONTROLLER_NEEDS + ("effect:dequeue_merge",)), \
+                unittest.mock.patch.object(identity, "from_key",
+                                           lambda app, repo, wanted, key, now, connect: asked.append(wanted) or
+                                           ("t", lambda: True)):
+            effects.controller_token({"CONTROLLER_APP_KEY": "k"}, config, 0)
+        self.assertEqual(asked, [{"actions_variables": "read", "checks": "write", "issues": "write"}])
         # The workflow's form, with no argument: the pass's own folder, `pass/`, and written.json into it.
         out = tc.passed(tc.reads(pulls=[]))
         with tempfile.TemporaryDirectory() as d:

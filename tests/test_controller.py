@@ -827,8 +827,8 @@ class Entry(unittest.TestCase):
         self.assertTrue(all(t for t, _, _ in through[2:]))
         self.assertEqual(through[-1], (True, "DELETE", "/installation/token"))
         asked = hub.sent[1][1]["body"]["permissions"]
-        self.assertEqual(asked, {"actions": "read", "checks": "read", "contents": "read", "metadata": "read",
-                                 "pull_requests": "read"})
+        self.assertEqual(asked, {"actions": "read", "actions_variables": "read", "checks": "read", "contents": "read",
+                                 "issues": "read", "metadata": "read", "pull_requests": "read"})
         self.assertEqual({m for _, m, p in through[2:] if m != "GET"}, {"POST", "DELETE"})
         self.assertEqual({p for _, m, p in through[2:] if m == "POST"}, {"/graphql"})
         # Each file it writes is its own user's alone to read.

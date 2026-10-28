@@ -234,6 +234,10 @@ RULES = (
      None),
     ("a_public_event_starts_a_pass", "An event anyone may cause starts the poller's workflow, within a minute or two",
      ("P-20",), "trials/P-20.json", None),
+    ("the_pause_is_read_with_the_controllers_token", "The Controller's token, granted the Variables permission at "
+     "repository read, reads FACTORY_PAUSED on a repo it is installed on, and the org's as that repo's list of the "
+     "org's variables names it; the org's own endpoint refuses that token, so a pass that asks it there reads the "
+     "Pause unreadable", ("P-52",), "trials/P-52.json", None),
 )
 
 # What each trial a rule names asks of it: the words of the trial's question in section 6 that ask the rule, at least
@@ -393,5 +397,8 @@ ASKS = {
     "a_pass_starts_its_successor": {"P-9": "Can a pass start the next one with the default workflow token?"},
     "a_public_event_starts_a_pass": {
         "P-20": "Does an event that anyone may cause, such as starring a repo, still start a workflow",
+    },
+    "the_pause_is_read_with_the_controllers_token": {
+        "P-52": "with the Variables permission at repository read alone, read `FACTORY_PAUSED` on a repo it acts in",
     },
 }

@@ -829,8 +829,9 @@ def approve(transport, item: dict, head: str, login: str) -> dict:
 
 
 # The Controller's writes and reads in this step, by the needs config/apps.json names: those the App is granted
-# are minted, and one that waits on its grant is not, so its write is refused for want of a credential.
-CONTROLLER_NEEDS = ("write:status_on_item", "write:tracking_issue")
+# are minted, and one that waits on its grant is not, so its write is refused for want of a credential. The Pause is
+# read again before any dispatch (decision 0056), with the variables' read P-52 showed it takes.
+CONTROLLER_NEEDS = ("write:status_on_item", "write:tracking_issue", "read:pass.pause")
 
 
 def controller_token(environ: dict, config: dict, now: int, connect=None) -> tuple:

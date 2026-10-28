@@ -30,5 +30,5 @@ Status: accepted. A working ruling of 2026-10-21 for "Controller: one pass reads
 | The open issues are the App's, told by its account, never by a title, and of those the one this port wrote | `tests/test_effects.py::test_the_open_issues_are_the_apps_own_told_by_its_account` |
 | The Controller's token sends only the Pause's reads and the tracking issue's writes | `tests/test_effects.py::test_the_controllers_token_sends_only_the_pause_and_the_tracking_issue` |
 | The pass record keeps its alerts | `tests/test_controller.py::test_the_pass_record_keeps_its_alerts_for_the_tracking_issue` |
-| The Pause is read as GitHub holds the variable | not held yet: `tests/test_effects.py::test_the_pause_is_read_as_github_holds_the_variable` |
+| The Pause is read as GitHub holds the variable | `tests/test_effects.py::test_the_pause_is_read_as_github_holds_the_variable` |
 | The open tracking issues are read by their author as GitHub lists them | not held yet: `tests/test_effects.py::test_the_open_tracking_issues_are_read_by_their_author` |
