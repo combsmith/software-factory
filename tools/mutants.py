@@ -892,6 +892,22 @@ ISSUE = [
 ]
 
 MUTANTS = ISSUE + [
+    # Issue 378: the approving act approves only a pull request open at the commit, and claims none closed under it.
+    ('a pull request not open at the commit is approved', 'adapters/effects.py',
+     '    closed = _open_at(transport, pull, head, "refused")\n    if closed is not None:\n        return closed\n',
+     '', ("tests.test_approve",)),
+    ('a merged pull request reads open', 'adapters/effects.py',
+     ' or now.get("merged") is True:',
+     ':', ("tests.test_approve",)),
+    ('a close is read as a head that moved', 'adapters/effects.py',
+     '"fault": "superseded", "reason": "not_open"}',
+     '"fault": "superseded", "reason": "head_moved"}', ("tests.test_approve",)),
+    ('an approval of a pull request closed under the act is claimed', 'adapters/effects.py',
+     '    if after is not None and after["reason"] == "not_open":\n        return {"state": "failed", "key": None, "fault": "superseded", "reason": "closed_under_act"}\n',
+     '', ("tests.test_approve",)),
+    ('an approval whose pull request cannot be read again is claimed', 'adapters/effects.py',
+     '    if after is not None and after["fault"] != "superseded":\n        return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}\n    return {"state": "applied"',
+     '    return {"state": "applied"', ("tests.test_approve",)),
     # Issues 328 and 329: what reconciliation left whole, or alarmed on, that it should not have.
     ('a re-run that cannot be told is whole', 'controller/reconcile.py',
      'r["rerun_by_dispatcher"] is None and r["started_at"] >= since:\n                short = True',
@@ -1372,8 +1388,8 @@ MUTANTS = ISSUE + [
      '        if status is None or status >= 500 or status == UNAVAILABLE:\n            return {"state": "failed"',
      '        if False:\n            return {"state": "failed"', ("tests.test_approve",)),
     ("a refused approval is the item's whatever moved", 'adapters/effects.py',
-     '        if now.get("state") != "open" or now["head"].get("sha") != head:\n',
-     '        if False:\n', ("tests.test_approve",)),
+     '    if now["head"].get("sha") != head:\n',
+     '    if False:\n', ("tests.test_approve",)),
     ('an approval is claimed whatever is read back', 'adapters/effects.py',
      '    if not _approval(back, head, login):\n        return {"state": "failed", "key": None, "fault": "item", "reason": "read_back_differs"}\n',
      '', ("tests.test_approve",)),
@@ -1447,8 +1463,8 @@ MUTANTS = ISSUE + [
      ' or "//" in path:\n',
      ':\n', ("tests.test_approve",)),
     ('a pull request read again that cannot be read classes the refusal', 'adapters/effects.py',
-     '            fault, reason = _trouble(again, "github_unavailable")\n',
-     '            fault, reason = "environment", "github_unavailable"\n', ("tests.test_approve",)),
+     '        fault, reason = _trouble(again, "github_unavailable")\n',
+     '        fault, reason = "environment", "github_unavailable"\n', ("tests.test_approve",)),
     ('facts that are not facts are asked of the Kernel', 'harness/approve.py',
      '    if shared.errors(facts, "facts") or not isinstance(head, str) \\\n',
      '    if not isinstance(head, str) \\\n', ("tests.test_approve",)),
@@ -1477,7 +1493,7 @@ MUTANTS = ISSUE + [
      ' or now.get("state") not in ("open", "closed")',
      '', ("tests.test_approve",)),
     ('a pull request read again with no head commit is read', 'adapters/effects.py',
-     ' \\\n                or not isinstance(now["head"].get("sha"), str):\n',
+     ' \\\n            or not isinstance(now["head"].get("sha"), str):\n',
      ':\n', ("tests.test_approve",)),
     # Issue 195, ruling 4: an act or a Run asks the Kernel again before it writes (I-38).
     ("an act or a Run is still wanted for another item", "kernel/decide.py",

@@ -815,7 +815,8 @@ def approve(transport, item: dict, head: str, login: str) -> dict:
     was is read from its status and from the pull request read again, never from GitHub's words (ruling 6).
 
     GitHub takes an approval of a pull request that is closed (trials/P-7.refused.json, issue 378), so the pull request
-    is read open at `head` before the approval is sent, and nothing is sent to one that is not."""
+    is read open at `head` before the approval is sent, and nothing is sent to one that is not; and read again after it,
+    so that one closed between the two claims nothing (`superseded`, `closed_under_act`)."""
     pull = "/repos/%s/pulls/%d" % (item["repo"], item["number"])
     closed = _open_at(transport, pull, head, "refused")
     if closed is not None:
@@ -844,6 +845,15 @@ def approve(transport, item: dict, head: str, login: str) -> dict:
         return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}
     if not _approval(back, head, login):
         return {"state": "failed", "key": None, "fault": "item", "reason": "read_back_differs"}
+    # A pull request closed or merged between the read and the approval took it all the same: the act claims nothing
+    # for it, so reconciliation names the approval standing with no Effect, and the Kernel does not count it after a
+    # reopening (issue 378). One at another head now holds an approval of a commit it no longer carries, which the
+    # Kernel reads by its content; one that cannot be read claims nothing.
+    after = _open_at(transport, pull, head, "failed")
+    if after is not None and after["reason"] == "not_open":
+        return {"state": "failed", "key": None, "fault": "superseded", "reason": "closed_under_act"}
+    if after is not None and after["fault"] != "superseded":
+        return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}
     return {"state": "applied", "key": back["node_id"], "fault": None, "reason": None}
 
 

@@ -113,7 +113,7 @@ class TheAct(unittest.TestCase):
         self.assertEqual((done["run"], ended["run"], done["findings"]), (RUN, RUN, []))
         self.assertEqual([(r["method"], r["path"]) for r in github.log],
                          [("GET", "/user"), ("GET", PULL + "/reviews?per_page=100"), ("GET", PULL),
-                          ("POST", PULL + "/reviews"), ("GET", PULL + "/reviews/7")])
+                          ("POST", PULL + "/reviews"), ("GET", PULL + "/reviews/7"), ("GET", PULL)])
         # The commit approved is the one just read, never the pull request by number alone; nothing else is in it.
         self.assertEqual(github.writes(), [("POST", PULL + "/reviews", {"commit_id": HEAD, "event": "APPROVE"})])
 
@@ -222,6 +222,22 @@ class TheAct(unittest.TestCase):
                              (None, ("environment", "github_unavailable"))):
             done, ended, github = act(GitHub({("GET", PULL): answer}))
             self.assertEqual((fault(ended), github.writes()), (want, []), answer)
+
+    def test_a_pull_request_closed_under_the_act_claims_no_approval(self):  # issue 378, trials/P-7.refused.json
+        # A pull request closed or merged between the act's read and its approval took the approval all the same: read
+        # again after it, the act claims nothing, superseded, closed_under_act, and no Effect lands, so reconciliation
+        # names the approval as a write no Effect recorded. One at another head now keeps the approval of the commit
+        # it read; one that cannot be read claims nothing.
+        opened = {"status": 200, "body": {"state": "open", "head": {"sha": HEAD}}}
+        for after, want, key in (({"state": "closed", "head": {"sha": HEAD}}, ("superseded", "closed_under_act"), None),
+                                 ({"state": "closed", "merged": True, "head": {"sha": HEAD}},
+                                  ("superseded", "closed_under_act"), None),
+                                 ({"state": "open", "head": {"sha": "f" * 40}}, (None, None), NODE)):
+            done, ended, github = act(GitHub({("GET", PULL): [opened, {"status": 200, "body": after}]}))
+            self.assertEqual((fault(ended), effect(done)[2], len(github.writes())), (want, key, 1), after)
+        for after in ({"status": 500, "body": {}}, None, {"status": 200, "body": {"state": "open"}}):
+            done, ended, github = act(GitHub({("GET", PULL): [opened, after]}))
+            self.assertEqual((fault(ended), effect(done)[1:3]), (("environment", "not_read_back"), ("failed", None)), after)
 
     def test_a_run_no_decision_issued_an_approval_for_finds_none_and_writes_nothing(self):  # section 3.5
         admitted = record(runs=[])
