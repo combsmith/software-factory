@@ -364,7 +364,8 @@ def written(request: dict):
     return (found.group(1), variables["id"]) if depth == 0 and query[at:].strip() == "}" else None
 
 
-MUTATION = re.compile(r"\bmutation\b\s*(?:\w+\s*)?(?:\([^)]*\))?\s*\{")
+# One repeated class before the brace, so the match is linear in the text (Sonar's S8786).
+MUTATION = re.compile(r"\bmutation\b[\s\w$:!,()\[\]]*\{")
 
 
 def _sent_writes(value) -> list:
