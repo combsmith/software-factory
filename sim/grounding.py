@@ -65,6 +65,9 @@ RULES = (
      "CodeQL that GitHub Advanced Security, 57789, reports: an upload to code scanning under CodeQL's tool and "
      "category, by an identity holding security_events: write, cannot replace that verdict on the head",
      ("P-36",), None, None),
+    # Contradicted by P-2 (trials/P-2.queue.json): GitHub refuses an App's push, through the contents API, to a queued
+    # pull request's branch (409), and the queue merges it unchanged; a git push while queued is not asked. Left
+    # unverified, as the fake applies it: changing the fake is a story of its own.
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", ("P-2",), None, None),
     ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue, with contents: write; "
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
@@ -87,7 +90,7 @@ RULES = (
      "assumed, no trial can ask it: a fault of the item or of the environment that drops an approval cannot be forced "
      "on demand"),
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
-     ("P-2",), None, None),
+     ("P-2",), "trials/P-2.queue.json", None),
     ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
@@ -232,7 +235,7 @@ RULES = (
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention",
      ("P-16",), None, None),
     ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue",
-     ("P-2",), None, None),
+     ("P-2",), "trials/P-2.queue.json", None),
     ("a_forks_run_never_counts", "A pull request from a fork runs its own workflow file, on pull_request, never on a "
      "schedule or a dispatch, and I-34 counts none of it", ("P-27",), "trials/P-27.json", None),
     ("a_pass_starts_its_successor", "A pass can dispatch the next with its own job's token", ("P-9",), "trials/P-9.json",
