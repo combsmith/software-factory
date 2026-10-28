@@ -317,7 +317,7 @@ def _bound(args: str, key: str, variables: dict):
 
 
 # The writes a trial of the canary may record, each on one node by its input's one key: a pull request or a review
-# thread. Its scope is the node's, so a fixture holds a write only on a node a read of the org's repos in it answered.
+# thread. Its scope is the node's, so a fixture holds a write only on a node a read of the canary alone in it answered.
 WRITES = {"enqueuePullRequest": "pullRequestId", "dequeuePullRequest": "id", "enablePullRequestAutoMerge": "pullRequestId",
           "convertPullRequestToDraft": "pullRequestId", "resolveReviewThread": "threadId"}
 WRITE = re.compile(r"^\s*mutation\s*\(\s*\$id\s*:\s*ID!\s*\)\s*\{\s*(\w+)\s*\(\s*input\s*:\s*\{\s*(\w+)\s*:\s*\$id"
@@ -490,14 +490,15 @@ def _repos(data: dict, installed) -> list:
     trial = data.get("trial")
     fork = lambda repo: trial in TRIALS_OF_FORKS and repo.count("/") == 1 and repo.split("/")[1] == CANARY
     allowed = lambda repo: repo.startswith(ORG + "/") or fork(repo)
-    # The nodes a read of the org's repos answered, which alone a recorded write may name.
+    # The nodes a read of the canary itself answered, naming no other repo, which alone a recorded write may name: a read
+    # of another repo of the org ties its nodes to that repo.
     nodes = set()
     for exchange in data.get("exchanges") or []:
         request = exchange.get("request") if isinstance(exchange, dict) else None
         response = exchange.get("response") if isinstance(exchange, dict) and isinstance(exchange.get("response"), dict) else {}
         if isinstance(request, dict) and not written(request):
             owners, repos, wrong = _asked(request)
-            if not wrong and owners <= {ORG} and all(allowed(r) for r in repos | set(_named(response.get("body")))):
+            if not wrong and repos == {canary} and set(_named(response.get("body"))) <= {canary}:
                 nodes |= _nodes(response.get("body"))
     for i, exchange in enumerate(data.get("exchanges") or []):
         request = exchange.get("request") if isinstance(exchange, dict) else None
@@ -506,7 +507,7 @@ def _repos(data: dict, installed) -> list:
         where = "exchanges[%d].request" % i
         write = written(request)
         if write and write[1] not in nodes:
-            out.append((where + ".body", "writes %s on a node no read of the org's repos in this fixture answered"
+            out.append((where + ".body", "writes %s on a node no read of the canary alone in this fixture answered"
                         % write[0]))
         owners, repos, wrong = _asked(request)
         out += [(where + ".call", what) for what in wrong]

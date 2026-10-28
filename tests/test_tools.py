@@ -3850,7 +3850,7 @@ class Trials(unittest.TestCase):
 
     def test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered(self):
         # Window 2's answers are GraphQL writes, which name a node and no repo: a fixture may record one of WRITES, by
-        # its one `id`, on a node a read of the org's repos in the same fixture answered, and nothing else.
+        # its one `id`, on a node a read of the canary alone in the same fixture answered, and nothing else.
         data = json.loads((ROOT / "examples" / "invalid" / "trial.a-write-on-a-node-no-read-answered.json").read_text())
         data["exchanges"][1]["request"]["body"]["variables"]["id"] = "PR_kwA7"
         self.assertEqual(check_trials.fixture_problems(data), [])
@@ -3860,7 +3860,7 @@ class Trials(unittest.TestCase):
                              (field, "N"))
             for wrong in (query.replace(key, "other"), query + " query { viewer { login } }", query.replace("$id", '"N"', 1)):
                 self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": wrong, "variables": {"id": "N"}}}))
-        # The node a read answered is held only when that read is of the org's repos.
+        # The node a read answered is held only when that read is of the canary alone.
         outside = json.loads(json.dumps(data))
         outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
         self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
@@ -3905,6 +3905,7 @@ class Trials(unittest.TestCase):
             "a-star-that-climbs": "climbs out of its repo",
             # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
             "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
+            "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
             "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
             "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
         }
