@@ -3610,8 +3610,10 @@ class Trials(unittest.TestCase):
         self.assertNotEqual(second, reworded)
         self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: second})),
                                "section 6 has more than one row for P-41; a trial has one"))
-        # A row fenced with tildes, or in an HTML comment, holds no row either.
-        for hidden in ("~~~\n%s\n~~~", "<!--\n%s\n-->"):
+        # A row fenced with tildes, or in an HTML comment, holds no row either; nor does a fence indented up to three
+        # spaces, or a longer one, which a shorter line does not close (the second-family read of #384).
+        for hidden in ("~~~\n%s\n~~~", "<!--\n%s\n-->", "   ```\n%s\n   ```", "````\n```\n%s\n````",
+                       "~~~~\n~~~\n%s\n~~~~"):
             veiled = reworded.replace("\n## 7. ", "\n" + hidden % "| P-41 | does a request for changes survive the push | x |"
                                       + "\n\n## 7. ", 1)
             problems = check_trials.run(clone({check_trials.DESIGN: veiled}))
@@ -3627,17 +3629,22 @@ class Trials(unittest.TestCase):
         self.assertFalse(caught(problems, "more than one row"))
         # A question is its cell alone: a cell whose close lacks its space does not run on into the next.
         start = reworded.index("| P-41 | ")
-        run_on = reworded[:start] + "| P-41 | is a request for changes kept |does a request for changes survive the push | x |" \
-            + reworded[reworded.index("\n", start):]
-        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: run_on})),
-                               "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
+        for row in ("| P-41 | is a request for changes kept |does a request for changes survive the push | x |",
+                    "| P-41 | is a request for changes kept \ndoes a request for changes survive the push | x |"):
+            run_on = reworded[:start] + row + reworded[reworded.index("\n", start):]
+            self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: run_on})),
+                                   "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"), row)
+        # A pipe escaped is the cell's own, and the question goes on past it.
+        piped = design.replace("does a request for changes survive the push", "does a request for changes survive the push, a\\|b", 1)
+        self.assertNotEqual(piped, design)
+        self.assertEqual(check_trials.run(clone({check_trials.DESIGN: piped})), [])
         # An opener left unclosed hides every row after it, as a renderer reads it: those trials have no row.
-        for opener in ("<!--", "~~~", "```"):
+        for opener in ("<!--", "~~~", "```", "   ```"):
             unclosed = design.replace("| P-41 |", opener + "\n| P-41 |", 1)
             self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unclosed})),
                                    "a_request_for_changes_survives_a_push: P-41 has no row in section 6"), opener)
         # A block that is closed hides only itself: the rows after it are read as before.
-        for block in ("```\nx\n```", "~~~\nx\n~~~", "<!-- x -->"):
+        for block in ("```\nx\n```", "~~~\nx\n~~~", "<!-- x -->", "   ```\nx\n   ```", "````\n```\n````"):
             closed = design.replace("| P-41 |", block + "\n| P-41 |", 1)
             self.assertEqual(check_trials.run(clone({check_trials.DESIGN: closed})), [], block)
         # A row in a fenced block asks nothing, though it quotes the old question.
