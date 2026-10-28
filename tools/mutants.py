@@ -5377,6 +5377,13 @@ MUTANTS = ISSUE + [
     ("P-52 keeps the mint's whole answer", "tools/trial_p52_pause.sh",
      'json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},', 'json.dump(dict(answer, permissions=answer.get("permissions")),',
      ('tests.test_tools.PauseReadTrial.test_one_token_reads_three_times_and_is_revoked_and_never_kept',)),
+    # Window 2: a fixture records a write only on a node a read of the org's repos answered.
+    ("a write is recorded on any node", "tools/check_trials.py",
+     '        if write and write[1] not in nodes:\n', '        if False:\n',
+     ("tests.test_tools.Trials.test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered",)),
+    ("any mutation is a write a fixture may record", "tools/check_trials.py",
+     '    if not found or WRITES.get(found.group(1)) != found.group(2):\n', '    if not found:\n',
+     ("tests.test_tools.Trials.test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered",)),
     # P-39 read again on 2026-10-27: the review Role's App is granted what apply reads again and its check run.
     ("the effects step's token cannot read the Pause", "adapters/effects.py",
      'CONTROLLER_NEEDS = ("write:status_on_item", "write:tracking_issue", "read:pass.pause")',

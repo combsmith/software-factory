@@ -316,6 +316,46 @@ def _bound(args: str, key: str, variables: dict):
     return literal if literal is not None else variables.get(var)
 
 
+# The writes a trial of the canary may record, each on one node by its input's one key: a pull request or a review
+# thread. Its scope is the node's, so a fixture holds a write only on a node a read of the org's repos in it answered.
+WRITES = {"enqueuePullRequest": "pullRequestId", "dequeuePullRequest": "id", "enablePullRequestAutoMerge": "pullRequestId",
+          "convertPullRequestToDraft": "pullRequestId", "resolveReviewThread": "threadId"}
+WRITE = re.compile(r"^\s*mutation\s*\(\s*\$id\s*:\s*ID!\s*\)\s*\{\s*(\w+)\s*\(\s*input\s*:\s*\{\s*(\w+)\s*:\s*\$id"
+                   r"(?:\s*,\s*mergeMethod\s*:\s*[A-Z]+)?\s*\}\s*\)\s*\{")
+
+
+def written(request: dict):
+    """(the write, the node id it writes) of a GraphQL mutation a fixture may record, or None: one root field among
+    WRITES, its input's one key bound to the one variable `id`, a node id, and nothing after its selection."""
+    body = request.get("body") if isinstance(request, dict) and isinstance(request.get("body"), dict) else {}
+    query, variables = body.get("query"), body.get("variables")
+    if request.get("via") != "graphql" or not isinstance(query, str) or '"' in query or "#" in query \
+            or not isinstance(variables, dict) or set(variables) != {"id"} or not isinstance(variables["id"], str):
+        return None
+    found = WRITE.match(query)
+    if not found or WRITES.get(found.group(1)) != found.group(2):
+        return None
+    depth, at = 1, found.end()
+    while at < len(query) and depth:
+        depth += {"{": 1, "}": -1}.get(query[at], 0)
+        at += 1
+    return (found.group(1), variables["id"]) if depth == 0 and query[at:].strip() == "}" else None
+
+
+def _nodes(value) -> set:
+    """Every node id an answer holds: a `node_id`, or an `id` that is a string, at any depth."""
+    out = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in ("node_id", "id") and isinstance(item, str):
+                out.add(item)
+            out |= _nodes(item)
+    elif isinstance(value, list):
+        for item in value:
+            out |= _nodes(item)
+    return out
+
+
 def _asked(request: dict) -> tuple:
     """({owners}, {repos}, [what is wrong]) a request names, by its query's root fields, its REST path or its
     command line."""
@@ -325,8 +365,10 @@ def _asked(request: dict) -> tuple:
         body = request.get("body") if isinstance(request.get("body"), dict) else {}
         query = body.get("query")
         variables = body.get("variables") if isinstance(body.get("variables"), dict) else {}
+        if written(request):
+            return owners, repos, []      # held to the node a read of the org's repos answered (_repos)
         if not isinstance(query, str) or not query.lstrip().startswith(("query", "{")):
-            return owners, repos, ["is not a query; a read is one query, not a mutation or a subscription"]
+            return owners, repos, ["is not a query; a read is one query, and a write one of WRITES on one node by `id`"]
         roots, problem = _roots(query)
         if problem:
             return owners, repos, [problem]
@@ -448,11 +490,24 @@ def _repos(data: dict, installed) -> list:
     trial = data.get("trial")
     fork = lambda repo: trial in TRIALS_OF_FORKS and repo.count("/") == 1 and repo.split("/")[1] == CANARY
     allowed = lambda repo: repo.startswith(ORG + "/") or fork(repo)
+    # The nodes a read of the org's repos answered, which alone a recorded write may name.
+    nodes = set()
+    for exchange in data.get("exchanges") or []:
+        request = exchange.get("request") if isinstance(exchange, dict) else None
+        response = exchange.get("response") if isinstance(exchange, dict) and isinstance(exchange.get("response"), dict) else {}
+        if isinstance(request, dict) and not written(request):
+            owners, repos, wrong = _asked(request)
+            if not wrong and owners <= {ORG} and all(allowed(r) for r in repos | set(_named(response.get("body")))):
+                nodes |= _nodes(response.get("body"))
     for i, exchange in enumerate(data.get("exchanges") or []):
         request = exchange.get("request") if isinstance(exchange, dict) else None
         if not isinstance(request, dict):
             continue
         where = "exchanges[%d].request" % i
+        write = written(request)
+        if write and write[1] not in nodes:
+            out.append((where + ".body", "writes %s on a node no read of the org's repos in this fixture answered"
+                        % write[0]))
         owners, repos, wrong = _asked(request)
         out += [(where + ".call", what) for what in wrong]
         forks_named = {r.split("/")[0] for r in repos if fork(r)} - _orgs_named(request)

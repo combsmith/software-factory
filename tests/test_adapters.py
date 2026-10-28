@@ -2876,6 +2876,8 @@ NOT_READ = {
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
     "a_label_event_names_its_actor": "shape",
+    # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
+    "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
@@ -2890,6 +2892,9 @@ REFUSALS = {
     ("P-43", 3): None,                 # a review written by the trial, which no port writes yet
     ("P-44", 3): "runs",               # a list of runs GitHub did not find
     ("P-52", 2): "pause",              # the org's own variable, refused the Controller's token: the Pause unreadable
+    # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
+    ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 18): None,
+    ("P-2.least", 28): None,
 }
 
 

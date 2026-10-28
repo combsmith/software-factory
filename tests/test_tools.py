@@ -3848,6 +3848,23 @@ class Trials(unittest.TestCase):
                       "P-27, `trials/P-27.json`)", "(P-20,\n  `trials/P-20.json`)"):
             self.assertIn(cited, design)
 
+    def test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered(self):
+        # Window 2's answers are GraphQL writes, which name a node and no repo: a fixture may record one of WRITES, by
+        # its one `id`, on a node a read of the org's repos in the same fixture answered, and nothing else.
+        data = json.loads((ROOT / "examples" / "invalid" / "trial.a-write-on-a-node-no-read-answered.json").read_text())
+        data["exchanges"][1]["request"]["body"]["variables"]["id"] = "PR_kwA7"
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        for field, key in check_trials.WRITES.items():
+            query = "mutation($id: ID!) { %s(input: {%s: $id}) { clientMutationId } }" % (field, key)
+            self.assertEqual(check_trials.written({"via": "graphql", "body": {"query": query, "variables": {"id": "N"}}}),
+                             (field, "N"))
+            for wrong in (query.replace(key, "other"), query + " query { viewer { login } }", query.replace("$id", '"N"', 1)):
+                self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": wrong, "variables": {"id": "N"}}}))
+        # The node a read answered is held only when that read is of the org's repos.
+        outside = json.loads(json.dumps(data))
+        outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
+        self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
         # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
@@ -3886,6 +3903,10 @@ class Trials(unittest.TestCase):
             "a-trial-of-forks-reading-an-outside-org": "names the owner outside",
             "a-star-beside-another-read": "names the owner outside",
             "a-star-that-climbs": "climbs out of its repo",
+            # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
+            "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
+            "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
+            "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
