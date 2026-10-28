@@ -1,6 +1,6 @@
 # 0080. A Release's verify is verify.yml's, next is read again before it moves, and one repo in two cases is one
 
-Status: accepted. The Factory Builder's rulings of 2026-10-28, which the Maintainer may overturn in review, on the second-family reads of the pull requests that built the Release code, read by Muse while the other family's reviewer had no quota. It extends `docs/decisions/0071-a-release-is-cut-from-main-through-the-eval-gate-and-never-moved-and-next-is-rolled-back-with-no-gate.md`, `docs/decisions/0073-the-release-step-reads-its-facts-and-the-eval-gate-through-the-release-apps-token-writes-each-tag-and-reads-it-back.md` and `docs/decisions/0076-one-workflow-moves-next-held-to-its-shape-through-the-release-apps-token-for-this-repo-alone.md`.
+Status: accepted. The Factory Builder's rulings of 2026-10-27, which the Maintainer may overturn in review, on the second-family reads of the pull requests that built the Release code, read by Muse while the other family's reviewer had no quota. It extends `docs/decisions/0071-a-release-is-cut-from-main-through-the-eval-gate-and-never-moved-and-next-is-rolled-back-with-no-gate.md`, `docs/decisions/0073-the-release-step-reads-its-facts-and-the-eval-gate-through-the-release-apps-token-writes-each-tag-and-reads-it-back.md` and `docs/decisions/0076-one-workflow-moves-next-held-to-its-shape-through-the-release-apps-token-for-this-repo-alone.md`.
 
 ## Decision
 

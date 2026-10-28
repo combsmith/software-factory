@@ -120,12 +120,13 @@ def run(environ: dict, connect, rings=READ, controller=READ) -> tuple:
         return done, refused
     # The Release every write is of: the version cut, or the one the Channel moves to, by the refs read before.
     released = writes[0][1] if writes[0][0] == "create" else current.resolve(writes[0][2], refs)
+    planned = refs        # the refs the plan was made of, which a move's Channel is held to, whatever was written since
     for write in writes:
         if write[0] == "move":
             now = tags.read(transport, repo)
             if now is None:
                 return done, "refs_unreadable"
-            if now.get(write[1]) != refs.get(write[1]):
+            if now.get(write[1]) != planned.get(write[1]):
                 return done, "channel_moved"
         if not tags.write(transport, repo, write, refs):
             return done, "write_unanswered"

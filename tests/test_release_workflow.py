@@ -19,6 +19,12 @@ def caught(problems: list, words: str) -> bool:
     return len(problems) == 1 and words in problems[0]
 
 
+
+def _compact(text: str) -> str:
+    """release.yml with its steps written in YAML's compact form: each item at the indent of `steps:`."""
+    head, _, rest = text.partition("    steps:\n")
+    return head + "    steps:\n" + "\n".join(line[2:] if line.startswith("      ") else line for line in rest.split("\n"))
+
 class Shape(unittest.TestCase):
     def test_the_live_file_is_the_shape_and_keeps_every_other_rule(self):
         self.assertEqual(check_workflows.release_problems(LIVE), [])
@@ -89,6 +95,9 @@ class Shape(unittest.TestCase):
             # beside its keys (Muse's read of #358).
             "a step of text": (LIVE.replace("    steps:\n", "    steps:\n      - justastring\n", 1),
                                "its steps are"),
+            "a step of text, its list at the key's indent": (_compact(LIVE).replace("    steps:\n",
+                                                                                  "    steps:\n    - justastring\n", 1),
+                                                             "its steps are"),
             "a with given a text": (LIVE.replace('\n        with:\n', '\n        with: x\n', 1), "has a with: it is not given"),
         }
         for why, (text, words) in sorted(cases.items()):

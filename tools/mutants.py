@@ -8415,7 +8415,7 @@ MUTANTS = ISSUE + [
     ('a Deployment answered with no 201 is made', 'adapters/deployments.py',
      'answer["status"] == 201 and isinstance(body, dict)', 'isinstance(body, dict)', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
     ('next moved since the plan is moved anyway', 'release/move.py',
-     '            if now.get(write[1]) != refs.get(write[1]):\n                return done, "channel_moved"\n', '', ('tests.test_release_step.Step.test_next_moved_since_the_plan_stops_the_step_before_it_moves',)),
+     '            if now.get(write[1]) != planned.get(write[1]):\n                return done, "channel_moved"\n', '', ('tests.test_release_step.Step.test_next_moved_since_the_plan_stops_the_step_before_it_moves',)),
     ('a Channel read back off its commit is read back', 'release/move.py',
      'after.get(write[1]) == write[2] and current.resolve', 'current.resolve', ('tests.test_release_step.Step.test_a_channel_not_on_its_commit_after_the_move_is_not_read_back',)),
     ("the workflow's own call runs no step", 'release/move.py',
@@ -8434,6 +8434,16 @@ MUTANTS = ISSUE + [
      '            if under in step and (step[under]["value"] or under not in RELEASE_GIVEN[kind]):', '            if False:', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     ("a moved Run's unrevoked token leaves its outcome", 'harness/read.py',
      '        if revoke() is not True:\n            raise Stop("token_not_revoked") from None\n', '', ('tests.test_steps.Reader.test_a_run_on_another_release_than_its_pass_builds_no_task',)),
+    ('next is held to the last read back, not the plan', 'release/move.py',
+     'if now.get(write[1]) != planned.get(write[1]):', 'if now.get(write[1]) != refs.get(write[1]):', ('tests.test_release_step.Step.test_next_moved_since_the_plan_stops_the_step_before_it_moves',)),
+    ("a compact list's text step passes", 'tools/check_workflows.py',
+     'if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):', 'if lead <= indent:', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    ('a verify suite answered with no 200 is read', 'adapters/candidate.py',
+     '    runs = body.get("workflow_runs") if answer["status"] == 200 and isinstance(body, dict) else None\n    if not isinstance(runs, list) or body.get("total_count") != len(runs) or len(runs) != 1', '    runs = body.get("workflow_runs") if isinstance(body, dict) else None\n    if not isinstance(runs, list) or body.get("total_count") != len(runs) or len(runs) != 1', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
+    ('a verify suite counted short is read', 'adapters/candidate.py',
+     'or body.get("total_count") != len(runs) or len(runs) != 1', 'or len(runs) != 1', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
+    ("a verify suite's run that is no object is read", 'adapters/candidate.py',
+     '            or not isinstance(runs[0], dict):\n        return False\n    return runs[0]', ':\n        return False\n    return runs[0]', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
 ]
 
 

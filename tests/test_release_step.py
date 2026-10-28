@@ -411,6 +411,11 @@ class Step(unittest.TestCase):
         done, code, _, replay = self.run_step(env, moved)
         self.assertEqual((done, code, replay._left), ({"writes": [["create", VERSION, D]], "deployments": []},
                                                       "channel_moved", []))
+        # Moved before the created Release was read back: the read-back and the read before the move both show it,
+        # and next is held to where the plan read it, not to the read-back (the Claude review of #379).
+        early = dict(REFS, **{VERSION: D, NEXT: A})
+        done, code, _, _ = self.run_step(env, answers[:recheck - 1] + [refs_read(early), refs_read(early)])
+        self.assertEqual((done["writes"], code), ([["create", VERSION, D]], "channel_moved"))
         unread = answers[:recheck] + [refs_read(REFS, status=500)]
         self.assertEqual(self.run_step(env, unread)[1], "refs_unreadable")
         rollback = {"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t", "RELEASE_TO": "factory/v0.1.0"}

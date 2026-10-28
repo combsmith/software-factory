@@ -1162,7 +1162,9 @@ def _scalar_items(text: str, entries: list, job: str) -> list:
     for number, raw in enumerate(text.split("\n")[above[0]["line"]:], above[0]["line"] + 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
-        if len(raw) - len(raw.lstrip(" ")) <= indent:
+        lead = len(raw) - len(raw.lstrip(" "))
+        # The items may sit at the key's own indent, YAML's compact form, which `read` takes too.
+        if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):
             break
         if ENTRY.match(raw.rstrip()) is None and ITEM.match(raw.rstrip()) is not None:
             found.append(number)
