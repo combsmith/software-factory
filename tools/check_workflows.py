@@ -1158,7 +1158,7 @@ def release_problems(text: str) -> list:
         problems.append("its job is granted contents: read and nothing else; its writes are the App's token's")
     steps = _steps(entries, RELEASE_JOB)
     kinds = [_release_kind(step) for step in steps]
-    if tuple(kinds) != RELEASE_ORDER:
+    if tuple(kinds) != RELEASE_ORDER or _scalar_items(text, entries, RELEASE_JOB):
         problems.append("its steps are %s, in that order, and no other" % ", ".join(RELEASE_ORDER))
     for step, kind in zip(steps, kinds):
         if kind is None:
@@ -1173,7 +1173,29 @@ def release_problems(text: str) -> list:
             if have != RELEASE_GIVEN[kind].get(under, {}):
                 problems.append("its %s step is given under %s: %s, exactly"
                                 % (kind, under, RELEASE_GIVEN[kind].get(under, {})))
+            # A value written beside `with:` or `env:` is no mapping: the step is given that text, not its keys.
+            if under in step and (step[under]["value"] or under not in RELEASE_GIVEN[kind]):
+                problems.append("its %s step has a %s: it is not given" % (kind, under))
     return problems
+
+
+def _scalar_items(text: str, entries: list, job: str) -> list:
+    """The lines of `job`'s steps that are no mapping, a bare `- text` item, which `read` keeps no entry of (issue 197,
+    Muse's read of #358): such a step is one more step the reading by keys would not see."""
+    above = [e for e in entries if e["key"] == "steps" and e["path"] == ["jobs", job]]
+    if len(above) != 1:
+        return []
+    found, indent = [], above[0]["indent"]
+    for number, raw in enumerate(text.split("\n")[above[0]["line"]:], above[0]["line"] + 1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        lead = len(raw) - len(raw.lstrip(" "))
+        # The items may sit at the key's own indent, YAML's compact form, which `read` takes too.
+        if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):
+            break
+        if ENTRY.match(raw.rstrip()) is None and ITEM.match(raw.rstrip()) is not None:
+            found.append(number)
+    return found
 
 
 def run_problems(text: str, root: pathlib.Path = ROOT) -> list:

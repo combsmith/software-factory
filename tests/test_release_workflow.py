@@ -19,6 +19,12 @@ def caught(problems: list, words: str) -> bool:
     return len(problems) == 1 and words in problems[0]
 
 
+
+def _compact(text: str) -> str:
+    """release.yml with its steps written in YAML's compact form: each item at the indent of `steps:`."""
+    head, _, rest = text.partition("    steps:\n")
+    return head + "    steps:\n" + "\n".join(line[2:] if line.startswith("      ") else line for line in rest.split("\n"))
+
 class Shape(unittest.TestCase):
     def test_the_live_file_is_the_shape_and_keeps_every_other_rule(self):
         self.assertEqual(check_workflows.release_problems(LIVE), [])
@@ -85,6 +91,14 @@ class Shape(unittest.TestCase):
                                        "its step step has exactly"),
             "the mint named otherwise": (LIVE.replace("      - id: mint\n", "      - id: token\n"),
                                          "its mint step has exactly"),
+            # A step that is a bare text, which the reading by keys keeps no entry of, and a `with:` given a text
+            # beside its keys (Muse's read of #358).
+            "a step of text": (LIVE.replace("    steps:\n", "    steps:\n      - justastring\n", 1),
+                               "its steps are"),
+            "a step of text, its list at the key's indent": (_compact(LIVE).replace("    steps:\n",
+                                                                                  "    steps:\n    - justastring\n", 1),
+                                                             "its steps are"),
+            "a with given a text": (LIVE.replace('\n        with:\n', '\n        with: x\n', 1), "has a with: it is not given"),
         }
         for why, (text, words) in sorted(cases.items()):
             with self.subTest(why=why):
@@ -100,12 +114,16 @@ class Shape(unittest.TestCase):
             for rel in ("examples/workflows/verify.yml", ".github/workflows/verify.yml", "docs/standards/workflows.md",
                         "config/defaults.json", ".github/workflows/release.yml"):
                 (root / rel).write_text((ROOT / rel).read_text())
-            planted = (ROOT / ".github" / "workflows" / "verify.yml").read_text().replace(
-                "      - run: make verify\n", "      - run: make verify\n        env:\n"
-                "          RELEASE_TOKEN: ${{ secrets.X }}\n", 1)
-            (root / ".github" / "workflows" / "verify.yml").write_text(planted)
-            found = [p for p in check_workflows.run(root) if "release.yml's alone" in p]
-            self.assertEqual(len(found), 1, check_workflows.run(root))
+            # Each of the four the release job alone may name, named in another workflow (Muse's read of #358).
+            verify = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
+            for named in ("RELEASE_TOKEN: ${{ secrets.X }}", "KEY: ${{ secrets.RELEASE_APP_KEY }}",
+                          "WHERE: factory-release", "STEP: python3 -m release.move"):
+                with self.subTest(named=named):
+                    planted = verify.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
+                                             "          %s\n" % named, 1)
+                    (root / ".github" / "workflows" / "verify.yml").write_text(planted)
+                    found = [p for p in check_workflows.run(root) if "release.yml's alone" in p]
+                    self.assertEqual(len(found), 1, check_workflows.run(root))
 
 
 class Version(unittest.TestCase):

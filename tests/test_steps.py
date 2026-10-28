@@ -276,6 +276,10 @@ class Reader(unittest.TestCase):
         self.assertEqual(shared.errors(json.loads(kept["outcome.json"]), "outcome"), [])
         # The tags are read with the reader's own token, of the home repo, and the token is revoked.
         self.assertEqual((calls["tags"], calls["revoked"]), ([("the reader's transport", HOME)], 1))
+        # A token GitHub did not revoke is the step's one code: no outcome is left to say the Run was superseded
+        # (Muse's read of #340).
+        code, printed, files, _, _ = self.go(refs=moved, revoked=False)
+        self.assertEqual((code, printed, files), (1, "token_not_revoked\n", []))
         # A Run id the record does not hold leaves no outcome for it, whatever Release the job is on.
         stranger = NAME.rsplit(" ", 1)[0] + " r_000009Z"
         code, printed, files, _, _ = self.go(refs=moved, argv=[stranger, ITEM, PASS, "task"])

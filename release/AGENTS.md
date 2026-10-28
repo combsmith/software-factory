@@ -25,8 +25,9 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py, fix
 | A fixture holds no credential, and no header a trial's fixture drops | `tests/test_release.py::test_the_refs_github_answered_are_read_as_the_port_reads_them` |
 | The step sends each write through the token it is given, reads it back, and records each move of `next` | `tests/test_release_step.py::test_a_cut_creates_the_release_moves_next_reads_each_back_and_records_the_deployment` |
 | It stops at the first write GitHub refused, or not read back, read twice, on its commit as the one Release planned | `tests/test_release_step.py::test_a_write_not_read_back_stops_the_step_there` |
+| It moves `next` only from where the plan read it (decision 0080) | `tests/test_release_step.py::test_next_moved_since_the_plan_stops_the_step_before_it_moves` |
 | The eval gate is closed by anything not read whole, or not the eval job's own pass for the commit and Release | `tests/test_release_step.py::test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed` |
-| `verify` counts only as GitHub Actions' one success on the commit | `tests/test_release_step.py::test_verify_counts_only_as_github_actions_one_success_on_the_commit` |
+| `verify` counts only as GitHub Actions' one success on the commit, from `.github/workflows/verify.yml` (decision 0080) | `tests/test_release_step.py::test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it` |
 | A commit counts as on `main` only by GitHub's comparison of it with `main`'s head, read by its branch's ref | `tests/test_release_step.py::test_the_facts_of_a_commit_on_main_verified_and_judged` |
 | A move forward is gated for the Release it moves to | `tests/test_release_step.py::test_a_move_forward_reads_the_facts_of_the_release_it_moves_to` |
 | A rollback reads no fact of the commit it moves to | `tests/test_release_step.py::test_a_rollback_reads_no_fact_and_moves_next_back` |

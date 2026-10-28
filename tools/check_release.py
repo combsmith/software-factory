@@ -30,7 +30,9 @@ def ring_problems(value) -> list:
     for line in (lines if isinstance(lines, list) else []):
         if not isinstance(line, dict):
             continue
-        key = (line.get("repo"), line.get("family"))
+        repo = line.get("repo")
+        # GitHub names a repo whatever its case: one repo spelled two ways is one repo (decision 0080).
+        key = (repo.casefold() if isinstance(repo, str) else repo, line.get("family"))
         if key in served and served[key] != line.get("channel"):
             problems.append("serves: %s, family %s, is served by two Channels, %s and %s"
                             % (key[0], key[1], served[key], line.get("channel")))

@@ -28,6 +28,7 @@ SET = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "
 SET_BYTES = (json.dumps(SET, indent=2) + "\n").encode()
 EVAL_RUN = 4242
 MAIN = "e" * 40     # main's head, read by its ref
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def ex(method, path, status, body, sent=None, headers=None, via="rest"):
@@ -66,11 +67,22 @@ def compared(commit=D, status="ahead", base=None):
                            {"status": status, "merge_base_commit": {"sha": commit if base is None else base}})]
 
 
+SUITE = 5150      # the check suite the verify check run is of
+
+
 def verify_runs(commit=D, conclusion="success", app=candidate.ACTIONS_APP, more=()):
-    runs = [{"name": "verify", "head_sha": commit, "status": "completed", "conclusion": conclusion, "app": {"id": app}}]
+    runs = [{"name": "verify", "head_sha": commit, "status": "completed", "conclusion": conclusion, "app": {"id": app},
+             "check_suite": {"id": SUITE}}]
     runs += list(more)
     return ex("GET", "/repos/%s/commits/%s/check-runs?check_name=verify&filter=latest&per_page=100" % (REPO, commit),
               200, {"total_count": len(runs), "check_runs": runs})
+
+
+def verify_suite(commit=D, path=candidate.VERIFY_WORKFLOW, runs=None, total=None, status=200, suite=SUITE):
+    """The verify check run's suite's workflow runs, read by the suite's id, as the actions runs list gives them."""
+    runs = [{"id": 901, "path": path, "head_sha": commit, "check_suite_id": suite}] if runs is None else runs
+    return ex("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (REPO, suite), status,
+              {"total_count": len(runs) if total is None else total, "workflow_runs": runs})
 
 
 def manifest(commit=D, data=SET_BYTES, status=200):
@@ -106,7 +118,7 @@ def gate_reads(commit=D, document=None):
 
 
 def facts_reads(commit=D, document=None):
-    return compared(commit) + [verify_runs(commit)] + gate_reads(commit, document)
+    return compared(commit) + [verify_runs(commit), verify_suite(commit)] + gate_reads(commit, document)
 
 
 class Candidate(unittest.TestCase):
@@ -138,14 +150,61 @@ class Candidate(unittest.TestCase):
                     dict(verify_runs(), response=dict(verify_runs()["response"],
                                                       body=dict(verify_runs()["response"]["body"], total_count=2)))):
             with self.subTest(runs=odd["response"]["body"]):
-                self.assertFalse(candidate.verified(github.Replay([odd]), REPO, D))
+                # The suite's run is answered as verify.yml's, so only the check run itself can make it fail.
+                self.assertFalse(candidate.verified(github.Replay([odd, verify_suite()]), REPO, D))
         self.assertFalse(candidate.verified(github.Replay([]), REPO, D))
-        self.assertTrue(candidate.verified(github.Replay([verify_runs()]), REPO, D))
+        self.assertTrue(candidate.verified(github.Replay([verify_runs(), verify_suite()]), REPO, D))
         for change in ({"head_sha": A}, {"status": "in_progress"}, {"app": "x"}):
             with self.subTest(change=change):
                 answered = verify_runs()
                 answered["response"]["body"]["check_runs"][0].update(change)
-                self.assertFalse(candidate.verified(github.Replay([answered]), REPO, D))
+                self.assertFalse(candidate.verified(github.Replay([answered, verify_suite()]), REPO, D))
+
+    def test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it(self):  # decision 0080
+        # The check, its App and its workflow file are the Kernel's verify Lens's, read from config/defaults.json.
+        lenses = json.loads((ROOT / "config" / "defaults.json").read_text())["required_lenses"]["deterministic"]
+        lens = next(lens for lens in lenses if lens["lens"] == "verify")
+        self.assertEqual((candidate.VERIFY, candidate.ACTIONS_APP, candidate.VERIFY_WORKFLOW),
+                         (lens["check"], lens["app_id"], lens["workflow"]))
+        # A check of that name and App that another workflow's job reported, or whose run cannot be read, is no verify.
+        two = [{"id": 901, "path": candidate.VERIFY_WORKFLOW, "head_sha": D, "check_suite_id": SUITE},
+               {"id": 902, "path": candidate.VERIFY_WORKFLOW, "head_sha": D, "check_suite_id": SUITE}]
+        for suite in (verify_suite(path=".github/workflows/other.yml"), verify_suite(commit=A), verify_suite(runs=[]),
+                      verify_suite(runs=two), verify_suite(total=2), verify_suite(status=500), verify_suite(runs=["x"]),
+                      verify_suite(runs=[{"id": 901, "path": candidate.VERIFY_WORKFLOW, "head_sha": D,
+                                          "check_suite_id": SUITE + 1}])):
+            with self.subTest(suite=suite["response"]["body"]):
+                self.assertFalse(candidate.verified(github.Replay([verify_runs(), suite]), REPO, D))
+        # A suite id that is no positive integer is none, though a suite of that number would answer as verify's.
+        for change, suite in (({"check_suite": None}, []), ({"check_suite": {"id": True}}, [verify_suite(suite=1)]),
+                              ({"check_suite": {"id": 0}}, [verify_suite(suite=0)])):
+            with self.subTest(change=change):
+                answered = verify_runs()
+                answered["response"]["body"]["check_runs"][0].update(change)
+                self.assertFalse(candidate.verified(github.Replay([answered] + suite), REPO, D))
+        # A suite that is not answered is no verify, and is not an error.
+        self.assertFalse(candidate.verified(github.Replay([verify_runs()]), REPO, D))
+        # An answer that is no 200 is none, whatever its body holds.
+        failed = verify_runs()
+        failed["response"]["status"] = 500
+        self.assertFalse(candidate.verified(github.Replay([failed, verify_suite()]), REPO, D))
+        unmerged = compared()
+        unmerged[1] = dict(unmerged[1], response=dict(unmerged[1]["response"], status=500))
+        self.assertFalse(candidate.on_main(github.Replay(unmerged), REPO, D))
+
+    def test_the_sets_manifest_is_read_only_as_the_file_it_names(self):  # Muse's read of #354
+        for change in ({"type": "symlink"}, {"path": "evals/other.json"}, {"encoding": "utf-8"}, {"size": "x"},
+                       {"size": candidate.SET_MOST + 1}, {"size": len(SET_BYTES) + 1}):
+            with self.subTest(change=change):
+                answered = manifest()
+                answered["response"]["body"].update(change)
+                self.assertEqual(candidate.gate(github.Replay([answered]), REPO, D, VERSION), "eval_set_unreadable")
+        failed = manifest(status=500)
+        self.assertEqual(candidate.gate(github.Replay([failed]), REPO, D, VERSION), "eval_set_unreadable")
+        # A manifest past its bound, though whole and readable, is not read: GitHub inlines no more.
+        big = manifest(data=SET_BYTES + b" " * candidate.SET_MOST)
+        self.assertEqual(candidate.gate(github.Replay([big] + gate_reads()[1:]), REPO, D, VERSION),
+                         "eval_set_unreadable")
 
     def test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed(self):
         # Ruling 4″: anything but the eval job's own `pass`, for this commit and this Release, keeps the gate closed,
@@ -246,6 +305,7 @@ class Writes(unittest.TestCase):
                     sent={"state": "success", "environment": "factory-next"})
         self.assertEqual(deployments.record(github.Replay([made, status]), REPO, D, VERSION), 77)
         for answers in ([dict(made, response=dict(made["response"], status=202))], [made],
+                        [dict(made, response=dict(made["response"], status=202)), status],
                         [dict(made, response=dict(made["response"], body={"id": 77, "sha": A,
                                                                            "environment": "factory-next"})), status],
                         [made, dict(status, response=dict(status["response"], body={"state": "failure"}))],
@@ -264,7 +324,7 @@ def cut_reads(document=None, version=VERSION):
     after_move = dict(after_create, **{NEXT: D})
     return ([refs_read(REFS)] + facts_reads(D, document if document is not None else report(release=version))
             + [ex("POST", "/repos/%s/git/refs" % REPO, 201, {"ref": "refs/tags/" + version, "object": {"sha": D}},
-                  sent={"ref": "refs/tags/" + version, "sha": D}), refs_read(after_create),
+                  sent={"ref": "refs/tags/" + version, "sha": D}), refs_read(after_create), refs_read(after_create),
                ex("PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, NEXT), 200,
                   {"ref": "refs/tags/" + NEXT, "object": {"sha": D}}, sent={"sha": D, "force": True}),
                refs_read(after_move),
@@ -345,10 +405,56 @@ class Step(unittest.TestCase):
         done, code, _, _ = self.run_step(env, undeployed)
         self.assertEqual((done["writes"], code), ([["create", VERSION, D], ["move", NEXT, D]], "deployment_unrecorded"))
 
+    def test_next_moved_since_the_plan_stops_the_step_before_it_moves(self):  # decision 0080
+        # Just before next is moved its tag is read again: moved since the plan by a step beside it or a person, the
+        # step stops, channel_moved, and moves nothing; the Release a cut created stays, read back.
+        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}
+        answers = cut_reads()
+        recheck = answers.index(refs_read(dict(REFS, **{VERSION: D}))) + 1
+        moved = answers[:recheck] + [refs_read(dict(REFS, **{VERSION: D, NEXT: A}))]
+        done, code, _, replay = self.run_step(env, moved)
+        self.assertEqual((done, code, replay._left), ({"writes": [["create", VERSION, D]], "deployments": []},
+                                                      "channel_moved", []))
+        # Moved before the created Release was read back: the read-back and the read before the move both show it,
+        # and next is held to where the plan read it, not to the read-back (the Claude review of #379).
+        early = dict(REFS, **{VERSION: D, NEXT: A})
+        done, code, _, _ = self.run_step(env, answers[:recheck - 1] + [refs_read(early), refs_read(early)])
+        self.assertEqual((done["writes"], code), ([["create", VERSION, D]], "channel_moved"))
+        unread = answers[:recheck] + [refs_read(REFS, status=500)]
+        self.assertEqual(self.run_step(env, unread)[1], "refs_unreadable")
+        rollback = {"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t", "RELEASE_TO": "factory/v0.1.0"}
+        done, code, _, _ = self.run_step(rollback, [refs_read(REFS), refs_read(dict(REFS, **{NEXT: D}))])
+        self.assertEqual((done["writes"], code), ([], "channel_moved"))
+
+    def test_a_channel_not_on_its_commit_after_the_move_is_not_read_back(self):  # Muse's read of #354
+        # The PATCH answered, yet next still names the commit it was on: the Release moved to is read on its own tag,
+        # but the Channel is not on it, so the move is not read back.
+        env = {"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t", "RELEASE_TO": "factory/v0.1.0"}
+        answers = [refs_read(REFS), refs_read(REFS),
+                   ex("PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, NEXT), 200,
+                      {"ref": "refs/tags/" + NEXT, "object": {"sha": A}}, sent={"sha": A, "force": True}),
+                   refs_read(REFS), refs_read(REFS)]
+        done, code, _, _ = self.run_step(env, answers)
+        self.assertEqual((done["writes"], done.get("sent"), code), ([], ["move", NEXT, A], "not_read_back"))
+
+    def test_the_step_runs_with_no_argument_as_the_workflow_calls_it(self):  # Muse's read of #358
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = move.main([], environ={"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION,
+                                          "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "the token"},
+                             connect=lambda token: github.Replay(cut_reads()))
+        self.assertEqual((code, json.loads(out.getvalue())),
+                         (0, {"writes": [["create", VERSION, D], ["move", NEXT, D]], "deployments": [77]}))
+        # Any other argument is no step.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(move.main(["move"], environ={}), 2)
+        self.assertIn("usage", err.getvalue())
+
     def test_a_rollback_reads_no_fact_and_moves_next_back(self):
         env = {"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t", "RELEASE_TO": "factory/v0.1.0"}
         back = dict(REFS, **{NEXT: A})
-        answers = [refs_read(REFS),
+        answers = [refs_read(REFS), refs_read(REFS),
                    ex("PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, NEXT), 200,
                       {"ref": "refs/tags/" + NEXT, "object": {"sha": A}}, sent={"sha": A, "force": True}),
                    refs_read(back),
@@ -368,7 +474,7 @@ class Step(unittest.TestCase):
         refs = dict(REFS, **{NEXT: A})
         forward = dict(refs, **{NEXT: B})
         answers = ([refs_read(refs)] + facts_reads(B, report(commit=B, release="factory/v0.2.0"))
-                   + [ex("PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, NEXT), 200,
+                   + [refs_read(refs), ex("PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, NEXT), 200,
                          {"ref": "refs/tags/" + NEXT, "object": {"sha": B}}, sent={"sha": B, "force": True}),
                       refs_read(forward),
                       ex("POST", "/repos/%s/deployments" % REPO, 201, {"id": 79, "sha": B, "environment": "factory-next"},
