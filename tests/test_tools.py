@@ -1247,8 +1247,9 @@ class Apps(unittest.TestCase):
                                          "table maps to pull_requests write"))
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
-        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("read:facts.queue")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 185"))
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:dequeue_merge")
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:dequeue_merge, which waits on the "
+                                             "queue App, combsmith-sf-queue"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
@@ -3454,6 +3455,11 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
         self.assertTrue(caught(problems, "exchanges[1].response.headers.X-GitHub-SSO is not a header a fixture may keep"))
         self.assertFalse(caught(problems, "X-RateLimit-Used"))
+        # What the asking token may do is not kept: no rule needs it, and it advertises the Maintainer's scopes.
+        data["exchanges"][1]["response"]["headers"]["x-oauth-scopes"] = "admin:org, delete_repo, repo"
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "exchanges[1].response.headers.x-oauth-scopes is not a header a fixture may keep"))
+        self.assertNotIn("x-oauth-scopes", check_trials.HEADERS)
 
     def test_every_example_of_a_fixture_and_the_folder_notes_are_scanned(self):
         data = json.loads((ROOT / "examples" / "invalid" / "trial.run-outside-the-canary.json").read_text())
@@ -3853,6 +3859,30 @@ class Trials(unittest.TestCase):
                       "P-27, `trials/P-27.json`)", "(P-20,\n  `trials/P-20.json`)"):
             self.assertIn(cited, design)
 
+    def test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered(self):
+        # Window 2's answers are GraphQL writes, which name a node and no repo: a fixture may record one of WRITES, by
+        # its one `id`, on a node a read of the canary alone in the same fixture answered, and nothing else.
+        data = json.loads((ROOT / "examples" / "invalid" / "trial.a-write-on-a-node-no-read-answered.json").read_text())
+        data["exchanges"][1]["request"]["body"]["variables"]["id"] = data["exchanges"][0]["response"]["body"]["node_id"]
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        for field, key in check_trials.WRITES.items():
+            query = "mutation($id: ID!) { %s(input: {%s: $id}) { clientMutationId } }" % (field, key)
+            self.assertEqual(check_trials.written({"via": "graphql", "body": {"query": query, "variables": {"id": "N"}}}),
+                             (field, "N"))
+            for wrong in (query.replace(key, "other"), query + " query { viewer { login } }", query.replace("$id", '"N"', 1)):
+                self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": wrong, "variables": {"id": "N"}}}))
+        # A merge method rides only on auto-merge; and a node id names its repository, read as GitHub writes it.
+        merged = "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id, mergeMethod: SQUASH}) { clientMutationId } }"
+        self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": merged, "variables": {"id": "N"}}}))
+        self.assertEqual(check_trials.node_repo("PR_kwDOVFD6788AAAABLI32PA"), check_trials.CANARY_ID)
+        self.assertEqual(check_trials.node_repo("PRRT_kwDOVFD6786w86vx"), check_trials.CANARY_ID)
+        for unreadable in ("", "PR_", "PR_!!", "MDExOlB1bGxSZXF1ZXN0MQ==", "PR_AAAA"):
+            self.assertIsNone(check_trials.node_repo(unreadable), unreadable)
+        # The node a read answered is held only when that read is of the canary alone.
+        outside = json.loads(json.dumps(data))
+        outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
+        self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
         # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
@@ -3891,6 +3921,23 @@ class Trials(unittest.TestCase):
             "a-trial-of-forks-reading-an-outside-org": "names the owner outside",
             "a-star-beside-another-read": "names the owner outside",
             "a-star-that-climbs": "climbs out of its repo",
+            # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
+            "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
+            "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-on-another-repos-node-a-canary-read-holds": "on a node that is not the canary's by its id: 999999",
+            # However a write is carried, by a command line or inside an answer, it is held as one sent; and a read that
+            # also names another repo ties no node to the canary.
+            "a-write-carried-by-a-command-line": "carries a GraphQL write that is not one of WRITES",
+            "a-write-carried-inside-an-answer-on-another-repos-node": "carries a write of enqueuePullRequest on a node no read",
+            "a-write-on-a-node-a-read-naming-another-repo-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            # Only a read answered 200 ties a node, never a refused one or a write's answer; a comment hides no write, nor
+            # does another field of a GraphQL body.
+            "a-write-on-a-node-a-refused-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-on-a-node-a-post-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-behind-a-comment-in-a-command-line": "carries a GraphQL write that is not one of WRITES",
+            "a-write-in-another-field-of-a-graphql-body": "carries a GraphQL write that is not one of WRITES",
+            "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
+            "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())

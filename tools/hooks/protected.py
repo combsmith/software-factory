@@ -240,6 +240,10 @@ def parse(text: str) -> dict:
     # let a directory that holds a protected path go unasked. No path here may use it until that reading does.
     if any("**" in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json names a path with **, which the hooks cannot read where a command writes")
+    # No path in a tree holds a control character or a backslash, so a pattern with one protects nothing: the list is
+    # unreadable, for the Kernel's configuration and a push's refusal alike, never read as protecting less.
+    if any(re.search(r"[\x00-\x1f\x7f\\]", p) for p, _ in paths):
+        raise Unreadable("config/hooks.json names a path with a control character or a backslash")
     return {"protected": protected, "reported": reported, "lens_inputs": inputs, "branch": branch, "sessions": sessions,
             **lists}
 
