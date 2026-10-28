@@ -3618,6 +3618,19 @@ class Trials(unittest.TestCase):
             self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not "
                                              "ask it"), hidden)
             self.assertFalse(caught(problems, "more than one row"), hidden)
+        # The blocks are read in one pass from the top, as a renderer reads them: a fence inside a comment, or a
+        # comment's close inside a block, ends nothing, and the row the tildes hold is hidden still (the second-family
+        # read of #357).
+        nested = "<!--\n```\n-->\n~~~\n```\n-->\n%s\n<!--\n~~~\n-->" % "| P-41 | does a request for changes survive the push | x |"
+        problems = check_trials.run(clone({check_trials.DESIGN: reworded.replace("\n## 7. ", "\n" + nested + "\n\n## 7. ", 1)}))
+        self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
+        self.assertFalse(caught(problems, "more than one row"))
+        # A question is its cell alone: a cell whose close lacks its space does not run on into the next.
+        start = reworded.index("| P-41 | ")
+        run_on = reworded[:start] + "| P-41 | is a request for changes kept |does a request for changes survive the push | x |" \
+            + reworded[reworded.index("\n", start):]
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: run_on})),
+                               "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
         # An opener left unclosed hides every row after it, as a renderer reads it: those trials have no row.
         for opener in ("<!--", "~~~", "```"):
             unclosed = design.replace("| P-41 |", opener + "\n| P-41 |", 1)
