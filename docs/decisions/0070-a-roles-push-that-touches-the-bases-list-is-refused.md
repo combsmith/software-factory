@@ -29,4 +29,6 @@ judge it. Refusing the push is the same rule, read before anything is written.
 | The list is the base commit's, every protected path and Lens's input once | `tests/test_adapters.py::test_the_list_is_the_bases_every_protected_path_and_lens_input_once` |
 | A list that cannot be read is unreadable, never empty, and coordinates that name no commit are not asked | `tests/test_adapters.py::test_a_list_that_cannot_be_read_is_unreadable_never_empty` |
 | `apply` calls the refusal on every push Effect, and its refusal is in the run record | waiting on `harness/push.py` |
+| A list pattern with a backslash or a control character, which no path may hold, refuses every push as unreadable, and `config/hooks.json` may hold none | `tests/test_apply.py::test_a_list_that_is_none_or_empty_refuses_every_push`, `tools/check_examples.py` |
+| A list answered with no 200, or whose size is no integer, is unreadable, and a repo named `.` is not asked | `tests/test_adapters.py::test_a_list_that_cannot_be_read_is_unreadable_never_empty` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
