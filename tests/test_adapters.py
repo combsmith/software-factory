@@ -2878,6 +2878,10 @@ NOT_READ = {
     "a_label_event_names_its_actor": "shape",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
+    # The threads port reads its own query of a thread's resolution, not the window's read of P-5; a resolution is a
+    # write no port makes until an App holds contents: write.
+    "a_lens_review_opens_a_thread": "shape", "an_app_resolves_a_lens_thread": "controller",
+    "an_app_resolves_any_thread": "controller",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
@@ -2895,6 +2899,8 @@ REFUSALS = {
     # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
     ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 19): None,
     ("P-2.least", 30): None,
+    # A thread another opened, refused an App without contents: write, which no port resolves until one holds it (P-5).
+    ("P-5", 9): None, ("P-5", 10): None, ("P-5", 11): None, ("P-5", 17): None, ("P-5", 18): None,
 }
 
 

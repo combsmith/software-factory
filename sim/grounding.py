@@ -92,11 +92,12 @@ RULES = (
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request",
-     ("P-5",), None, None),
-    ("an_app_resolves_a_lens_thread", "The reviewer's App can resolve a thread a Lens opened", ("P-5",), None, None),
-    ("an_app_resolves_any_thread", "An App with pull_requests: write can resolve any review thread, a person's too, "
-     "and "
-     "the thread says who resolved it", ("P-5",), None, None),
+     ("P-5",), "trials/P-5.json", None),
+    ("an_app_resolves_a_lens_thread", "An App can resolve a thread a Lens opened only with contents: write, which the "
+     "reviewer's App does not hold", ("P-5",), "trials/P-5.json", None),
+    ("an_app_resolves_any_thread", "An App with contents: write and pull_requests: write can resolve any review "
+     "thread, a person's too, and the thread says who resolved it; with pull_requests: write alone GitHub refuses it",
+     ("P-5",), "trials/P-5.json", None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
      ("P-41",), None, None),
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
