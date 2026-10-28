@@ -476,10 +476,21 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.fetch, self.home(dict(self.cases, **{first: b"changed"}))), "fetched 1 of 2 cases")
         self.assertEqual(json.loads((self.temp / "heldout" / "fetched.json").read_text()), {first: "hash_differs", "poc-two": None})
         self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
-        self.step(job.score, lambda case: wrong)
-        written = json.loads((self.work / job.REPORT).read_text())
-        self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
-                         [("unreadable", ["hash_differs"]), ("fail", ["finding_not_raised"])])
+        # The scorer says why the case failed, finding_not_raised; the report says only that it did, case_failed: what
+        # the scorer said would tell what the case expected, and the report is public (decision 0078). Nor does a step
+        # print it: the run step says counts, and judge one code.
+        self.assertEqual(eval_result.score(load("examples/eval-case.json"), wrong)["reasons"][0], "finding_not_raised")
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.score(dict(self.env), self.root, self.work,
+                                                                        lambda case: wrong)), 0)
+            self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
+        self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 0 passed\ncase_failed\n")
+        written = (self.work / job.REPORT).read_text()
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in json.loads(written)["cases"]],
+                         [("unreadable", ["hash_differs"]), ("fail", ["case_failed"])])
+        for code in ("finding_not_raised", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met",
+                     "category_differs", "severity_differs", "location_differs", "answer_disagrees_with_verdict"):
+            self.assertNotIn(code, written + out.getvalue(), code)
         self.assertEqual(self.step(job.judge), "case_failed")
         # A set changed since the plan is no set of this run, and a report that is not there passes nothing.
         (self.work / job.REPORT).unlink()

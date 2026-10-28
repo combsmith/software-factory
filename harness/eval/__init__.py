@@ -31,6 +31,7 @@ REPORT = "eval-report.json"
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
+CASE_FAILED = "case_failed"
 
 
 class Stop(Exception):
@@ -195,7 +196,10 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
             continue
         said = eval_result.score(case, result)
-        assessed[entry["id"]] = (said["verdict"], list(dict.fromkeys(said["reasons"])))
+        # What the scorer says of a case that did not pass would tell anyone who reads the report what the case
+        # expected, and the report is public: across dispatches it would give the answer key. It is one code, the
+        # same whatever the scorer said, and the scorer's own codes never leave this step (decision 0078).
+        assessed[entry["id"]] = (PASS, []) if said["verdict"] == PASS and not said["reasons"] else ("fail", [CASE_FAILED])
     return assessed
 
 

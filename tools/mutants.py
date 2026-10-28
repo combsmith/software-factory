@@ -8424,6 +8424,9 @@ MUTANTS = ISSUE + [
     ('the eval job may run anywhere for any time', 'tools/check_workflows.py',
      '    if {k: inside[k]["value"] for k in EVAL_RUNNER if k in inside} != EVAL_RUNNER:\n',
      '    if False:\n', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
+    ("a failed case's report keeps what the scorer said", 'harness/eval/__init__.py',
+     'else ("fail", [CASE_FAILED])',
+     'else (said["verdict"], list(dict.fromkeys(said["reasons"])))', ('tests.test_evals.EvalJob.test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded',)),
 ]
 
 
