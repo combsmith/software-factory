@@ -42,7 +42,6 @@
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
           "x-github-request-id": "E427:221597:11E4E5:3B096C:6AE15198",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
           "x-ratelimit-remaining": "4818",
           "x-ratelimit-reset": "1793153810",
