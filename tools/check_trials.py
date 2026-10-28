@@ -364,6 +364,25 @@ def written(request: dict):
     return (found.group(1), variables["id"]) if depth == 0 and query[at:].strip() == "}" else None
 
 
+MUTATION = re.compile(r"\bmutation\b\s*(?:\w+\s*)?(?:\([^)]*\))?\s*\{")
+
+
+def _sent_writes(value) -> list:
+    """Each GraphQL write an exchange carries anywhere but as its own request, as a dict of `query` and `variables`
+    (a script's record of what it sent), at any depth; and each other string that reads as a mutation, as None."""
+    out = []
+    if isinstance(value, dict):
+        query = value.get("query")
+        if isinstance(query, str) and MUTATION.search(query):
+            out.append(value if set(value) <= {"query", "variables"} else None)
+        out += [w for k, v in value.items() if k != "query" for w in _sent_writes(v)]
+    elif isinstance(value, list):
+        out += [w for v in value for w in _sent_writes(v)]
+    elif isinstance(value, str) and MUTATION.search(value):
+        out.append(None)
+    return out
+
+
 def _nodes(value) -> set:
     """Every node id an answer holds: a `node_id`, or an `id` that is a string, at any depth."""
     out = set()
@@ -534,6 +553,17 @@ def _repos(data: dict, installed) -> list:
         elif write and node_repo(write[1]) != CANARY_ID:
             out.append((where + ".body", "writes %s on a node that is not the canary's by its id: %s"
                         % (write[0], node_repo(write[1]) or "an id that cannot be read")))
+        # A write carried any other way, by a command line, a workflow, or inside an answer, is held as one sent: one of
+        # WRITES, on a node of the canary a read here answered; a mutation in any other text is refused.
+        response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
+        carried = _sent_writes({k: v for k, v in request.items() if not (k == "body" and request.get("via") == "graphql")}) \
+            + _sent_writes(response)
+        for sent in carried:
+            held = written({"via": "graphql", "body": sent}) if sent is not None else None
+            if held is None:
+                out.append((where, "carries a GraphQL write that is not one of WRITES, sent as a request of its own"))
+            elif held[1] not in nodes or node_repo(held[1]) != CANARY_ID:
+                out.append((where, "carries a write of %s on a node no read of the canary alone answered" % held[0]))
         owners, repos, wrong = _asked(request)
         out += [(where + ".call", what) for what in wrong]
         forks_named = {r.split("/")[0] for r in repos if fork(r)} - _orgs_named(request)

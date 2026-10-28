@@ -3915,6 +3915,11 @@ class Trials(unittest.TestCase):
             "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
             "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
             "a-write-on-another-repos-node-a-canary-read-holds": "on a node that is not the canary's by its id: 999999",
+            # However a write is carried, by a command line or inside an answer, it is held as one sent; and a read that
+            # also names another repo ties no node to the canary.
+            "a-write-carried-by-a-command-line": "carries a GraphQL write that is not one of WRITES",
+            "a-write-carried-inside-an-answer-on-another-repos-node": "carries a write of enqueuePullRequest on a node no read",
+            "a-write-on-a-node-a-read-naming-another-repo-answered": "writes enqueuePullRequest on a node no read of the canary alone",
             "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
             "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
         }
