@@ -719,7 +719,11 @@ class EvalJob(unittest.TestCase):
         def review(case):
             asked.append(case["id"])
             raise KeyboardInterrupt
-        self.assertEqual(self.step(job.score, review), "scored 2 of 2 cases, 0 passed")
+        try:
+            said = self.step(job.score, review)
+        except KeyboardInterrupt:       # an interrupt that escapes the step writes no report: a failure, not a stop
+            said = "the interrupt escaped the step"
+        self.assertEqual(said, "scored 2 of 2 cases, 0 passed")
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((len(asked), [(c["verdict"], c["reasons"]) for c in written["cases"]]),
                          (1, [("unreadable", ["unanswered"])] * 2))
