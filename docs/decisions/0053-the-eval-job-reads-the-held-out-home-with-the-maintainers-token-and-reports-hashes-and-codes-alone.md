@@ -35,4 +35,4 @@ The design gives the eval job alone the credential that reads the held-out home 
 | A step prints counts and codes, never what it raised | `tests/test_evals.py::test_a_step_says_counts_and_codes_and_never_what_it_raised` |
 | The gate passes only this set's report on this commit for this Release | `tests/test_evals.py::test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release` |
 | A report holds no text | `tools/check_examples.py` |
-| A case is reviewed as `run` reviews a pull request | waiting on `harness/eval/run.py` |
+| A case is reviewed as `run` reviews a pull request | `tests/test_evals.py::test_a_case_is_reviewed_by_the_task_and_the_engine_a_live_run_is`, `tests/test_evals.py::test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed` |
