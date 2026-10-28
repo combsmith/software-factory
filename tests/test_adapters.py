@@ -16,6 +16,7 @@ import pathlib
 import unittest
 import urllib.parse
 import zipfile
+from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, \
     pause, rules, threads, timeline
@@ -1196,6 +1197,11 @@ class Artifacts(unittest.TestCase):
                        outcome_zip(dict(good, run="r_OTHER1")), outcome_zip(dict(good, outcome=None)),
                        outcome_zip(dict(good, reason="A sentence.")), b"PK\x03\x04 not a zip"):
             self.assertEqual(self.read(record), (None, False), record[:40])
+        # A body nested past what the decoder parses raises RecursionError, never only a decoding error: it is no
+        # outcome, and the pass goes on. How deep that is differs from one Python to the next, so the decoder is made to
+        # raise it (the second-family read of #352).
+        with mock.patch.object(artifacts.json, "loads", side_effect=RecursionError("too deep")):
+            self.assertEqual(self.read(zipped), (None, False))
         # A zip over the bound is not read, though it holds an outcome that could be.
         wide = io.BytesIO()
         with zipfile.ZipFile(wide, "w") as archive:
