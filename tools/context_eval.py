@@ -150,17 +150,24 @@ def _linked(path: pathlib.Path) -> bool:
     return path.is_symlink() or (path.is_file() and path.stat().st_nlink != 1)
 
 
+def _through_link(folder: pathlib.Path, path: pathlib.Path) -> bool:
+    """Whether `path` is reached from `folder` through a linked folder, or by a step out of it (..), or not from it at
+    all: nothing on such a way is the export's."""
+    try:
+        parts = path.relative_to(folder).parts
+    except ValueError:
+        return True
+    if not parts or ".." in parts:
+        return True
+    return any(folder.joinpath(*parts[:depth]).is_symlink() for depth in range(1, len(parts)))
+
+
 def _own(folder: pathlib.Path, path: pathlib.Path) -> bool:
     """Whether `path` is a file of the export's own: inside `folder`, no link, and reached through no linked folder. A
     link the agent left may point anywhere, a folder inside the export among them, and what it points at is not the
     export's."""
-    try:
-        parts = path.relative_to(folder).parts
-    except ValueError:
+    if _through_link(folder, path):
         return False
-    for depth in range(1, len(parts)):
-        if folder.joinpath(*parts[:depth]).is_symlink():
-            return False
     return path.is_file() and not _linked(path)
 
 
@@ -185,7 +192,7 @@ def _files(folder: pathlib.Path) -> dict:
     out = {}
     for path in walk.files(folder):
         rel = path.relative_to(folder).as_posix()
-        if _linked(path):
+        if _through_link(folder, path) or _linked(path):
             out[rel] = LINK
             continue
         if not _own(folder, path):

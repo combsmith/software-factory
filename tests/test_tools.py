@@ -6250,12 +6250,15 @@ class Redaction(unittest.TestCase):
                 ('HTTP/1.1 100 Continue\n\nHTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n', "JSON"),
                 ("HTTP/2 200\ncontent-type: text/plain\n\n\ufeff" + secret, "JSON"),
                 ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + secret + "\n", "JSON"),
-                ('{\n\n"password": "hunter2"\n', "JSON")):
+                ('{\n\n"password": "hunter2"\n', "JSON"),
+                ('HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 500 {"token": "opaque"}', "status"),
+                ('HTTP/1.1 200 {"token": "opaque"}', "status"),
+                ('HTTP/1.1 200 OK\n\nHTTP/1.1 502 Bad Gateway\ncontent-type: {"token": "opaque"}', "header")):
             out, said = io.StringIO(), io.StringIO()
             self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
             self.assertEqual(out.getvalue(), "", raw)
             self.assertIn({"head": "a head it was not read as", "header": "a line that is no header",
-                           "JSON": "should be JSON"}[why], said.getvalue(), raw)
+                           "JSON": "should be JSON", "status": "holds more than a status"}[why], said.getvalue(), raw)
         # Text with no status line is text, its blank lines and all, as a run's log is.
         log = ("approve\tApprove\t2026-10-28T02:00:00Z a\napprove\tApprove\t2026-10-28T02:00:00Z a2\n\n"
                "approve\tApprove\t2026-10-28T02:00:01Z b\n")
@@ -7163,6 +7166,10 @@ class ContextEval(unittest.TestCase):
         self.assertEqual(context_eval.new_mutants(pristine, work), [])
         pristine, work = self.export(changed=False)
         os.link(outside / "test_held.py", work / "tests" / "test_hard.py")
+        # Nor a path that steps out of the export, though no link is on its way.
+        (outside / "secret.txt").write_text("held\n")
+        self.assertEqual(context_eval._read(work, work / ".." / outside.name / "secret.txt"), "")
+        self.assertFalse(context_eval._own(work, work / "kernel" / ".." / ".." / outside.name / "secret.txt"))
         # What _own let past is still opened without following a link, and held to one name once open.
         with unittest.mock.patch.object(context_eval, "_own", lambda folder, path: True):
             self.assertEqual(context_eval._read(work, work / "tests" / "test_hard.py"), "")
