@@ -25,12 +25,14 @@ def is_code(value) -> bool:
 
 
 def readable_rubric(rubric) -> bool:
-    """Whether a rubric's criteria can be read: at least one, each an object with an id in its form, given once."""
+    """Whether a rubric's criteria can be read: at least one, each an object with an id in its form, given once, and
+    the severity a Finding that cites it has (design section 3.14)."""
     criteria = rubric.get("criteria") if isinstance(rubric, dict) else None
     if not (isinstance(criteria, list) and criteria and all(isinstance(c, dict) for c in criteria)):
         return False
     ids = [c.get("id") for c in criteria]
-    return all(is_criterion_id(i) for i in ids) and len(set(ids)) == len(ids)
+    return (all(is_criterion_id(i) for i in ids) and len(set(ids)) == len(ids)
+            and all(c.get("severity_if_violated") in t.SEVERITIES for c in criteria))
 
 
 def readable_changes(changed) -> bool:
@@ -75,8 +77,10 @@ def covered(rubric, coverage, findings, changed) -> tuple:
     change touches, a renamed file's previous path among them (names), is what one of its patterns names. One that
     applies is uncovered when it has no entry, or two; when its entry does not report on it (reported); and so is an
     entry for an id the rubric does not have, shown as that id, or as `unreadable` when it is none. An entry for a
-    criterion that does not apply is passed over. A rubric, or paths, that cannot be read are unreadable, never
-    covered: the Factory's fault, not the item's.
+    criterion that does not apply is passed over. A Finding that cites a criterion of the rubric has the severity the
+    rubric gives it, never the model's: one at another severity leaves that criterion uncovered, whether it applies or
+    not, so a Finding cannot be moved off the gate (issue 373). A rubric, or paths, that cannot be read are
+    unreadable, never covered: the Factory's fault, not the item's.
     """
     if not (readable_rubric(rubric) and readable_changes(changed)):
         return "unreadable", []
@@ -91,6 +95,11 @@ def covered(rubric, coverage, findings, changed) -> tuple:
         mine = [e for e in coverage if isinstance(e, dict) and e.get("criterion") == c]
         if len(mine) != 1 or not reported(mine[0], c in cites):
             out.append(c)
+    severity = {c["id"]: c["severity_if_violated"] for c in rubric["criteria"]}
+    for f in findings:
+        said = f.get("criterion") if isinstance(f, dict) else None
+        if said in ids and f.get("severity") != severity[said] and said not in out:
+            out.append(said)
     for e in coverage:
         said = e.get("criterion") if isinstance(e, dict) else None
         if said not in ids:
