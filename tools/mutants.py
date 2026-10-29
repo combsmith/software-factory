@@ -9118,8 +9118,10 @@ MUTANTS = ISSUE + [
     # Issue 410, part 1: false refusals sent back to main's reading, two spellings read, and mutants named.
     ("a here-document word of any characters is kept as its terminator", "tools/hooks/shell.py",
      'if len(words) == 1 and PLAIN_WORD.fullmatch(words[0]) else first', 'if len(words) == 1 else first', (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read", "tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks")),
+    ("a here-document word with a carriage return is read by shlex", "tools/hooks/shell.py",
+     '    if not RAW_WORD.fullmatch(word):\n        return first', '    if False:\n        return first', ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
     ("a <<- word is read with its dash", "tools/hooks/shell.py",
-     'words = shlex.split(word.lstrip("-").strip())', 'words = shlex.split(word.strip())', ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
+     '    word = word.lstrip("-").strip(" \\t")\n', '    word = word.strip(" \\t")\n', ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
     ("a here-document ends at its word's first part", "tools/hooks/shell.py",
      "_terminator(DELIMITER.match(line, i + 2).group(), found.group(3))", "found.group(3)", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read", "tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks")),
     ("a backslash-newline in an expanded body joins nothing", "tools/hooks/shell.py",

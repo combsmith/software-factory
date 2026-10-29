@@ -32,6 +32,9 @@ HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 # The whole word after a here-document's <<, or <<-, to where the shell ends a word: its quotes are all read.
 # A here-document word that is kept as its terminator: the characters the << pattern reads, and nothing else.
 PLAIN_WORD = re.compile(r"[A-Za-z_][\w.-]*")
+# What a word may hold before its quotes and backslashes are taken out: no other character, a carriage return
+# above all, which shlex would read as space and the shell keeps (Codex on #417).
+RAW_WORD = re.compile(r"[\w.'\"\\-]+")
 DELIMITER = re.compile(r"-?[ \t]*[^ \t;&|()<>]*")
 # How much text the substitutions of every expanded here-document in a command may be spelt as, against the command's
 # length: each level of a nested one escapes the level below again, which doubles its backslashes (issue 376).
@@ -191,8 +194,11 @@ def _terminator(word: str, first: str) -> str:
     backslashes are taken out, E\\OF as EOF (#410). Only a plain word, as the << pattern spells one, is taken: the line is
     kept in the text, and any other character in it (a quote, a $, a backslash) could change how the lines after it
     are read, so `first`, the word up to its first quote or backslash, main's reading, is kept for it (#417's reviews)."""
+    word = word.lstrip("-").strip(" \t")
+    if not RAW_WORD.fullmatch(word):
+        return first        # a character shlex would drop or read apart from the shell, a carriage return among them
     try:
-        words = shlex.split(word.lstrip("-").strip())
+        words = shlex.split(word)
     except ValueError:
         return first
     return words[0] if len(words) == 1 and PLAIN_WORD.fullmatch(words[0]) else first
