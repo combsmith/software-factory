@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import importlib
+import json
 import os
 import pathlib
 import re
@@ -941,6 +942,14 @@ MUTANTS = ISSUE + [
     ('an approval whose pull request cannot be read again is claimed', 'adapters/effects.py',
      '    if after is not None and after["fault"] != "superseded":\n        return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}\n    return {"state": "applied"',
      '    return {"state": "applied"', ("tests.test_approve",)),
+    # Argon's read of PR 380: the bounds of a reopening's second, and the state of an approval sent and not claimed.
+    ('an approval in the second of the reopening is recovered', 'harness/approve.py',
+     'done["at"] > reopened', 'done["at"] >= reopened', ("tests.test_approve",)),
+    ('an approval of no time is compared with the reopening', 'harness/approve.py',
+     'isinstance(done.get("at"), str) and done["at"] > reopened', 'done["at"] > reopened', ("tests.test_approve",)),
+    ('an approval sent on a pull request closed under the act is refused', 'adapters/effects.py',
+     '{"state": "failed", "key": None, "fault": "superseded", "reason": "closed_under_act"}',
+     '{"state": "refused", "key": None, "fault": "superseded", "reason": "closed_under_act"}', ("tests.test_approve",)),
     # Issues 328 and 329: what reconciliation left whole, or alarmed on, that it should not have.
     ('a re-run that cannot be told is whole', 'controller/reconcile.py',
      'r["rerun_by_dispatcher"] is None and r["started_at"] >= since:\n                short = True',
@@ -1175,6 +1184,13 @@ MUTANTS = ISSUE + [
     ('a type GitHub does not give is read', 'adapters/timeline.py',
      ' \\\n                or user.get("type") not in ("User", "Bot"):',
      ':', ("tests.test_adapters",)),
+    # Argon's read of PR 341, and Muse's of PR 387: an id of True or 1.0 is no account's, though each == 1.
+    ('an account of id True is typed as the account of id 1', 'adapters/timeline.py',
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), float) or', ("tests.test_adapters",)),
+    ('an account of id 1.0 is typed as the account of id 1', 'adapters/timeline.py',
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), bool) or', ("tests.test_adapters",)),
+    ('a resolver of id True is told as the identity of id 1', 'adapters/seen.py',
+     'told == ident and _positive(ident)), None)', 'told == ident), None)', ("tests.test_reconcile",)),
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
     ('a machine-user push is matched to an approval', 'controller/reconcile.py',
      '    "approver": {"approval": (APPLIED, "approve")},',
@@ -1929,6 +1945,52 @@ MUTANTS = ISSUE + [
      '        return ["NEEDS cannot be read as JSON; give it ${{ toJSON(needs) }} in the job\'s env"]\n',
      "        return []\n", ("tests.test_tools.Workflows",)),
     # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
+    # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
+    ('the baseline runs the whole suite', 'tools/mutants.py',
+     '    tests = cases(named(muta' 'nts), root)\n    if not tests:',
+     '    tests = ()\n    if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline is split by the names its mutants give', 'tools/mutants.py',
+     '    tests = cases(na' 'med(mutants), root)\n',
+     '    tests = named(mutants)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline runs in one part', 'tools/mutants.py',
+     '    parts = [tests[at::workers] for a' 't in range(min(workers, len(tests)))]',
+     '    parts = [tests]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline has parts that hold no test', 'tools/mutants.py',
+     'for at in range(min(w' 'orkers, len(tests)))]',
+     'for at in range(workers)]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a list naming no test runs nothing first', 'tools/mutants.py',
+     '        return [ru' 'n(root)]\n    parts',
+     '        return []\n    parts', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a test named twice runs twice', 'tools/mutants.py',
+     '    return tuple(di' 'ct.fromkeys(found))\n',
+     '    return tuple(found)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a name read as no test runs as what it was read as', 'tools/mutants.py',
+     '        found.extend(id' 's if whole else [name])\n',
+     '        found.extend(ids)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('an id that is no test under tests/ is run', 'tools/mutants.py',
+     'and i.startswith("te' 'sts.") for i in ids)',
+     'and not i.startswith("unittest.") for i in ids)', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the names are read here, not in the tree', 'tools/mutants.py',
+     'cwd=str(root), input=j' 'son.dumps(list(tests)),',
+     'cwd=str(ROOT), input=json.dumps(list(tests)),', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a tree that cannot be read stops the run', 'tools/mutants.py',
+     '    except (OSError, ValueError, subproce' 'ss.SubprocessError):\n        said = None\n',
+     '    except ValueError:\n        said = None\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the tests named together run as one name', 'tools/mutants.py',
+     '*((only,) if isinstance' '(only, str) else only)]',
+     'only]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a slow baseline reads as a red one', 'tools/mutants.py',
+     'if (status is not None a' 'nd outcome != "SURVIVED")',
+     'if (outcome != "SURVIVED")', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a part that failed and then ran out of time reads as slow', 'tools/mutants.py',
+     ' or (status is None and FA' 'ILURE_LINE.search(output)):',
+     ':', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a slow baseline breaks the mutants anyway', 'tools/mutants.py',
+     '    if any(status is None' ' for status, _ in runs):\n',
+     '    if False:\n', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a red part after the first is passed over', 'tools/mutants.py',
+     '    for status, output in runs:\n       ' ' outcome, why = verdict(status, output)',
+     '    for status, output in runs[:1]:\n        outcome, why = verdict(status, output)', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
     ("a shard drops a mutant", "tools/mutants.py",
      "if place % count" " == index]", "if place % count == index and place]", ("tests.test_tools.Mutants",)),
     ("a mutant is in two shards", "tools/mutants.py",
@@ -5230,6 +5292,22 @@ MUTANTS = ISSUE + [
     ("the redaction writes in the locale's encoding", "tools/redact_trial.py",
      '    target = getattr(stdout, "buffer", None)\n', '    target = None\n',
      ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
+    ("the App reads the token after the last blank line", "tools/trial_as_app.sh",
+     'cut = text.find("\\n\\n", starts[-1]) if starts else -1', 'cut = text.rfind("\\n\\n")',
+     ("tests.test_tools.AppThreads.test_the_token_is_read_after_the_last_status_lines_headers",)),
+    ("the App says the head before its push moved it", "tools/trial_as_app.sh",
+     '    [[ "$read_head" = "$pushed" ]] && break\n', '    break\n',
+     ("tests.test_tools.AppThreads.test_the_app_opens_resolves_and_deletes_and_revokes_its_token",)),
+    ("P-52 forgets a token its refused mint carried", "tools/trial_p52_pause.sh",
+     '    # A token the refusal carried all the same is left for the trap, which revokes it and says so (Muse on #364).\n',
+     '    token=""\n',
+     ("tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing",)),
+    ("the review Role does not permit its check run", "roles/pr-review.json",
+     '"submit_review",\n        "create_check_run"\n', '"submit_review"\n',
+     ("tests.test_tools.Authority.test_the_review_role_permits_its_check_run_now_its_app_is_granted_it",)),
+    ("the App says nothing of a head that never moved", "tools/trial_as_app.sh",
+     '[[ "$read_head" = "$pushed" ]] || echo "trial_as_app: the push made', '[[ "$read_head" = "$pushed" ]] || true "trial_as_app: the push made',
+     ("tests.test_tools.AppThreads.test_a_head_github_never_moves_is_read_five_times_and_said_so",)),
     ("the App's failed redaction leaves its partial clean file", "tools/trial_as_app.sh",
      '        rm -f "${1%.raw}.clean"\n', '', ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
     # Issue 282: the App's review threads, run against a stand-in gh, curl and openssl.
@@ -8709,11 +8787,51 @@ MUTANTS = ISSUE + [
     ("the hooks read a path with a control character or a backslash", "tools/hooks/protected.py",
      '    if any(re.search(r"[\\x00-\\x1f\\x7f\\\\]", p) for p, _ in paths):\n', "    if False:\n",
      ("tests.test_hooks.RulesChanged.test_a_path_with_a_control_character_or_a_backslash_is_refused",)),
+    # Argon's reads of #354 and #358, owed while it had no quota (no record; Boundaries rows on 0073 and 0076).
+    ("main's head read by a ref of another kind counts", 'adapters/candidate.py',
+     'if _dict(answer["body"]).get("ref") != "refs/heads/" + branch or head.get("type") != "commit" \\',
+     'if head.get("type") != "commit" \\', ('tests.test_release_step.Candidate.test_the_facts_of_a_commit_on_main_verified_and_judged',)),
+    ("main's head that is no commit counts", 'adapters/candidate.py',
+     ' + branch or head.get("type") != "commit" \\', ' + branch \\', ('tests.test_release_step.Candidate.test_the_facts_of_a_commit_on_main_verified_and_judged',)),
+    ("main's head named by no sha counts", 'adapters/candidate.py',
+     '                or not cut.sha(head.get("sha")):\n            return False\n        answer = transport.send(request("GET", "/repos/%s/compare',
+     '                or False:\n            return False\n        answer = transport.send(request("GET", "/repos/%s/compare', ('tests.test_release_step.Candidate.test_the_facts_of_a_commit_on_main_verified_and_judged',)),
+    ('a Deployment of id 0 is recorded', 'adapters/deployments.py',
+     'if type(ident) is not int or ident < 1 or', 'if type(ident) is not int or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
+    ('an eval dispatch of id 0 is read', 'adapters/candidate.py',
+     'return ident if type(ident) is int and ident > 0 else None', 'return ident if type(ident) is int else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    ('a home that is no object is read', 'release/move.py',
+     '    found = controller.get("home") if isinstance(controller, dict) else None\n    return found if isinstance(found, dict) else None\n',
+     '    found = controller.get("home") if isinstance(controller, dict) else None\n    return found\n', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a checkout at any pin is the release checkout', 'tools/check_workflows.py',
+     '        if (uses, step["uses"]["comment"]) == CHECKOUT:\n            return "checkout"\n        return "mint" if',
+     '        if "id" not in step:\n            return "checkout"\n        return "mint" if', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    ('a release step that runs any command passes', 'tools/check_workflows.py',
+     'return "step" if _lines(step.get("run")) == [RELEASE_STEP] and "uses" not in step else None',
+     'return "step" if "run" in step and "uses" not in step else None', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    # The review round of #397: the home's repo and branch are read as text, and an id of True is no id.
+    ("a home's repo that is no text is read", 'release/move.py',
+     '    found = (_home(controller) or {}).get("repo")\n    return found if isinstance(found, str) else None\n',
+     '    found = (_home(controller) or {}).get("repo")\n    return found\n', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a home with no branch reads main', 'release/move.py',
+     'return found if isinstance(found, str) and found else None', 'return found if isinstance(found, str) and found else "main"', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('an empty branch is read', 'release/move.py',
+     'return found if isinstance(found, str) and found else None', 'return found if isinstance(found, str) else None', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('the step goes on with no branch', 'release/move.py',
+     ' or branch(controller) is None or channel is None:', ' or channel is None:', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a Deployment of id True is recorded', 'adapters/deployments.py',
+     'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
+    ('an eval dispatch of id True is read', 'adapters/candidate.py',
+     'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
 ]
 
 
 WORKERS = 4        # runs at once, at most, unless told: each is a whole run of the suite, in a copy of its own
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
+# The baseline, the run of the unbroken tests before anything is broken, runs the tests the run's own mutants name,
+# method by method, shared among its workers, each part one run held to TIMEOUT, never the whole suite, which outgrew
+# TIMEOUT on a CI runner (issue 396). A shard names most of the suite's tests, since its mutants name whole classes
+# that the other shards' do too: the room under TIMEOUT is the workers', not the shard's.
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
 # issue 217): it breaks at most FILTER_MOST mutants, FILTER_WORKERS at a time, and never a shard.
 FILTER_MOST = 40
@@ -8734,14 +8852,15 @@ UNCONFIRMED = "unconfirmed"
 MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
 
-def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: str = None) -> tuple:
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only=None) -> tuple:
     """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out.
 
     The tests named in `first` run on their own before the rest: when they pass, or none is named, the whole suite
-    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone.
+    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone, or
+    each of a tuple of them and no other.
     """
     if only:
-        return _unittest(cwd, timeout, ["-q", "-f", only])
+        return _unittest(cwd, timeout, ["-q", "-f", *((only,) if isinstance(only, str) else only)])
     if first:
         status, output = _unittest(cwd, timeout, ["-q", "-f", *first])
         if status != 0:
@@ -9025,18 +9144,82 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
     return chosen, ", in shard %d of %d counted from 0" % (index, count), None
 
 
+def named(mutants: list) -> tuple:
+    """The tests `mutants` name, each once, sorted: what the baseline runs (issue 396)."""
+    return tuple(sorted({test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}))
+
+
+# Read in a child, in the tree the baseline runs in, by unittest's own loader: the ids of the test methods each name
+# holds, an empty list for one it cannot read.
+LISTING = """import json, sys, unittest
+def flat(s):
+    return [c for i in s for c in flat(i)] if isinstance(s, unittest.TestSuite) else [s]
+said = []
+for name in json.loads(sys.stdin.read()):
+    try:
+        said.append([c.id() for c in flat(unittest.defaultTestLoader.loadTestsFromName(name))])
+    except Exception:
+        said.append([])
+print(json.dumps(said))
+"""
+
+
+def cases(tests: tuple, root: pathlib.Path) -> tuple:
+    """Each test method the dotted names in `tests` hold, as unittest's loader reads them in `root`, in their order,
+    each once, so that a class or module named whole is shared among the baseline's parts and does not hold one of
+    them. A name read as no test, or as any id that is not a test under tests/, is kept whole, for its own run to
+    find; and every name is, where the tree cannot be read at all (issue 396)."""
+    try:
+        listed = subprocess.run([sys.executable, "-c", LISTING], cwd=str(root), input=json.dumps(list(tests)),
+                                capture_output=True, text=True, timeout=TIMEOUT,
+                                env=dict(os.environ, SIM_SEEDS="40", MUTATING="1"))
+        said = json.loads(listed.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        said = None
+    if not isinstance(said, list) or len(said) != len(tests):
+        return tuple(dict.fromkeys(tests))
+    found = []
+    for name, ids in zip(tests, said):
+        whole = isinstance(ids, list) and ids and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
+        found.extend(ids if whole else [name])
+    return tuple(dict.fromkeys(found))
+
+
+def baseline(mutants: list, root: pathlib.Path, run, workers: int) -> list:
+    """(exit status, output) of each run of the unbroken tests before anything is broken: the tests `mutants` name,
+    method by method, in `workers` parts run at once, so that the baseline is shared among the run's workers and is
+    never one run of the whole suite (issue 396). A list that names no test runs the whole suite, once."""
+    tests = cases(named(mutants), root)
+    if not tests:
+        return [run(root)]
+    parts = [tests[at::workers] for at in range(min(workers, len(tests)))]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(parts)) as pool:
+        return list(pool.map(lambda part: run(root, only=part), parts))
+
+
 def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "") -> int:
     mutants = MUTANTS if mutants is None else mutants
-    outcome, why = verdict(*run(root))
-    if outcome != "SURVIVED":
-        print("the tests fail before anything is broken; a mutant cannot be told from that%s"
-              % (" (%s)" % why if why else ""))
+    workers = workers or min(os.cpu_count() or 1, WORKERS)
+    runs = baseline(mutants, root, run, workers)
+    # A test that fails is told first, since it is a fault whatever else is slow, a part that ran out of time after
+    # one failed among them; a part that only ran out of time failed no test that ran, and says so, so that a slow
+    # baseline is never read as a red one.
+    for status, output in runs:
+        outcome, why = verdict(status, output)
+        if (status is not None and outcome != "SURVIVED") or (status is None and FAILURE_LINE.search(output)):
+            print("the tests fail before anything is broken; a mutant cannot be told from that%s"
+                  % (" (%s)" % why if why else ""))
+            return 1
+    if any(status is None for status, _ in runs):
+        print("the tests the mutants name took longer than %d s before anything was broken, and none that ran failed; no "
+              "mutant can be run in that time: name narrower tests in the mutants, or run more workers, then run "
+              "python3 -m tools.mutants again" % TIMEOUT)
         return 1
     killed = 0
     # One run to a CPU, and no more than WORKERS: each holds a copy of the tree and runs the suite in it. map() hands
     # the results back in the order of `mutants`, however the runs finish.
     with tempfile.TemporaryDirectory() as made, \
-            concurrent.futures.ThreadPoolExecutor(max_workers=workers or min(os.cpu_count() or 1, WORKERS)) as pool:
+            concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         trees = Trees(root, made)
         results = pool.map(lambda mutant: guarded(mutant, root, run, trees), mutants)
         for mutant, (outcome, why) in zip(mutants, results):
