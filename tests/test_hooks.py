@@ -1172,6 +1172,22 @@ class Identity(unittest.TestCase):
                         "eval 'echo $(git commit -m x)'", "gi\\\nt commit -m x"):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
 
+    def test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read(self):
+        # Issue 376: a redirection's operand is expanded as a word is, and a here-document whose word no quote holds runs
+        # the substitutions in its body, so each is read as one in a word is, where the command stands.
+        for command in ('cat < "$(git commit -m x)"', 'echo x > "$(git commit -m x)"', 'cat <<< "`git commit -m x`"',
+                        "cat <<EOF\n$(git commit -m x)\nEOF", "cat <<-EOF\n\tit is `git commit -m x`\n\tEOF",
+                        "cat <<EOF | tee /tmp/x\nfirst\n$(git commit\n -m x)\nEOF",
+                        'echo "$(cat <<EOF\n$(git commit -m y)\nEOF\n)"'):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        self.assertIn("git_directory_written", self.refused("cd .git; cat <<EOF\n$(cp /tmp/x config)\nEOF\ncd ..; "
+                                                            "git -C %s push" % self.here))
+        # A word a quote or a backslash holds keeps the body data, and a backslash holds a substitution in it.
+        for command in ("cat <<'EOF'\n$(git commit -m x)\nEOF", 'cat <<"EOF"\n`git commit -m x`\nEOF',
+                        "cat <<\\EOF\n$(git commit -m x)\nEOF", "cat <<EOF\n\\$(git commit -m x) and \\`git push\\`\nEOF",
+                        "cat <<EOF\nIt's (done); then git push later, ${x:-y}\nEOF"):
+            self.assertEqual(self.codes(command, self.bad), "", command)
+
     def test_a_comment_begins_only_where_the_shell_begins_one(self):
         # Issue 174's fix round: a # in a ${...}, after a carriage return, or after < or >, begins no comment, so what
         # follows it on the line is read.
@@ -2437,6 +2453,16 @@ class MergesAndSettings(Asks):
                         "gh api graphql -f query=\"$Q\""):
             self.asked(self.run_(command), "command_unreadable", command)
 
+    def test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks(self):
+        # Issue 376: what a redirection's operand or an expanded here-document's body runs is read as a word's is.
+        for command in ('cat < "$(git push origin main)"', 'cat <<< "$(git push origin main)"',
+                        "cat <<EOF\n$(git push origin main)\nEOF", "cat <<-EOF\n\t`gh pr merge --admin 5`\n\tEOF"):
+            self.asked(self.run_(command), "merge", command)
+        for command in ("cat <<'EOF'\n$(git push origin main)\nEOF", 'cat <<"EOF"\n$(git push origin main)\nEOF',
+                        "cat <<\\EOF\n`git push origin main`\nEOF", "cat <<EOF\n\\$(git push origin main)\nEOF",
+                        'cat < "$(echo docs/notes.md)"'):
+            self.assertEqual(self.run_(command), "", command)
+
     def test_what_does_not_merge_is_not_asked_about(self):
         for command in ("gh pr view 5", "gh pr create --fill", "gh pr checks 5", "gh pr view 5 --json mergeable",
                         "gh api graphql -f query='query { viewer { login } }'", "gh api repos/o/r/pulls/5/merge",
@@ -3157,6 +3183,10 @@ class ShellReading(unittest.TestCase):
         kept = shell.without_heredocs("git commit -F - <<'EOF'\nthen git push\nEOF\nls")
         self.assertNotIn("then git push", shell.without_heredocs(kept))
         self.assertIn("ls", kept)
+        # What an expanded body runs is kept before its operator, read again the same, and the rest is left out.
+        kept = shell.without_heredocs("cat <<EOF | tee x\nthen $(git\npush) `ls` \\$(rm)\nEOF")
+        self.assertEqual(kept, 'cat <"$(git\npush)" <"$(ls)" <<EOF | tee x\nEOF')
+        self.assertEqual(shell.without_heredocs(kept), kept)
         with self.assertRaises(ValueError):
             shell.without_heredocs("cat <<EOF\nnever ended")
 

@@ -2,7 +2,8 @@
 
 It reads words, not meaning: a variable is not expanded and a script in a file is not read. A hook
 that guards something treats what this cannot read as a refusal. A here-document's body is data and
-is never read as commands. What runs a program (a prefix, a wrapper and their options), the names a
+is never read as commands; only the substitutions the shell runs in it, where no quote holds its
+word, are read, as a redirection's operand is (issue 376). What runs a program (a prefix, a wrapper and their options), the names a
 command defines (a function, an alias), `$(which ...)` and a variable set anywhere are read here, so
 that both hooks read them alike.
 """
@@ -34,15 +35,24 @@ def without_heredocs(text: str) -> str:
     """`text` with the body of each here-document left out. Raises ValueError if one is never ended.
 
     An operator counts only where the shell would read it: not inside quotes, unless inside a
-    command substitution there, as in "$(cat <<'EOF' ... EOF)".
+    command substitution there, as in "$(cat <<'EOF' ... EOF)". Where no quote or backslash holds
+    the word, the shell runs each substitution in the body: those are kept, each written as the
+    operand of a `<` just before the operator, `<"$(...)" <<EOF`, so that they are read as a
+    redirection's are, where the command stands. Before the operator, not after the word: a script
+    over several lines there would end the line the body is read after (issue 376).
     """
-    out, waiting, stack = [], [], ["code"]
+    out, waiting, stack, kept = [], [], ["code"], []
     for line in text.split("\n"):
         if waiting:
-            strip, word = waiting[0]
+            strip, word, expands, body = waiting[0]
             if (line.lstrip("\t") if strip else line) == word:
                 waiting.pop(0)
+                scripts = expanded("\n".join(body)) if expands else []
+                if scripts:
+                    kept.append((expands, "".join('<"$(%s)" ' % script for script in scripts)))
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
+            else:
+                body.append(line)
             continue
         out.append(line)
         i = 0
@@ -79,13 +89,42 @@ def without_heredocs(text: str) -> str:
             elif line.startswith("<<", i) and not line.startswith("<<<", i):
                 found = HEREDOC.match(line, i)
                 if found:
-                    waiting.append((found.group(1) == "-", found.group(3)))
+                    # Where it expands, the place its substitutions are written: this line, before the operator.
+                    expands = (len(out) - 1, i) if not found.group(2) and "\\" not in found.group(0) else None
+                    waiting.append((found.group(1) == "-", found.group(3), expands, []))
                     i = found.end()
                     continue
             i += 1
     if waiting:
         raise ValueError("a here-document is never ended")
+    for (at, start), scripts in sorted(kept, reverse=True):    # the last on a line first, so each place still holds
+        out[at] = out[at][:start] + scripts + out[at][start:]
     return "\n".join(out)
+
+
+def expanded(body: str) -> list:
+    """The script of each substitution the shell runs in a here-document's body that it expands: a $(...) or `...`, but
+    not one a backslash holds. The rest of the body is data, whatever it holds (issue 376)."""
+    scripts, i = [], 0
+    while i < len(body):
+        if body[i] == "\\":
+            i += 2
+        elif body.startswith("$(", i):
+            end = _balanced(body, i + 2, ")")
+            scripts.append(body[i + 2:end - 1] if body[end - 1:end] == ")" else body[i + 2:])
+            i = end
+        elif body[i] == "`":
+            script, i = [], i + 1
+            while i < len(body) and body[i] != "`":
+                # In backticks a backslash before a backslash, a backtick or a $ is taken out.
+                escaped = body[i] == "\\" and body[i + 1:i + 2] in ("\\", "`", "$")
+                script.append(body[i + 1] if escaped else body[i])
+                i += 2 if escaped else 1
+            scripts.append("".join(script))
+            i += 1
+        else:
+            i += 1
+    return scripts
 
 
 def simple_commands(text: str) -> list:
@@ -224,7 +263,9 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
         plain = [unmarked(word) for word in words]
         out.append((words, targets) if marked else (plain, [(op, unmarked(target)) for op, target in targets]))
         out += _inner(plain, spend, texts, marked, scopes)
-        for word in words:
+        # A redirection's operand is expanded as a word is, `< "$(...)"` too, and without_heredocs writes what an
+        # expanded here-document's body runs as one (issue 376).
+        for word in words + [target for _, target in targets]:
             for script in _substituted(word, spend):
                 read = commands(script, spend, texts, scopes, marked)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read     # a substitution runs in a subshell
