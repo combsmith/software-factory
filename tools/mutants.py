@@ -9031,6 +9031,27 @@ MUTANTS = ISSUE + [
      'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
     ('an eval dispatch of id True is read', 'adapters/candidate.py',
      'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    # Issue 410, part 1: false refusals sent back to main's reading, two spellings read, and mutants named.
+    ("a here-document inside a substitution is expanded", "tools/hooks/shell.py",
+     "expands = None if literal or len(stack) > 1 else", "expands = None if literal else", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
+    ("a body script the reader cannot read once written is kept", "tools/hooks/shell.py",
+     "if _reads('<\"$(%s)\"' % _escaped(script))", "if True", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
+    ("a here-document ends at its word's first part", "tools/hooks/shell.py",
+     "_terminator(DELIMITER.match(line, i + 2).group(), found.group(3))", "found.group(3)", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read", "tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks")),
+    ("a backslash-newline in an expanded body joins nothing", "tools/hooks/shell.py",
+     'body, scripts, i = re.sub(r"(?<!\\\\)\\\\\\n", "", body), [], 0', "scripts, i = [], 0", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read", "tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks")),
+    ("eval's script is read with no places", "tools/hooks/shell.py",
+     '            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked, places)\n',
+     '            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked)\n', ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
+    ("the aliases are read with their quotes escaped twice", "tools/hooks/identity.py",
+     "    if shell.aliased(_quoted(shell.without_heredocs(text, raw=True)), REDEFINABLE):",
+     "    if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
+    ("the alias values are read with their quotes escaped twice", "tools/hooks/identity.py",
+     "        table = shell.alias_values(_quoted(shell.without_heredocs(text, raw=True)), spend)",
+     "        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
+    ("the redefinitions are read with their quotes escaped twice", "tools/hooks/identity.py",
+     "    reasons, quoted = [], _quoted(shell.without_heredocs(text, raw=True))",
+     "    reasons, quoted = [], _quoted(shell.without_heredocs(text))", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
 ]
 
 

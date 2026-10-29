@@ -62,8 +62,11 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                 scripts = [script for script in expanded("\n".join(body)) if _readable(script)] if expands else []
                 if scripts:
                     nested = [_nested(script, room) for script in scripts]     # each level's quotes its own
-                    kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(_spent(script, room)))
-                                                  for script in nested)))
+                    pieces = ['<"$(%s)" ' % (script if raw else _escaped(_spent(script, room))) for script in nested]
+                    # A script whose inserted form the reader cannot read, a quoted ) a nested $( ) holds, stays
+                    # data, as on main: the hooks are mistake guards, and refusing it would be a false refusal (#410).
+                    kept.append((expands, "".join(piece for piece, script in zip(pieces, nested)
+                                                  if _reads('<"$(%s)"' % _escaped(script)))))
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
                 body.append(line)
@@ -107,8 +110,11 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                     # A quote or a backslash anywhere in the word, an empty quote too (EOF""), keeps the body
                     # literal, as the shell keeps it.
                     literal = re.search(r"[\\'\"]", DELIMITER.match(line, i + 2).group())
-                    expands = None if literal else (len(out) - 1, i)
-                    waiting.append((found.group(1) == "-", found.group(3), expands, []))
+                    # A here-document opened inside a substitution or a double quote is data, as on main: its
+                    # scripts, written there, would take that place's quotes too (#410).
+                    expands = None if literal or len(stack) > 1 else (len(out) - 1, i)
+                    waiting.append((found.group(1) == "-", _terminator(DELIMITER.match(line, i + 2).group(), found.group(3)),
+                                    expands, []))
                     i = found.end()
                     continue
             i += 1
@@ -183,6 +189,25 @@ def _nested(script: str, room: list) -> str:
     return "".join(out)
 
 
+def _terminator(word: str, first: str) -> str:
+    """The line that ends a here-document: its whole word after the <<, as the shell reads it once its quotes and
+    backslashes are taken out, E\\OF as EOF (#410); `first`, the word up to its first quote, where it cannot be read."""
+    try:
+        words = shlex.split(word.lstrip("-").strip())
+    except ValueError:
+        return first
+    return words[0] if len(words) == 1 else first
+
+
+def _reads(text: str) -> bool:
+    """Whether commands() reads `text` at all."""
+    try:
+        commands(text)
+    except (ValueError, RecursionError):
+        return False
+    return True
+
+
 def _readable(script: str) -> bool:
     """Whether the reader splits `script` into simple commands at all: no quote left open, no ( in a word."""
     try:
@@ -194,8 +219,9 @@ def _readable(script: str) -> bool:
 
 def expanded(body: str) -> list:
     """The script of each substitution the shell runs in a here-document's body that it expands: a $(...) or `...`, but
-    not one a backslash holds. The rest of the body is data, whatever it holds (issue 376)."""
-    scripts, i = [], 0
+    not one a backslash holds. The rest of the body is data, whatever it holds (issue 376). A backslash before a newline
+    joins the lines first, as the shell joins them in a body it expands: $\\ then a newline, then (, is a $( (#410)."""
+    body, scripts, i = re.sub(r"(?<!\\)\\\n", "", body), [], 0
     while i < len(body):
         if body[i] == "\\":
             i += 2
