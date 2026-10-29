@@ -5245,6 +5245,9 @@ MUTANTS = ISSUE + [
      "items[1] not in (None, len(item.group(1)))", "False",
      ("tests.test_tools.Workflows.test_a_rule_is_not_dodged_by_writing_the_workflow_another_way",)),
     # The security pass on #392: what a YAML reader reads otherwise than the lines do is not the narrow form.
+    ("a key's comment is read as its value", 'tools/check_workflows.py',
+     '        if rest.startswith("#"):\n            rest = ""',
+     '        if False:\n            rest = ""', ("tests.test_tools.Workflows.test_a_workflow_that_keeps_the_rules_is_not_refused",)),
     ('a space of another kind is read as a space', 'tools/check_workflows.py',
      ' or ODD_SPACE.search(raw):',
      ':', ("tests.test_tools.Workflows.test_a_rule_is_not_dodged_by_writing_the_workflow_another_way",)),

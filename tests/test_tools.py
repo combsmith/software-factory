@@ -2645,6 +2645,8 @@ class Workflows(unittest.TestCase):
             "a list under its key's own indent": GOOD.replace("      - checks\n      - commits\n      - mutants\n",
                                                               "    - checks\n    - commits\n    - mutants\n"),
             "a comment between a list's items": GOOD.replace("      - checks\n", "      - checks\n      # and\n"),
+            # A key with no value but its comment, its list under it.
+            "a comment beside a list's key": GOOD.replace("    needs:\n", "    needs: # all three\n"),
             # A quoted value closed on its line, whatever it holds, with its comment after it.
             "quoted values": GOOD.replace(STEP, STEP + '        name: "a # b \\"c\\"" # d\n        id: \'it\'\'s\'\n'),
         }

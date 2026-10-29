@@ -635,6 +635,8 @@ def read(text: str) -> tuple:
             continue
         indent = len(found.group(1)) + (2 if found.group(2) else 0)
         key, rest = found.group(3), (found.group(4) or "").strip()
+        if rest.startswith("#"):
+            rest = ""       # a comment alone is no value, as YAML reads it: the key's list may follow (Muse's read of #392)
         quoted = rest.startswith(("'", '"'))
         end = _closed(rest) if quoted else None
         # A quote not closed on its line, or text after the one that closes it: YAML reads it otherwise.
