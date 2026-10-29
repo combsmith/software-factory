@@ -2894,6 +2894,8 @@ WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
+    ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
+    ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
     ("P-27", 15): "dispatch",          # a dispatch GitHub refused: the effects port reads it as a write that failed
     ("P-8", 1): "graphql",             # a GraphQL read over the resource limits, answered 200 with errors
     ("P-27", 21): None,                # an org membership read, which no port asks
@@ -2953,10 +2955,38 @@ class Contract(unittest.TestCase):
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
         reviewed, _ = timeline.reviews(router, p7_pull(), events, timeline.Accounts(router, canary(), MACHINE, {}),
                                        BASE_HEAD)
+        # P-41: pull request 64's request, push and two dismissals, and 66's labels, each read as the port asks.
+        p41_pull = {"number": 64, "base": {"repo": {"full_name": canary()}}}
+        p41_events, _ = timeline.events(replay("P-41", 50), p41_pull)
+        p41_router = Router(replay("P-41", 51), {"don-petry": "admin", APPROVER: "write"},
+                            {"99aa98a4b50b73eb09b7f31323df44988346611c": "diff --git a/x b/x\n",
+                             "706cb893291b1dc51761d73e523bd96350a57b06": "diff --git a/y b/y\n"})
+        p41_accounts = timeline.Accounts(p41_router, canary(), MACHINE, {})
+        p41_reviews, _ = timeline.reviews(p41_router, p41_pull, p41_events, p41_accounts, BASE_HEAD)
+        p41_head = body("P-41", 49)["head"]["sha"]
+        p41_labels = timeline.label_events(timeline.events(replay("P-41", 54), dict(p41_pull, number=66))[0],
+                                           timeline.Accounts(Router(github.Replay([])), canary(), MACHINE, {}))
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
         return {
+            # A request made before the App's push stood until the pr-review App dismissed it: not the push.
+            "a_request_for_changes_survives_a_push": ({"P-41"}, any(
+                r["by"]["kind"] == "human" and r["commit"] != p41_head and r["dismissed_from"] == "changes_requested"
+                and r["dismissed_by"] == {"kind": "app", "name": "combsmith-sf-pr-review[bot]", "can_write": False}
+                for r in p41_reviews)),
+            "an_app_can_dismiss_a_review": ({"P-41"}, any(
+                r["by"]["kind"] == "human" and r["state"] == "dismissed" and r["dismissed_from"] == "changes_requested"
+                and r["dismissed_by"]["kind"] == "app" for r in p41_reviews)),
+            "a_writer_can_dismiss_an_approval": ({"P-41"}, any(
+                r["by"]["kind"] == "machine_user" and r["dismissed_from"] == "approved"
+                and r["dismissed_by"] == {"kind": "human", "name": "don-petry", "can_write": True} for r in p41_reviews)),
+            "an_app_can_label": ({"P-41"}, len(p41_labels) == 8 and {e["action"] for e in p41_labels} == {"labeled", "unlabeled"}
+                                 and all(e["by"] == {"kind": "app", "name": "combsmith-sf-controller[bot]", "can_write": False}
+                                         and e["label"] == "factory:hold" for e in p41_labels)),
+            "an_actor_has_a_kind": ({"P-41"}, all(
+                actor["kind"] in ("human", "machine_user", "app") for actor in
+                [r["by"] for r in p41_reviews] + [r["dismissed_by"] for r in p41_reviews] + [e["by"] for e in p41_labels])),
             # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
             "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"

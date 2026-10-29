@@ -38,9 +38,11 @@ RULES = (
      ("P-38",), None, None),
     ("an_approval_stands_without_stale_dismissal", "Under a ruleset that does not dismiss stale approvals, a push leaves "
      "an earlier approval in place", ("P-1",), None, None),
-    ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",), None, None),
+    # trials/P-41.json: canary pull requests 64 (a request, a push, two dismissals) and 66 (the controller's labels).
+    ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",),
+     "trials/P-41.json", None),
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
-     "says which App and what the review was before (previousReviewState)", ("P-41",), None, None),
+     "says which App and what the review was before (previousReviewState)", ("P-41",), "trials/P-41.json", None),
     ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), None, None),
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
      ("P-42",), None, None),
@@ -75,7 +77,7 @@ RULES = (
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
      "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
-     "timeline says who and what the review was before", ("P-41",), None, None),
+     "timeline says who and what the review was before", ("P-41",), "trials/P-41.json", None),
     # Contradicted by this repo's own merge queue, which ran the verify workflow on #243's merge group and ejected it on
     # a failure. Left unverified, as it is, until P-2 records it: changing the fake is a story of its own.
     ("the_merge_group_is_not_checked", "The merge queue merges without running the checks on the merge group",
@@ -98,13 +100,13 @@ RULES = (
      "and "
      "the thread says who resolved it", ("P-5",), None, None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
-     ("P-41",), None, None),
+     ("P-41",), "trials/P-41.json", None),
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
      "label, "
      "and when", ("P-32",), "trials/P-32.json", None),
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
-     "other App and the machine user apart, never from a name's spelling", ("P-41",), None, None),
+     "other App and the machine user apart, never from a name's spelling", ("P-41",), "trials/P-41.json", None),
     # trials/P-44.json: four pushes under one concurrency group, cancel-in-progress false; the second and third runs
     # were cancelled as a newer one queued, with no runner and no step, and the running one finished. GitHub lists a
     # Run waiting for the group as pending, which the records port reads as queued. That the group's first Run holds it

@@ -1041,7 +1041,8 @@ class Apps(unittest.TestCase):
         self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
         self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
         installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
-        self.listed = installations[0]["response"]["body"]["installations"]
+        self.listing = installations[0]["response"]["body"]
+        self.listed = self.listing["installations"]
         self.installed = {i["app_slug"]: i for i in self.listed}
         self.registered = {e["response"]["body"]["slug"]: e["response"]["body"] for e in self.fixture["exchanges"]
                            if e["request"]["call"].startswith(check_apps.REGISTRATION)}
@@ -1130,16 +1131,17 @@ class Apps(unittest.TestCase):
     def test_a_reach_read_before_its_installation_last_changed_is_caught(self):
         # The repos an installation reaches are read with a token of what it holds then, so a read made before the
         # installation last changed holds nothing of it now. A read at the very time it changed stands.
-        changed = self.installed["combsmith-sf-controller"]["updated_at"]
-        latest = max(self.installed[name]["updated_at"] for name in self.reached)
-        self.assertEqual(changed, latest)
-        self.reach["ran_at"] = check_apps._when(changed).astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        changed = {app: self.installed[entry["name"]]["updated_at"] for app, entry in self.apps.items()}
+        when = {app: check_apps._when(at) for app, at in changed.items()}
+        last = max(when, key=when.get)
+        self.reach["ran_at"] = when[last].astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.assertEqual(self.check(), [])
-        self.reach["ran_at"] = (check_apps._when(changed) - datetime.timedelta(seconds=1)).isoformat()
+        self.reach["ran_at"] = (when[last] - datetime.timedelta(seconds=1)).isoformat()
         problems = self.check()
-        self.assertTrue(caught(problems, "controller: trials/P-39.reach.json read the repos it reaches at %s, before "
-                                         "its installation last changed at %s" % (self.reach["ran_at"], changed)))
-        self.assertFalse(caught(problems, "reader:"))
+        self.assertTrue(caught(problems, "%s: trials/P-39.reach.json read the repos it reaches at %s, before its "
+                                         "installation last changed at %s" % (last, self.reach["ran_at"], changed[last])))
+        first = min(when, key=when.get)
+        self.assertFalse(caught(problems, "%s: trials/P-39.reach.json read" % first))
         for unread in ("2026-10-29T00:53:36", "the 29th", None):
             self.reach["ran_at"] = unread
             problems = self.check()
@@ -1169,7 +1171,7 @@ class Apps(unittest.TestCase):
         twin = json.loads(json.dumps(self.installed["combsmith-sf-controller"]))
         twin["permissions"]["contents"] = "write"
         self.listed.insert(0, twin)
-        self.fixture["exchanges"][3]["response"]["body"]["total_count"] += 1
+        self.listing["total_count"] += 1
         problems = self.check()
         self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
                                          "App 5364130 more than once"))
@@ -1182,7 +1184,7 @@ class Apps(unittest.TestCase):
         self.reached["combsmith-sf-pr-review"]["total_count"] = 3
         repos = self.reached["combsmith-sf-reader"]["repositories"]
         repos[1] = json.loads(json.dumps(repos[0]))
-        self.fixture["exchanges"][3]["response"]["body"]["total_count"] = 19
+        self.listing["total_count"] = len(self.listed) + 1
         problems = self.check()
         call = "its read GET /installation/repositories?per_page=100"
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s has a link header, so it is one page of more"
@@ -1191,7 +1193,7 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists combsmith/software-factory more than once"
                                          % call))
         self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
-                                         "18 of the 19 it counts"))
+                                         "%d of the %d it counts" % (len(self.listed), len(self.listed) + 1)))
         for app in ("controller", "pr-review", "reader"):
             self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories"
                                              % app))
@@ -3534,18 +3536,19 @@ class Trials(unittest.TestCase):
         # Another org, a GraphQL query whose call looks like an App's, and a path that climbs out of /apps/ are each
         # a call of something else; the fixture's own calls are not.
         reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        n = len(reach["exchanges"])
         reach["exchanges"] += [json.loads(json.dumps(reach["exchanges"][0])) for _ in range(4)]
-        reach["exchanges"][3]["request"]["call"] = "GET /orgs/other-org/installations"
-        reach["exchanges"][4]["request"]["via"] = "graphql"
-        reach["exchanges"][4]["request"]["call"] = "GET /apps/combsmith-sf-reader"
-        reach["exchanges"][5]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
-        reach["exchanges"][6]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
+        reach["exchanges"][n]["request"]["call"] = "GET /orgs/other-org/installations"
+        reach["exchanges"][n + 1]["request"]["via"] = "graphql"
+        reach["exchanges"][n + 1]["request"]["call"] = "GET /apps/combsmith-sf-reader"
+        reach["exchanges"][n + 2]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
+        reach["exchanges"][n + 3]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
         self.assertEqual([where for where, _ in check_trials._askers(reach)],
-                         ["exchanges[%d].request.call" % i for i in (3, 4, 5, 6)])
-        reach["exchanges"][3]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
-        reach["exchanges"][4]["request"]["via"] = "rest"
+                         ["exchanges[%d].request.call" % i for i in range(n, n + 4)])
+        reach["exchanges"][n]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
+        reach["exchanges"][n + 1]["request"]["via"] = "rest"
         self.assertEqual([where for where, _ in check_trials._askers(reach)],
-                         ["exchanges[5].request.call", "exchanges[6].request.call"])
+                         ["exchanges[%d].request.call" % i for i in (n + 2, n + 3)])
 
     def test_a_call_of_a_repo_in_a_fixture_of_the_org_is_one_problem_whoever_asked(self):
         # The pairing is read once for the fixture, not once for each exchange, and an asker that cannot be read
