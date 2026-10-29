@@ -8939,6 +8939,8 @@ MUTANTS = ISSUE + [
      '        if n == first and not STATUS_LINE.fullmatch(line):\n', '        if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ("a header's value may open as JSON", "tools/redact_trial.py",
      '        if n > first and _opens_json(line.partition(":")[2]):\n', '        if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
+    ('a field named for a credential is kept in a text line', "tools/redact_trial.py",
+     '            if any(refused_key(name) for name in QUOTED_FIELD.findall(line)):\n', '            if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('only the first head says its body is JSON', "tools/redact_trial.py",
      'any(JSON_TYPE.match(line) for head in heads for line in head.splitlines())',
      'heads and any(JSON_TYPE.match(line) for line in heads[0].splitlines())', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),

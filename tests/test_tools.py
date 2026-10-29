@@ -6237,7 +6237,7 @@ class Redaction(unittest.TestCase):
             self.assertIn("refused: the body should be JSON", said.getvalue())
         # A capture in any other shape is refused whole, never filtered for shapes alone: a head a blank line too many,
         # a cased or indented status line, or a redirect's text, hides; a head with a line that is no header, a folded
-        # one among them; a JSON type on an earlier head; a byte order mark before the JSON; JSON with a blank line.
+        # one among them; a JSON type on an earlier head; JSON cut short; a field named for a credential in a text line.
         secret = '{"client_secret": "abc123xyz", "password": "hunter22"}'
         for raw, why in (
                 ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 200\ncontent-type: application/json\n\n" + secret, "head"),
@@ -6248,6 +6248,7 @@ class Redaction(unittest.TestCase):
                 ("HTTP/2 200\nx-api-key: part1\n\tsecretcontinuation\ncontent-type: text/plain\n\nfine\n", "header"),
                 ("HTTP/1.1 100 Continue\ncontent-type: application/json\n\nHTTP/2 200\n\nnot json\n", "JSON"),
                 ('HTTP/1.1 100 Continue\n\nHTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n', "JSON"),
+                ('HTTP/2 200\ncontent-type: text/event-stream\n\ndata: {"password": "hunter2"}\n', "field"),
                 ("\ufeffHTTP/2 200\nX-Secret: hunter2\ncontent-type: application/json\n\nnot json\n", "JSON"),
                 ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n\ufeffHTTP/2 200\nX-Secret: hunter2\n", "head"),
                 ('"HTTP/1.1 200\\nauthorization: hunter2"', "string"),
@@ -6261,7 +6262,7 @@ class Redaction(unittest.TestCase):
             self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
             self.assertEqual(out.getvalue(), "", raw)
             self.assertIn({"head": "a head it was not read as", "header": "a line that is no header",
-                           "JSON": "should be JSON", "status": "holds more than a status",
+                           "JSON": "should be JSON", "status": "holds more than a status", "field": "named for a credential",
                            "string": "is a JSON string"}[why], said.getvalue(), raw)
         # JSON behind a byte order mark is read as JSON once the mark is out, and its fields are redacted.
         out, _ = self.redact("HTTP/2 200\ncontent-type: application/json\n\n\ufeff" + secret)
