@@ -68,6 +68,7 @@
       "enum": [
         "issue_approval",
         "enqueue",
+        "resolve_thread",
         "dequeue"
       ]
     },

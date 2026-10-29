@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import importlib
+import json
 import os
 import pathlib
 import re
@@ -1129,27 +1130,73 @@ MUTANTS = ISSUE + [
      '        return told({\n            "schema": "facts/1"',
      '        return ({\n            "schema": "facts/1"', ("tests.test_simulator.Simulation.test_every_actors_write_access_is_read_from_the_permission",)),
     # Issue 331: a thread's resolver typed by its account, never by resolvedBy's type (P-49, P-53).
-    ('a resolution is called unmatched when no Role can be bound', 'controller/reconcile.py',
-     '            short, landed = True, True\n',
-     '            short, landed = True, False\n', ("tests.test_reconcile",)),
-    ('run records not read leave a resolution whole', 'controller/reconcile.py',
-     '            short, landed = True, True\n',
-     '            landed = True\n', ("tests.test_reconcile",)),
-    ("a resolution is matched to any Role's record", 'controller/reconcile.py',
-     'keys.get((APPLIED, RESOLVE, w["by"]), set())',
-     'set().union(*[v for k, v in keys.items() if k[:2] == (APPLIED, RESOLVE)])', ("tests.test_reconcile",)),
-    ('a recorded resolution binds to every Role', 'controller/reconcile.py',
-     'keys.setdefault((APPLIED, RESOLVE, role_of.get(done["run"])), set())',
-     'keys.setdefault((APPLIED, RESOLVE, "pr-review"), set())', ("tests.test_reconcile",)),
     ('a permission read that never answered is asked again', 'adapters/timeline.py',
      '            except Unanswered:\n                answer = {"status": "no answer", "body": None}\n',
      '            except Unanswered:\n                raise\n', ("tests.test_adapters",)),
     ('a resolver in what was seen is told as a User', 'adapters/seen.py',
      'next(\n            (code for (told, _), code in identities.items() if told == ident and _positive(ident)), None)',
      '_who({"id": ident, "type": "User"}, identities)', ("tests.test_reconcile",)),
-    ("a Role's resolution matches nothing", 'controller/reconcile.py',
-     ', "resolution": (APPLIED, "resolve_thread")},',
-     '},', ("tests.test_reconcile",)),
+    ("a Role's resolution matches the queue App's act", 'controller/reconcile.py',
+     '             "check_run": (APPLIED, "create_check_run")},\n',
+     '             "check_run": (APPLIED, "create_check_run"), "resolution": (WRITTEN, "resolve_thread")},\n', ('tests.test_reconcile',)),
+    ("the queue App's resolution matches nothing", 'controller/reconcile.py',
+     '    "queue": {"resolution": (WRITTEN, "resolve_thread")},\n',
+     '', ('tests.test_reconcile',)),
+    ('the queue App is never an identity', 'controller/reconcile.py',
+     '        found["queue"] = "queue"\n',
+     '        pass\n', ('tests.test_reconcile',)),
+    ('the queue App is an identity with no account', 'controller/reconcile.py',
+     'if isinstance(accounts.get("queue"), dict):\n        found["queue"]',
+     'if True:\n        found["queue"]', ('tests.test_reconcile',)),
+    ("a queue account that is another identity's is told as the queue App", 'adapters/seen.py',
+     '        if told in found:\n            twice.add(told)\n        found[told] = "queue"\n',
+     '        found[told] = "queue"\n', ('tests.test_reconcile',)),
+    ('what was seen tells no queue App', 'adapters/seen.py',
+     '        found[told] = "queue"\n',
+     '        pass\n', ('tests.test_reconcile',)),
+    ('the queue App is any App', 'adapters/timeline.py',
+     '            if (ident, kind) == self.queue:\n                return {"kind": "queue", "name": login, "can_write": False}\n',
+     '', ('tests.test_adapters',)),
+    ('the configuration holds no queue App', 'adapters/facts.py',
+     '    return (held["id"], "Bot") if isinstance(held, dict) else None',
+     '    return None', ('tests.test_adapters',)),
+    ("the queue App is not the Factory's", 'adapters/facts.py',
+     '    return identities, approver, lenses, factory | ({queue} if queue else set())',
+     '    return identities, approver, lenses, factory', ('tests.test_adapters',)),
+    ('the pass tells the account reader no queue App', 'controller/__main__.py',
+     'factory, queue_of(controller))',
+     'factory)', ('tests.test_controller',)),
+    ('a thread read from GitHub carries no ruling', 'adapters/threads.py',
+     ', "opened_at": opened_at, "ruling": None}',
+     ', "opened_at": opened_at}', ('tests.test_adapters',)),
+    ('a thread takes no ruling from its Lens', 'adapters/applied.py',
+     ', ruling=finding.get("ruling"))',
+     ')', ('tests.test_adapters',)),
+    ("a ruling of any Lens is the thread's", 'adapters/applied.py',
+     '    mine = [r for r in rulings if r[0] == lens]',
+     '    mine = list(rulings)', ('tests.test_adapters',)),
+    ('a ruling whose start cannot be read is read', 'adapters/applied.py',
+     '    if not mine or any(_start(r[2]) is None for r in mine):',
+     '    if not mine:', ('tests.test_adapters',)),
+    ("the earliest ruling is the thread's", 'adapters/applied.py',
+     '    latest = max(r[2] for r in mine)',
+     '    latest = min(r[2] for r in mine)', ('tests.test_adapters',)),
+    ("a ruling on another Finding is the thread's", 'adapters/applied.py',
+     ' if r[4] in {h[5] for h in held}]', ']', ('tests.test_adapters',)),
+    ("the queue App is no App on an issue", 'kernel/issue.py',
+     'APP_KINDS = ("app", "lens", "queue")', 'APP_KINDS = ("app", "lens")', ('tests.test_issue',)),
+    ('two rulings in one Run are read', 'adapters/applied.py',
+     '    return last[0][3] if len(last) == 1 else None',
+     '    return last[0][3]', ('tests.test_adapters',)),
+    ('a ruling on a category its Lens does not own is read', 'adapters/applied.py',
+     '\n                            if category not in (None, "security") else None}',
+     '}', ('tests.test_adapters',)),
+    ("a security Finding's thread takes its ruling", 'adapters/applied.py',
+     'if category not in (None, "security") else None}',
+     'if category is not None else None}', ('tests.test_adapters',)),
+    ('no ruling is read from a record', 'adapters/applied.py',
+     '        for ruling in (done or {}).get("rulings", ()):',
+     '        for ruling in ():', ('tests.test_adapters',)),
     ('a permission read that failed is asked again', 'adapters/timeline.py',
      '            self.answers[login] = answer["body"] if ok else answer["status"]\n',
      '            if not ok:\n                raise Unanswered("the permission answered %s" % answer["status"])\n            self.answers[login] = answer["body"]\n', ("tests.test_adapters",)),
@@ -1640,15 +1687,53 @@ MUTANTS = ISSUE + [
     ("a person's thread resolved by another writer closes", "kernel/gate.py",
      '        return is_person(by) and by["name"] == opener["name"]\n', "        return is_person(by)\n",
      ("tests.test_decide.OnlyAPersonEnds",)),
-    ("a Lens's thread resolved by anyone closes", "kernel/gate.py",
-     '        return is_person(by) or (by["kind"] == "lens" and by["name"] == opener["name"])\n', "        return True\n",
-     ("tests.test_decide.OnlyAPersonEnds",)),
-    ("a Lens's thread resolved by another Lens closes", "kernel/gate.py",
-     'or (by["kind"] == "lens" and by["name"] == opener["name"])', 'or by["kind"] == "lens"',
-     ("tests.test_decide.OnlyAPersonEnds",)),
-    ("a person cannot close a Lens's thread", "kernel/gate.py",
-     'return is_person(by) or (by["kind"] == "lens"', 'return (by["kind"] == "lens"',
-     ("tests.test_decide.OnlyAPersonEnds",)),
+    ("a Lens's thread resolved by anyone closes", 'kernel/gate.py',
+     '        return is_person(by) or (by["kind"] == "queue" and th["ruling"] == "accepted")\n',
+     '        return True\n', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a Lens's thread resolved by its own App closes", 'kernel/gate.py',
+     'by["kind"] == "queue" and th["ruling"]',
+     'by["kind"] in ("queue", "lens") and th["ruling"]', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a person cannot close a Lens's thread", 'kernel/gate.py',
+     'return is_person(by) or (by["kind"] == "queue"',
+     'return (by["kind"] == "queue"', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("any App closes a Lens's thread on its accepted ruling", 'kernel/gate.py',
+     '(by["kind"] == "queue" and',
+     '(by["kind"] != "human" and', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a ruling no Kernel word is read', 'kernel/derive.py',
+     '    if "ruling" not in th or (th["ruling"] is not None and th["ruling"] not in t.RULINGS):\n        return True\n',
+     '', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a null ruling is unreadable', 'kernel/derive.py',
+     '(th["ruling"] is not None and th["ruling"] not in t.RULINGS)',
+     '(th["ruling"] not in t.RULINGS)', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('the queue App is no actor the Kernel knows', 'kernel/terms.py',
+     '("human", "lens", "queue", "app", "machine_user")',
+     '("human", "lens", "app", "machine_user")', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a person's gate waits behind the resolve act", 'kernel/derive.py',
+     ' and not any(g["by"]["kind"] == "human" for g in open_gates):', ':', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a thread its Lens accepted is never resolved', 'kernel/derive.py',
+     '    if due and "resolve_due" not in past and not any(',
+     '    if False and not any(', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a thread its Lens rejected is resolved', 'kernel/derive.py',
+     'and not th["resolved"] and th["ruling"] == "accepted"]',
+     'and not th["resolved"] and th["ruling"] is not None]', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a thread already resolved is resolved again', 'kernel/derive.py',
+     'and not th["resolved"] and th["ruling"] == "accepted"]',
+     'and th["ruling"] == "accepted"]', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a person's thread is resolved by the act", 'kernel/derive.py',
+     'if th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["ruling"]',
+     'if not th["resolved"] and th["ruling"]', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a queued item resolves before a gating thread takes it out', 'kernel/terms.py',
+     ', "awaiting_review", "resolve_due")',
+     ', "awaiting_review")', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('the resolve act is another act', 'kernel/decide.py',
+     '    if reason == "resolve_due":\n        return "resolve_thread"\n',
+     '', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a resolve act is never made', 'kernel/decide.py',
+     '    if state == t.CONVERGED or reason == "resolve_due":',
+     '    if state == t.CONVERGED:', ('tests.test_decide.OnlyAPersonEnds',)),
+    ('a resolve act is held at the Run ceiling', 'kernel/decide.py',
+     '    if state == t.ADJUDICATING and reason != "resolve_due":',
+     '    if state == t.ADJUDICATING:', ('tests.test_decide.OnlyAPersonEnds',)),
     ("a thread's opener is not read", "kernel/derive.py",
      'if not readable_actor(th.get("opened_by"), facts, config) or ', "if ", ("tests.test_decide.OnlyAPersonEnds",)),
     ("whether a thread is resolved is read loosely", "kernel/derive.py",
@@ -1743,9 +1828,9 @@ MUTANTS = ISSUE + [
     ("a person's thread is closed by anyone of that person's name", "kernel/gate.py",
      '        return is_person(by) and by["name"] == opener["name"]\n', '        return by["name"] == opener["name"]\n',
      ("tests.test_decide.OnlyAPersonEnds",)),
-    ("a Lens's thread is closed by anyone of that Lens's name", "kernel/gate.py",
-     'or (by["kind"] == "lens" and by["name"] == opener["name"])', 'or (by["name"] == opener["name"])',
-     ("tests.test_decide.OnlyAPersonEnds",)),
+    ("the queue App closes a Lens's thread on any ruling", 'kernel/gate.py',
+     ' and th["ruling"] == "accepted")\n',
+     ')\n', ('tests.test_decide.OnlyAPersonEnds',)),
     ("hands-off tied with its removal binds as hands-off", "kernel/derive.py",
      ' and is_person(placed["by"]) and not tied(placed, facts)\n', ' and is_person(placed["by"])\n',
      ("tests.test_decide.OnlyAPersonEnds",)),
@@ -1944,6 +2029,52 @@ MUTANTS = ISSUE + [
      '        return ["NEEDS cannot be read as JSON; give it ${{ toJSON(needs) }} in the job\'s env"]\n',
      "        return []\n", ("tests.test_tools.Workflows",)),
     # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
+    # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
+    ('the baseline runs the whole suite', 'tools/mutants.py',
+     '    tests = cases(named(muta' 'nts), root)\n    if not tests:',
+     '    tests = ()\n    if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline is split by the names its mutants give', 'tools/mutants.py',
+     '    tests = cases(na' 'med(mutants), root)\n',
+     '    tests = named(mutants)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline runs in one part', 'tools/mutants.py',
+     '    parts = [tests[at::workers] for a' 't in range(min(workers, len(tests)))]',
+     '    parts = [tests]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline has parts that hold no test', 'tools/mutants.py',
+     'for at in range(min(w' 'orkers, len(tests)))]',
+     'for at in range(workers)]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a list naming no test runs nothing first', 'tools/mutants.py',
+     '        return [ru' 'n(root)]\n    parts',
+     '        return []\n    parts', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a test named twice runs twice', 'tools/mutants.py',
+     '    return tuple(di' 'ct.fromkeys(found))\n',
+     '    return tuple(found)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a name read as no test runs as what it was read as', 'tools/mutants.py',
+     '        found.extend(id' 's if whole else [name])\n',
+     '        found.extend(ids)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('an id that is no test under tests/ is run', 'tools/mutants.py',
+     'and i.startswith("te' 'sts.") for i in ids)',
+     'and not i.startswith("unittest.") for i in ids)', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the names are read here, not in the tree', 'tools/mutants.py',
+     'cwd=str(root), input=j' 'son.dumps(list(tests)),',
+     'cwd=str(ROOT), input=json.dumps(list(tests)),', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a tree that cannot be read stops the run', 'tools/mutants.py',
+     '    except (OSError, ValueError, subproce' 'ss.SubprocessError):\n        said = None\n',
+     '    except ValueError:\n        said = None\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the tests named together run as one name', 'tools/mutants.py',
+     '*((only,) if isinstance' '(only, str) else only)]',
+     'only]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a slow baseline reads as a red one', 'tools/mutants.py',
+     'if (status is not None a' 'nd outcome != "SURVIVED")',
+     'if (outcome != "SURVIVED")', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a part that failed and then ran out of time reads as slow', 'tools/mutants.py',
+     ' or (status is None and FA' 'ILURE_LINE.search(output)):',
+     ':', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a slow baseline breaks the mutants anyway', 'tools/mutants.py',
+     '    if any(status is None' ' for status, _ in runs):\n',
+     '    if False:\n', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a red part after the first is passed over', 'tools/mutants.py',
+     '    for status, output in runs:\n       ' ' outcome, why = verdict(status, output)',
+     '    for status, output in runs[:1]:\n        outcome, why = verdict(status, output)', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
     ("a shard drops a mutant", "tools/mutants.py",
      "if place % count" " == index]", "if place % count == index and place]", ("tests.test_tools.Mutants",)),
     ("a mutant is in two shards", "tools/mutants.py",
@@ -5245,6 +5376,22 @@ MUTANTS = ISSUE + [
     ("the redaction writes in the locale's encoding", "tools/redact_trial.py",
      '    target = getattr(stdout, "buffer", None)\n', '    target = None\n',
      ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
+    ("the App reads the token after the last blank line", "tools/trial_as_app.sh",
+     'cut = text.find("\\n\\n", starts[-1]) if starts else -1', 'cut = text.rfind("\\n\\n")',
+     ("tests.test_tools.AppThreads.test_the_token_is_read_after_the_last_status_lines_headers",)),
+    ("the App says the head before its push moved it", "tools/trial_as_app.sh",
+     '    [[ "$read_head" = "$pushed" ]] && break\n', '    break\n',
+     ("tests.test_tools.AppThreads.test_the_app_opens_resolves_and_deletes_and_revokes_its_token",)),
+    ("P-52 forgets a token its refused mint carried", "tools/trial_p52_pause.sh",
+     '    # A token the refusal carried all the same is left for the trap, which revokes it and says so (Muse on #364).\n',
+     '    token=""\n',
+     ("tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing",)),
+    ("the review Role does not permit its check run", "roles/pr-review.json",
+     '"submit_review",\n        "create_check_run"\n', '"submit_review"\n',
+     ("tests.test_tools.Authority.test_the_review_role_permits_its_check_run_now_its_app_is_granted_it",)),
+    ("the App says nothing of a head that never moved", "tools/trial_as_app.sh",
+     '[[ "$read_head" = "$pushed" ]] || echo "trial_as_app: the push made', '[[ "$read_head" = "$pushed" ]] || true "trial_as_app: the push made',
+     ("tests.test_tools.AppThreads.test_a_head_github_never_moves_is_read_five_times_and_said_so",)),
     ("the App's failed redaction leaves its partial clean file", "tools/trial_as_app.sh",
      '        rm -f "${1%.raw}.clean"\n', '', ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
     # Issue 282: the App's review threads, run against a stand-in gh, curl and openssl.
@@ -6535,8 +6682,8 @@ MUTANTS = ISSUE + [
      '        return "thread_not_on_item"\n',
      '        return None\n', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
     ("a comment on another item's thread is written", 'harness/apply.py',
-     '] + [\n        e["on"] for e in effects.get("comment", ()) if e["on"] != "item"]',
-     ']', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
+     '    on = [e["on"] for e in effects.get("comment", ()) if e["on"] != "item"]',
+     '    on = []', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
     ('a Finding named twice is written', 'harness/apply.py',
      '    if len(raised) != len(result["findings"]):\n',
      '    if False:\n', ('tests.test_apply.Apply.test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing',)),
@@ -6585,12 +6732,6 @@ MUTANTS = ISSUE + [
     ('any kind of Role decides as the owner', 'harness/apply.py',
      '            if role["kind"] != DECIDES or ',
      '            if ', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
-    ('a security thread is resolved on a declined proposal', 'harness/apply.py',
-     '            return "security_finding_declined"\n',
-     '            return None\n', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
-    ("a declined proposal stops any thread's resolution", 'harness/apply.py',
-     '        if resolve["thread"] in security and ',
-     '        if ', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
     ("a Role's review is submitted as it asks", 'harness/apply.py',
      '"commit": head, "event": "COMMENT",',
      '"commit": head, "event": "APPROVE",', ('tests.test_apply.Apply.test_a_result_on_the_item_as_admitted_is_written_and_recorded_from_what_was_read_back',)),
@@ -6650,11 +6791,11 @@ MUTANTS = ISSUE + [
      '                and body["event"] == "COMMENT" and body["commit_id"] == head',
      '                and body["commit_id"] == head', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
     ("a Role's token reads another item's threads", 'adapters/effects.py',
-     '            return body["variables"] == {"owner": owner, "name": repo_name, "number": number}',
-     '            return True', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
+     'return body["query"] == THREADS and body["variables"] == {"owner": owner, "name": repo_name, "number": number}',
+     'return body["query"] == THREADS', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
     ("a Role's token sends any query", 'adapters/effects.py',
-     '        return (body["query"] in (THREAD, RESOLVE) and ',
-     '        return (', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
+     'return body["query"] == THREADS and ',
+     'return ', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
     ('an id read back is matched in part', 'adapters/effects.py',
      '                          and path.fullmatch(req["path"])), None)',
      '                          and path.match(req["path"])), None)', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
@@ -6706,18 +6847,6 @@ MUTANTS = ISSUE + [
     ('a GraphQL answer with errors is data', 'adapters/effects.py',
      '    return body.get("data") if isinstance(body, dict) and not body.get("errors") else None',
      '    return body.get("data") if isinstance(body, dict) else None', ('tests.test_apply.RoleWrites.test_a_write_github_did_not_take_is_never_claimed_or_sent_again',)),
-    ('a thread on another item is resolved', 'adapters/effects.py',
-     '    if pr.get("number") != item["number"] or ',
-     '    if ', ('tests.test_apply.RoleWrites.test_a_thread_is_resolved_once_on_its_own_item_and_read_back_resolved',)),
-    ('a thread in another repo is resolved', 'adapters/effects.py',
-     ' or (pr.get("repository") or {}).get("nameWithOwner") != item["repo"]:\n        return "elsewhere"',
-     ':\n        return "elsewhere"', ('tests.test_apply.RoleWrites.test_a_thread_is_resolved_once_on_its_own_item_and_read_back_resolved',)),
-    ('a resolved thread is resolved again', 'adapters/effects.py',
-     '    if before is True:\n        return _back("already_applied", req["thread"])\n',
-     '', ('tests.test_apply.RoleWrites.test_a_thread_is_resolved_once_on_its_own_item_and_read_back_resolved',)),
-    ('a resolution not read back is claimed', 'adapters/effects.py',
-     '    return _back("applied", req["thread"]) if _thread(transport, item, req["thread"]) is True else _back("sent", None)',
-     '    return _back("applied", req["thread"])', ('tests.test_apply.RoleWrites.test_a_thread_is_resolved_once_on_its_own_item_and_read_back_resolved',)),
     ("this App's earlier comment is not recovered", 'adapters/effects.py',
      '    state = "already_applied" if len(mine) > req["index"] else "applied"',
      '    state = "applied"', ('tests.test_apply.RoleWrites.test_a_comment_is_recovered_by_this_apps_comments_since_the_run_began_never_by_its_text',)),
@@ -6786,12 +6915,6 @@ MUTANTS = ISSUE + [
     ('a comment on the item is sent after one that was not written', 'harness/apply.py',
      '                written.append((effect_id, kind, {"state": "failed", "reason": "earlier_comment_unwritten"}))\n                continue\n',
      '                pass\n', ('tests.test_apply.Job.test_nothing_is_minted_for_a_refused_result_and_the_token_is_revoked_whatever_happens',)),
-    ('any Role resolves a thread', 'harness/apply.py',
-     '            return "resolve_not_yours"\n',
-     '            return None\n', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
-    ('a thread is resolved with no acceptance', 'harness/apply.py',
-     '            return "resolve_not_accepted"\n',
-     '            return None\n', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
     ('an annotation read back on another check run is claimed', 'harness/apply.py',
      '        return at == "%s:%s" % (key, ref)\n',
      '        return isinstance(at, str) and at != ""\n', ('tests.test_apply.Apply.test_an_effect_is_claimed_only_from_what_was_read_back',)),
@@ -6843,9 +6966,6 @@ MUTANTS = ISSUE + [
     ('a list of comments a page long is whole', 'adapters/effects.py',
      '    if not isinstance(listed, list) or len(listed) >= 100:\n        return _back("failed", None, reason="comments_unreadable")\n',
      '    if not isinstance(listed, list):\n        return _back("failed", None, reason="comments_unreadable")\n', ('tests.test_apply.RoleWrites.test_a_comment_is_recovered_by_this_apps_comments_since_the_run_began_never_by_its_text',)),
-    ("a Role's token resolves a thread off its item", 'adapters/effects.py',
-     '\n                and body["variables"]["id"] in threads)',
-     ')', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
     ("a Role's token names its check run anything", 'adapters/effects.py',
      ' and body["name"] == name and body["head_sha"] == head\n',
      ' and body["head_sha"] == head\n', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
@@ -7198,9 +7318,36 @@ MUTANTS = ISSUE + [
      ' and str(listed.get("run")) == str(github_run)\n',
      ' and listed.get("run") == github_run\n', ('tests.test_apply.Apply.test_a_change_under_the_run_writes_nothing_and_is_superseded',)),
     # Muse's read of #194's PR 2.
-    ("a security thread is resolved on the owner's word alone", 'harness/apply.py',
-     '        if resolve["thread"] in security:\n            return "security_proposal_unread"\n',
-     '', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
+    ("a security Finding is accepted on the owner's word alone", 'harness/apply.py',
+     '            return "security_proposal_unread"\n',
+     '            continue\n', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
+    ('a rejection of a security Finding is refused', 'harness/apply.py',
+     '.get("result") == "accepted" and threads[d["finding"]]["category"] == "security"',
+     '.get("result") in ("accepted", "rejected") and threads[d["finding"]]["category"] == "security"', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
+    ('a proposal is a ruling', 'harness/apply.py',
+     'for d in result["dispositions"] if "decision" in d]',
+     'for d in result["dispositions"]]', ('tests.test_apply',)),
+    ('a ruling is recorded on no thread', 'harness/apply.py',
+     '"thread": threads[d["finding"]], "result"',
+     '"thread": "PRRT_none", "result"', ('tests.test_apply',)),
+    ('a taken Result records no ruling', 'harness/apply.py',
+     '"findings": findings, "rulings": list(ruled)}',
+     '"findings": findings, "rulings": []}', ('tests.test_apply',)),
+    ('a refused Result rules', 'harness/apply.py',
+     '                "findings": [], "rulings": []}\n    raised',
+     '                "findings": [], "rulings": list(ruled)}\n    raised', ('tests.test_apply',)),
+    ('a ruling with nothing written is not recorded', 'harness/apply.py',
+     '        record = applied(admit, result, [], role, ruled=ruled)\n',
+     '        record = applied(admit, result, [], role)\n', ('tests.test_apply',)),
+    ('a ruling beside a write is not recorded', 'harness/apply.py',
+     '    record = applied(admit, result, written, role, ruled=ruled)\n',
+     '    record = applied(admit, result, written, role)\n', ('tests.test_apply',)),
+    ("apply writes a thread's resolution", 'harness/apply.py',
+     'ORDER = ("submit_review", "create_check_run", "comment")',
+     'ORDER = ("submit_review", "create_check_run", "resolve_thread", "comment")', ('tests.test_apply',)),
+    ("a Role's token writes a thread's resolution", 'adapters/effects.py',
+     'ROLE_WRITES = ("submit_review", "create_check_run", "comment")',
+     'ROLE_WRITES = ("submit_review", "create_check_run", "resolve_thread", "comment")', ('tests.test_apply',)),
     ('a grant of no level is granted', 'adapters/identity.py',
      ' or grant.get("level") not in LEVELS\n',
      '\n', ('tests.test_apply.Identity.test_a_token_is_narrowed_to_the_permissions_its_effects_need',)),
@@ -7648,7 +7795,7 @@ MUTANTS = ISSUE + [
      '    for name_', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
     # Argon on #196 PR 2b-1.
     ("a Role's write goes past its allowlist", 'harness/apply_step.py',
-     'allowed = effects.Allowed(transport, *effects.role_permits(admit["item"], head, "factory / " + parts["role"],\n                                                                      threads))',
+     'allowed = effects.Allowed(transport, *effects.role_permits(admit["item"], head, "factory / " + parts["role"]))',
      'allowed = transport', ('tests.test_steps.Apply.test_apply_writes_through_its_roles_allowlist_on_the_item_read_again',)),
     ('apply reads the item again through no token of its own', 'harness/apply_step.py',
      'held["item"] = reread.item(reading, config,',
@@ -8039,7 +8186,7 @@ MUTANTS = ISSUE + [
      '        if th["opened_by"]["kind"] == "lens" and finding is not None',
      '        if finding is not None', ('tests.test_adapters.Recorded.test_a_recorded_thread_is_its_lenss',)),
     ('a Lens thread is not joined to its Finding', 'adapters/applied.py',
-     '            th = dict(th, category=finding["category"], severity=finding["severity"])\n',
+     '            th = dict(th, category=finding["category"], severity=finding["severity"], ruling=finding.get("ruling"))\n',
      '            pass\n', ('tests.test_adapters.Recorded.test_a_recorded_thread_is_its_lenss', 'tests.test_adapters.Recorded.test_a_lens_thread_takes_its_category_from_its_one_finding_the_lens_owns')),
     ("a Run's GitHub run is not handed on", 'adapters/records.py',
      '                    ids.setdefault(record["run"], []).append(row["id"])\n',
@@ -8324,7 +8471,7 @@ MUTANTS = ISSUE + [
     ('a review whose record is past retention supersedes', 'adapters/applied.py',
      '\n                             and done is not None})', '})', ('tests.test_adapters.Recorded.test_only_a_later_review_that_succeeded_supersedes',)),
     ('a start that is no time is read', 'adapters/applied.py',
-     '            datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")\n', '            pass\n', ('tests.test_adapters.Recorded.test_a_review_on_other_content_or_before_supersedes_nothing',)),
+     '        datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")\n', '        pass\n', ('tests.test_adapters.Recorded.test_a_review_on_other_content_or_before_supersedes_nothing',)),
     ('an adjudication supersedes', 'adapters/applied.py',
      '"reviewed": record.get("intent") == REVIEW and ', '"reviewed": ', ('tests.test_adapters.Recorded.test_only_a_later_review_that_succeeded_supersedes',)),
     ('a Run that reviewed nothing supersedes', 'adapters/applied.py',
@@ -8751,6 +8898,10 @@ MUTANTS = ISSUE + [
 
 WORKERS = 4        # runs at once, at most, unless told: each is a whole run of the suite, in a copy of its own
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
+# The baseline, the run of the unbroken tests before anything is broken, runs the tests the run's own mutants name,
+# method by method, shared among its workers, each part one run held to TIMEOUT, never the whole suite, which outgrew
+# TIMEOUT on a CI runner (issue 396). A shard names most of the suite's tests, since its mutants name whole classes
+# that the other shards' do too: the room under TIMEOUT is the workers', not the shard's.
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
 # issue 217): it breaks at most FILTER_MOST mutants, FILTER_WORKERS at a time, and never a shard.
 FILTER_MOST = 40
@@ -8771,14 +8922,15 @@ UNCONFIRMED = "unconfirmed"
 MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
 
-def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: str = None) -> tuple:
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only=None) -> tuple:
     """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out.
 
     The tests named in `first` run on their own before the rest: when they pass, or none is named, the whole suite
-    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone.
+    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone, or
+    each of a tuple of them and no other.
     """
     if only:
-        return _unittest(cwd, timeout, ["-q", "-f", only])
+        return _unittest(cwd, timeout, ["-q", "-f", *((only,) if isinstance(only, str) else only)])
     if first:
         status, output = _unittest(cwd, timeout, ["-q", "-f", *first])
         if status != 0:
@@ -9062,18 +9214,82 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
     return chosen, ", in shard %d of %d counted from 0" % (index, count), None
 
 
+def named(mutants: list) -> tuple:
+    """The tests `mutants` name, each once, sorted: what the baseline runs (issue 396)."""
+    return tuple(sorted({test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}))
+
+
+# Read in a child, in the tree the baseline runs in, by unittest's own loader: the ids of the test methods each name
+# holds, an empty list for one it cannot read.
+LISTING = """import json, sys, unittest
+def flat(s):
+    return [c for i in s for c in flat(i)] if isinstance(s, unittest.TestSuite) else [s]
+said = []
+for name in json.loads(sys.stdin.read()):
+    try:
+        said.append([c.id() for c in flat(unittest.defaultTestLoader.loadTestsFromName(name))])
+    except Exception:
+        said.append([])
+print(json.dumps(said))
+"""
+
+
+def cases(tests: tuple, root: pathlib.Path) -> tuple:
+    """Each test method the dotted names in `tests` hold, as unittest's loader reads them in `root`, in their order,
+    each once, so that a class or module named whole is shared among the baseline's parts and does not hold one of
+    them. A name read as no test, or as any id that is not a test under tests/, is kept whole, for its own run to
+    find; and every name is, where the tree cannot be read at all (issue 396)."""
+    try:
+        listed = subprocess.run([sys.executable, "-c", LISTING], cwd=str(root), input=json.dumps(list(tests)),
+                                capture_output=True, text=True, timeout=TIMEOUT,
+                                env=dict(os.environ, SIM_SEEDS="40", MUTATING="1"))
+        said = json.loads(listed.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        said = None
+    if not isinstance(said, list) or len(said) != len(tests):
+        return tuple(dict.fromkeys(tests))
+    found = []
+    for name, ids in zip(tests, said):
+        whole = isinstance(ids, list) and ids and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
+        found.extend(ids if whole else [name])
+    return tuple(dict.fromkeys(found))
+
+
+def baseline(mutants: list, root: pathlib.Path, run, workers: int) -> list:
+    """(exit status, output) of each run of the unbroken tests before anything is broken: the tests `mutants` name,
+    method by method, in `workers` parts run at once, so that the baseline is shared among the run's workers and is
+    never one run of the whole suite (issue 396). A list that names no test runs the whole suite, once."""
+    tests = cases(named(mutants), root)
+    if not tests:
+        return [run(root)]
+    parts = [tests[at::workers] for at in range(min(workers, len(tests)))]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(parts)) as pool:
+        return list(pool.map(lambda part: run(root, only=part), parts))
+
+
 def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "") -> int:
     mutants = MUTANTS if mutants is None else mutants
-    outcome, why = verdict(*run(root))
-    if outcome != "SURVIVED":
-        print("the tests fail before anything is broken; a mutant cannot be told from that%s"
-              % (" (%s)" % why if why else ""))
+    workers = workers or min(os.cpu_count() or 1, WORKERS)
+    runs = baseline(mutants, root, run, workers)
+    # A test that fails is told first, since it is a fault whatever else is slow, a part that ran out of time after
+    # one failed among them; a part that only ran out of time failed no test that ran, and says so, so that a slow
+    # baseline is never read as a red one.
+    for status, output in runs:
+        outcome, why = verdict(status, output)
+        if (status is not None and outcome != "SURVIVED") or (status is None and FAILURE_LINE.search(output)):
+            print("the tests fail before anything is broken; a mutant cannot be told from that%s"
+                  % (" (%s)" % why if why else ""))
+            return 1
+    if any(status is None for status, _ in runs):
+        print("the tests the mutants name took longer than %d s before anything was broken, and none that ran failed; no "
+              "mutant can be run in that time: name narrower tests in the mutants, or run more workers, then run "
+              "python3 -m tools.mutants again" % TIMEOUT)
         return 1
     killed = 0
     # One run to a CPU, and no more than WORKERS: each holds a copy of the tree and runs the suite in it. map() hands
     # the results back in the order of `mutants`, however the runs finish.
     with tempfile.TemporaryDirectory() as made, \
-            concurrent.futures.ThreadPoolExecutor(max_workers=workers or min(os.cpu_count() or 1, WORKERS)) as pool:
+            concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         trees = Trees(root, made)
         results = pool.map(lambda mutant: guarded(mutant, root, run, trees), mutants)
         for mutant, (outcome, why) in zip(mutants, results):

@@ -5,11 +5,12 @@
   "effects": [
     {
       "id": "e1",
-      "type": "resolve_thread",
+      "type": "comment",
       "state": "refused",
       "key": null,
-      "reason": "security_finding_declined"
+      "reason": "security_proposal_unread"
     }
   ],
-  "findings": []
+  "findings": [],
+  "rulings": []
 }
