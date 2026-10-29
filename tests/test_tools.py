@@ -2080,11 +2080,16 @@ class Workflows(unittest.TestCase):
         (local / "config" / "hooks.json").write_text("{}")
         self.assertTrue(caught(said(second), "cannot be read"))
         (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
                                                                "EVENT": "pull_request"}, local), 0)
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
                                                                "EVENT": "pull_request"}, local), 1)
+        # What it says is what it holds: that the commits name the Maintainer, never that they are theirs (decision
+        # 0087), and the committer only where GitHub did not commit it.
+        self.assertIn("names the Maintainer as its author, and as its committer where GitHub did not commit it",
+                      printed.getvalue())
+        self.assertNotIn("is the Maintainer's", printed.getvalue())
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
