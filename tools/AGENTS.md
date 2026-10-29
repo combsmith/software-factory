@@ -32,7 +32,7 @@ and `rulesets_drift.py` compares what is left with `config/rulesets.json`; it is
 | A stop lists every protected or reported path changed against origin's main; a write to a remote branch asks | `tests/test_hooks.py::test_an_edit_made_through_eval_is_listed`, `tests/test_hooks.py::test_a_write_to_the_base_the_stop_compares_with_asks` |
 | A test kills a mutant only failing on it, again alone, and passing alone in an unbroken copy; else `FLAKY`, or `ERROR` on a hang: both fail a run | `tests/test_tools.py::test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check` |
 | An entry in `mutants.py` names text that appears once in its file (change it, or write it twice, and it goes `STALE`; update it) and the tests that kill it, each existing | `mutants.py`, `tests/test_tools.py::test_every_mutant_names_a_test_that_exists` |
-| After the named tests, every module in `tests/` runs, the slow ones last, dealt in parts of at most `PART_MOST` tests, each one run; `python3 -m tools.mutants PATH...` breaks at most 40, two at once, no shard | `tests/test_tools.py::test_slow_modules_run_last`, `tests/test_tools.py::test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit`, `tests/test_tools.py::test_a_filtered_run_is_capped` |
+| After the named tests, every module in `tests/` runs, the slow ones last; `python3 -m tools.mutants PATH...` breaks at most 40, two at once, no shard | `tests/test_tools.py::test_slow_modules_run_last`, `tests/test_tools.py::test_a_filtered_run_is_capped` |
 
 A check collects every problem and does not stop at the first. Its message says what is wrong and what to do, in one sentence, because an author will read it with nothing else to go on.
 
