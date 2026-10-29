@@ -7509,7 +7509,8 @@ class Rulesets(unittest.TestCase):
         switch makes it, beside `owners` as `.github/CODEOWNERS`, the repo's own by default."""
         review = self.main["pull_request"]
         review.update(required_approving_review_count=1, require_code_owner_review=True, require_last_push_approval=True,
-                      dismiss_stale_reviews_on_push=True)
+                      dismiss_stale_reviews_on_push=True, required_reviewers=[],
+                      require_extra_approval_for_unattributed_changes=False)
         owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
         return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
                                         "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
