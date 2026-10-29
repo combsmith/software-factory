@@ -99,7 +99,7 @@ slug=$1 app_id=$2 installation=$3 repo=$4 org=$5
 # OUT is made here, by this script alone and for its user alone: one made since it was found absent is refused,
 # never written into, since what is in it may be a link to a file this run would overwrite.
 if ! mkdir -m 700 "$out"; then
-    echo "trial_p52_pause: $out was made by something else after it was found absent; name a new directory" >&2
+    echo "trial_p52_pause: $out could not be made new by this run (made since, or refused); name a new directory" >&2
     exit 2
 fi
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"

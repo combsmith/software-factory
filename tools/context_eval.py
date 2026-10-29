@@ -145,12 +145,38 @@ def reads_and_commands(text: str, work: pathlib.Path) -> tuple:
 LINK = "\0link"     # what a link is held as: it is never followed, so what it points at is never read
 
 
+def _linked(path: pathlib.Path) -> bool:
+    """Whether `path` is a link: a symbolic one, or a hard link, a file another name also holds."""
+    return path.is_symlink() or (path.is_file() and path.stat().st_nlink != 1)
+
+
 def _own(folder: pathlib.Path, path: pathlib.Path) -> bool:
-    """Whether `path` is a file of the export's own: not a link, and inside `folder` when every link on the way to it
-    is followed. A link the agent left may point anywhere, and what it points at is not the export's."""
-    if path.is_symlink() or not path.is_file():
+    """Whether `path` is a file of the export's own: inside `folder`, no link, and reached through no linked folder. A
+    link the agent left may point anywhere, a folder inside the export among them, and what it points at is not the
+    export's."""
+    try:
+        parts = path.relative_to(folder).parts
+    except ValueError:
         return False
-    return os.path.realpath(str(path)).startswith(os.path.realpath(str(folder)) + os.sep)
+    for depth in range(1, len(parts)):
+        if folder.joinpath(*parts[:depth]).is_symlink():
+            return False
+    return path.is_file() and not _linked(path)
+
+
+def _read(folder: pathlib.Path, path: pathlib.Path) -> str:
+    """The text of a file of the export's own, opened without following a link and held to one name when open, so
+    nothing swapped in after `_own` looked is read; "" for anything else."""
+    if not _own(folder, path):
+        return ""
+    try:
+        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return ""
+    with os.fdopen(fd, "rb") as handle:
+        if os.fstat(handle.fileno()).st_nlink != 1:
+            return ""
+        return handle.read().decode("utf-8")
 
 
 def _files(folder: pathlib.Path) -> dict:
@@ -159,13 +185,13 @@ def _files(folder: pathlib.Path) -> dict:
     out = {}
     for path in walk.files(folder):
         rel = path.relative_to(folder).as_posix()
-        if path.is_symlink():
+        if _linked(path):
             out[rel] = LINK
             continue
         if not _own(folder, path):
             continue
         try:
-            out[rel] = path.read_text()
+            out[rel] = _read(folder, path)
         except (UnicodeDecodeError, OSError):
             out[rel] = "\0%d" % path.stat().st_size
     return out
@@ -194,7 +220,7 @@ def _mutant_entries(folder: pathlib.Path) -> list:
     """Each mutant tools/mutants.py under `folder` holds, as (name, target), a target named by a constant of that file
     read through it."""
     path = folder / "tools" / "mutants.py"
-    text = path.read_text() if _own(folder, path) else ""
+    text = _read(folder, path)
     named = dict(re.findall(r'^([A-Z_]+) = "([^"\n]+)"$', text, re.M))
     return [(m.group(1), m.group(2) or named.get(m.group(3), m.group(3))) for m in MUTANT.finditer(text)]
 
@@ -218,7 +244,7 @@ def new_tests(pristine: pathlib.Path, work: pathlib.Path) -> list:
             rel = path.relative_to(folder).as_posix()
             if not (path.name.startswith("test_") and path.suffix == ".py") or not _own(folder, path):
                 continue
-            for m in re.finditer(r"^\s*def (test_[a-z0-9_]+)\(", path.read_text(), re.M):
+            for m in re.finditer(r"^\s*def (test_[a-z0-9_]+)\(", _read(folder, path), re.M):
                 out.add("%s::%s" % (rel, m.group(1)))
         return out
     return sorted(names(work) - names(pristine))
@@ -238,8 +264,8 @@ def record(transcript: str, pristine: pathlib.Path, work: pathlib.Path, verdicts
     for change in changed:
         rel = change["path"]
         if rel.startswith("kernel/") and _own(work, work / rel):
-            old = (pristine / rel).read_text().splitlines() if _own(pristine, pristine / rel) else []
-            added_lines += [line for line in difflib.unified_diff(old, (work / rel).read_text().splitlines(), lineterm="", n=0)
+            old = _read(pristine, pristine / rel).splitlines()
+            added_lines += [line for line in difflib.unified_diff(old, _read(work, work / rel).splitlines(), lineterm="", n=0)
                             if line.startswith("+") and not line.startswith("+++")]
     reason = (code if isinstance(code, str) and re.fullmatch(r"[a-z_]+", code)
               and any(re.search(r"(?<![a-z_])%s(?![a-z_])" % re.escape(code), line) for line in added_lines) else None)

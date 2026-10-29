@@ -61,7 +61,7 @@ cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 stub=$(cd "$(dirname "$4")" && pwd -P)/$(basename "$4")
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into.
 mkdir -p -- "$(dirname -- "$1")"
-mkdir -m 700 -- "$1" || refuse "$1 was made by something else after it was found absent; name a new directory"
+mkdir -m 700 -- "$1" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
 out=$(cd "$1" && pwd -P)
 
 # The scratch directory, and so each work directory's parent, is under the runner's own temporary directory, where a

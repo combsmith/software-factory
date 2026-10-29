@@ -4671,9 +4671,35 @@ class OutputMadeAlone(unittest.TestCase):
                                            "LANG": "C", "TMPDIR": str(folder)},
                                       cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
                 self.assertEqual(done.returncode, 2, done.stderr)
-                self.assertIn("was made by something else after it was found absent", done.stderr)
+                self.assertIn("could not be made new by this run", done.stderr)
                 self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
                 self.assertFalse((folder / "calls").exists(), "a call was made")
+
+
+    def test_the_sandbox_trials_make_their_output_alone_too(self):
+        # P-50's and P-51's runners hold no key, but they write into OUT too: one made between the check and their own
+        # mkdir, here by the dirname they call first, is refused, and nothing is written through a link in it.
+        for script, phase in (("trial_p50_linux_sandbox.sh", "as-is"), ("trial_p51_sandbox_writes.sh", "forward")):
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                out, victim = folder / "out", folder / "victim"
+                victim.write_text("kept\n")
+                (folder / "bin" / "dirname").write_text(
+                    '#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/dirname "$@"\n'
+                    % (out, out, victim, out))
+                (folder / "bin" / "dirname").chmod(0o755)
+                (folder / "cli").write_text("#!/bin/sh\nexit 0\n")
+                (folder / "cli").chmod(0o755)
+                (folder / "stub.py").write_text("")
+                done = subprocess.run(["bash", str(ROOT / "tools" / script), str(out), phase, str(folder / "cli"),
+                                       str(folder / "stub.py")], capture_output=True, text=True,
+                                      env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
+                                           "LANG": "C", "TMPDIR": str(folder)},
+                                      cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("could not be made new by this run", done.stderr)
+                self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
 
 
 class TrialScript(unittest.TestCase):
@@ -6204,6 +6230,30 @@ class Redaction(unittest.TestCase):
             self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
             self.assertEqual(out.getvalue(), "", raw)
             self.assertIn("refused: the body should be JSON", said.getvalue())
+        # A capture in any other shape is refused whole, never filtered for shapes alone: a head a blank line too many,
+        # a cased or indented status line, or a redirect's text, hides; a head with a line that is no header, a folded
+        # one among them; a JSON type on an earlier head; a byte order mark before the JSON; JSON with a blank line.
+        secret = '{"client_secret": "abc123xyz", "password": "hunter22"}'
+        for raw, why in (
+                ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 200\ncontent-type: application/json\n\n" + secret, "head"),
+                ("HTTP/1.1 100 Continue\n\n HTTP/2 200\ncontent-type: application/json\n\n" + secret, "head"),
+                ("HTTP/1.1 100 Continue\n\nhttp/2 200\ncontent-type: application/json\n\n" + secret, "head"),
+                ("HTTP/2 302\nlocation: x\n\nmoved\n\nHTTP/2 200\ncontent-type: text/plain\n\nfine\n", "head"),
+                ('HTTP/2 200\ncontent-type: application/json\n{ "client_secret": "abc123xyz" }', "header"),
+                ("HTTP/2 200\nx-api-key: part1\n\tsecretcontinuation\ncontent-type: text/plain\n\nfine\n", "header"),
+                ("HTTP/1.1 100 Continue\ncontent-type: application/json\n\nHTTP/2 200\n\nnot json\n", "JSON"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\n\ufeff" + secret, "JSON"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + secret + "\n", "JSON"),
+                ('{\n\n"password": "hunter2"\n', "JSON")):
+            out, said = io.StringIO(), io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
+            self.assertEqual(out.getvalue(), "", raw)
+            self.assertIn({"head": "a head it was not read as", "header": "a line that is no header",
+                           "JSON": "should be JSON"}[why], said.getvalue(), raw)
+        # Text with no status line is text, its blank lines and all, as a run's log is.
+        log = ("approve\tApprove\t2026-10-28T02:00:00Z a\napprove\tApprove\t2026-10-28T02:00:00Z a2\n\n"
+               "approve\tApprove\t2026-10-28T02:00:01Z b\n")
+        self.assertEqual(self.redact(log)[0], log)
         # Text is still text, and an empty body under a JSON type has nothing to refuse.
         self.assertEqual(self.redact("HTTP/2 200\nContent-Type: text/plain\n\nfine\n")[0],
                          "HTTP/2 200\nContent-Type: text/plain\n\nfine\n")
@@ -7088,6 +7138,31 @@ class ContextEval(unittest.TestCase):
         shutil.rmtree(work / "tests")
         (work / "tests").symlink_to(outside, target_is_directory=True)
         self.assertEqual(context_eval.new_tests(pristine, work), [])
+        # Nor a tests/ linked to a folder inside the export, nor a test file that is a hard link of one elsewhere.
+        pristine, work = self.export(changed=False)
+        (work / "other").mkdir()
+        (work / "other" / "test_planted.py").write_text("def test_planted(self):\n    pass\n")
+        shutil.rmtree(work / "tests")
+        (work / "tests").symlink_to(work / "other", target_is_directory=True)
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        pristine, work = self.export(changed=False)
+        os.link(outside / "test_held.py", work / "tests" / "test_hard.py")
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        self.assertIn({"path": "tests/test_hard.py", "added": 1, "removed": 0},
+                      context_eval.changes(pristine, work))
+        # Nor the mutants of a tools/ that is a link to a folder elsewhere.
+        pristine, work = self.export(changed=False)
+        shutil.rmtree(work / "tools")
+        (work / "tools").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(context_eval.new_mutants(pristine, work), [])
+        pristine, work = self.export(changed=False)
+        os.link(outside / "test_held.py", work / "tests" / "test_hard.py")
+        # What _own let past is still opened without following a link, and held to one name once open.
+        with unittest.mock.patch.object(context_eval, "_own", lambda folder, path: True):
+            self.assertEqual(context_eval._read(work, work / "tests" / "test_hard.py"), "")
+            (outside / "test_alone.py").write_text("def test_a_private_name(self):\n    pass\n")
+            (work / "tests" / "test_soft.py").symlink_to(outside / "test_alone.py")
+            self.assertEqual(context_eval._read(work, work / "tests" / "test_soft.py"), "")
 
     def test_what_cannot_be_read_makes_no_record(self):
         pristine, work = self.export()

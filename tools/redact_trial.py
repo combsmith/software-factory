@@ -27,6 +27,10 @@ from tools.check_trials import HEADERS, KEY_SHAPED, refused_key, shaped
 
 STATUS = re.compile(r"HTTP/[0-9.]+ [0-9]{3}\b")
 JSON_TYPE = re.compile(r"content-type\s*:.*\bjson\b", re.I)
+# A status line in any case or indent, wherever a body is read: a head the reading did not find as one.
+ANY_STATUS = re.compile(r"\s*HTTP/[0-9.]+\s+[0-9]{3}\b", re.I)
+# A header line of a head: a name of no space, a colon, a value. A line folded onto the one before begins with a space.
+HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+:")
 
 
 def _clean(value, where: str, removed: list):
@@ -84,11 +88,19 @@ class Unreadable(ValueError):
     """A body that should be JSON and cannot be read as JSON: it is refused whole, since its fields cannot be judged."""
 
 
+def _opens_json(text: str) -> bool:
+    """Whether `text` begins, past white space and a byte order mark, as JSON does."""
+    return text.lstrip().lstrip("\ufeff").lstrip()[:1] in ("{", "[")
+
+
 def _head(block: str, first: int, said: list) -> str:
     """`block`, a status line and its headers starting at line `first`, without a header a fixture may not keep or any
-    line shaped like a credential."""
+    line shaped like a credential. A line after the status line that is no header, a folded one among them, is refused:
+    a head holds nothing else, and what is not a header cannot be judged as one."""
     kept = []
     for n, line in enumerate(block.splitlines(), first):
+        if n > first and not HEADER.match(line):
+            raise Unreadable("a head holds a line that is no header")
         name, colon, _ = line.partition(":")
         header = n > first and colon and " " not in name.strip()
         if shaped(line) or (header and name.strip().lower() not in HEADERS):
@@ -101,7 +113,7 @@ def _head(block: str, first: int, said: list) -> str:
 
 def redact_text(raw: str, said: list) -> str:
     heads, body = [], raw
-    if "\n\n" in raw or STATUS.match(raw):
+    if STATUS.match(raw):
         # An interim answer (100 Continue) or a proxy's (200 Connection established) comes with a head of its own
         # before the response's: each head that follows is read as one, and only what comes after the last is the body.
         gap = "\n\n"
@@ -117,11 +129,17 @@ def redact_text(raw: str, said: list) -> str:
     except ValueError:
         # What should be JSON and is not cannot be judged field by field, and a line of it may hold a credential no
         # shape finds under a name that would refuse it: it is refused whole, never kept in part.
-        typed = heads and any(JSON_TYPE.match(line) for line in heads[-1].splitlines())
-        if body.strip() and (typed or body.lstrip()[:1] in ("{", "[")):
+        typed = any(JSON_TYPE.match(line) for head in heads for line in head.splitlines())
+        if body.strip() and (typed or _opens_json(body)):
             raise Unreadable("the body should be JSON and cannot be read as JSON") from None
         lines = []
         for n, line in enumerate(body.splitlines(), first):
+            # A line that opens as JSON, or a status line the reading did not take as a head's, is a shape this was
+            # never meant to read as text: it is refused whole, never filtered for shapes alone.
+            if _opens_json(line):
+                raise Unreadable("the body should be JSON and cannot be read as JSON")
+            if ANY_STATUS.match(line):
+                raise Unreadable("the body holds a head it was not read as")
             if shaped(line):
                 said.append("removed: line %d" % n)
             else:
