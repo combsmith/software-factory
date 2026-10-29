@@ -1376,6 +1376,10 @@ class Timeline(unittest.TestCase):
         got = timeline.label_events([placed, dict(removed, performed_via_github_app=app)], self.accounts(router))
         self.assertEqual([e["by"] for e in got], [person, {"kind": "app", "name": "don-petry", "can_write": False}])
         self.assertEqual(derive.standing_labels({"label_events": got}), {"factory:hold": got[0]})
+        # A label an App placed with a person's token is the App's too, so an admission it places admits nothing.
+        admitted = dict(placed, label={"name": "factory:admit"}, performed_via_github_app=app)
+        self.assertEqual([e["by"] for e in timeline.label_events([admitted], self.accounts(router))],
+                         [{"kind": "app", "name": "don-petry", "can_write": False}])
         # An App's own Bot, the machine user, and a Lens are read as they always are, whatever names the App.
         bot = {"login": "coderabbitai[bot]", "id": 8, "type": "Bot"}
         machine = {"login": APPROVER, "id": MACHINE[0], "type": "User"}
