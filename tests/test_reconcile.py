@@ -481,6 +481,11 @@ class SeenPort(unittest.TestCase):
                       # An event GitHub gives no name for cannot be told from a write.
                       kept(events=[{"actor": PERSON, "created_at": AT}])):
             self.assertIs(port(parts)[2], False, parts)
+        # A resolver whose id is True is no account's, and is never told as an identity of id 1, as True == 1 would.
+        writes, _, whole = seen_.read(GitHub(None), ITEM, kept(threads=[{"id": "PRRT_b", "isResolved": True,
+                                                                        "resolvedBy": {"databaseId": True}}]),
+                                      {(1, "User"): "approver"}, APPS, SINCE)
+        self.assertEqual((writes, whole), ([], False))
         # A review of a state GitHub does not give cannot be told.
         self.assertIs(port(kept(reviews=[{"user": ROLE, "state": None, "node_id": "PRR_u", "submitted_at": AT}]))[2],
                       False)
