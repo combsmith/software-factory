@@ -44,16 +44,18 @@ RULES = (
     # trials/P-42.json: a pull request's head, its checks read at once and an hour later, and the new head after a push.
     ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.json",
      None),
+    # P-42 saw no required check go from pending to its verdict: the new head's was read once, in progress.
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
-     ("P-42",), "trials/P-42.json", None),
+     ("P-42",), None, None),
     # P-42 saw neutral, skipped and cancelled kept an hour, but no timed_out: GitHub concluded a job stopped at its
     # timeout cancelled, and its run too (issue 388). Unverified until that issue rules how a timeout is read.
     ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
      "or stale, and keeps that conclusion until the content changes or a person runs it again",
      ("P-42",), None, None),
+    # P-42's filter=latest dropped earlier runs of a name in one suite, and filter=all kept them; the port reads the
+    # status rollup, which no trial has recorded with two runs of one name in a suite. Unverified until one does.
     ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
-     "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), "trials/P-42.json",
-     None),
+     "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), None, None),
     # P-42 saw two suites on one commit each keep their runs, and filter=latest keep one run of a name in each suite,
     # though the second was a post of that name, not a re-run. Unverified: the port reads the status rollup, not
     # filter=latest, and no trial has read the rollup with two runs of one name in one suite.

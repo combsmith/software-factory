@@ -2894,8 +2894,7 @@ NOT_READ = {
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
     # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs.
-    "a_push_restarts_the_checks": "shape", "a_check_reports_on_its_own": "shape",
-    "a_check_is_read_by_name_from_every_app": "shape", "any_app_posts_a_check_under_any_name": "shape",
+    "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
