@@ -1314,6 +1314,16 @@ class Identity(unittest.TestCase):
                         "tar -cf /tmp/a.tar --one-top-level=.git src; git push", "tar -xf /tmp/x.tgz --one-top; git push"):
             self.assertEqual(self.codes(command), "", command)
 
+    def test_eval_is_read_only_as_a_command_word(self):  # issue 414
+        # The word in a quoted title, a message or a grep is prose: the command passes. eval as the shell runs it, after
+        # a ; or in a substitution, may set PATH, and the command is refused.
+        for command in ('gh pr create --title "Evals: the eval job checks its split" --body-file b.md',
+                        "git commit -m 'Evals: the eval job'", 'gh issue create --title "the eval job" --body-file b.md',
+                        'gh pr view 5 --json title -q ".title" | grep eval'):
+            self.assertEqual(self.codes(command), "", command)
+        for command in ('git commit -m x; eval "$X"', 'echo "$(eval x)"; git commit -m x'):
+            self.assertIn("command_unreadable", self.codes(command), command)
+
     def test_ordinary_session_commands_pass(self):
         # Issue 174's rulings 1 to 6, and the review rule 9(b): ordinary commands, shaped as a session writes them,
         # pass. Every later rule adds its must-pass cases here.
@@ -3201,6 +3211,13 @@ class ShellReading(unittest.TestCase):
         for text in ("echo 'a; X=v'", "echo a\\; X=v", "echo $'\\'; X=v; echo \\''", "(X=v)", "echo \"$(X=v)\"",
                      "X=v echo", "alias X=v", "cat <<EOF\nX=v\nEOF"):
             self.assertEqual(self.read(text), (None, False), text)
+
+    def test_eval_marks_every_name_unknown_where_it_runs(self):  # issue 414
+        # eval in a substitution, or in text the reader cannot split, marks every name unknown; the word in prose does not.
+        for text in ('echo "$(eval x)"', 'echo "$(eval x(y))"', 'if true; then eval x; fi', 'x | eval y'):
+            self.assertIn("*", shell.touched(text), text)
+        for text in ('gh pr create --title "the eval job"', "git commit -m 'the eval job'", "grep eval f"):
+            self.assertNotIn("*", shell.touched(text), text)
 
     def test_a_variable_the_command_sets_twice_or_reads_is_not_known(self):
         for text in ("X=v; X=w", "X=v; X+=w", "readonly X=v; X=w", "X=v; export \"X=w\"", "X=v; read X",

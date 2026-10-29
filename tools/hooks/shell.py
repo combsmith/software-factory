@@ -785,7 +785,13 @@ def touched(text: str) -> set:
     bad |= set(re.findall(r"\bprintf\b[^\n;&|]*?-v\s+(%s)" % NAME, stripped))
     bad |= set(re.findall(r"\b(?:declare|typeset|local)\b[^\n;&|]*?-\w*n\w*\s+(%s)" % NAME, stripped))
     bad |= assigned_elsewhere(text)     # the raw text: an unquoted here-document's body is expanded too
-    if re.search(r"(?:^|[\s;&|(){}`])eval(?:[\s;&|]|$)", stripped):
+    # eval as the shell runs it, a command's word, in a substitution too; never the word in a quoted title or message
+    # (issue 414). Text the reader cannot split into commands is searched for the word, as before.
+    try:
+        evals = any(_leading(_commands_of(words))[1] == "eval" for words, _ in commands(stripped))
+    except ValueError:
+        evals = re.search(r"(?:^|[\s;&|(){}`])eval(?:[\s;&|]|$)", stripped) is not None
+    if evals:
         return set(counts) | bad | {"*"}
     return bad
 
