@@ -1100,7 +1100,7 @@ Three things bind to it.
 
 - **A Finding cites its criterion.** `criterion: PR-3` is a field of the Finding of §3.7, and the
   severity comes from the rubric. A Result whose Finding gives its criterion another severity has
-  not covered it, and `apply` writes none of it (decision 0085).
+  not covered it, and `apply` writes none of it (decision 0088).
 - **A Result reports coverage.** For every criterion that applies: `met`, a Finding, or
   `not_applicable` with a reason. A reviewing Result that omits one fails validation.
 - **The Role's eval set is scored against the same rubric,** so what is measured is what runs.

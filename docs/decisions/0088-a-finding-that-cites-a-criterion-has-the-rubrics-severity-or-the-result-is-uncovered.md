@@ -1,4 +1,4 @@
-# 0085. A Finding that cites a criterion has the rubric's severity, or the Result is uncovered
+# 0088. A Finding that cites a criterion has the rubric's severity, or the Result is uncovered
 
 Status: accepted. Adds to `docs/decisions/0049-a-reviewing-run-that-leaves-a-criterion-uncovered-has-not-reported-and-one-that-ran-and-left-no-outcome-is-an-attempt.md`
 and keeps all of it. It holds the rule section 3.14 already states, "the severity comes from the rubric", which
