@@ -2588,6 +2588,8 @@ class Workflows(unittest.TestCase):
             "a mapping on one line": (GOOD.replace(STEP, "      - {uses: evil/action@main, continue-on-error: true}\n"), "form"),
             "two spaces after the dash": (GOOD.replace(STEP, "      -  uses: actions/checkout@v7\n"), "form"),
             "a quoted key": (GOOD.replace("    runs-on:", '    "runs-on":'), "form"),
+            # An on: with no event under it at all, which no list item stands in (#416's mutant run).
+            "an on: with nothing under it": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n"), "form"),
             "a colon set apart": (GOOD.replace(STEP, "      - uses : evil/action@main\n"), "form"),
             "an escaped event name": (GOOD.replace("  merge_group:\n", '  merge_group:\n  "pull_request\\x5ftarget":\n'), "form"),
             "a list on one line": (GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule: [{cron: '0 * * * *'}]\n"), "form"),
