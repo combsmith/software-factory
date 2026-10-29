@@ -101,8 +101,8 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     for w in seen["writes"] if readable else []:
         kind = identities.get(w["by"])
         if w["by"] == "unattributed":
-            # GitHub names no resolver when an App resolved a thread: one a Role recorded is its own; any other is
-            # nobody's that can be told, and raises nothing (ruling 3).
+            # GitHub names no resolver when an App resolved a thread: nobody's that can be told, it raises nothing here
+            # (ruling 3), and the thread it resolved is unreadable, so the Kernel defers on it (decision 0067).
             continue
         where = MATCHES.get(kind, {}).get(w["kind"])
         if where is not None and where[1] in BY_ITEM:

@@ -2425,6 +2425,9 @@ class Recorded(unittest.TestCase):
                          None)
         self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted"),
                                        findings=(finding_on("PRRT_7", "mechanical"),))))
+        # Nor does a security Finding's thread: `apply` takes no accepted decision on one, and were one recorded, the
+        # queue App would close it on no ruling.
+        self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted"), findings=(finding_on("PRRT_7", "security"),))))
         # Held to the threads read: the ruling is joined to the thread its Lens opened, and to no other.
         recorded_ = ({"PRRT_7": {"lens": "pr-review", "category": "functional", "severity": "major", "runs": [self.RUN],
                                  "ruling": "accepted"}}, True, [])

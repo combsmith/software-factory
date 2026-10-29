@@ -99,7 +99,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-17 The agent resolved the threads that were holding it
 **Failure.** Four of the Maintainer's review threads were resolved by the account the author agent ran as, and the pull request merged itself.
-**Rule.** No Role decides a Finding about its own work. A person's thread is closed by that person: resolved by anyone else, it stays open. A Lens's thread is closed only by that Lens or a person with write access. What a person placed, only a person ends.
+**Rule.** No Role decides a Finding about its own work. A person's thread is closed by that person: resolved by anyone else, it stays open. A Lens's thread is closed only by a person with write access, or by the queue App on that Lens's accepted ruling, as the Kernel's act (decision 0086). What a person placed, only a person ends.
 **Check.** `tools/check_authority.py`, `tests/test_decide.py::test_an_answered_human_thread_waits_for_that_person`, `tests/test_decide.py::test_a_persons_thread_resolved_by_anyone_but_that_person_stays_open`, `tests/test_decide.py::test_a_lens_thread_resolved_by_anyone_but_a_writer_or_the_queue_on_its_ruling_stays_open`, `tests/test_decide.py::test_only_a_person_ends_a_request_for_changes`
 
 ### L-18 The approver was the author, or the last to push

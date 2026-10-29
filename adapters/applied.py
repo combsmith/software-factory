@@ -24,8 +24,8 @@ never none.
 
 - A Lens's thread takes its ruling from that Lens's own record too (issue 389): the result, accepted or rejected, of
   its latest Run that ruled on the thread, by when the Run started. None where no Run of the Lens ruled on it, where
-  that latest Run ruled on it twice, where a start cannot be read, or where the Lens is not the owner of the thread's
-  category, as the category itself says. The queue App's resolution closes the thread on an accepted ruling alone.
+  that latest Run ruled on it twice, where a start cannot be read, where the Lens is not the owner of the thread's
+  category, as the category itself says, or where the category is security, which `apply` never takes as accepted. The queue App's resolution closes the thread on an accepted ruling alone.
 
 A thread no Lens recorded, a person's or an outside reviewer's, is left as `adapters/threads.py` read it.
 
@@ -122,7 +122,10 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
                 category, severity = None, None
             threads[key] = {"lens": lens, "category": category, "severity": severity,
                             "runs": sorted({h[4] for h in held}),
-                            "ruling": _ruling(ruled[number].get(key, []), lens) if category is not None else None}
+                            # A security Finding is never accepted before the author's proposal can be read, so
+                            # none of its threads has a ruling the queue App could close it on (decision 0086).
+                            "ruling": _ruling(ruled[number].get(key, []), lens)
+                            if category not in (None, "security") else None}
         out[number] = (threads, True, read[number])
     return out
 

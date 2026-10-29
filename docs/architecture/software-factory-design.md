@@ -523,7 +523,7 @@ placed, only a person ends:
 - A person's thread resolved by anyone but that person stays open (L-17). A Lens's thread resolved
   by anyone but a person, or the queue App on that Lens's accepted ruling, also stays open, so the
   author agent resolving the threads that hold it closes none, and nor does the Lens's own App
-  (decision 0083). A thread that gates nothing is closed by whoever resolves it.
+  (decision 0086). A thread that gates nothing is closed by whoever resolves it.
 - Only the approver's approval stands, and only a person ends a request for changes.
 - `label_events` carry who added and who removed each label, from the timeline. The port gives them
   as the timeline lists them, and the Kernel reads them by time. Which of two events in the same
@@ -694,7 +694,7 @@ that it has already happened.
 | `push_commits` | The tree digest of the branch head, read back | Yes |
 | `open_pull_request` | The head branch name | Yes |
 | `submit_review` | A review by this actor on this commit | Yes |
-| `resolve_thread` | The thread's resolved flag. The Controller's act, carried out by the queue App (decision 0083) | Yes |
+| `resolve_thread` | The thread's resolved flag. The Controller's act, carried out by the queue App (decision 0086) | Yes |
 | `mark_ready` | The pull request's draft flag | Yes |
 | `add_label`, `remove_label` | The label's presence | Yes |
 | `create_check_run` | `external_id` set to the Effect's id | Yes |
@@ -708,7 +708,7 @@ A Result asks for its Effects as one list for each type, `effect/1`: `submit_rev
 which `create_check_run`'s `external_id` is built. The other types come with the Intents that need
 them. `add_label`, `remove_label`, `assign`, `enqueue_merge`, `dequeue_merge` and `resolve_thread`
 are the Controller's acts and never a Result's Effects: the owner rules on a Finding, and the
-Kernel resolves its thread (decision 0083). A `submit_review` names, for each comment,
+Kernel resolves its thread (decision 0086). A `submit_review` names, for each comment,
 the raised Finding it posts (§3.7) and has no event and no commit: `apply` submits it as a comment
 on the commit the Decision admitted, so a Role's review never approves. The name and the
 conclusion of a check run are `apply`'s, from the Task's Role and how the Run ended. One list for
@@ -801,7 +801,7 @@ the author's proposal. The owner's decision is recorded in its Run's `applied/1`
 the port joins the Lens's latest ruling to its thread. No Role resolves a thread: the Kernel resolves
 a Lens's thread its Lens accepted, as its own act, which the queue App carries out, and the gate
 reads the thread closed only when the queue App resolved it on that ruling, or a person did
-(decision 0083). A thread still open after the owner's Run on this content is a rejected one.
+(decision 0086). A thread still open after the owner's Run on this content is a rejected one.
 
 ### 3.9 State: derived
 
@@ -1267,7 +1267,7 @@ such as `max_diff_lines`, or on the whole org, such as `org_max_active_runs`, bo
 | `adjudicating → addressing` and `adjudicating → converged` by `factory`, and `adjudicating → verifying` by `platform` | `max_rounds` | The owner Role's adjudicating Run that each follows, or that the lap calls for |
 | `addressing → adjudicating` by `factory`: the author's Run answers with no push | `max_runs_per_item` | That Run. `max_attempts` counts only Runs that failed, so it does not advance here |
 | `addressing → adjudicating` by the platform | `max_runs_per_item` | A conflict clears, and the work is then the owner's ruling Run |
-| Any transition a Lens's App makes by resolving its own threads, marking them unresolved, or dismissing the approval | `max_runs_per_item` | The reviewer's App is a Role's App, which writes only inside a Run (decision 0005). Its resolution closes nothing (decision 0083) |
+| Any transition a Lens's App makes by resolving its own threads, marking them unresolved, or dismissing the approval | `max_runs_per_item` | The reviewer's App is a Role's App, which writes only inside a Run (decision 0005). Its resolution closes nothing (decision 0086) |
 | `addressing → converged` by `platform`: a conflict that a later move of the base clears | `max_acts_per_item` | The act the Factory makes each time the lap reaches `converged` |
 | `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
 | `queued → converged` by `factory`: a Role's App dismisses the approval | `max_runs_per_item` | The Run inside which a Role's App writes. A dequeue changes no State: derive has already given the State the item leaves the queue in, and the dequeue follows it |
@@ -1619,10 +1619,11 @@ A Finding from a Lens that is not required is shown and measured. It is given to
 input. If `pr-review` adopts it, it raises a Finding of its own (§3.7), and that one gates. An Advisory reviewer that posts twenty threads therefore costs the reviewer
 some reading and cannot hold a pull request by volume, which is how the POC's comment gate failed.
 
-`pr-review` resolves every third-party thread it does not adopt. The ruleset's requirement that
-threads be resolved stays in force, so the platform keeps backing the Factory, and each such thread
-gets one visible outcome. "Resolved by `pr-review`, not adopted" is then a fact on GitHub, from
-which each reviewer's contribution can be counted.
+A third-party thread the reviewer does not adopt is resolved by no Role: no Role resolves a thread
+(decision 0086), and the reviewer's App could not resolve another's (trials/P-5.json). Who resolves
+it, so that the ruleset's requirement that threads be resolved stays in force and each such thread
+gets one visible outcome, is "CodeRabbit's approval follows from its threads being resolved, so it
+is never counted as a review, and no Role resolves another reviewer's thread" (issue 366).
 
 This makes `pr-review` the one funnel for every outside view, and resolving a thread is quieter
 than adopting it. So the other direction is counted too: for each reviewer, and for `pr-review`
@@ -1837,8 +1838,8 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | A pull request that targets another feature branch, as stacked pull requests do | The Factory serves pull requests that target a protected branch. Others are shown as not served |
 | The poller was down for hours | A wait counts only while passes ran: from the item's last movement, and no earlier than `passes_since`, the start of the current unbroken chain of passes. If that cannot be read it is passed over, which shows more, never less. A missing pass is one health alert, not one alert per item, and so is a Pause or a capacity deferral: no item it defers goes stale (§4.1) |
 | Comments that keep a stalled item from showing | Only what a writer, a Lens or the Factory does moves an item: a stranger's comment, a check that is not required, and a time later than now or with a field no calendar has move nothing (§4.1, I-28) |
-| A third-party thread the reviewer does not adopt | The reviewer resolves it (§4.2), so the ruleset does not block the merge on it |
-| A review thread from someone without write access | On a public repo anyone can open one. It is treated as a third-party reviewer's: `pr-review` adopts it or resolves it. Only a person with write access can hold a pull request with a thread |
+| A third-party thread the reviewer does not adopt | No Role resolves it (decision 0086); who does, so that the ruleset does not block the merge on it, is issue 366's (§4.2) |
+| A review thread from someone without write access | On a public repo anyone can open one. It is treated as a third-party reviewer's: `pr-review` adopts it, or it waits on issue 366 as one not adopted does. Only a person with write access can hold a pull request with a thread |
 | A request for changes, from a person with write access or from anyone else | A writer's gates, as that person's thread does, and stands until that person approves or a person with write access dismisses it; new content and an App's dismissal do not clear it. A stranger's or a Lens's gates nothing. An approval answers that person's request even once dismissed, so an App's push that dismisses a stale approval revives nothing; it approves no content (§3.3) |
 | A plain comment from the Maintainer | It steers and gates nothing. It goes into the next Run's Task, and the Role's App reacts to it to show it was read. A plain comment has no resolved state, so it could never be closed. To block, use a review |
 
@@ -2017,7 +2018,7 @@ A token is still narrowed at mint time to the Effects one Result requests.
 
 | Role | At the start | Owns at the start | Owns once promoted | Writes as |
 |---|---|---|---|---|
-| `pr-review` | Reviewer, and owner of every model-judged category | `functional`, `security`, `architecture`, `delivery`, `reliability`, `requirements`, `uncategorised` | `requirements`, `uncategorised` | Its own App: comment and open threads; it rules on them, and the queue App resolves one it accepted, as the Kernel's act (decision 0083). Its approval is submitted by the machine user |
+| `pr-review` | Reviewer, and owner of every model-judged category | `functional`, `security`, `architecture`, `delivery`, `reliability`, `requirements`, `uncategorised` | `requirements`, `uncategorised` | Its own App: comment and open threads; it rules on them, and the queue App resolves one it accepted, as the Kernel's act (decision 0086). Its approval is submitted by the machine user |
 | `dev-lead` | Author, from the fix Intents onward | None | None | Its own App: push to work-item branches, open pull requests, comment |
 | `qa-lead` | Shadow; from the fix and implement Intents, author of acceptance contracts | None | `functional` | Its own App when it first drafts a contract |
 | `security-lead` | Shadow | None | `security` | Nothing until promoted; then its own App |
@@ -2135,7 +2136,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? Does a push take a queued pull request out, can the queue eject one without merging it, its approval staying, is a draft ever merged by a person or the queue, and does the queue run the required checks on the merge group? Is each enqueue and dequeue on the pull request's timeline, naming its actor? | Yes to the first three; each of the rest answered and recorded, and the fake changed to match where it differs (`sim/AGENTS.md`, "Known to differ"). **Failed** for the pr-review App as granted, on 2026-10-27 (`trials/P-2.least.json`), in the canary on a pull request the machine user approved: the pr-review App, with every permission it holds, `contents` at read and `pull_requests` at write among them, was refused both `enqueuePullRequest` and `dequeuePullRequest` (FORBIDDEN, "Resource not accessible by integration"); the trial-author App, narrowed to `pull_requests: write`, was refused both, and with `contents: write` beside it enqueued the pull request and took it out again, as the Maintainer's reads between saw. An App enters and leaves the queue only with `contents: write`, so the Maintainer chose a narrow App of its own for it (issue 381, "A narrow queue App, combsmith-sf-queue, enqueues and dequeues with contents and pull-request write alone (P-2)"). While a person had it queued, the Controller's read saw it queued, position 1, with its token narrowed to `metadata: read` alone, and again with `pull_requests` or `contents` at read beside it. Auto-merge was not asked, by the Maintainer's choice: the queue is used directly |
 | P-3 | Is an environment secret restricted to the default branch unreadable from a workflow on a work-item branch? | Unreadable |
 | P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes. **Failed** on 2026-10-21 (`trials/P-4.json`): the token is minted with the subset and held to its permissions (a write beyond them is refused 403), but a repository subset does not narrow a read of a public repo, which any token reads (200); §5.1 now says so |
-| P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write. **Failed** on 2026-10-28 (`trials/P-5.json`), in the canary on a pull request with a thread CodeRabbit's review opened, a person's and the trial-author App's: the pr-review App, with every permission it holds, `pull_requests` at write among them, was refused all three (FORBIDDEN, "Resource not accessible by integration"); the trial-author App, narrowed to `pull_requests: write`, was refused the two others opened, and with `contents: write` beside it resolved both, each read back resolved by it, typed `User`. An App resolves another's thread only with `contents: write`, so the queue App resolves a Lens's thread, as the Kernel's act (decision 0083) |
+| P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write. **Failed** on 2026-10-28 (`trials/P-5.json`), in the canary on a pull request with a thread CodeRabbit's review opened, a person's and the trial-author App's: the pr-review App, with every permission it holds, `pull_requests` at write among them, was refused all three (FORBIDDEN, "Resource not accessible by integration"); the trial-author App, narrowed to `pull_requests: write`, was refused the two others opened, and with `contents: write` beside it resolved both, each read back resolved by it, typed `User`. An App resolves another's thread only with `contents: write`, so the queue App resolves a Lens's thread, as the Kernel's act (decision 0086) |
 | P-6 | Does a job-level `if:` on the actor's prefix drop events authored by the Factory's Apps? | Dropped, with no step run |
 | P-7 | Does the machine user's approval satisfy code-owner review and the last-push rule when an App pushed last? And does an approval given before a push still stand after it, under the ruleset that dismisses stale approvals on a push? | Yes to the first, **passed** on 2026-10-19 (`trials/P-7.json`). No to the second, read afterwards from that run's recorded timeline: the App's push dismissed the machine user's approval, and the timeline names the App as the dismisser |
 | P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3. **Passed** for the cost (`trials/P-8.json`). The ticks part **failed** on 2026-10-20 (`trials/P-8.ticks.json`): 19 of 335 due ticks over 28 hours, so the schedule is a backstop of hours and the relay carries W-2 (§7.3, decision 0043) |
@@ -2767,7 +2768,7 @@ A second pass on 2026-10-10 asked of each part what requirement would fail witho
 |---|---|
 | The control room as an input to decisions | Decisions read GitHub only. The view is written and never read back (§3.9) |
 | A separate intake Role typing third-party prose | Adoption by `pr-review`, whose own Finding carries the fields (§3.7) |
-| Dispositions as standing records | The thread, resolved by the owner's App; the two halves travel in Results (§3.8) |
+| Dispositions as standing records | The owner's ruling in its Run's `applied/1`, and the thread the queue App resolved on it as the Kernel's act (decision 0086); the two halves travel in Results (§3.8) |
 | An App for every Role from the first day | One shared reader App; a Role's own App when it first writes (§5.1) |
 | A watchdog workflow | The relay's timer and a Run's end, with staggered schedule lines as a backstop of hours (§7.3) |
 | The Wake contract and a next-evaluation time on every Decision | A nudge that carries nothing; a staleness limit per state (§3.2, §4.1) |
