@@ -1357,6 +1357,67 @@ class Timeline(unittest.TestCase):
             odd = Router(github.Replay([]), {"x": level})
             with self.assertRaises(github.Unanswered, msg=level):
                 self.accounts(odd).actor({"login": "x", "id": 1, "type": "User"})
+        from kernel import derive
+        # Issue 368, L-02: an event an App made with a person's token is the App's. GitHub names a User as the actor of
+        # what an App did with that User's token, and the App in the event's performed_via_github_app. No fixture yet
+        # holds such a label event or dismissal: events in the timeline's shape. The writer's own removal of a Hold
+        # ends it; the same removal made through an App is the App's, which ends no Hold, hands-off or admission
+        # (kernel/derive.py's standing_labels), and dismisses no request for changes.
+        at, later = "2026-10-19T18:00:00Z", "2026-10-19T19:00:00Z"
+        writer = {"login": "don-petry", "id": 9, "type": "User"}
+        app = {"id": 77, "slug": "some-app"}
+        placed = {"event": "labeled", "label": {"name": "factory:hold"}, "created_at": at, "actor": writer,
+                  "performed_via_github_app": None}
+        removed = dict(placed, event="unlabeled", created_at=later)
+        router = Router(github.Replay([]), {"don-petry": "admin"})
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        self.assertEqual([e["by"] for e in timeline.label_events([placed, removed], self.accounts(router))],
+                         [person, person])
+        got = timeline.label_events([placed, dict(removed, performed_via_github_app=app)], self.accounts(router))
+        self.assertEqual([e["by"] for e in got], [person, {"kind": "app", "name": "don-petry", "can_write": False}])
+        self.assertEqual(derive.standing_labels({"label_events": got}), {"factory:hold": got[0]})
+        # A label an App placed with a person's token is the App's too, so an admission it places admits nothing.
+        admitted = dict(placed, label={"name": "factory:admit"}, performed_via_github_app=app)
+        self.assertEqual([e["by"] for e in timeline.label_events([admitted], self.accounts(router))],
+                         [{"kind": "app", "name": "don-petry", "can_write": False}])
+        # An App's own Bot, the machine user, and a Lens are read as they always are, whatever names the App.
+        bot = {"login": "coderabbitai[bot]", "id": 8, "type": "Bot"}
+        machine = {"login": APPROVER, "id": MACHINE[0], "type": "User"}
+        lens = {"login": "combsmith-sf-pr-review[bot]", "id": 7, "type": "Bot"}
+        mixed = Router(github.Replay([]), {APPROVER: "write"})
+        others = [dict(removed, actor=who, performed_via_github_app=app) for who in (bot, machine, lens)]
+        self.assertEqual([e["by"]["kind"] for e in timeline.label_events(others, self.accounts(mixed, {(7, "Bot"): "x"}))],
+                         ["app", "machine_user", "lens"])
+        # An App's act is never asked the write access of the person whose token it used: no permission read is made.
+        silent = Router(github.Replay([]), {})
+        nobody = dict(removed, actor={"login": "nobody", "id": 11, "type": "User"}, performed_via_github_app=app)
+        self.assertEqual([e["by"] for e in timeline.label_events([nobody], self.accounts(silent))],
+                         [{"kind": "app", "name": "nobody", "can_write": False}])
+        self.assertEqual(silent.asked, [])
+        # What names the App is read strictly: null or absent is no App; anything but an App with its id cannot be read,
+        # never a person's act for want of an App.
+        for odd in ({}, "", 0, False, [], "some-app", {"id": True}, {"id": 0}, {"slug": "some-app"}):
+            with self.assertRaises(github.Unanswered, msg=odd):
+                timeline.label_events([placed, dict(removed, performed_via_github_app=odd)], self.accounts(router))
+        self.assertEqual([e["by"] for e in timeline.label_events(
+            [placed, {k: v for k, v in removed.items() if k != "performed_via_github_app"}], self.accounts(router))],
+            [person, person])
+        # A dismissal is read the same way, as P-7's timeline holds one: the Maintainer dismissed an approval himself.
+        # Made through an App, the dismissal of a request for changes is the App's, so the request stands; that of an
+        # approval is still read as the person's, so the approval ends: each reading lets nothing through.
+        events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d", "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"}
+        via = [dict(e, performed_via_github_app=app) if e.get("event") == "review_dismissed"
+               and e["actor"]["login"] == "don-petry" else e for e in events]
+        asked = [dict(e, dismissed_review=dict(e["dismissed_review"], state="changes_requested"))
+                 if e.get("event") == "review_dismissed" and e["actor"]["login"] == "don-petry" else e for e in via]
+        maintainer = {"kind": "human", "name": "don-petry", "can_write": True}
+        for timeline_read, by, before in ((events, maintainer, "approved"), (via, maintainer, "approved"),
+                                          (asked, {"kind": "app", "name": "don-petry", "can_write": False},
+                                           "changes_requested")):
+            router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
+            got, _ = timeline.reviews(router, p7_pull(), timeline_read, self.accounts(router), BASE_HEAD)
+            self.assertEqual((got[0]["dismissed_by"], got[0]["dismissed_from"]), (by, before))
 
     def test_a_reopening_is_read_from_the_timeline(self):  # issue 378, trials/P-7.reopened.json
         # Canary pull request 61, closed and then approved by the machine user, was reopened with no push: the timeline
@@ -1930,7 +1991,7 @@ class Acceptance(unittest.TestCase):
                                         listed=False), (None, False), actor)
         # Placed by an App, the machine user, a reader, or an App with a person's token, it asks for nothing.
         for event in (label_event("labeled", APP), label_event("labeled", (APPROVER,) + MACHINE),
-                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"slug": "x"})):
+                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"id": 77, "slug": "x"})):
             self.assertEqual(self.asked([event]), (None, True), event)
         # Placed again by an App over a person's, the person's placement stands; after a person removed it, an App's
         # placement asks for nothing.
@@ -2984,7 +3045,7 @@ REFUSALS = {
     ("P-4", 2): None, ("P-4", 3): None, ("P-4", 9): None,   # a trial's own writes and reads of a file
     ("P-43", 3): None,                 # a review written by the trial, which no port writes yet
     ("P-44", 3): "runs",               # a list of runs GitHub did not find
-    ("P-52", 2): "pause",              # the org's own variable, refused the Controller's token: the Pause unreadable
+    ("P-52", 2): None,                 # the org's own variable, refused the Controller's token: no port asks it (issue 362)
     # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
     ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 19): None,
     ("P-2.least", 30): None,
@@ -3098,11 +3159,11 @@ class Contract(unittest.TestCase):
                 pull.last_pusher(replay("P-7", 11), body("P-7", 7)) == "combsmith-sf-trial-author[bot]"),
             # The App pushed the head last, read after the approval too, and the machine user's approval of that head
             # stands: approved, on that commit, dismissed by no one.
-            # The repo's Pause is read with the Controller's token, and the org's own endpoint refuses it, read as a
-            # Pause unreadable; the repo's list of the org's variables, which also names it, the port reads from issue 362.
+            # The repo's Pause is read with the Controller's token, and the org's from the repo's list of the org's
+            # variables, since the org's own endpoint refuses it (issue 362).
             "the_pause_is_read_with_the_controllers_token": ({"P-52"},
-                pause.read(replay("P-52", 2, 1), "combsmith", [canary()])
-                == {"org": pause.UNREADABLE, "repos": {canary(): "false"}}),
+                pause.read(replay("P-52", 3, 1), "combsmith", [canary()])
+                == {"org": "false", "repos": {canary(): "false"}}),
             "the_machine_users_approval_counts": ({"P-7"},
                 pull.last_pusher(replay("P-7", 24), body("P-7", 20)) == "combsmith-sf-trial-author[bot]"
                 and [(r["state"], r["dismissed_by"] is None) for r in reviewed if r["by"]["kind"] == "machine_user"]
@@ -3136,9 +3197,7 @@ class Contract(unittest.TestCase):
                  and (e["response"]["status"] >= 400
                       or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
         self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "pause", "runs"])
-        # The org's variable GitHub refused the Controller's token, as P-52 recorded its 403, is a Pause unreadable.
-        self.assertIs(pause.read(replay("P-52", 2), "combsmith", [])["org"], pause.UNREADABLE)
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "runs"])
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]

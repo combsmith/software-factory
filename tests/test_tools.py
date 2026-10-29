@@ -2080,11 +2080,16 @@ class Workflows(unittest.TestCase):
         (local / "config" / "hooks.json").write_text("{}")
         self.assertTrue(caught(said(second), "cannot be read"))
         (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
                                                                "EVENT": "pull_request"}, local), 0)
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
                                                                "EVENT": "pull_request"}, local), 1)
+        # What it says is what it holds: that the commits name the Maintainer, never that they are theirs (decision
+        # 0087), and the committer only where GitHub did not commit it.
+        self.assertIn("names the Maintainer as its author, and as its committer where GitHub did not commit it",
+                      printed.getvalue())
+        self.assertNotIn("is the Maintainer's", printed.getvalue())
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -2606,8 +2611,32 @@ class Workflows(unittest.TestCase):
             "a key written twice": (GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    timeout-minutes: 600\n"), "form"),
             "a step's key written twice": (GOOD.replace(STEP, "      - run: make verify\n        run: make evil\n"), "form"),
             "nothing at all": ("", "form"),
+            # Issue 371: a YAML reader reads each as more of the command, `make verify - ; exit 0`, and runs it whole.
+            "a command carried on as a list item": (GOOD.replace(STEP, STEP + "          - ; exit 0\n"), "form"),
+            "a command carried on past a blank line": (GOOD.replace(STEP, STEP + "\n          - ; exit 0\n"), "form"),
+            "a list item under a key with a value": (GOOD.replace(STEP, STEP + "        - ; exit 0\n"), "form"),
+            "a list item after a step": (GOOD.replace(STEP, STEP + "      - exit 0\n"), "form"),
+            "a list item indented apart from the one before": (
+                GOOD.replace("      - checks\n", "      - checks\n        - mutants\n"), "form"),
+            "a list left of its key": (GOOD.replace("      - checks\n      - commits\n      - mutants\n",
+                                                    "  - checks\n  - commits\n  - mutants\n"), "form"),
+            # Under a key with no value, where an item may stand, a colon set apart is still refused (CodeRabbit's read of
+            # #392): it is a mapping no entry would hold.
+            "a colon set apart under a key with no value": (
+                GOOD.replace("      - checks\n", "      - uses : evil/action@main\n      - checks\n"), "form"),
+            # A YAML reader reads each of these otherwise than the lines do, so a command or a key it runs is one no
+            # entry holds (the security pass on #392): a line led by a space of another kind, which is no comment to it;
+            # a line break of another kind inside a comment; a quoted value not closed on its line, or with text after
+            # its close; and an on: written as a list, never read as events.
+            "a comment led by another space": (GOOD.replace(STEP, STEP + "          \u00a0# || true\n"), "form"),
+            "a line break inside a comment": (GOOD.replace(STEP, STEP + "        # c\u0085        shell: bash\n"), "form"),
+            "a quote not closed on its line": (GOOD.replace(STEP, STEP + '        name: "0\n        id: x # "\n'), "form"),
+            "text after a quote's close": (GOOD.replace(STEP, STEP + '        name: "a" b\n'), "form"),
+            "on: as a list": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  - pull_request_target\n"),
+                              "form"),
         }
         for name, (text, rule) in ways.items():
+            self.assertNotEqual(text, GOOD, name)
             self.assertIn(rule, rules(text), name)
 
     def test_a_workflow_that_keeps_the_rules_is_not_refused(self):
@@ -2618,6 +2647,13 @@ class Workflows(unittest.TestCase):
             "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
             "an off-zero schedule": POLLER.replace('"13 * * * *"', "'17,47 * * * *'"),
             "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")),
+            "a list under its key's own indent": GOOD.replace("      - checks\n      - commits\n      - mutants\n",
+                                                              "    - checks\n    - commits\n    - mutants\n"),
+            "a comment between a list's items": GOOD.replace("      - checks\n", "      - checks\n      # and\n"),
+            # A key with no value but its comment, its list under it.
+            "a comment beside a list's key": GOOD.replace("    needs:\n", "    needs: # all three\n"),
+            # A quoted value closed on its line, whatever it holds, with its comment after it.
+            "quoted values": GOOD.replace(STEP, STEP + '        name: "a # b \\"c\\"" # d\n        id: \'it\'\'s\'\n'),
         }
         for name, text in fine.items():
             self.assertEqual(rules(text), [], name)
