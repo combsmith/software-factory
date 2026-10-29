@@ -2725,6 +2725,15 @@ class Workflows(unittest.TestCase):
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
 
+    def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392
+        # A run's value is its command; a # after a quoted command is no comment of the entry's, as it is for uses: the
+        # comment a pin is read by.
+        entries, bad = check_workflows.read('on:\n  pull_request:\njobs:\n  x:\n    steps:\n'
+                                            '      - run: "make verify" # a note\n      - uses: "a/b@c" # v1\n')
+        self.assertEqual(bad, [])
+        self.assertEqual([(e["key"], e["value"], e["comment"]) for e in entries if e["key"] in ("run", "uses")],
+                         [("run", "make verify", ""), ("uses", "a/b@c", "# v1")])
+
     def test_the_commit_a_later_job_checks_out_is_the_releases_own(self):  # decision 0066
         # A job output is as trusted as the step that writes it. `commit` is written by one step alone, `commit`, right
         # after `run` checks out the Channel and before the CLI is installed or any secret named, on the Release's own

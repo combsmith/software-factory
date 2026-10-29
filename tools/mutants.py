@@ -9007,6 +9007,18 @@ MUTANTS = ISSUE + [
      'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
     ('an eval dispatch of id True is read', 'adapters/candidate.py',
      'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    # Argon's read of #392: an on: written as a list, a step of bare text, and a run's comment.
+    ("an on: written as a list is read", "tools/check_workflows.py",
+     '    elif _on_items(text, top["on"]):\n', '    elif False:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("an on: list at the events' level only deeper is read", "tools/check_workflows.py",
+     '    return [number for lead, number, item in section if item and lead == events]',
+     '    return [number for lead, number, item in section if item and lead > events]', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("an on: list in YAML's compact form ends the section", "tools/check_workflows.py",
+     '        if lead == 0 and not item:\n            break       # the next top-level key', '        if lead == 0:\n            break       # the next top-level key', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("a step of bare text passes the lint", "tools/check_workflows.py",
+     '    elif any(_scalar_items(text, entries, job["key"]) for job in jobs):\n', '    elif False:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("a run keeps the comment after its quote", "tools/check_workflows.py",
+     'rest[end:].strip()[1:] if key != "run" else ""', 'rest[end:].strip()[1:]', ('tests.test_tools.Workflows.test_a_run_keeps_no_comment_of_its_own',)),
 ]
 
 
