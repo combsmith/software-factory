@@ -4,7 +4,7 @@
   "question": "Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with config/apps.json?",
   "pass": "They agree exactly, and a difference fails (section 6). As the story, #26, states it in its working rulings: for each App, app_id is the data's; the permissions and their levels are exactly the data's, no more and no fewer, and the same registered and installed; events is empty; the selection is selected; and the repos are exactly installed_on. A mismatch is a fail, and no key for that App is stored. This fixture holds the first two reads, made through the Maintainer's login and minting nothing: GET /apps/{slug} for each App, and GET /orgs/combsmith/installations, kept whole, third-party Apps included. Its verdict is on every part of the condition but the repos. The repos each installation reaches need an installation token, so they are read at the Maintainer's terminal by tools/trial_p39_reach.sh and kept in P-39.reach.json, with a verdict of their own. P-39 passes only if both fixtures do.",
   "repo": "combsmith",
-  "ran_at": "2026-10-29T01:14:47Z",
+  "ran_at": "2026-10-29T14:36:34Z",
   "exchanges": [
     {
       "request": {
@@ -25,18 +25,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Thu, 29 Oct 2026 01:14:48 GMT",
+          "date": "Thu, 29 Oct 2026 14:36:35 GMT",
           "etag": "W/\"aa0d7e5b7dca42688a13a7a86d2be1638ff470801e5d9fd4693f2dadd4157a28\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "EF24:3963BD:DE8CEDD:2DE09279:6AE29E08",
+          "x-github-request-id": "CCCB:77139:12A88A8F:3D66BA39:6AE359F3",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4731",
-          "x-ratelimit-reset": "1793237995",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793288176",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "269"
+          "x-ratelimit-used": "2"
         },
         "body": {
           "id": 5364130,
@@ -102,18 +102,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Thu, 29 Oct 2026 01:14:49 GMT",
+          "date": "Thu, 29 Oct 2026 14:36:35 GMT",
           "etag": "W/\"df7bc75ec92605341578fee45a1d28f794eaa91533b3473d16422acecb63ffff\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "EF26:10A418:EA1CDC2:3013E54F:6AE29E09",
+          "x-github-request-id": "CCCD:3E23CA:137F5035:409927DE:6AE359F3",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4730",
-          "x-ratelimit-reset": "1793237995",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793288176",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "270"
+          "x-ratelimit-used": "3"
         },
         "body": {
           "id": 5364144,
@@ -179,18 +179,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Thu, 29 Oct 2026 01:14:49 GMT",
+          "date": "Thu, 29 Oct 2026 14:36:36 GMT",
           "etag": "W/\"9e0f723eaea60600e68f8d70cfc03ac8dc6dd7c88c859430d311124fe43d13c4\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "EF27:85C9B:E2ACB1C:2E74645E:6AE29E09",
+          "x-github-request-id": "CCCE:10D6AE:13DFA4CA:41D0B5AB:6AE359F3",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4729",
-          "x-ratelimit-reset": "1793237995",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1793288176",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "271"
+          "x-ratelimit-used": "4"
         },
         "body": {
           "id": 5364151,
@@ -255,18 +255,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Thu, 29 Oct 2026 01:14:50 GMT",
-          "etag": "W/\"976be30aa7992dbeedf97abeba12e99ba6580f339d8b24901f17c014c381bf13\"",
+          "date": "Thu, 29 Oct 2026 14:36:36 GMT",
+          "etag": "W/\"58adf3f9113c95083470a356e2ede7c965894e8456ee880abbc13970b7fda319\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "EF28:97FF:E78675E:30133AE9:6AE29E0A",
+          "x-github-request-id": "CCCF:2698FD:11AF5DA8:3A461EBD:6AE359F4",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4728",
-          "x-ratelimit-reset": "1793237995",
+          "x-ratelimit-remaining": "4995",
+          "x-ratelimit-reset": "1793288176",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "272"
+          "x-ratelimit-used": "5"
         },
         "body": {
           "id": 5519382,
@@ -299,11 +299,10 @@
           "external_url": "https://github.com/combsmith",
           "html_url": "https://github.com/apps/combsmith-sf-queue",
           "created_at": "2026-10-29T01:09:22Z",
-          "updated_at": "2026-10-29T01:11:49Z",
+          "updated_at": "2026-10-29T14:35:54Z",
           "permissions": {
             "contents": "write",
-            "metadata": "read",
-            "pull_requests": "write"
+            "metadata": "read"
           },
           "events": []
         }
@@ -328,18 +327,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Thu, 29 Oct 2026 01:14:51 GMT",
-          "etag": "W/\"f9479db2601a807b67ec386af34bb23b4ec2c410d5d76af9f328cf2409bfc04e\"",
+          "date": "Thu, 29 Oct 2026 14:36:37 GMT",
+          "etag": "W/\"091ffa5c6d37a6dd2119c95d459d9caa7d6f87b5faaa5025c42199967d2e1e3c\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "admin:org, read:org, write:org",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "EF29:85C9B:E2AD34F:2E747F20:6AE29E0A",
+          "x-github-request-id": "CCD0:1CC953:126B96F7:3CC30CF4:6AE359F4",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4260",
-          "x-ratelimit-reset": "1793237396",
+          "x-ratelimit-remaining": "4632",
+          "x-ratelimit-reset": "1793284870",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "740"
+          "x-ratelimit-used": "368"
         },
         "body": {
           "total_count": 19,
@@ -1431,12 +1430,11 @@
               "target_type": "Organization",
               "permissions": {
                 "contents": "write",
-                "metadata": "read",
-                "pull_requests": "write"
+                "metadata": "read"
               },
               "events": [],
               "created_at": "2026-10-28T20:09:49.000-05:00",
-              "updated_at": "2026-10-28T20:13:16.000-05:00",
+              "updated_at": "2026-10-29T09:36:16.000-05:00",
               "single_file_name": null,
               "has_multiple_single_files": false,
               "single_file_paths": [],

@@ -14,7 +14,8 @@ no earlier than it last changed, as the installations' read records it. For each
 installation are of its `app_id` and its name, with exactly the permissions and levels here and no
 events; the installation is on `selected` repos; and it reaches exactly `installed_on`. Anything short of that is a fail, and no key is stored. Each App's
 key is kept in the environment of the one job that holds it (design §4.9): the Controller's in the
-poller's, the reader's in `run`'s, and each Role's in `apply`'s. A job that names an environment
+poller's, the reader's in `run`'s, the queue App's in the queue step's (issue 381), and each Role's in
+`apply`'s. A job that names an environment
 reads every secret in it, so no other job's environment may hold a key, and `run`, which reads
 untrusted text, never holds one that writes. The secret is named for the App.
 """
@@ -45,9 +46,10 @@ REACH = "GET /installation/repositories"
 LISTS = {"installations": ("installations", "app_id"), "reach": ("repositories", "full_name")}
 # The job that holds each App's key (design §4.9), and the environment each job names (decision 0035). Every App not
 # named here is a Role's, whose key `apply` holds; so several Roles' keys share apply's environment, and nothing else.
-HOLDER = {"controller": "poller", READER: "run"}
+HOLDER = {"controller": "poller", READER: "run", "queue": "queue"}
 ROLE_HOLDER = "apply"
-ENVIRONMENT = {"poller": "factory-poller", "apply": "factory-apply", "run": "factory-run"}
+ENVIRONMENT = {"poller": "factory-poller", "apply": "factory-apply", "run": "factory-run",
+               "queue": "factory-queue"}
 
 
 def _kind(call) -> str:

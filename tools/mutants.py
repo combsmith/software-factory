@@ -2053,7 +2053,9 @@ MUTANTS = ISSUE + [
     ("an App's key may be kept in another job's environment", "tools/check_apps.py",
      "        if environment != ENVIRONMENT[job]:\n", "        if False:\n", ("tests.test_tools.Apps",)),
     ("every App's key is held by apply", "tools/check_apps.py",
-     'HOLDER = {"controller": "poller", READER: "run"}', "HOLDER = {}", ("tests.test_tools.Apps",)),
+     'HOLDER = {"controller": "poller", READER: "run", "queue": "queue"}', "HOLDER = {}", ("tests.test_tools.Apps",)),
+    ("the queue App's key is held by apply", "tools/check_apps.py",
+     ', "queue": "queue"}', "}", ("tests.test_tools.Apps",)),
     ("an App's key may be kept under any name", "tools/check_apps.py",
      '        if key.get("secret") != _secret(app):\n', "        if False:\n", ("tests.test_tools.Apps",)),
     # Decision 0035 and issue 187: a trial of forks reads the canary's forks alone, and a trial of reach is spared the

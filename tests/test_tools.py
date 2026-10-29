@@ -1212,7 +1212,10 @@ class Apps(unittest.TestCase):
         apps = self.apps
         apps["controller"]["key"], apps["reader"]["key"] = apps["reader"]["key"], apps["controller"]["key"]
         self.apps["pr-review"]["key"]["secret"] = "REVIEW_APP_KEY"
+        self.apps["queue"]["key"]["environment"] = "factory-apply"
         problems = self.check()
+        # The queue App's key is the queue step's alone, never apply's, where every Role's key is read (issue 381).
+        self.assertTrue(caught(problems, "queue: its key is kept in factory-apply, and the queue job holds it"))
         self.assertTrue(caught(problems, "controller: its key is kept in factory-run, and the poller job holds it"))
         self.assertTrue(caught(problems, "reader: its key is kept in factory-poller, and the run job holds it"))
         self.assertTrue(caught(problems, "controller: its key is kept as READER_APP_KEY; name it CONTROLLER_APP_KEY"))
@@ -1271,9 +1274,9 @@ class Apps(unittest.TestCase):
                                          "table maps to pull_requests write"))
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
-        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:dequeue_merge")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:dequeue_merge, which waits on the "
-                                             "queue App, combsmith-sf-queue"))
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:assign")
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:assign, which waits on the "
+                                             "Controller's notification story"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}

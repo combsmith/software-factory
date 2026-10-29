@@ -202,7 +202,7 @@
       }
     },
     "apps": {
-      "title": "One App for the Controller, one for each Role that writes, and the one reader.",
+      "title": "One App for the Controller, one for each Role that writes, the queue's, and the one reader.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -218,6 +218,9 @@
           "$ref": "#/$defs/app"
         },
         "reader": {
+          "$ref": "#/$defs/app"
+        },
+        "queue": {
           "$ref": "#/$defs/app"
         }
       }
@@ -292,7 +295,8 @@
               "enum": [
                 "factory-poller",
                 "factory-apply",
-                "factory-run"
+                "factory-run",
+                "factory-queue"
               ]
             },
             "secret": {
