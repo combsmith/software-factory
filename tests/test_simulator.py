@@ -811,6 +811,14 @@ class Simulation(unittest.TestCase):
         w.reviews[0].update(state="approved", dismissed_by=None, dismissed_from=None)
         w.push(world.MAINTAINER["name"], writer=True)
         self.assertIsNone(w.approved)
+        # Only that review: its approver's on another commit, or another's on its commit, ends nothing (the
+        # second-family read of #357).
+        for by, commit in ((world.COLLEAGUE, "c-new"), (world.MACHINE, "c-old")):
+            w.approved = dict(held)
+            w.reviews = [{"by": dict(by), "state": "approved", "commit": commit, "content_id": w.cid(),
+                          "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None}]
+            w.push(world.MAINTAINER["name"], writer=True)
+            self.assertEqual(w.approved, held, by["name"])
         # Under a ruleset that does not dismiss stale approvals, the same push leaves each approval standing, and the
         # contract's approval with it.
         w = World(seed)

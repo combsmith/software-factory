@@ -84,14 +84,19 @@ WORD = re.compile(r"[A-Za-z]{2,}")
 SECOND = re.compile(r"[.!?]\s+\S")       # a sentence that ends before the reason does
 ROW = re.compile(r"^\| (P-[1-9][0-9]*) \|", re.M)
 # A row's question is its second cell. A rule a row asks quotes the words of that question that ask it (issue 265): at
-# least this many, so that a quote names a question and not a word every row has.
-QUESTION = re.compile(r"^\| (P-[1-9][0-9]*) \| (.*?) \| ", re.M)
+# least this many, so that a quote names a question and not a word every row has. The question is its cell alone: a
+# cell whose close lacks its space does not run on into the next, nor past its line, and a pipe escaped is the cell's
+# own (the second-family read of #357).
+QUESTION = re.compile(r"^\| (P-[1-9][0-9]*) \| ((?:[^\\|\n]|\\[^\n])*?) \| ", re.M)
 QUOTED_WORDS = 4
-FENCED = re.compile(r"^```.*?^```", re.M | re.S)
-# A block fenced with tildes, and an HTML comment, hold no row either (the review of #265).
-HIDDEN = re.compile(r"(?:^~~~.*?^~~~)|(?:<!--.*?-->)", re.M | re.S)
+# A fenced block holds no row, nor does a block fenced with tildes or an HTML comment (the review of #265). They are
+# read in one pass from the top, as a renderer reads them, so that a fence inside a comment, or a comment's close inside
+# a block, ends nothing (the second-family read of #357). A fence is three marks or more, indented three spaces at
+# most, and only a line of the same mark, at least as long, closes it.
+HIDDEN = re.compile(r"(?:^ {0,3}(`{3,})[^\n]*\n.*?^ {0,3}\1`*[ \t]*$)|(?:^ {0,3}(~{3,})[^\n]*\n.*?^ {0,3}\2~*[ \t]*$)"
+                    r"|(?:<!--.*?-->)", re.M | re.S)
 # An opener with no close hides the rest, as a renderer reads it: no row after it is a trial.
-OPENED = re.compile(r"(?:^(?:```|~~~))|(?:<!--)", re.M)
+OPENED = re.compile(r"(?:^ {0,3}(?:```|~~~))|(?:<!--)", re.M)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -758,7 +763,7 @@ def _section_6(root: pathlib.Path):
     start = text.find("\n## 6. ")
     end = text.find("\n## ", start + 1) if start >= 0 else -1
     section = text[start:end if end >= 0 else len(text)] if start >= 0 else ""
-    section = HIDDEN.sub("", FENCED.sub("", section))
+    section = HIDDEN.sub("", section)
     opened = OPENED.search(section)
     return section[:opened.start()] if opened else section
 

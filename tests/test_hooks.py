@@ -3041,6 +3041,16 @@ class RulesChanged(unittest.TestCase):
         fine.write_text(json.dumps(dict(data, protected=data["protected"] + [{"path": "a/x**y.json", "is": "x"}])))
         self.assertIn(("a/x**y.json", "x"), protected.load(fine)["protected"])
 
+    def test_a_path_with_a_control_character_or_a_backslash_is_refused(self):  # Muse's read of #383
+        # No path in a tree holds one, so the pattern would protect nothing: the list cannot be read at all.
+        data = json.loads((ROOT / "config" / "hooks.json").read_text())
+        for group, entry in (("protected", {"path": "kernel\\decide.py", "is": "x"}),
+                             ("reported", {"path": "docs/\x00a.md", "is": "x"}),
+                             ("lens_inputs", {"lens": "verify", "path": "Make\x7ffile", "is": "x"})):
+            text = json.dumps(dict(data, **{group: data[group] + [entry]}))
+            self.assertRaises(protected.Unreadable, protected.parse, text)
+        self.assertEqual(protected.parse(json.dumps(data))["protected"], protected.load()["protected"])
+
     def test_every_protected_path_changed_is_listed(self):
         where = self.branch()
         for n in range(25):
