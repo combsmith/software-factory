@@ -2615,6 +2615,10 @@ class Workflows(unittest.TestCase):
                 GOOD.replace("      - checks\n", "      - checks\n        - mutants\n"), "form"),
             "a list left of its key": (GOOD.replace("      - checks\n      - commits\n      - mutants\n",
                                                     "  - checks\n  - commits\n  - mutants\n"), "form"),
+            # Under a key with no value, where an item may stand, a colon set apart is still refused (CodeRabbit's read of
+            # #392): it is a mapping no entry would hold.
+            "a colon set apart under a key with no value": (
+                GOOD.replace("      - checks\n", "      - uses : evil/action@main\n      - checks\n"), "form"),
         }
         for name, (text, rule) in ways.items():
             self.assertNotEqual(text, GOOD, name)
