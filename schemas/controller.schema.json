@@ -25,6 +25,7 @@
         "workflow_token",
         "relay",
         "controller",
+        "queue",
         "maintainer",
         "approver",
         "lenses",
@@ -81,6 +82,32 @@
         },
         "controller": {
           "description": "The Controller's App's bot account, by id, type and login, as GitHub records it as an issue's author; null until a trial records it, and while it is, no tracking issue is written",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "login"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "type": {
+              "const": "Bot"
+            },
+            "login": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+            }
+          }
+        },
+        "queue": {
+          "description": "The queue App's bot account, combsmith-sf-queue, by id, type and login: the App that carries out the Kernel's acts on the merge queue and on a Lens's threads (decision 0081, issue 389). Its account is typed queue, and a Lens's thread it resolves closes on that Lens's accepted ruling alone. Null until the App is registered (issue 381), and while it is, no account is typed queue",
           "type": [
             "object",
             "null"

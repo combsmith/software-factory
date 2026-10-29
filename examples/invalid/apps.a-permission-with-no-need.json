@@ -6,8 +6,7 @@
       "level": "write"
     },
     "effect:resolve_thread": {
-      "permission": "pull_requests",
-      "level": "write"
+      "waits_on": "the queue App, combsmith-sf-queue, which resolves a Lens's thread as the Kernel's act, on that Lens's accepted ruling: no Role resolves a thread (issue 389), and resolving another's thread takes contents: write, which the queue App alone holds (trials/P-5.json, decision 0082; issue 381)"
     },
     "effect:comment": {
       "permission": "pull_requests",
@@ -255,7 +254,6 @@
           "level": "write",
           "needs": [
             "effect:submit_review",
-            "effect:resolve_thread",
             "effect:comment",
             "read:facts.state",
             "read:facts.label_events"
