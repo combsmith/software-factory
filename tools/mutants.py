@@ -9120,6 +9120,8 @@ MUTANTS = ISSUE + [
      '    if "\\\\" in word and \'"\' in word:\n        return first', '    if False:\n        return first', ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
     ("a <<- word is read with its dash", "tools/hooks/shell.py",
      'words = shlex.split(word.lstrip("-").strip())', 'words = shlex.split(word.strip())', ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
+    ("a word with ANSI-C quoting is read by shlex", "tools/hooks/shell.py",
+     '    if "$" in word:\n        return first', '    if False:\n        return first', ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
     ("a word that ends in a backslash ends the body", "tools/hooks/shell.py",
      ' and not words[0].endswith("\\\\")', '', (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
     ("a here-document ends at its word's first part", "tools/hooks/shell.py",

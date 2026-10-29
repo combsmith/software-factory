@@ -187,6 +187,8 @@ def _nested(script: str, room: list) -> str:
 def _terminator(word: str, first: str) -> str:
     """The line that ends a here-document: its whole word after the <<, as the shell reads it once its quotes and
     backslashes are taken out, E\\OF as EOF (#410); `first`, the word up to its first quote, where it cannot be read."""
+    if "$" in word:
+        return first        # ANSI-C or locale quoting, $'..' or $"..", which shlex does not take out: main's reading
     if "\\" in word and '"' in word:
         return first        # a backslash in double quotes: shlex and the shell take it out apart, so main's reading
     try:

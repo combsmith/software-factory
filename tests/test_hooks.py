@@ -2540,6 +2540,10 @@ class MergesAndSettings(Asks):
         # A word with a backslash in quotes, which shlex and the shell take out apart, keeps main's reading: a body that
         # never ends, so the push after the shell's own terminator is asked about (Muse on #417).
         self.asked(self.run_('cat <<E"\\$OF"\nhi\nE$OF\ngit push origin main\nE\\$OF'), "command_unreadable", "a quoted backslash")
+        # A backslash before a backtick in double quotes, which the shell takes out and shlex keeps: main's reading.
+        self.asked(self.run_('cat <<E"\\`OF"\nhi\nE`OF\ngit push origin main\nE\\`OF'), "command_unreadable", "a quoted backslash before a backtick")
+        # ANSI-C quoting in the word, which shlex reads as text: main's reading too (Codex on #417).
+        self.asked(self.run_("cat <<E$'OF'\nhello\nEOF\ngit push origin main\nE$OF"), "command_unreadable", "ANSI-C quoting")
         # The review's third round. A cd in what a redirection's operand runs is its own: the command stays where it was.
         for command in ('cd lifecycle; cat < "$(cd /tmp; echo /dev/null)"; touch x.json',
                         # Issue 410: an eval's script reads its redirections' places as the command's own do.
