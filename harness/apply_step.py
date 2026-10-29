@@ -30,7 +30,7 @@ KEY = "PR_REVIEW_APP_KEY"
 
 
 def _ended(run: str, release: str, why: tuple) -> tuple:
-    return ({"schema": "applied/1", "run": run, "release": release, "effects": [], "findings": []},
+    return ({"schema": "applied/1", "run": run, "release": release, "effects": [], "findings": [], "rulings": []},
             {"schema": "outcome/1", "run": run, "release": release, "outcome": why[0], "reason": why[1]})
 
 
