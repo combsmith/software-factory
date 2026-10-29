@@ -52,8 +52,9 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                 waiting.pop(0)
                 scripts = expanded("\n".join(body)) if expands else []
                 if scripts:
+                    nested = [_nested(script) for script in scripts]     # each level's quotes its own
                     kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(script))
-                                                  for script in scripts)))
+                                                  for script in nested)))
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
                 body.append(line)
@@ -110,6 +111,55 @@ def _escaped(script: str) -> str:
     """`script` spelt to stand in "$(...)" as the hook reads one: each backslash and double quote escaped, so that its
     own quotes stay its own and do not end the word (requoted)."""
     return script.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _nested(script: str) -> str:
+    """`script` with each substitution in it, at any depth, spelt as `requoted` spells one, "$(...)" with its own script
+    escaped, so that the hook reads each level's quotes as that level's own (issue 376, the review of pull request
+    395). A backtick is made a $( ), its \\`, \\$ and \\\\ taken out, and in double quotes its \\" too, as the shell takes
+    them; what a single quote, a comment or a ${...} holds is left as it stands."""
+    out, i, quote = [], 0, None
+    while i < len(script):
+        c = script[i]
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif c == "\\":
+            out.append(script[i:i + 2])
+            i += 2
+            continue
+        elif c == "`" or script.startswith("$(", i):
+            if c == "`":
+                end, inner, taken = i + 1, [], ("\\", "`", "$") + (('"',) if quote == '"' else ())
+                while end < len(script) and script[end] != "`":
+                    escaped = script[end] == "\\" and script[end + 1:end + 2] in taken
+                    inner.append(script[end + 1] if escaped else script[end])
+                    end += 2 if escaped else 1
+                end, inner = end + 1, "".join(inner)
+            else:
+                end = _balanced(script, i + 2, ")")
+                inner = script[i + 2:end - 1] if script[end - 1:end] == ")" else script[i + 2:]
+            word = "$(%s)" % _escaped(_nested(inner))
+            out.append(word if quote == '"' else '"%s"' % word)
+            i = end
+            continue
+        elif quote == '"':
+            quote = None if c == '"' else quote
+        elif c in "'\"":
+            quote = c
+        elif script.startswith("${", i):
+            end = _balanced(script, i + 2, "}")
+            out.append(script[i:end])
+            i = end
+            continue
+        elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|("):
+            end = script.find("\n", i)
+            end = len(script) if end < 0 else end
+            out.append(script[i:end])
+            i = end
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def expanded(body: str) -> list:
@@ -654,7 +704,9 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
     depth, quote, start = 0, None, i
     while i < len(text):
         c = text[i]
-        if quote:
+        if quote == '"' and c == "\\":
+            i += 1      # in double quotes \" is a quote, which does not end them (issue 376: a script _nested spells)
+        elif quote:
             quote = None if c == quote else quote
         elif c == "\\":
             i += 1

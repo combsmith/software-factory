@@ -40,6 +40,10 @@ STAND_INS = {
             'echo "make $* in $(pwd -P)"\nexit "${FAKE_MAKE_EXIT:-0}"',
 }
 PATHS = {}     # made once: a new program's first run is slow on some systems
+# A substitution in double quotes inside another, to each depth, every level with quotes of its own (issue 376).
+NESTED = {1: '$(printf "%s" "hello (world)")'}
+for _depth in (2, 3):
+    NESTED[_depth] = '$(printf "%%s" "%s")' % NESTED[_depth - 1]
 
 
 def folder() -> pathlib.Path:
@@ -1189,10 +1193,13 @@ class Identity(unittest.TestCase):
             self.assertEqual(self.codes(command, self.bad), "", command)
         # The review of pull request 395: a body's script keeps its own quotes, so what they hold stays data.
         for command in ('cat <<EOF\n$(printf "%s" "hello (world)")\nEOF',
-                        'cat <<EOF\n$(printf "%s" "a;git commit -m x;")\nEOF'):
+                        'cat <<EOF\n$(printf "%s" "a;git commit -m x;")\nEOF', "cat <<EOF\n%s\nEOF" % NESTED[2],
+                        "cat <<EOF\n%s\nEOF" % NESTED[3]):
             self.assertEqual(self.codes(command, self.bad), "", command)
-        self.assertIn("commit_identity_not_maintainer",
-                      self.refused('cat <<EOF\n$(printf "%s" "a (b)"; git commit -m x)\nEOF', self.bad))
+        for command in ('cat <<EOF\n$(printf "%s" "a (b)"; git commit -m x)\nEOF',
+                        "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git commit -m x'),
+                        'cat <<EOF\n$(echo "`echo \\"a (b)\\"; git commit -m x`")\nEOF'):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
         # A redirection is made before its command runs: what its operand writes is where the shell stood before a cd.
         for command in ('cd .git < "$(touch config; echo /dev/null)"; cd ..; git commit -m x',
                         'cd .git 2> "$(touch config; echo /dev/null)" && cd .. && git commit -m x'):
@@ -2475,9 +2482,13 @@ class MergesAndSettings(Asks):
                         'cat < "$(echo docs/notes.md)"',
                         # The review of pull request 395: a body's script keeps its own quotes.
                         'cat <<EOF\n$(printf "%s" "hello (world)")\nEOF',
-                        'cat <<EOF\n$(printf "%s" "a;git push origin main;")\nEOF'):
+                        'cat <<EOF\n$(printf "%s" "a;git push origin main;")\nEOF',
+                        # At any depth (the review's second round).
+                        "cat <<EOF\n%s\nEOF" % NESTED[2], "cat <<EOF\n%s\nEOF" % NESTED[3]):
             self.assertEqual(self.run_(command), "", command)
-        self.asked(self.run_('cat <<EOF\n$(printf "%s" "a (b)"; git push origin main)\nEOF'), "merge", "quotes kept")
+        for command in ('cat <<EOF\n$(printf "%s" "a (b)"; git push origin main)\nEOF',
+                        "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git push origin main')):
+            self.asked(self.run_(command), "merge", command)
 
     def test_what_does_not_merge_is_not_asked_about(self):
         for command in ("gh pr view 5", "gh pr create --fill", "gh pr checks 5", "gh pr view 5 --json mergeable",
