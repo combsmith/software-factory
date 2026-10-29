@@ -41,19 +41,28 @@ RULES = (
     ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",), None, None),
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
      "says which App and what the review was before (previousReviewState)", ("P-41",), None, None),
-    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), None, None),
+    # trials/P-42.json: a pull request's head, its checks read at once and an hour later, and the new head after a push.
+    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.json",
+     None),
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
-     ("P-42",), None, None),
+     ("P-42",), "trials/P-42.json", None),
+    # P-42 saw neutral, skipped and cancelled kept an hour, but no timed_out: GitHub concluded a job stopped at its
+    # timeout cancelled, and its run too (issue 388). Unverified until that issue rules how a timeout is read.
     ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
      "or stale, and keeps that conclusion until the content changes or a person runs it again",
      ("P-42",), None, None),
     ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
-     "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), None, None),
+     "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), "trials/P-42.json",
+     None),
+    # P-42 saw two suites on one commit each keep their runs, and filter=latest keep one run of a name in each suite,
+    # though the second was a post of that name, not a re-run. Unverified: the port reads the status rollup, not
+    # filter=latest, and no trial has read the rollup with two runs of one name in one suite.
     ("a_rerun_replaces_only_its_own_run", "Only a re-run of the same job in the same check suite replaces an earlier "
      "check run: filter=latest is per check suite, so two workflow runs on one commit both stay", ("P-42",), None,
      None),
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
-     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), None, None),
+     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
+     None),
     ("a_check_names_the_workflow_that_ran_it", "Every check run GitHub Actions reports is read with the path of the "
      "workflow file that ran it, the path of its check suite's workflow run as GitHub gives it, a dynamic/ one "
      "verbatim, with the permissions the reader and the Controller hold; a check run no workflow ran, as GitHub "

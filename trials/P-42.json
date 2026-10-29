@@ -1,0 +1,3715 @@
+{
+  "schema": "trial/1",
+  "trial": "P-42",
+  "question": "On a pull request's head: after a push, is every required check pending again; does a required check conclude `timed_out`, `neutral`, `skipped`, `cancelled` or `stale` and keep that conclusion until the content changes or a person runs it again; is every check run read with its exact name and its App's id, two workflow runs on one commit both staying, since `filter=latest` is per check suite; and can any App with `checks: write`, or any Actions job, post a check run under a required Lens's check name, or a result for any criterion of a contract, one the contract does not name among them, which then stays on that head?",
+  "pass": "Written 2026-10-22T18:07:40Z, before the window: after a push the new head's required check is pending; timed_out, neutral, skipped and cancelled conclusions keep an hour apart; each check run has its name and App id; two runs on one commit both stay; the pr-review App and an Actions job post under a required check's name and an unlisted criterion's, and both stay. On canary pull request 65, the trial-author App's, p42-checks.yml ran on pull_request and on push: two suites on one commit. The Maintainer cancelled the pull_request run at 02:20:29Z (gh run cancel, which prints nothing). Failed as written: no check concluded timed_out. The job p42 / timed-out, held to timeout-minutes: 1, was stopped at its limit in the push run, which no one cancelled, and GitHub concluded the job, its check run and the run cancelled, its annotation saying the job exceeded its maximum execution time. The rest holds: neutral, skipped and cancelled conclusions are unchanged an hour after the last post; each check run carries its name and its App's id; filter=latest keeps one run of a name in each suite, and filter=all every run; the pr-review App (5364144) and an Actions job (15368) each posted p2-queue-check and an unlisted criterion's result, and all stayed; after the App's push the new head's p2-queue-check was in progress. The pr-review App's first two posts took the repo's name by a script's bug, and stay on the head too.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-28T02:21:22Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:16:59 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1914",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"0917129f493a10c77bee17714ad7022272fab05a9b9643ba075a930824c6d526\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "E89E:28CE2C:42F6E5:DBF6F2:6AE15B1B"
+        },
+        "body": {
+          "id": 172549542,
+          "app_id": 5363178,
+          "app_slug": "combsmith-sf-trial-author",
+          "target_type": "Organization",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172549542/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:17:00 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "581",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"84d0e9f150949c64b4c25ffe7656535c877b39d425776ce9b0c0f26cce35ca93\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E89F:219EC4:4665DF:E72F4D:6AE15B1C",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-28T03:17:00Z",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /installation/repositories (of the answer, the count, selection and each repo's full name are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:17:01 GMT",
+          "etag": "W/\"9269e25136511a8575c10e793b8973e8ff3a352587acb348ee891a94c3aa32eb\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8A0:22F29E:46B8E3:E881D6:6AE15B1D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4985",
+          "x-ratelimit-reset": "1793155203",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "15"
+        },
+        "body": {
+          "total_count": 1,
+          "repository_selection": "selected",
+          "repositories": [
+            {
+              "full_name": "combsmith/software-factory-canary"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary (of the answer, the repo's id, node, name, default branch and visibility are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:17:02 GMT",
+          "etag": "W/\"47f6af3cbab5dc368a70662dccc40f860b2b3a2f83db4c0d94448703fbee5ca3\"",
+          "last-modified": "Wed, 28 Oct 2026 00:23:38 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8A2:27DC0B:47FA62:ECF1C6:6AE15B1E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4984",
+          "x-ratelimit-reset": "1793155203",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "16"
+        },
+        "body": {
+          "id": 1414593263,
+          "node_id": "R_kgDOVFD67w",
+          "full_name": "combsmith/software-factory-canary",
+          "default_branch": "main",
+          "visibility": "public"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/ref/heads/main",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:17:03 GMT",
+          "etag": "W/\"53627201c8b344241e2b5ed1714dec365e4fee42355b6ac65b5f8488c6244bb0\"",
+          "last-modified": "Wed, 28 Oct 2026 00:23:38 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8A5:221597:45A441:E4C000:6AE15B1F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793156105",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "2"
+        },
+        "body": {
+          "ref": "refs/heads/main",
+          "node_id": "REF_kwDOVFD6769yZWZzL2hlYWRzL21haW4",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/main",
+          "object": {
+            "sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/eaa93d4b4618c9a8e73dffc1381b9f774483e1eb"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/git/refs",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "ref": "refs/heads/trial/p-42i",
+          "sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "387",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:17:05 GMT",
+          "etag": "\"360919271a5237d23ec1f645a4a6543cb2120b52a33caebed67bd02b7bee9408\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-42i",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=write; contents=write,workflows=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8A7:9E8E2:48DB2F:EF8483:6AE15B21",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4983",
+          "x-ratelimit-reset": "1793155203",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "17"
+        },
+        "body": {
+          "ref": "refs/heads/trial/p-42i",
+          "node_id": "REF_kwDOVFD677ZyZWZzL2hlYWRzL3RyaWFsL3AtNDJp",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-42i",
+          "object": {
+            "sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/eaa93d4b4618c9a8e73dffc1381b9f774483e1eb"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/p42/i.md (of the answer, the file's path and the commit's sha are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial: p42/i.md, added by the trial-author App",
+          "content": "QSBwbGF0Zm9ybSB0cmlhbDogdGhpcyBmaWxlIHdhcyBhZGRlZCBieSB0aGUgdHJpYWwtYXV0aG9yIEFwcCwgdGhyb3VnaCBvcGVuLgo=",
+          "branch": "trial/p-42i"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "3296",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:17:07 GMT",
+          "etag": "\"eacbaaa1a9389f30f9a2c757f8547c557109fbc304509ca9a8a78410c3205621\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=write; contents=write,workflows=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8A8:B8701:47FCE2:ECD14E:6AE15B22",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4982",
+          "x-ratelimit-reset": "1793155203",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "18"
+        },
+        "body": {
+          "content": {
+            "path": "p42/i.md"
+          },
+          "commit": {
+            "sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/pulls (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "title": "Trial: trial/p-42i, opened by the trial-author App",
+          "head": "trial/p-42i",
+          "base": "main",
+          "body": "A platform trial. It is approved by the machine user alone, and read."
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "17328",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:17:10 GMT",
+          "etag": "\"255283b41ee12b88727caf2941f1b20190b92b880f22efc4b5103abed9aeaade\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/65",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "pull_requests=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8A9:221597:45C514:E52DE4:6AE15B25",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4981",
+          "x-ratelimit-reset": "1793155203",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "19"
+        },
+        "body": {
+          "number": 65,
+          "node_id": "PR_kwDOVFD6788AAAABLKa3hQ",
+          "state": "open",
+          "draft": false,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": null,
+          "mergeable_state": "unknown",
+          "head": {
+            "ref": "trial/p-42i",
+            "sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/65 (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:17:11 GMT",
+          "etag": "W/\"3b7b808e40e37d1aa1791fea2b3ecd7d4a9822c004bc8526bdfb5d8d1f707559\"",
+          "last-modified": "Wed, 28 Oct 2026 02:17:09 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "pull_requests=read; contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8AA:219EC4:46A490:E7FE22:6AE15B27",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4980",
+          "x-ratelimit-reset": "1793155203",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "20"
+        },
+        "body": {
+          "number": 65,
+          "node_id": "PR_kwDOVFD6788AAAABLKa3hQ",
+          "state": "open",
+          "draft": false,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "a6b06cf5d3db170596fe4eefa6c6ca54f993e191",
+          "mergeable_state": "blocked",
+          "head": {
+            "ref": "trial/p-42i",
+            "sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:17:13 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E8AB:3464A1:4576C0:E46684:6AE15B29",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4980",
+          "x-ratelimit-reset": "1793155203",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "20"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92/check-runs?per_page=100: the check runs GitHub lists by its default filter, latest, read at 2026-10-28T02:21:22Z, a minute after the Maintainer cancelled the pull_request run of p42-checks, as the Maintainer (of the answer, each check run's id, name, commit, state, conclusion, times, App and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:21:23 GMT",
+          "etag": "W/\"826fe95be9b2948ea8e4ce920a1b9f0bacf5fda6d5c608417b448addda6c073b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E912:256A12:4697808:E86D47D:6AE15C23",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4869",
+          "x-ratelimit-reset": "1793157164",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "131"
+        },
+        "body": {
+          "total_count": 15,
+          "check_runs": [
+            {
+              "id": 122591699734,
+              "name": "CodeQL",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:44Z",
+              "completed_at": "2026-10-28T02:17:47Z",
+              "external_id": "",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 110100184805
+              }
+            },
+            {
+              "id": 122591579122,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:21Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591575879,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:20Z",
+              "completed_at": "2026-10-28T02:17:20Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591571739,
+              "name": "p42 / neutral",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T02:17:19Z",
+              "completed_at": "2026-10-28T02:17:19Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591564127,
+              "name": "CodeRabbit",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:18Z",
+              "completed_at": "2026-10-28T02:17:18Z",
+              "external_id": "coderabbit-review-progress-v1:9009f28379347c7d7b6fd08a4fca77800b9411eda6455bc1cf36cd911842de57",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 110100031499
+              }
+            },
+            {
+              "id": 122591540915,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:13Z",
+              "completed_at": "2026-10-28T02:17:13Z",
+              "external_id": "1b84ed4a-33ca-564e-aefc-dcda9a633328",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539997,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:23Z",
+              "external_id": "58d21c9d-4572-5fdc-902e-3ec9172d310c",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539918,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:21:15Z",
+              "external_id": "3bdc9b48-1e90-58ca-8543-d5c600935fee",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539615,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:18:46Z",
+              "external_id": "fd24f767-69d3-5dc0-bd26-e5cc04edc2c2",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539073,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "427e6479-befd-5a23-aa6a-ebebc9efe767",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100050775
+              }
+            },
+            {
+              "id": 122591533920,
+              "name": "Analyze (actions)",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:54Z",
+              "external_id": "21920de8-dd2f-5c5a-9eb4-ef68f4238cd7",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100042232
+              }
+            },
+            {
+              "id": 122591520495,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:10Z",
+              "completed_at": "2026-10-28T02:17:09Z",
+              "external_id": "d2308a3f-a95b-5c9a-9197-f6c06f88caa0",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591519154,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:18:42Z",
+              "external_id": "1cd6d8ef-13af-5356-8ad5-6919c714e755",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518989,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:11Z",
+              "completed_at": "2026-10-28T02:17:17Z",
+              "external_id": "9cfadc1e-93fa-5a3c-a6cd-53235f7e2130",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518926,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": null,
+              "external_id": "5ae75e6a-f3c6-5493-869f-c892e18f8093",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92/check-suites?per_page=100, read at 2026-10-28T02:21:22Z, as the Maintainer (of the answer, each suite's id, commit, state, conclusion, count of runs and App are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:21:24 GMT",
+          "etag": "W/\"d5d467af1962822a4b12eb17e1bec9473451c3308f4978f007c8abd4683e97b2\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E915:11C4C1:4954A9F:F104B96:6AE15C24",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4985",
+          "x-ratelimit-reset": "1793157421",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "15"
+        },
+        "body": {
+          "total_count": 13,
+          "check_suites": [
+            {
+              "id": 110100031051,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "queued",
+              "conclusion": null,
+              "latest_check_runs_count": 0,
+              "app": {
+                "id": 1236702,
+                "slug": "claude"
+              }
+            },
+            {
+              "id": 110100031499,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "latest_check_runs_count": 1,
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              }
+            },
+            {
+              "id": 110100031959,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "queued",
+              "conclusion": null,
+              "latest_check_runs_count": 0,
+              "app": {
+                "id": 646884,
+                "slug": "codeant-ai"
+              }
+            },
+            {
+              "id": 110100032369,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "queued",
+              "conclusion": null,
+              "latest_check_runs_count": 0,
+              "app": {
+                "id": 158384,
+                "slug": "graphite-app"
+              }
+            },
+            {
+              "id": 110100032783,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "queued",
+              "conclusion": null,
+              "latest_check_runs_count": 0,
+              "app": {
+                "id": 1082092,
+                "slug": "cubic-dev-ai"
+              }
+            },
+            {
+              "id": 110100033176,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "queued",
+              "conclusion": null,
+              "latest_check_runs_count": 0,
+              "app": {
+                "id": 12526,
+                "slug": "sonarqubecloud"
+              }
+            },
+            {
+              "id": 110100033604,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "queued",
+              "conclusion": null,
+              "latest_check_runs_count": 0,
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              }
+            },
+            {
+              "id": 110100034099,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "queued",
+              "conclusion": null,
+              "latest_check_runs_count": 0,
+              "app": {
+                "id": 5364130,
+                "slug": "combsmith-sf-controller"
+              }
+            },
+            {
+              "id": 110100034120,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "in_progress",
+              "conclusion": null,
+              "latest_check_runs_count": 7,
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 110100042232,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "latest_check_runs_count": 1,
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 110100050775,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "latest_check_runs_count": 1,
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 110100051239,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "latest_check_runs_count": 4,
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 110100184805,
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "latest_check_runs_count": 1,
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92/check-runs?filter=all&per_page=100, read at 2026-10-28T02:21:22Z, as the Maintainer (of the answer, each check run's id, name, commit, state, conclusion, times, App and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:21:51 GMT",
+          "etag": "W/\"1d9a39a114d04fd25aa34e56477144a03bf38dd09ce08e81692522f86f34b43f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E92A:1F1A72:4C4A801:FAAD2FF:6AE15C3F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4864",
+          "x-ratelimit-reset": "1793157164",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "136"
+        },
+        "body": {
+          "total_count": 18,
+          "check_runs": [
+            {
+              "id": 122591699734,
+              "name": "CodeQL",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:44Z",
+              "completed_at": "2026-10-28T02:17:47Z",
+              "external_id": "",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 110100184805
+              }
+            },
+            {
+              "id": 122591579122,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:21Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591575879,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:20Z",
+              "completed_at": "2026-10-28T02:17:20Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591571739,
+              "name": "p42 / neutral",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T02:17:19Z",
+              "completed_at": "2026-10-28T02:17:19Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591564127,
+              "name": "CodeRabbit",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:18Z",
+              "completed_at": "2026-10-28T02:17:18Z",
+              "external_id": "coderabbit-review-progress-v1:9009f28379347c7d7b6fd08a4fca77800b9411eda6455bc1cf36cd911842de57",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 110100031499
+              }
+            },
+            {
+              "id": 122591549501,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:15Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591546649,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:15Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591543579,
+              "name": "p42 / neutral",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T02:17:14Z",
+              "completed_at": "2026-10-28T02:17:14Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591540915,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:13Z",
+              "completed_at": "2026-10-28T02:17:13Z",
+              "external_id": "1b84ed4a-33ca-564e-aefc-dcda9a633328",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539997,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:23Z",
+              "external_id": "58d21c9d-4572-5fdc-902e-3ec9172d310c",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539918,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:21:15Z",
+              "external_id": "3bdc9b48-1e90-58ca-8543-d5c600935fee",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539615,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:18:46Z",
+              "external_id": "fd24f767-69d3-5dc0-bd26-e5cc04edc2c2",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539073,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "427e6479-befd-5a23-aa6a-ebebc9efe767",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100050775
+              }
+            },
+            {
+              "id": 122591533920,
+              "name": "Analyze (actions)",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:54Z",
+              "external_id": "21920de8-dd2f-5c5a-9eb4-ef68f4238cd7",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100042232
+              }
+            },
+            {
+              "id": 122591520495,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:10Z",
+              "completed_at": "2026-10-28T02:17:09Z",
+              "external_id": "d2308a3f-a95b-5c9a-9197-f6c06f88caa0",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591519154,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:18:42Z",
+              "external_id": "1cd6d8ef-13af-5356-8ad5-6919c714e755",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518989,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:11Z",
+              "completed_at": "2026-10-28T02:17:17Z",
+              "external_id": "9cfadc1e-93fa-5a3c-a6cd-53235f7e2130",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518926,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": null,
+              "external_id": "5ae75e6a-f3c6-5493-869f-c892e18f8093",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:36:09 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "2011",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"71fdf82de30af23db11d5c65c0846858285dce0c9ff7bb7451cea213de8f093b\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "EA50:274CC5:4B7C079:F79E92C:6AE15F98"
+        },
+        "body": {
+          "id": 172571064,
+          "app_id": 5364144,
+          "app_slug": "combsmith-sf-pr-review",
+          "target_type": "Organization",
+          "permissions": {
+            "checks": "write",
+            "issues": "read",
+            "actions": "read",
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "write",
+            "actions_variables": "read"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172571064/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:36:10 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "7274",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"b411c41560d005bf91e18258c24a98e1559038af3d4180fd22a7b0959d5134da\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA51:43E50:4A0D49B:F37630D:6AE15F9A",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-28T03:36:10Z",
+          "permissions": {
+            "actions": "read",
+            "actions_variables": "read",
+            "checks": "write",
+            "contents": "read",
+            "issues": "read",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs (of the answer, the check run's id, name, commit, state, conclusion, times, App and suite are kept); of the request, its output's text is left out",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "name": "software-factory-canary",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2811",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:36:11 GMT",
+          "etag": "\"c9202d5d703d8290adf0483886bd5d9ee177c0cb1b40dcc08439e09cfea1a97b\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/122597666932",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "checks=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA55:22CF99:48C5734:EF06C26:6AE15F9A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "3"
+        },
+        "body": {
+          "id": 122597666932,
+          "name": "software-factory-canary",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-28T02:36:11Z",
+          "completed_at": "2026-10-28T02:36:11Z",
+          "external_id": "",
+          "app": {
+            "id": 5364144,
+            "slug": "combsmith-sf-pr-review"
+          },
+          "check_suite": {
+            "id": 110100033604
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:36:12 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA56:504FC:477475D:EAA8D97:6AE15F9C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "3"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:36:14 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "2011",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"71fdf82de30af23db11d5c65c0846858285dce0c9ff7bb7451cea213de8f093b\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "EA59:22A128:48DDE5C:EF87BA2:6AE15F9E"
+        },
+        "body": {
+          "id": 172571064,
+          "app_id": 5364144,
+          "app_slug": "combsmith-sf-pr-review",
+          "target_type": "Organization",
+          "permissions": {
+            "checks": "write",
+            "issues": "read",
+            "actions": "read",
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "write",
+            "actions_variables": "read"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172571064/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:36:15 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "7274",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"82697a717ef1dfb6240bb6545b399b76daa2c66c55cf8a7a81fcb4b2f470f058\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA5A:10A418:4F00BE6:1032310F:6AE15F9F",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-28T03:36:15Z",
+          "permissions": {
+            "checks": "write",
+            "issues": "read",
+            "actions": "read",
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "write",
+            "actions_variables": "read"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs (of the answer, the check run's id, name, commit, state, conclusion, times, App and suite are kept); of the request, its output's text is left out",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "name": "software-factory-canary",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2811",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:36:17 GMT",
+          "etag": "\"dfcd4d7f33635f399ca92c8bec5a563022c2cd7a2f5a948d1902447eb9bcd211\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/122597698860",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "checks=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA5E:251259:4B4ADD9:F8C2626:6AE15FA0",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "4"
+        },
+        "body": {
+          "id": 122597698860,
+          "name": "software-factory-canary",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-28T02:36:16Z",
+          "completed_at": "2026-10-28T02:36:16Z",
+          "external_id": "",
+          "app": {
+            "id": 5364144,
+            "slug": "combsmith-sf-pr-review"
+          },
+          "check_suite": {
+            "id": 110100033604
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:36:17 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA60:3E23CA:4E0F883:102A14F0:6AE15FA1",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "4"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:53:35 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "2011",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"71fdf82de30af23db11d5c65c0846858285dce0c9ff7bb7451cea213de8f093b\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "EE66:1E8403:40DF7DD:D662B50:6AE163AF"
+        },
+        "body": {
+          "id": 172571064,
+          "app_id": 5364144,
+          "app_slug": "combsmith-sf-pr-review",
+          "target_type": "Organization",
+          "permissions": {
+            "checks": "write",
+            "issues": "read",
+            "actions": "read",
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "write",
+            "actions_variables": "read"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172571064/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:53:36 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "7274",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"844494d472e201febd1906ed990b87f40bd61909da5af91d70c9d3e71a897b8d\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EE67:259388:3C9C188:C8D2419:6AE163B0",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-28T03:53:36Z",
+          "permissions": {
+            "checks": "write",
+            "issues": "read",
+            "actions": "read",
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "write",
+            "actions_variables": "read"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs (of the answer, the check run's id, name, commit, state, conclusion, times, App and suite are kept); of the request, its output's text is left out",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "name": "p2-queue-check",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2802",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:53:37 GMT",
+          "etag": "\"2cea02e824317a10016572e276133df09085d0b8817f3b6ecba4381381929838\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/122603050601",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "checks=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EE68:22B3F3:42DC377:DC7E4D1:6AE163B0",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4995",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "5"
+        },
+        "body": {
+          "id": 122603050601,
+          "name": "p2-queue-check",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-28T02:53:36Z",
+          "completed_at": "2026-10-28T02:53:36Z",
+          "external_id": "",
+          "app": {
+            "id": 5364144,
+            "slug": "combsmith-sf-pr-review"
+          },
+          "check_suite": {
+            "id": 110100033604
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:53:37 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EE6A:2BEAF4:3E178B9:CD7C337:6AE163B1",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4995",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "5"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:53:38 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "2011",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"71fdf82de30af23db11d5c65c0846858285dce0c9ff7bb7451cea213de8f093b\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "EE6B:2088EE:4255AEB:DAFD9FD:6AE163B2"
+        },
+        "body": {
+          "id": 172571064,
+          "app_id": 5364144,
+          "app_slug": "combsmith-sf-pr-review",
+          "target_type": "Organization",
+          "permissions": {
+            "checks": "write",
+            "issues": "read",
+            "actions": "read",
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "write",
+            "actions_variables": "read"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172571064/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:53:39 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "7274",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"e0e8eb8a650fb60467422e34684fa88f75eaf598d49280372c53862756d3ad40\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EE6D:2BEAF4:3E17EAF:CD7D6A8:6AE163B2",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-28T03:53:38Z",
+          "permissions": {
+            "checks": "write",
+            "issues": "read",
+            "actions": "read",
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "write",
+            "actions_variables": "read"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs (of the answer, the check run's id, name, commit, state, conclusion, times, App and suite are kept); of the request, its output's text is left out",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "name": "acceptance: a criterion no contract lists",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2829",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:53:40 GMT",
+          "etag": "\"c21ce3b625742b9b36a470ba56290aeff10d5948e43b33a37c8bcd47a516bfff\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/122603064558",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "checks=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EE6E:21FC5C:3F6A4E9:D1A38D0:6AE163B3",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4994",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "6"
+        },
+        "body": {
+          "id": 122603064558,
+          "name": "acceptance: a criterion no contract lists",
+          "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-28T02:53:39Z",
+          "completed_at": "2026-10-28T02:53:39Z",
+          "external_id": "",
+          "app": {
+            "id": 5364144,
+            "slug": "combsmith-sf-pr-review"
+          },
+          "check_suite": {
+            "id": 110100033604
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-pr-review[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 02:53:40 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EE6F:62EAE:3E7DB55:CE80799:6AE163B4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4994",
+          "x-ratelimit-reset": "1793156116",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "6"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92/check-runs?per_page=100, read at 2026-10-28T03:53:49Z, an hour after the last post, with no push and no re-run, as the Maintainer (of the answer, each check run's id, name, commit, state, conclusion, times, App and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 03:53:51 GMT",
+          "etag": "W/\"c7c125d62e51de65cfe4a14898bc52384d62839632730a4d9719d8e3198beff8\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCD6:28A9F7:C7BD77:2933710:6AE171CE",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3462",
+          "x-ratelimit-reset": "1793160765",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1538"
+        },
+        "body": {
+          "total_count": 18,
+          "check_runs": [
+            {
+              "id": 122603064558,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:53:39Z",
+              "completed_at": "2026-10-28T02:53:39Z",
+              "external_id": "",
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              },
+              "check_suite": {
+                "id": 110100033604
+              }
+            },
+            {
+              "id": 122603050601,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:53:36Z",
+              "completed_at": "2026-10-28T02:53:36Z",
+              "external_id": "",
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              },
+              "check_suite": {
+                "id": 110100033604
+              }
+            },
+            {
+              "id": 122597698860,
+              "name": "software-factory-canary",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:36:16Z",
+              "completed_at": "2026-10-28T02:36:16Z",
+              "external_id": "",
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              },
+              "check_suite": {
+                "id": 110100033604
+              }
+            },
+            {
+              "id": 122591699734,
+              "name": "CodeQL",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:44Z",
+              "completed_at": "2026-10-28T02:17:47Z",
+              "external_id": "",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 110100184805
+              }
+            },
+            {
+              "id": 122591579122,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:21Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591575879,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:20Z",
+              "completed_at": "2026-10-28T02:17:20Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591571739,
+              "name": "p42 / neutral",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T02:17:19Z",
+              "completed_at": "2026-10-28T02:17:19Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591564127,
+              "name": "CodeRabbit",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:18Z",
+              "completed_at": "2026-10-28T02:17:18Z",
+              "external_id": "coderabbit-review-progress-v1:9009f28379347c7d7b6fd08a4fca77800b9411eda6455bc1cf36cd911842de57",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 110100031499
+              }
+            },
+            {
+              "id": 122591540915,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:13Z",
+              "completed_at": "2026-10-28T02:17:13Z",
+              "external_id": "1b84ed4a-33ca-564e-aefc-dcda9a633328",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539997,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:23Z",
+              "external_id": "58d21c9d-4572-5fdc-902e-3ec9172d310c",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539918,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:21:15Z",
+              "external_id": "3bdc9b48-1e90-58ca-8543-d5c600935fee",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539615,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:18:46Z",
+              "external_id": "fd24f767-69d3-5dc0-bd26-e5cc04edc2c2",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539073,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "427e6479-befd-5a23-aa6a-ebebc9efe767",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100050775
+              }
+            },
+            {
+              "id": 122591533920,
+              "name": "Analyze (actions)",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:54Z",
+              "external_id": "21920de8-dd2f-5c5a-9eb4-ef68f4238cd7",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100042232
+              }
+            },
+            {
+              "id": 122591520495,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:10Z",
+              "completed_at": "2026-10-28T02:17:09Z",
+              "external_id": "d2308a3f-a95b-5c9a-9197-f6c06f88caa0",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591519154,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:18:42Z",
+              "external_id": "1cd6d8ef-13af-5356-8ad5-6919c714e755",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518989,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:11Z",
+              "completed_at": "2026-10-28T02:17:17Z",
+              "external_id": "9cfadc1e-93fa-5a3c-a6cd-53235f7e2130",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518926,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:27:15Z",
+              "external_id": "5ae75e6a-f3c6-5493-869f-c892e18f8093",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92/check-runs?filter=all&per_page=100, read at 2026-10-28T03:53:49Z, as the Maintainer (of the answer, each check run's id, name, commit, state, conclusion, times, App and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 03:53:50 GMT",
+          "etag": "W/\"bb0aa0f206dc76b2c0eac2dc30de99cd4946d2a292605c814371a7f4efd9a22a\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCD5:31AD56:CBC944:29EBB16:6AE171CD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3463",
+          "x-ratelimit-reset": "1793160765",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1537"
+        },
+        "body": {
+          "total_count": 22,
+          "check_runs": [
+            {
+              "id": 122603064558,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:53:39Z",
+              "completed_at": "2026-10-28T02:53:39Z",
+              "external_id": "",
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              },
+              "check_suite": {
+                "id": 110100033604
+              }
+            },
+            {
+              "id": 122603050601,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:53:36Z",
+              "completed_at": "2026-10-28T02:53:36Z",
+              "external_id": "",
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              },
+              "check_suite": {
+                "id": 110100033604
+              }
+            },
+            {
+              "id": 122597698860,
+              "name": "software-factory-canary",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:36:16Z",
+              "completed_at": "2026-10-28T02:36:16Z",
+              "external_id": "",
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              },
+              "check_suite": {
+                "id": 110100033604
+              }
+            },
+            {
+              "id": 122597666932,
+              "name": "software-factory-canary",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:36:11Z",
+              "completed_at": "2026-10-28T02:36:11Z",
+              "external_id": "",
+              "app": {
+                "id": 5364144,
+                "slug": "combsmith-sf-pr-review"
+              },
+              "check_suite": {
+                "id": 110100033604
+              }
+            },
+            {
+              "id": 122591699734,
+              "name": "CodeQL",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:44Z",
+              "completed_at": "2026-10-28T02:17:47Z",
+              "external_id": "",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 110100184805
+              }
+            },
+            {
+              "id": 122591579122,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:21Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591575879,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:20Z",
+              "completed_at": "2026-10-28T02:17:20Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591571739,
+              "name": "p42 / neutral",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T02:17:19Z",
+              "completed_at": "2026-10-28T02:17:19Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591564127,
+              "name": "CodeRabbit",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:18Z",
+              "completed_at": "2026-10-28T02:17:18Z",
+              "external_id": "coderabbit-review-progress-v1:9009f28379347c7d7b6fd08a4fca77800b9411eda6455bc1cf36cd911842de57",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 110100031499
+              }
+            },
+            {
+              "id": 122591549501,
+              "name": "acceptance: a criterion no contract lists",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:15Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591546649,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:15Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591543579,
+              "name": "p42 / neutral",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T02:17:14Z",
+              "completed_at": "2026-10-28T02:17:14Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591540915,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:13Z",
+              "completed_at": "2026-10-28T02:17:13Z",
+              "external_id": "1b84ed4a-33ca-564e-aefc-dcda9a633328",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539997,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:23Z",
+              "external_id": "58d21c9d-4572-5fdc-902e-3ec9172d310c",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539918,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:21:15Z",
+              "external_id": "3bdc9b48-1e90-58ca-8543-d5c600935fee",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539615,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:18:46Z",
+              "external_id": "fd24f767-69d3-5dc0-bd26-e5cc04edc2c2",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100051239
+              }
+            },
+            {
+              "id": 122591539073,
+              "name": "p2-queue-check",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:16Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "external_id": "427e6479-befd-5a23-aa6a-ebebc9efe767",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100050775
+              }
+            },
+            {
+              "id": 122591533920,
+              "name": "Analyze (actions)",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:15Z",
+              "completed_at": "2026-10-28T02:17:54Z",
+              "external_id": "21920de8-dd2f-5c5a-9eb4-ef68f4238cd7",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100042232
+              }
+            },
+            {
+              "id": 122591520495,
+              "name": "p42 / skipped",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:10Z",
+              "completed_at": "2026-10-28T02:17:09Z",
+              "external_id": "d2308a3f-a95b-5c9a-9197-f6c06f88caa0",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591519154,
+              "name": "p42 / timed-out",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:18:42Z",
+              "external_id": "1cd6d8ef-13af-5356-8ad5-6919c714e755",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518989,
+              "name": "p42 / posts",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:11Z",
+              "completed_at": "2026-10-28T02:17:17Z",
+              "external_id": "9cfadc1e-93fa-5a3c-a6cd-53235f7e2130",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            },
+            {
+              "id": 122591518926,
+              "name": "p42 / cancelled",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:27:15Z",
+              "external_id": "5ae75e6a-f3c6-5493-869f-c892e18f8093",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110100034120
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 11:28:24 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1914",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"0917129f493a10c77bee17714ad7022272fab05a9b9643ba075a930824c6d526\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "E9A4:7DAE0:29F2DE:8B4197:6AE1DC58"
+        },
+        "body": {
+          "id": 172549542,
+          "app_id": 5363178,
+          "app_slug": "combsmith-sf-trial-author",
+          "target_type": "Organization",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172549542/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 11:28:25 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "581",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"9285d2854c56a3e9b2685da150b74bff9bf720e9f5052b860323d540c834da0a\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9A5:1802D6:3938B6:BE1F6E:6AE1DC58",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-28T12:28:25Z",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /installation/repositories (of the answer, the count, selection and each repo's full name are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 11:28:25 GMT",
+          "etag": "W/\"1dbedf1fe7d1fd81b46449a9b7dcc04efb006718d56a75a4f56c280617974d1b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9A6:2F432C:39A812:BF38D7:6AE1DC59",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1793190505",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1"
+        },
+        "body": {
+          "total_count": 1,
+          "repository_selection": "selected",
+          "repositories": [
+            {
+              "full_name": "combsmith/software-factory-canary"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/65 (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 11:28:26 GMT",
+          "etag": "W/\"33006c1f0fcdb9e699a2a19a2b22b23e2c7d0ce889f2bd2145cc4edf1c908177\"",
+          "last-modified": "Wed, 28 Oct 2026 02:17:17 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "pull_requests=read; contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9A7:AEEC4:29EAC4:8B2252:6AE1DC59",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793190505",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "2"
+        },
+        "body": {
+          "number": 65,
+          "node_id": "PR_kwDOVFD6788AAAABLKa3hQ",
+          "state": "open",
+          "draft": false,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "a6b06cf5d3db170596fe4eefa6c6ca54f993e191",
+          "mergeable_state": "blocked",
+          "head": {
+            "ref": "trial/p-42i",
+            "sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/p42/i2.md (of the answer, the file's path and the commit's sha are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial: p42/i2.md, pushed by the trial-author App",
+          "content": "QSBwbGF0Zm9ybSB0cmlhbDogdGhpcyBmaWxlIHdhcyBhZGRlZCBieSB0aGUgdHJpYWwtYXV0aG9yIEFwcCwgdGhyb3VnaCBwdXNoLgo=",
+          "branch": "trial/p-42i"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "3307",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 11:28:28 GMT",
+          "etag": "\"bf17c4fb808d5d0407082c6d0f5e5044efd971e65adc1d0fb8e1b8bd40a7c066\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=write; contents=write,workflows=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9A9:3770FC:38A777:BBF719:6AE1DC5A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793190505",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "3"
+        },
+        "body": {
+          "content": {
+            "path": "p42/i2.md"
+          },
+          "commit": {
+            "sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/65 (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 11:28:29 GMT",
+          "etag": "W/\"279419c9cf2c29a7b1bec411f1e23576dabe145b84514a4d250ea1e40aedb2e0\"",
+          "last-modified": "Wed, 28 Oct 2026 02:17:17 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "pull_requests=read; contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9AA:21FBA1:35F222:B3BCFC:6AE1DC5C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1793190505",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "4"
+        },
+        "body": {
+          "number": 65,
+          "node_id": "PR_kwDOVFD6788AAAABLKa3hQ",
+          "state": "open",
+          "draft": false,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "a6b06cf5d3db170596fe4eefa6c6ca54f993e191",
+          "mergeable_state": "blocked",
+          "head": {
+            "ref": "trial/p-42i",
+            "sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 11:28:29 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9AC:1802D6:395196:BE7157:6AE1DC5D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1793190505",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "4"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/206c0a571bf8ecb5fd09649577e244f14065dbe8/check-runs?filter=all&per_page=100: the new head's check runs, read at 2026-10-28T11:28:37Z, as the Maintainer (of the answer, each check run's id, name, commit, state, conclusion, times, App and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 11:28:37 GMT",
+          "etag": "W/\"b473077cab06b1d5b8f0007a3f4dc8ea27e910da27a94c91a3c65303b2c4b510\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9B7:30CE76:78F29A0:18E2A931:6AE1DC65",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4916",
+          "x-ratelimit-reset": "1793189756",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "84"
+        },
+        "body": {
+          "total_count": 12,
+          "check_runs": [
+            {
+              "id": 122788840915,
+              "name": "p42 / neutral",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T11:28:37Z",
+              "completed_at": "2026-10-28T11:28:37Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262517183
+              }
+            },
+            {
+              "id": 122788839219,
+              "name": "p42 / neutral",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T11:28:37Z",
+              "completed_at": "2026-10-28T11:28:37Z",
+              "external_id": "",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262517183
+              }
+            },
+            {
+              "id": 122788821855,
+              "name": "p42 / skipped",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T11:28:34Z",
+              "completed_at": "2026-10-28T11:28:34Z",
+              "external_id": "d5ababdb-2f46-58a9-88ae-751c623740fc",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262537020
+              }
+            },
+            {
+              "id": 122788820146,
+              "name": "p42 / timed-out",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "queued",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:34Z",
+              "completed_at": null,
+              "external_id": "4e5d8347-99cc-5816-9c7a-1b2e79ad5183",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262537020
+              }
+            },
+            {
+              "id": 122788819882,
+              "name": "p42 / posts",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "queued",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:34Z",
+              "completed_at": null,
+              "external_id": "45e023b4-8fc9-5aa5-8d01-d6c5a8a9335f",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262537020
+              }
+            },
+            {
+              "id": 122788819696,
+              "name": "p42 / cancelled",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:36Z",
+              "completed_at": null,
+              "external_id": "79e5fa2e-45ff-50ea-af3e-6e24bc3a051f",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262537020
+              }
+            },
+            {
+              "id": 122788819673,
+              "name": "p2-queue-check",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:36Z",
+              "completed_at": null,
+              "external_id": "cd2a701c-3775-56a6-a557-0571f87cae00",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262537026
+              }
+            },
+            {
+              "id": 122788802659,
+              "name": "Analyze (actions)",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:34Z",
+              "completed_at": null,
+              "external_id": "e64dab64-a960-5959-988f-b505f6fac216",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262520060
+              }
+            },
+            {
+              "id": 122788796375,
+              "name": "p42 / skipped",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T11:28:31Z",
+              "completed_at": "2026-10-28T11:28:30Z",
+              "external_id": "b1d6321c-6118-5cbc-a718-d2808a5ed907",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262517183
+              }
+            },
+            {
+              "id": 122788794632,
+              "name": "p42 / timed-out",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "queued",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:30Z",
+              "completed_at": null,
+              "external_id": "8362fc0a-cf98-5b0e-b642-fdd48e264da1",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262517183
+              }
+            },
+            {
+              "id": 122788794453,
+              "name": "p42 / cancelled",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:33Z",
+              "completed_at": null,
+              "external_id": "95280d16-c4b4-5080-a2c5-30bd0000404d",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262517183
+              }
+            },
+            {
+              "id": 122788794181,
+              "name": "p42 / posts",
+              "head_sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+              "status": "queued",
+              "conclusion": null,
+              "started_at": "2026-10-28T11:28:30Z",
+              "completed_at": null,
+              "external_id": "da5646f8-2862-5b0d-b726-b82f57816727",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110262517183
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/206c0a571bf8ecb5fd09649577e244f14065dbe8/status, read at 2026-10-28T11:28:37Z, as the Maintainer (of the answer, the combined state, the commit, and each status's context, state, time and creator are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 11:28:38 GMT",
+          "etag": "W/\"b433960afae389d3f70142fba99ac43bfa52942119c9ee6d8301415ed08f9837\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo, repo:status",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E9B9:FF01D:7CA09DD:1996698E:6AE1DC65",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4915",
+          "x-ratelimit-reset": "1793189756",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "85"
+        },
+        "body": {
+          "state": "pending",
+          "sha": "206c0a571bf8ecb5fd09649577e244f14065dbe8",
+          "total_count": 0,
+          "statuses": []
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92&per_page=20: the workflow runs on the first head, read at 2026-10-29T01:02:33Z, as the Maintainer (of the answer, each run's id, workflow, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 01:02:34 GMT",
+          "etag": "W/\"f755d13973e5ada420a0bbaffeed68a86e8b059c8be0766195b7018900fe25ac\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EDB6:30CE76:D4BF61D:2BB4EBA1:6AE29B2A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4733",
+          "x-ratelimit-reset": "1793237396",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "267"
+        },
+        "body": {
+          "total_count": 4,
+          "workflow_runs": [
+            {
+              "id": 40620026403,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "pull_request",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "trial/p-42i",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "run_attempt": 1,
+              "created_at": "2026-10-28T02:17:13Z",
+              "updated_at": "2026-10-28T02:17:22Z",
+              "actor": {
+                "login": "combsmith-sf-trial-author[bot]",
+                "type": "Bot"
+              }
+            },
+            {
+              "id": 40620026583,
+              "name": "p42-checks",
+              "path": ".github/workflows/p42-checks.yml",
+              "event": "pull_request",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "head_branch": "trial/p-42i",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "run_attempt": 1,
+              "created_at": "2026-10-28T02:17:13Z",
+              "updated_at": "2026-10-28T02:21:16Z",
+              "actor": {
+                "login": "combsmith-sf-trial-author[bot]",
+                "type": "Bot"
+              }
+            },
+            {
+              "id": 40620023086,
+              "name": "PR #65",
+              "path": "dynamic/github-code-scanning/codeql",
+              "event": "dynamic",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "refs/pull/65/head",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "run_attempt": 1,
+              "created_at": "2026-10-28T02:17:11Z",
+              "updated_at": "2026-10-28T02:17:55Z",
+              "actor": {
+                "login": "combsmith-sf-trial-author[bot]",
+                "type": "Bot"
+              }
+            },
+            {
+              "id": 40620020164,
+              "name": "p42-checks",
+              "path": ".github/workflows/p42-checks.yml",
+              "event": "push",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "head_branch": "trial/p-42i",
+              "head_sha": "c1072b469f6f8c0c51a4ef523b2d6eb3de17ba92",
+              "run_attempt": 1,
+              "created_at": "2026-10-28T02:17:09Z",
+              "updated_at": "2026-10-28T02:27:16Z",
+              "actor": {
+                "login": "combsmith-sf-trial-author[bot]",
+                "type": "Bot"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40620020164/jobs?per_page=20: the jobs of the push run of p42-checks, which no person cancelled, read at 2026-10-29T01:02:33Z, as the Maintainer (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 01:02:35 GMT",
+          "etag": "W/\"f038c0d259cba6bb333998aa0e9839ca10fc508c234c6acdf989c2a917f3253d\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EDB8:178046:CE2E3BD:2A653028:6AE29B2B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4732",
+          "x-ratelimit-reset": "1793237396",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "268"
+        },
+        "body": {
+          "total_count": 7,
+          "jobs": [
+            {
+              "id": 122591518926,
+              "name": "p42 / cancelled",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:27:15Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Run sleep 600",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                }
+              ]
+            },
+            {
+              "id": 122591518989,
+              "name": "p42 / posts",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:11Z",
+              "completed_at": "2026-10-28T02:17:17Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Post a neutral check, one under a required check's name, and one under an unlisted criterion's",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                }
+              ]
+            },
+            {
+              "id": 122591519154,
+              "name": "p42 / timed-out",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-10-28T02:17:12Z",
+              "completed_at": "2026-10-28T02:18:42Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Run sleep 120",
+                  "status": "completed",
+                  "conclusion": "cancelled",
+                  "number": 2
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                }
+              ]
+            },
+            {
+              "id": 122591520495,
+              "name": "p42 / skipped",
+              "status": "completed",
+              "conclusion": "skipped",
+              "started_at": "2026-10-28T02:17:10Z",
+              "completed_at": "2026-10-28T02:17:09Z",
+              "run_attempt": 1,
+              "steps": []
+            },
+            {
+              "id": 122591571739,
+              "name": "p42 / neutral",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-28T02:17:19Z",
+              "completed_at": "2026-10-28T02:17:19Z",
+              "run_attempt": 1,
+              "steps": []
+            },
+            {
+              "id": 122591575879,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:20Z",
+              "completed_at": "2026-10-28T02:17:20Z",
+              "run_attempt": 1,
+              "steps": []
+            },
+            {
+              "id": 122591579122,
+              "name": "acceptance: a criterion no contract lists",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-28T02:17:21Z",
+              "completed_at": "2026-10-28T02:17:21Z",
+              "run_attempt": 1,
+              "steps": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/122591519154/annotations: p42 / timed-out's annotations in that run, read at 2026-10-29T01:02:33Z, as the Maintainer (of the answer, each annotation's level and GitHub's message are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 01:02:36 GMT",
+          "etag": "W/\"10da2a0858d4209187f5dfc84bfda9e84bf114e2a27f603e3a5dd53b5ef5ae0a\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EDBA:25C50F:DD5A5CC:2D62CCE4:6AE29B2C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4826",
+          "x-ratelimit-reset": "1793237995",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "174"
+        },
+        "body": [
+          {
+            "annotation_level": "failure",
+            "message": "The job has exceeded the maximum execution time of 1m0s"
+          },
+          {
+            "annotation_level": "failure",
+            "message": "The operation was canceled."
+          },
+          {
+            "annotation_level": "notice",
+            "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+          }
+        ]
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[14].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization",
+    "exchanges[18].request.headers.authorization",
+    "exchanges[19].request.headers.authorization",
+    "exchanges[20].request.headers.authorization",
+    "exchanges[21].request.headers.authorization",
+    "exchanges[22].request.headers.authorization",
+    "exchanges[23].request.headers.authorization",
+    "exchanges[24].request.headers.authorization",
+    "exchanges[25].request.headers.authorization",
+    "exchanges[26].request.headers.authorization",
+    "exchanges[27].request.headers.authorization",
+    "exchanges[28].request.headers.authorization",
+    "exchanges[29].request.headers.authorization",
+    "exchanges[30].request.headers.authorization",
+    "exchanges[31].request.headers.authorization",
+    "exchanges[32].request.headers.authorization",
+    "exchanges[33].request.headers.authorization",
+    "exchanges[34].request.headers.authorization",
+    "exchanges[35].request.headers.authorization",
+    "exchanges[36].request.headers.authorization",
+    "exchanges[37].request.headers.authorization",
+    "exchanges[38].request.headers.authorization",
+    "exchanges[39].request.headers.authorization",
+    "exchanges[40].request.headers.authorization",
+    "exchanges[41].request.headers.authorization",
+    "exchanges[42].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}
