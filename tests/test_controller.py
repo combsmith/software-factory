@@ -556,7 +556,7 @@ class Feed(unittest.TestCase):
         with self.assertRaises(pass_.Refused):
             passed(reads(seen=dict(SEEN, writes=odd)))
         # Matched, nothing is raised; what was seen or recorded that cannot be read raises the one alert that says so.
-        done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [],
+        done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [], "rulings": [],
                 "effects": [{"id": "e1", "type": "approve", "state": "applied", "key": "PRR_0", "reason": None}]}
         self.assertEqual(passed(reads(seen=dict(SEEN, writes=approvals[:1]),
                                       effects=dict(RECORDED, applied=[done])))["alerts"], [])
@@ -844,9 +844,12 @@ class Entry(unittest.TestCase):
     def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
 
+        whos = []
+
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded):
             handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener,
                            recorded))
+            whos.append(who)
             return support.facts(item=dict(support.ITEM, number=number)), "A title"
         from tests.test_steps import recorded_spy
         asked = []
@@ -861,6 +864,12 @@ class Entry(unittest.TestCase):
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
                                    (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None, ({}, True, []))])
+        # The queue App's account, as the configuration holds it, is told to the account reader (issue 389).
+        self.assertIsNone(whos[0].queue)
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry, "queue_of", lambda controller: (5000009, "Bot")):
+            self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual(whos[-1].queue, (5000009, "Bot"))
         # The App that opens pull requests, as the configuration names it, is said to each snapshot (issue 295).
         handed.clear()
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \

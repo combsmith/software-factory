@@ -402,7 +402,8 @@ def refused_all(writes, record, reason: str) -> dict:
 
 # A Role's writes, `apply`'s: each on one item, through the Role App's own token, narrowed to them (issue 194, PR 2).
 # A check run is written once the Role App is granted `checks`; until then its need waits, and no token is minted for it.
-ROLE_WRITES = ("submit_review", "create_check_run", "resolve_thread", "comment")
+# No Role resolves a thread: the queue App does, as the Kernel's act (issue 389).
+ROLE_WRITES = ("submit_review", "create_check_run", "comment")
 # GitHub takes at most fifty annotations in one request: more would need a second write, which nothing sends yet.
 ANNOTATIONS = 50
 LEVEL = {"minor": "warning", "info": "notice"}
@@ -419,23 +420,14 @@ THREADS = """query AppliedThreads($owner: String!, $name: String!, $number: Int!
     }
   }
 }"""
-THREAD = """query AppliedThread($id: ID!) {
-  node(id: $id) {
-    ... on PullRequestReviewThread { id isResolved pullRequest { number repository { nameWithOwner } } }
-  }
-}"""
-RESOLVE = """mutation AppliedResolve($id: ID!) {
-  resolveReviewThread(input: {threadId: $id}) { thread { id isResolved } }
-}"""
 THREAD_ID = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 SINCE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
-def role_permits(item: dict, head: str, name: str, threads) -> tuple:
+def role_permits(item: dict, head: str, name: str) -> tuple:
     """`(permits, patterns)`: what a Role App's token may send on one item, for `Allowed`. A review on it, a comment
-    on it, its check run, named `name`, on its head, `head`, the resolution of one of its threads, `threads`, and the
-    reads that recover and read each back; nothing else, on no other item."""
-    threads = frozenset(threads)
+    on it, its check run, named `name`, on its head, `head`, and the reads that recover and read each back; nothing
+    else, on no other item. No Role resolves a thread (issue 389)."""
     repo, number = item["repo"], item["number"]
     pull, issue = "/repos/%s/pulls/%d" % (repo, number), "/repos/%s/issues/%d" % (repo, number)
     owner, repo_name = repo.split("/")
@@ -453,11 +445,7 @@ def role_permits(item: dict, head: str, name: str, threads) -> tuple:
     def graphql(body) -> bool:
         if not isinstance(body, dict) or set(body) != {"query", "variables"}:
             return False
-        if body["query"] == THREADS:
-            return body["variables"] == {"owner": owner, "name": repo_name, "number": number}
-        return (body["query"] in (THREAD, RESOLVE) and set(body["variables"]) == {"id"}
-                and isinstance(body["variables"]["id"], str) and THREAD_ID.fullmatch(body["variables"]["id"]) is not None
-                and body["variables"]["id"] in threads)
+        return body["query"] == THREADS and body["variables"] == {"owner": owner, "name": repo_name, "number": number}
     def check(body) -> bool:
         return (isinstance(body, dict) and set(body) == {"name", "head_sha", "external_id", "status", "conclusion",
                                                           "output"}
@@ -523,8 +511,6 @@ def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
             return _review(transport, item, req, login)
         if kind == "create_check_run":
             return _check(transport, item, req, login)
-        if kind == "resolve_thread":
-            return _resolve(transport, item, req)
         if kind == "comment" and req["on"] == "item":
             return _comment(transport, item, req, login)
     except _TokenRefused:
@@ -634,33 +620,6 @@ def _threads(transport, item: dict, review: int):
     if any(not isinstance(th, str) or not THREAD_ID.fullmatch(th) for _, th in opened):
         return None
     return [th for _, th in sorted(opened)]
-
-
-def _thread(transport, item: dict, thread: str):
-    """A thread as read: True or False for whether it is resolved, `elsewhere` for one not on the item, None unread."""
-    data = _data(_sent(transport, request("POST", "/graphql", body={"query": THREAD, "variables": {"id": thread}})))
-    node = data.get("node") if isinstance(data, dict) else None
-    if not isinstance(node, dict) or node.get("id") != thread or not isinstance(node.get("isResolved"), bool):
-        return None
-    pr = node.get("pullRequest") if isinstance(node.get("pullRequest"), dict) else {}
-    if pr.get("number") != item["number"] or (pr.get("repository") or {}).get("nameWithOwner") != item["repo"]:
-        return "elsewhere"
-    return node["isResolved"]
-
-
-def _resolve(transport, item: dict, req: dict) -> dict:
-    """A thread's resolution: recovered by its resolved flag, else resolved, and read back resolved."""
-    before = _thread(transport, item, req["thread"])
-    if before is None:
-        return _back("failed", None, reason="thread_unreadable")
-    if before == "elsewhere":
-        return _back("refused", None, reason="thread_not_on_item")
-    if before is True:
-        return _back("already_applied", req["thread"])
-    answer = _sent(transport, request("POST", "/graphql", body={"query": RESOLVE, "variables": {"id": req["thread"]}}))
-    if _data(answer) is None:
-        return _fault(answer if answer is None or answer.get("status") != 200 else dict(answer, status=422))
-    return _back("applied", req["thread"]) if _thread(transport, item, req["thread"]) is True else _back("sent", None)
 
 
 def _comment(transport, item: dict, req: dict, login: str) -> dict:

@@ -892,50 +892,8 @@
       "bound": null
     },
     {
-      "from": "addressing",
-      "to": "held",
-      "by": "lens",
-      "bound": "max_acts_per_item"
-    },
-    {
-      "from": "adjudicating",
-      "to": "held",
-      "by": "lens",
-      "bound": "max_acts_per_item"
-    },
-    {
-      "from": "converged",
-      "to": "held",
-      "by": "factory",
-      "bound": "max_runs_per_item"
-    },
-    {
-      "from": "converged",
-      "to": "held",
-      "by": "lens",
-      "bound": "max_rounds"
-    },
-    {
-      "from": "addressing",
-      "to": "converged",
-      "by": "lens",
-      "bound": "max_runs_per_item"
-    },
-    {
       "from": "adjudicating",
       "to": "addressing",
-      "by": "lens",
-      "bound": "max_runs_per_item"
-    },
-    {
-      "from": "adjudicating",
-      "to": "converged",
-      "by": "lens",
-      "bound": "max_runs_per_item"
-    },
-    {
-      "from": "held",
-      "to": "converged",
       "by": "lens",
       "bound": "max_runs_per_item"
     },
@@ -956,6 +914,12 @@
       "to": "converged",
       "by": "human",
       "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_runs_per_item"
     }
   ]
 }

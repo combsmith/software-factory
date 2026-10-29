@@ -20,14 +20,7 @@
     }
   ],
   "findings": [],
-  "effects": {
-    "resolve_thread": [
-      {
-        "id": "e1",
-        "thread": "PRRT_kw1"
-      }
-    ]
-  },
+  "effects": {},
   "coverage": [],
   "usage": {
     "engine": "claude-cli",
