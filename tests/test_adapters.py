@@ -2896,6 +2896,8 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
+    # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
+    "the_queue_can_eject": "shape",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
@@ -2916,6 +2918,8 @@ REFUSALS = {
     # A thread another opened, refused an App without contents: write, which no port resolves until one holds it (P-5).
     ("P-5", 9): None, ("P-5", 10): None, ("P-5", 11): None, ("P-5", 17): None, ("P-5", 18): None,
     ("P-25", 0): None,                 # the canary holds no CodeRabbit configuration file, which no port reads
+    # A push to a queued pull request's branch, and a draft's enqueue and merge, refused; no port makes them (P-2).
+    ("P-2.queue", 20): None, ("P-2.queue", 26): None, ("P-2.queue", 27): None,
 }
 
 
