@@ -11,6 +11,7 @@ import concurrent.futures
 import contextlib
 import copy
 import datetime
+import email.utils
 import hashlib
 import importlib.machinery
 import io
@@ -1134,29 +1135,37 @@ class Apps(unittest.TestCase):
                                              "as combsmith-sf-%s" % (app, app)))
 
     def test_a_reach_read_before_its_installation_last_changed_is_caught(self):
-        # The repos an installation reaches are read with a token of what it holds then, so a read made before the
-        # installation last changed holds nothing of it now. A read at the very time it changed stands.
+        # The repos an installation reaches are read with a token of what it holds then, so a read GitHub answered
+        # before the installation last changed holds nothing of it now. The time is GitHub's own date on its answer,
+        # never the fixture's ran_at, which a session writes; a read answered at the very time it changed stands.
         changed = {app: self.installed[entry["name"]]["updated_at"] for app, entry in self.apps.items()}
         when = {app: check_apps._when(at) for app, at in changed.items()}
         last = max(when, key=when.get)
-        self.reach["ran_at"] = when[last].astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        answer = next(e["response"] for e in self.reach["exchanges"]
+                      if e["request"]["as"]["name"] == self.apps[last]["name"])
+        self.reach["ran_at"] = "2030-01-01T00:00:00Z"
+        answer["headers"]["date"] = email.utils.format_datetime(when[last].astimezone(datetime.timezone.utc),
+                                                                usegmt=True)
         self.assertEqual(self.check(), [])
-        self.reach["ran_at"] = (when[last] - datetime.timedelta(seconds=1)).isoformat()
+        answer["headers"]["date"] = email.utils.format_datetime(
+            (when[last] - datetime.timedelta(seconds=1)).astimezone(datetime.timezone.utc), usegmt=True)
         problems = self.check()
-        self.assertTrue(caught(problems, "%s: trials/P-39.reach.json read the repos it reaches at %s, before its "
-                                         "installation last changed at %s" % (last, self.reach["ran_at"], changed[last])))
+        self.assertTrue(caught(problems, "%s: GitHub answered its reach in trials/P-39.reach.json at %s, before its "
+                                         "installation last changed at %s" % (last, answer["headers"]["date"],
+                                                                              changed[last])))
         first = min(when, key=when.get)
-        self.assertFalse(caught(problems, "%s: trials/P-39.reach.json read" % first))
-        for unread in ("2026-10-29T00:53:36", "the 29th", None):
-            self.reach["ran_at"] = unread
-            problems = self.check()
-            for app in ("controller", "pr-review", "reader"):
-                self.assertTrue(caught(problems, "%s: when trials/P-39.reach.json ran, or when its installation last "
-                                                 "changed in trials/P-39.grants.json, cannot be read" % app))
+        self.assertFalse(caught(problems, "%s: GitHub answered" % first))
+        for unread in ("the 29th", "Thu, 29 Oct 2026 14:40:11 -0000", None):
+            answer["headers"]["date"] = unread
+            self.assertTrue(caught(self.check(), "%s: when GitHub answered its reach in trials/P-39.reach.json, or "
+                                                 "when its installation last changed in trials/P-39.grants.json, "
+                                                 "cannot be read" % last))
+        del answer["headers"]["date"]
+        self.assertTrue(caught(self.check(), "%s: when GitHub answered its reach" % last))
         self.setUp()
         self.installed["combsmith-sf-reader"]["updated_at"] = "2026-10-29T00:53:36"
         problems = self.check()
-        self.assertTrue(caught(problems, "reader: when trials/P-39.reach.json ran"))
+        self.assertTrue(caught(problems, "reader: when GitHub answered its reach"))
         self.assertFalse(caught(problems, "controller: when"))
 
     def test_a_read_github_refused_is_not_trusted(self):

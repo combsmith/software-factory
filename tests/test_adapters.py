@@ -1261,6 +1261,10 @@ class Artifacts(unittest.TestCase):
 
 
 APPROVER = "donpetry-bot"        # the machine user, as config/defaults.json names the approver
+# The actors P-41 met, as the timeline port reads them.
+P41_REVIEWER = {"kind": "app", "name": "combsmith-sf-pr-review[bot]", "can_write": False}
+P41_CONTROLLER = {"kind": "app", "name": "combsmith-sf-controller[bot]", "can_write": False}
+P41_WRITER = {"kind": "human", "name": "don-petry", "can_write": True}
 MACHINE = (281750570, "User")     # its account, as trials/P-7.json records it
 
 
@@ -2974,6 +2978,7 @@ class Contract(unittest.TestCase):
         p41_accounts = timeline.Accounts(p41_router, canary(), MACHINE, {})
         p41_reviews, _ = timeline.reviews(p41_router, p41_pull, p41_events, p41_accounts, BASE_HEAD)
         p41_head = body("P-41", 49)["head"]["sha"]
+        p41_kinds = sorted((r["by"]["kind"], (r["dismissed_by"] or {}).get("kind")) for r in p41_reviews)
         p41_labels = timeline.label_events(timeline.events(replay("P-41", 54), dict(p41_pull, number=66))[0],
                                            timeline.Accounts(Router(github.Replay([])), canary(), MACHINE, {}))
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
@@ -2983,20 +2988,20 @@ class Contract(unittest.TestCase):
             # A request made before the App's push stood until the pr-review App dismissed it: not the push.
             "a_request_for_changes_survives_a_push": ({"P-41"}, any(
                 r["by"]["kind"] == "human" and r["commit"] != p41_head and r["dismissed_from"] == "changes_requested"
-                and r["dismissed_by"] == {"kind": "app", "name": "combsmith-sf-pr-review[bot]", "can_write": False}
-                for r in p41_reviews)),
+                and r["dismissed_by"] == P41_REVIEWER for r in p41_reviews)),
             "an_app_can_dismiss_a_review": ({"P-41"}, any(
                 r["by"]["kind"] == "human" and r["state"] == "dismissed" and r["dismissed_from"] == "changes_requested"
                 and r["dismissed_by"]["kind"] == "app" for r in p41_reviews)),
             "a_writer_can_dismiss_an_approval": ({"P-41"}, any(
                 r["by"]["kind"] == "machine_user" and r["dismissed_from"] == "approved"
-                and r["dismissed_by"] == {"kind": "human", "name": "don-petry", "can_write": True} for r in p41_reviews)),
-            "an_app_can_label": ({"P-41"}, len(p41_labels) == 8 and {e["action"] for e in p41_labels} == {"labeled", "unlabeled"}
-                                 and all(e["by"] == {"kind": "app", "name": "combsmith-sf-controller[bot]", "can_write": False}
-                                         and e["label"] == "factory:hold" for e in p41_labels)),
-            "an_actor_has_a_kind": ({"P-41"}, all(
-                actor["kind"] in ("human", "machine_user", "app") for actor in
-                [r["by"] for r in p41_reviews] + [r["dismissed_by"] for r in p41_reviews] + [e["by"] for e in p41_labels])),
+                and r["dismissed_by"] == P41_WRITER for r in p41_reviews)),
+            "an_app_can_label": ({"P-41"}, len(p41_labels) == 8
+                                 and {e["action"] for e in p41_labels} == {"labeled", "unlabeled"}
+                                 and all(e["by"] == P41_CONTROLLER and e["label"] == "factory:hold"
+                                         for e in p41_labels)),
+            # Each actor is told by its account type: the person, the machine user and two Apps, each where P-41 met it.
+            "an_actor_has_a_kind": ({"P-41"}, p41_kinds == [("human", "app"), ("machine_user", "human")]
+                                    and all(e["by"] == P41_CONTROLLER for e in p41_labels)),
             # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
             "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"

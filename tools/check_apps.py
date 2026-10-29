@@ -6,22 +6,22 @@ the Controller makes that is not an Effect; `read:` is something read. The table
 No App holds `workflows` or `security_events` (NEVER).
 A write permission serves a read of the same permission too, since GitHub's write includes read.
 
-The data is held to what GitHub granted (decision 0035). Trial P-39's fixtures record each App's
-registration, the org's installations as GitHub listed them, and the repos each installation
-reaches. Each fixture's verdict is `pass`, each read was answered 200, and each list was read
-whole: one page, each item once, as many as it counts. The repos an installation reaches are read
-no earlier than it last changed, as the installations' read records it. For each App, its registration and its
-installation are of its `app_id` and its name, with exactly the permissions and levels here and no
-events; the installation is on `selected` repos; and it reaches exactly `installed_on`. Anything short of that is a fail, and no key is stored. Each App's
-key is kept in the environment of the one job that holds it (design §4.9): the Controller's in the
-poller's, the reader's in `run`'s, the queue App's in the queue step's (issue 381), and each Role's in
-`apply`'s. A job that names an environment
-reads every secret in it, so no other job's environment may hold a key, and `run`, which reads
-untrusted text, never holds one that writes. The secret is named for the App.
+The data is held to what GitHub granted (decision 0035). Trial P-39's fixtures record each App's registration, the
+org's installations as GitHub listed them, and the repos each installation reaches. Each fixture's verdict is
+`pass`, each read was answered 200, and each list was read whole: one page, each item once, as many as it counts.
+The repos an installation reaches are read no earlier than it last changed, by the date GitHub's answer carries and
+the installations' read records. For each App, its registration and its installation are of its `app_id` and its
+name, with exactly the permissions and levels here and no events; the installation is on `selected` repos; and it
+reaches exactly `installed_on`. Anything short of that is a fail, and no key is stored. Each App's key is kept in
+the environment of the one job that holds it (design §4.9): the Controller's in the poller's, the reader's in
+`run`'s, the queue App's in the queue step's (issue 381), and each Role's in `apply`'s. A job that names an
+environment reads every secret in it, so no other job's environment may hold a key, and `run`, which reads untrusted
+text, never holds one that writes. The secret is named for the App.
 """
 from __future__ import annotations
 
 import datetime
+import email.utils
 import json
 import pathlib
 import re
@@ -83,9 +83,9 @@ def _short(kind: str, body: dict, headers) -> str:
 
 
 def _reads(root: pathlib.Path) -> tuple:
-    """({kind: [(fixture, who asked, body)]} for each read P-39 recorded, and "ran_at": {fixture: when it ran};
-    [problems with the fixtures])."""
-    reads, problems = {"installations": [], "registration": [], "reach": [], "ran_at": {}}, []
+    """({kind: [(fixture, who asked, body)]} for each read P-39 recorded, and "answered_at": {(fixture, who asked): the
+    date GitHub's answer to a reach read carries}; [problems with the fixtures])."""
+    reads, problems = {"installations": [], "registration": [], "reach": [], "answered_at": {}}, []
     paths = sorted((root / "trials").glob(TRIAL + ".json")) + sorted((root / "trials").glob(TRIAL + ".*.json"))
     for path in paths:
         rel = "trials/" + path.name
@@ -95,7 +95,6 @@ def _reads(root: pathlib.Path) -> tuple:
             problems.append("%s cannot be read, so no App can be held to it: %s" % (rel, err))
             continue
         data = data if isinstance(data, dict) else {}
-        reads["ran_at"][rel] = data.get("ran_at")
         if data.get("verdict") != "pass":
             problems.append("%s: its verdict is %s; P-39 passes only if each of its fixtures does, and no App's key is "
                             "stored until then, so correct the registration and run %s again"
@@ -119,6 +118,10 @@ def _reads(root: pathlib.Path) -> tuple:
                 continue
             asker = request.get("as") if isinstance(request.get("as"), dict) else {}
             reads[kind].append((rel, asker.get("name"), body))
+            if kind == "reach":
+                headers = response.get("headers") if isinstance(response.get("headers"), dict) else {}
+                dated = [v for k, v in headers.items() if str(k).lower() == "date"]
+                reads["answered_at"][(rel, asker.get("name"))] = dated[0] if len(dated) == 1 else None
     if not reads["installations"]:
         problems.append("no fixture of trial %s in trials/ records %s, so no App's permissions can be held to what "
                         "GitHub granted; run %s and add its fixture" % (TRIAL, INSTALLATIONS, TRIAL))
@@ -147,22 +150,38 @@ def _when(value):
     return when if when.tzinfo is not None else None
 
 
-def _stale(app: str, reached: list, installations: list, ran_at: dict) -> list:
-    """Each read of the repos the App reaches made before its installation last changed, or whose time cannot be
-    read: what it reached then is not what the installation holds now."""
+def _answered(value):
+    """The date of GitHub's answer, as its date header writes it, or None if it cannot be read."""
+    if not isinstance(value, str):
+        return None
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when.tzinfo is None:     # "-0000", a zone the date does not know, reads with none
+        return None
+    return when
+
+
+def _stale(app: str, name: str, reached: list, installations: list, answered_at: dict) -> list:
+    """Each read of the repos the App reaches that GitHub answered before its installation last changed, or whose
+    date cannot be read: what it reached then is not what the installation holds now. The date is GitHub's own, on
+    the answer, never one a fixture writes by hand."""
     problems = []
     for fixture, _ in reached:
-        read = _when(ran_at.get(fixture))
+        said = answered_at.get((fixture, name))
+        read = _answered(said)
         for listed, installation in installations:
             changed = _when(installation.get("updated_at"))
             if read is None or changed is None:
-                problems.append("%s: when %s ran, or when its installation last changed in %s, cannot be read, so "
-                                "what it reaches cannot be held to the installation; run %s again"
+                problems.append("%s: when GitHub answered its reach in %s, or when its installation last changed in "
+                                "%s, cannot be read, so what it reaches cannot be held to the installation; run %s "
+                                "again"
                                 % (app, fixture, listed, TRIAL))
             elif read < changed:
-                problems.append("%s: %s read the repos it reaches at %s, before its installation last changed at %s "
+                problems.append("%s: GitHub answered its reach in %s at %s, before its installation last changed at %s "
                                 "in %s; run tools/trial_p39_reach.sh again"
-                                % (app, fixture, ran_at.get(fixture), installation.get("updated_at"), listed))
+                                % (app, fixture, said, installation.get("updated_at"), listed))
     return problems
 
 
@@ -219,7 +238,7 @@ def _granted(app: str, entry: dict, reads: dict) -> list:
             problems.append("%s: its installation reaches %s in %s, and installed_on names %s; they must agree "
                             "exactly" % (app, ", ".join(repos) or "no repo", fixture,
                                          ", ".join(sorted(str(r) for r in installed_on)) or "none"))
-    return problems + _stale(app, reached, installations, reads["ran_at"])
+    return problems + _stale(app, name, reached, installations, reads["answered_at"])
 
 
 def _secret(app: str) -> str:
