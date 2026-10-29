@@ -8602,6 +8602,13 @@ MUTANTS = ISSUE + [
     ("the reader's trial takes an OUT another made after the check", "tools/trial_reader_reads.sh",
      'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
      ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
+    # Issue 369: a title is looked for from the first opening quote of a run alone, so a line of them is read in time.
+    ("every opening quote is tried for a title", "tools/check_context.py",
+     'TITLE = re.compile(r"(?:\\"|(?:^|(?<=[”\\n]))[^\\"“”\\n]*“)[^\\"”\\n]{8,}[\\"”]")',
+     'TITLE = re.compile(r"[\\"“][^\\"”\\n]{8,}[\\"”]")',
+     ("tests.test_tools.Context.test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before",)),
+    ("a title after a new line is not looked for", "tools/check_context.py", '(?:^|(?<=[”\\n]))', '(?:^|(?<=[”]))',
+     ("tests.test_tools.Context.test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before",)),
 ]
 
 

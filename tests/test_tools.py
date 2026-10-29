@@ -2940,6 +2940,21 @@ class Context(unittest.TestCase):
         for text in ('See "docs: factory MVP" (pull request 2225).', "See \u201cdocs: factory MVP\u201d (issue 12)."):
             self.assertEqual(found(text), [], text)
 
+    def test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before(self):
+        # Issue 369: every opening quote was tried, each to the line's end, so a line of them took time in its square.
+        began = time.monotonic()
+        self.assertTrue(check_context.TITLE.search("x" * 10 + "\u201c" * 40000 + "\u201d") is not None)
+        self.assertIsNone(check_context.TITLE.search("See issue 12 " + "\u201ca" * 20000))
+        self.assertLess(time.monotonic() - began, 3)
+        # Only the first opening quote of a run is tried; it is a title wherever a later one in the run would be.
+        for text, titled in (("\u201cdocs: \u201cfactory\u201d MVP\u201d", True), ('"docs: \u201cfactory MVP"', True),
+                             ("\u201cshort \u201cdocs: factory MVP\u201d", True), ('"ab" \u201cdocs: factory\u201d', True),
+                             ("\u201cab\u201d \u201cdocs: factory\u201d", True), ("\u201cdocs: factory\nMVP\u201d", False),
+                             ("\u201cab \u201cdocs: f\u201d", True), ("a\u201cb\u201cdocs\u201d", False),
+                             ('\u201cdocs: factory MVP', False), ('x" docs: factory MVP"', True),
+                             ("ab\n\u201cdocs: factory\u201d", True)):
+            self.assertEqual(check_context.TITLE.search(text) is not None, titled, text)
+
     def test_a_root_file_too_long_to_read_in_full_is_caught(self):
         root = tree({"AGENTS.md": "line\n" * (check_context.ROOT_LINES + 1), "kernel/AGENTS.md": "x " * 200 + "\n"})
         problems = check_context._agents_files(root)
