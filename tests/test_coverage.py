@@ -147,10 +147,12 @@ class Coverage(unittest.TestCase):
 
     def test_an_unreadable_rubric_is_unreadable_never_covered(self):  # I-13
         # The Factory's fault, never the item's: whatever the Result says, nothing is read as covered.
+        # Each criterion with an id at fault gives a severity, so that its id alone is what cannot be read.
+        major = {"severity_if_violated": "major"}
         broken = [None, [], {}, {"criteria": []}, {"criteria": "PR-1"}, {"criteria": [None]},
-                  {"criteria": [{"statement": "no id"}]}, {"criteria": [{"id": "pr-1"}]}, {"criteria": [{"id": 1}]},
-                  {"criteria": [{"id": "PR-1"}, {"id": "PR-1"}]}, {"criteria": [{"id": "-1"}]},
-                  {"criteria": [{"id": "PR-x"}]},
+                  {"criteria": [dict(major, statement="no id")]}, {"criteria": [dict(major, id="pr-1")]},
+                  {"criteria": [dict(major, id=1)]}, {"criteria": [dict(major, id="PR-1"), dict(major, id="PR-1")]},
+                  {"criteria": [dict(major, id="-1")]}, {"criteria": [dict(major, id="PR-x")]},
                   # A criterion with no severity that a Finding citing it could be given.
                   {"criteria": [{"id": "PR-1"}]}, {"criteria": [{"id": "PR-1", "severity_if_violated": "Major"}]},
                   {"criteria": [{"id": "PR-1", "severity_if_violated": None}]},
@@ -167,6 +169,8 @@ class Coverage(unittest.TestCase):
         one = {"criteria": [{"id": "X-1", "severity_if_violated": "info"}]}
         self.assertEqual(covered(one, [entry("X-1")], [], []), ("covered", []))
         self.assertEqual(covered(one, [], [], []), ("uncovered", ["X-1"]))
+        two = {"criteria": [dict(major, id="PR-1"), dict(major, id="PR-2")]}
+        self.assertEqual(covered(two, [entry("PR-1"), entry("PR-2")], [], []), ("covered", []))
         self.assertEqual(covered(rubric_with("PR-3", applies_when=None), [], [], [changed("docs/a.md")]),
                          ("uncovered", ["PR-1", "PR-2", "PR-3", "PR-5"]))
 
