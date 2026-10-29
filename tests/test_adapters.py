@@ -16,6 +16,7 @@ import pathlib
 import unittest
 import urllib.parse
 import zipfile
+from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, \
     pause, rules, threads, timeline
@@ -1196,6 +1197,11 @@ class Artifacts(unittest.TestCase):
                        outcome_zip(dict(good, run="r_OTHER1")), outcome_zip(dict(good, outcome=None)),
                        outcome_zip(dict(good, reason="A sentence.")), b"PK\x03\x04 not a zip"):
             self.assertEqual(self.read(record), (None, False), record[:40])
+        # A body nested past what the decoder parses raises RecursionError, never only a decoding error: it is no
+        # outcome, and the pass goes on. How deep that is differs from one Python to the next, so the decoder is made to
+        # raise it (the second-family read of #352).
+        with mock.patch.object(artifacts.json, "loads", side_effect=RecursionError("too deep")):
+            self.assertEqual(self.read(zipped), (None, False))
         # A zip over the bound is not read, though it holds an outcome that could be.
         wide = io.BytesIO()
         with zipfile.ZipFile(wide, "w") as archive:
@@ -2387,6 +2393,11 @@ class Recorded(unittest.TestCase):
         # Without it, or told no current content, the record still holds the pull request.
         self.assertFalse(self.held([thread_node("PRRT_1")], recorded_)[1])
         self.assertFalse(self.held([thread_node("PRRT_1")], recorded_[:2], content_id="sha256:new")[1])
+        # No current content is none, though a later Run's record names no content in the same way.
+        for none in (None, ""):
+            later = dict(lens_run(self.LATER), content_id=none, started_at="2026-10-21T17:00:00Z")
+            recorded_none = self.two_runs([finding_on("PRRT_7")], [], later_run=later)
+            self.assertFalse(self.held([thread_node("PRRT_1")], recorded_none, content_id=none)[1], none)
         # A problem that still stands is raised again by the later review, on a thread of its own, held to its opener.
         recorded_ = self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_9")])
         self.assertTrue(self.held([thread_node("PRRT_9", LENS)], recorded_, content_id="sha256:new")[1])
@@ -2876,6 +2887,12 @@ NOT_READ = {
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
     "a_label_event_names_its_actor": "shape",
+    # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
+    "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
+    # The threads port reads a thread's resolver as `resolvedBy { login databaseId }`, and P-5 recorded it as
+    # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
+    # Role's write, which no port makes until an App holds contents: write (P-5).
+    "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
@@ -2890,6 +2907,12 @@ REFUSALS = {
     ("P-43", 3): None,                 # a review written by the trial, which no port writes yet
     ("P-44", 3): "runs",               # a list of runs GitHub did not find
     ("P-52", 2): "pause",              # the org's own variable, refused the Controller's token: the Pause unreadable
+    # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
+    ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 19): None,
+    ("P-2.least", 30): None,
+    # A thread another opened, refused an App without contents: write, which no port resolves until one holds it (P-5).
+    ("P-5", 9): None, ("P-5", 10): None, ("P-5", 11): None, ("P-5", 17): None, ("P-5", 18): None,
+    ("P-25", 0): None,                 # the canary holds no CodeRabbit configuration file, which no port reads
 }
 
 
@@ -3294,6 +3317,13 @@ class Rules(unittest.TestCase):
         gone = self.answer()
         gone["response"].update(status=404, body={"message": "Not Found"})
         self.assertEqual(self.read(gone), unreadable)
+        # An answer that is no 200 is none, though its body is the file's.
+        refused = self.answer()
+        refused["response"]["status"] = 404
+        self.assertEqual(self.read(refused), unreadable)
+        # A size that is no integer is none, though it counts the file's bytes.
+        whole = self.answer()
+        self.assertEqual(self.read(self.answer(size=float(whole["response"]["body"]["size"]))), unreadable)
         # A directory's answer is a list of its entries.
         listing = self.answer()
         listing["response"]["body"] = [listing["response"]["body"]]
@@ -3302,7 +3332,7 @@ class Rules(unittest.TestCase):
         class Unasked:
             def send(self, req):
                 raise AssertionError("asked %s" % req)
-        for repo, sha in (("o", self.SHA), ("o/..", self.SHA), ("o/r/x", self.SHA), ("o/r", "main"), ("o/r", "B" * 40),
+        for repo, sha in (("o", self.SHA), ("o/..", self.SHA), ("o/.", self.SHA), ("o/r/x", self.SHA), ("o/r", "main"), ("o/r", "B" * 40),
                           (None, self.SHA), ("o/r", None)):
             self.assertEqual(self.read(repo=repo, sha=sha, transport=Unasked()), unreadable, (repo, sha))
         # A read the transport cannot answer is unreadable.
