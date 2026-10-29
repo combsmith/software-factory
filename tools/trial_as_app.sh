@@ -288,11 +288,11 @@ fi
 for attempt in 1 2 3 4 5; do
     as_installation GET "repos/$repo/pulls/$pr"
     read_head=$(value "$out/$id.clean" head.sha)
-    [ "$read_head" = "$pushed" ] && break
-    if [ "$attempt" -lt 5 ]; then sleep 2; fi
+    [[ "$read_head" = "$pushed" ]] && break
+    if [[ "$attempt" -lt 5 ]]; then sleep 2; fi
 done
 echo "Pull request $pr, branch $branch, head $read_head"
-[ "$read_head" = "$pushed" ] || echo "trial_as_app: the push made $pushed, and the pull request still read $read_head" >&2
+[[ "$read_head" = "$pushed" ]] || echo "trial_as_app: the push made $pushed, and the pull request still read $read_head" >&2
 
 if [ "$action" = threads ]; then
     # The first thread: the App opens it, resolves it, and reads it as itself.
