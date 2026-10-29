@@ -1203,8 +1203,8 @@ class Identity(unittest.TestCase):
                         # anywhere; only a double quote's sends it back to main's reading.
                         "(cat <<EOF\n$(git commit -m x)\nEOF\n)", "x=$(cat <<EOF\n$(git commit -m x)\nEOF\n)"):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
-        # A word that ends in a backslash, or holds one in quotes, which shlex and the shell take out apart, is main's
-        # reading, a body that never ends (Codex and Muse on #417).
+        # A word that ends in a backslash, or holds one in double quotes, which shlex and the shell take out apart, keeps
+        # main's reading, the word up to its first quote or backslash (Codex, Muse and Argon on #417).
         self.assertIn("command_unreadable", self.codes("cat <<EOF\\\\\nhi\nEOF\\\ngit commit -m x"))
         # The review of pull request 395: a commit message or a body sent by a bare here-document, whose backticks hold
         # prose the reader cannot read, passes as on main.
@@ -2533,6 +2533,8 @@ class MergesAndSettings(Asks):
             self.asked(self.run_(command), "merge", command)
         # Issue 410: a here-document ends at its whole word, and a backslash-newline in an expanded body joins its lines.
         for command in ("cat <<E\\OF\nhello\nEOF\ngit push origin main\nE", "cat <<EOF\n$\\\n(git push origin main)\nEOF",
+                        # The same through <<-, whose lines lose their leading tabs (Argon on #417).
+                        "cat <<-E\\OF\n\thello\n\tEOF\ngit push origin main\nE",
                         "(cat <<EOF\n$(git push origin main)\nEOF\n)"):
             self.asked(self.run_(command), "merge", command)
         # A word with a backslash in quotes, which shlex and the shell take out apart, keeps main's reading: a body that
