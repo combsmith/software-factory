@@ -2725,6 +2725,13 @@ class Workflows(unittest.TestCase):
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
 
+    def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
+        # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
+        text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
+        self.assertEqual(check_workflows.lint(text), [])
+        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1))],
+                         ["form"])
+
     def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392
         # A run's value is its command; a # after a quoted command is no comment of the entry's, as it is for uses: the
         # comment a pin is read by.
