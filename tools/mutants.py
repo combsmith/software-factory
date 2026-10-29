@@ -4942,8 +4942,12 @@ MUTANTS = ISSUE + [
      '    if "$" in path or "`" in path or (path.startswith("~") and not re.match(r"~(/|$)", path)):\n'
      "        return None\n    path = os.path.expanduser(path)\n"
      "    return pathlib.Path(path) if os.path.isabs(path) or here is None else here / path\n", LOST_TESTS),
+    # Its first test is the one that tells it: the cases of LOST_TESTS put cd ~- after a cd the hook placed, which the
+    # reading takes back before this line (decision 0040), so the mutant passed them and fell to the whole suite, which
+    # outgrew TIMEOUT in a shard of PR 404.
     ("~- and $OLDPWD are read as directories of their own", "tools/hooks/identity.py",
-     "    if args[0] in PREVIOUS or re.fullmatch(", "    if re.fullmatch(", LOST_TESTS),
+     "    if args[0] in PREVIOUS or re.fullmatch(", "    if re.fullmatch(",
+     (IDENTITY_TESTS + "test_cd_minus_goes_back_to_the_place_before_the_last_cd",) + LOST_TESTS),
     ("cd '' is read as cd ~", "tools/hooks/identity.py",
      '    return args[0] or "."\n', '    return args[0] or "~"\n', LOST_TESTS),
     ("a writer that names no output writes nothing", "tools/hooks/identity.py",
