@@ -31,7 +31,7 @@ answered `actions_variables` as asked, so the name the pass asks for is one GitH
 | The review Role's App is granted what `apply` reads again, and the check run's write | `tests/test_apply.py::test_the_role_app_is_granted_what_apply_reads_again`, `tests/test_apply.py::test_the_role_app_is_granted_checks_to_write_its_check_run` |
 | An Effect whose need waits writes nothing and mints nothing | `tests/test_apply.py::test_nothing_is_minted_for_a_refused_result_and_the_token_is_revoked_whatever_happens` |
 | The repo's Pause is read as P-52 recorded GitHub's answer | `tests/test_effects.py::test_the_pause_is_read_as_github_holds_the_variable` |
-| The org's Pause is read through the repo's list of the org's variables | not held yet: `tests/test_effects.py::test_the_orgs_pause_is_read_through_the_repos_list_of_the_orgs_variables` |
+| The org's Pause is read through the repo's list of the org's variables | `tests/test_effects.py::test_the_orgs_pause_is_read_through_the_repos_list_of_the_orgs_variables` |
 | The effects step's token reads the Pause it reads again | `tests/test_steps.py::test_the_controller_mints_from_its_key` |
 | The fake's Pause names P-52, whose row asks it | `tools/check_trials.py` |
 | Each of these grants has a mutant that a test kills | `tools/mutants.py` |
