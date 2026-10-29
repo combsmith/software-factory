@@ -505,26 +505,34 @@ class Pause(unittest.TestCase):
                 status, body, headers = self.pages.pop(0)
                 return {"status": status, "headers": headers, "body": body}
         one = lambda *variables: (200, {"total_count": len(variables), "variables": list(variables)}, {})
-        # Read whole and naming it: its value. Read whole and not naming it: the org holds no Pause. Over two pages,
-        # each named by the last's next link, as many as the count says.
-        for pages, want in (([one(entry("OTHER"), entry(pause.NAME, "true"))], "true"), ([one(entry("OTHER"))], None),
-                            ([one()], None),
-                            ([(200, {"total_count": 2, "variables": [entry("OTHER")]}, nxt),
-                              (200, {"total_count": 2, "variables": [entry(pause.NAME)]}, {})], "false")):
+        # Read whole and naming it: its value. Over two pages, each named by the last's next link, the first a full page,
+        # as many as the count says.
+        full = [entry("V%d" % i) for i in range(pause.PAGE)]
+        for pages, want in (([one(entry("OTHER"), entry(pause.NAME, "true"))], "true"),
+                            ([(200, {"total_count": 101, "variables": full}, nxt),
+                              (200, {"total_count": 101, "variables": [entry(pause.NAME)]}, {})], "false")):
             asked = Pages(*pages)
             self.assertEqual(pause.read(asked, "combsmith", [home])["org"], want, pages)
             self.assertEqual(asked.asked[:len(pages)], [pause.listed(home, n + 1) for n in range(len(pages))])
-        # The other side, each unreadable: a refusal; a list short of its count, or past it, or a count that moves
-        # between pages; a next page after an empty one, or after every entry the count names; a name twice; an entry
-        # that is not one, or a value that is not text; no count, or one that is no whole number.
-        for pages in ([(403, {"message": "Resource not accessible by integration"}, {})],
+        # The other side, each unreadable. A list read whole that does not name it, since the list holds only the org's
+        # variables shared with the repo (decision 0077); a refusal, or any answer but 200 however it reads; a list
+        # short of its count, or past it, or a count that moves between pages; a next page after a page short of a full
+        # one, or after every entry the count names; a name twice, whatever its case; an entry that is not one, or a
+        # value that is not text; no count, or one that is no whole number.
+        for pages in ([one(entry("OTHER"))], [one()],
+                      [(403, {"message": "Resource not accessible by integration"}, {})],
+                      [(404, {"total_count": 1, "variables": [entry(pause.NAME)]}, {})],
+                      [(500, {"total_count": 1, "variables": [entry(pause.NAME)]}, {})],
                       [(200, {"total_count": 2, "variables": [entry(pause.NAME)]}, {})],
                       [(200, {"total_count": 1, "variables": [entry("OTHER"), entry(pause.NAME)]}, {})],
+                      [(200, {"total_count": 101, "variables": full}, nxt),
+                       (200, {"total_count": 102, "variables": [entry(pause.NAME), entry("THIRD")]}, {})],
                       [(200, {"total_count": 2, "variables": [entry("OTHER")]}, nxt),
-                       (200, {"total_count": 3, "variables": [entry(pause.NAME), entry("THIRD")]}, {})],
+                       (200, {"total_count": 2, "variables": [entry(pause.NAME)]}, {})],
                       [(200, {"total_count": 2, "variables": []}, nxt)],
                       [(200, {"total_count": 1, "variables": [entry(pause.NAME)]}, nxt)],
                       [one(entry(pause.NAME), entry(pause.NAME, "true"))],
+                      [one(entry(pause.NAME), entry("factory_paused", "true"))],
                       [(200, {"total_count": 1, "variables": [5]}, {})],
                       [(200, {"total_count": 1, "variables": [{"value": "false"}]}, {})],
                       [one(entry(pause.NAME, False))],
@@ -533,10 +541,10 @@ class Pause(unittest.TestCase):
                       [(200, {"total_count": 1, "variables": "x"}, {})],
                       [(200, ["false"], {})]):
             self.assertIs(pause.read(Pages(*pages), "combsmith", [home])["org"], pause.UNREADABLE, pages)
-        # A list that names a next page after an empty one, or after every entry its count names, is not asked again,
-        # however many pages it would go on naming.
+        # A list that names a next page after a page short of a full one, or after every entry its count names, is not
+        # asked again, however many pages it would go on naming.
         for page in ((200, {"total_count": 2, "variables": []}, nxt),
-                     (200, {"total_count": 1, "variables": [entry(pause.NAME)]}, nxt)):
+                     (200, {"total_count": pause.PAGE, "variables": full}, nxt)):
             asked = Pages(*[page] * 4)
             self.assertIs(pause.read(asked, "combsmith", [home])["org"], pause.UNREADABLE, page)
             self.assertEqual(sum(p.startswith(pause.listed(home)) for p in asked.asked), 1, page)
@@ -686,6 +694,10 @@ class Tracking(unittest.TestCase):
                                body={"state": "closed", "state_reason": "completed"})]
         for req in good:
             self.assertEqual(allowed.send(req)["status"], 200, req)
+        # With two repos, the org's list is read through the first, as the port reads it, and no other.
+        two, _ = effects.controller_permits(cfg, "combsmith", ["combsmith/b", "combsmith/a"])
+        self.assertIn(("GET", pause.listed("combsmith/a")), two)
+        self.assertNotIn(("GET", pause.listed("combsmith/b")), two)
         bad = [github.request("GET", pause.path("combsmith/other")),
                # The org's own variable, which GitHub refuses the Controller's token (P-52), is never asked (issue 362).
                github.request("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED"),

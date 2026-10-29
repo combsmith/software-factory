@@ -7,9 +7,10 @@ meaning is the pass's, and an unreadable scope is a Pause unreadable (I-13).
 The org's own endpoint refuses the Controller's token, which holds the repo's Variables read and nothing of the org's
 (trials/P-52.json, a 403); the repo's list of the org's variables names the org's FACTORY_PAUSED with its value. So the
 org's Pause is read from that list, for the first repo the read is of, its owner the org, paged by its `link` header
-until read whole: as many entries as `total_count` says, each name once. Absent from a list read whole, the org holds no
-Pause; a list not read whole, an answer that is not 200, or an entry that cannot be read leaves it unreadable (issue
-362, "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found")."""
+until read whole: as many entries as `total_count` says, each page but the last a full one, each name once whatever its
+case. A list read whole that does not name it is unreadable, never unset, since the list holds only the org's variables
+shared with that repo (decision 0077); so is a list not read whole, an answer that is not 200, or an entry that cannot
+be read (issue 362, "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found")."""
 from __future__ import annotations
 
 import re
@@ -41,7 +42,8 @@ def _named(repo: str) -> bool:
 
 
 def _org_value(transport, org: str, repo):
-    """The org's FACTORY_PAUSED, as `repo`'s list of the org's variables names it, read whole (the module's rule)."""
+    """The org's FACTORY_PAUSED, as `repo`'s list of the org's variables names it, read whole (the module's rule): its
+    value, or UNREADABLE, never None."""
     if repo is None or not ORG.fullmatch(org) or not _named(repo) or repo.split("/")[0] != org:
         return UNREADABLE
     entries, total, page = [], None, 1
@@ -58,18 +60,18 @@ def _org_value(transport, org: str, repo):
         entries += body["variables"]
         if not NEXT.search(str((answer.get("headers") or {}).get("link", ""))):
             break
-        # A next page after an empty one, or after every entry the count names, contradicts the count.
-        if not body["variables"] or len(entries) >= total:
+        # A next page after one short of a full page, or after every entry the count names, contradicts the count.
+        if len(body["variables"]) != PAGE or len(entries) >= total:
             return UNREADABLE
         page += 1
     if any(not isinstance(e, dict) or not isinstance(e.get("name"), str) for e in entries):
         return UNREADABLE
-    names = [e["name"] for e in entries]
+    names = [e["name"].upper() for e in entries]
     if len(entries) != total or len(set(names)) != len(names):
         return UNREADABLE
-    pause = [e for e in entries if e["name"] == NAME]
+    pause = [e for e in entries if e["name"].upper() == NAME]
     if not pause:
-        return None
+        return UNREADABLE
     return pause[0]["value"] if isinstance(pause[0].get("value"), str) else UNREADABLE
 
 
