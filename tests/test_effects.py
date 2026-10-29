@@ -513,7 +513,18 @@ class Pause(unittest.TestCase):
                               (200, {"total_count": 101, "variables": [entry(pause.NAME)]}, {})], "false")):
             asked = Pages(*pages)
             self.assertEqual(pause.read(asked, "combsmith", [home])["org"], want, pages)
-            self.assertEqual(asked.asked[:len(pages)], [pause.listed(home, n + 1) for n in range(len(pages))])
+            # Each page by its own path, as GitHub names it, the first with no page number.
+            self.assertEqual(asked.asked[:len(pages)], [
+                "/repos/combsmith/software-factory/actions/organization-variables?per_page=100",
+                "/repos/combsmith/software-factory/actions/organization-variables?per_page=100&page=2"][:len(pages)])
+        # A list GitHub never answers, a connection dropped, is unreadable, never a raise.
+
+        class Dropped:
+            def send(self, req):
+                if "/organization-variables" in req["path"]:
+                    raise github.Unanswered("the connection dropped")
+                return {"status": 200, "headers": {}, "body": {"name": pause.NAME, "value": "false"}}
+        self.assertIs(pause.read(Dropped(), "combsmith", [home])["org"], pause.UNREADABLE)
         # The other side, each unreadable. A list read whole that does not name it, since the list holds only the org's
         # variables shared with the repo (decision 0077); a refusal, or any answer but 200 however it reads; a list
         # short of its count, or past it, or a count that moves between pages; a next page after a page short of a full
@@ -695,9 +706,14 @@ class Tracking(unittest.TestCase):
         for req in good:
             self.assertEqual(allowed.send(req)["status"], 200, req)
         # With two repos, the org's list is read through the first, as the port reads it, and no other.
-        two, _ = effects.controller_permits(cfg, "combsmith", ["combsmith/b", "combsmith/a"])
+        two, pages = effects.controller_permits(cfg, "combsmith", ["combsmith/b", "combsmith/a"])
         self.assertIn(("GET", pause.listed("combsmith/a")), two)
         self.assertNotIn(("GET", pause.listed("combsmith/b")), two)
+        through = effects.Allowed(Anything(), two, pages)
+        self.assertEqual(through.send(github.request("GET", pause.listed("combsmith/a", 2)))["status"], 200)
+        for path in (pause.listed("combsmith/b", 2), pause.listed(self.HOME, 2)):
+            with self.assertRaises(github.Unanswered, msg=path):
+                through.send(github.request("GET", path))
         bad = [github.request("GET", pause.path("combsmith/other")),
                # The org's own variable, which GitHub refuses the Controller's token (P-52), is never asked (issue 362).
                github.request("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED"),

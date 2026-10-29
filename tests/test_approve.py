@@ -142,7 +142,9 @@ class TheAct(unittest.TestCase):
                    ("POST", "/graphql", {"query": "mutation { resolveReviewThread(input: {threadId: \"T\"}) { thread "
                                                   "{ id } } }", "variables": {"owner": repo.split("/")[0],
                                                                              "name": repo.split("/")[1], "number": 42}}),
-                   ("GET", "/orgs/combsmith/members", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
+                   ("GET", "/orgs/combsmith/members", None),
+                   # The org's own variable, which the Pause is no longer read from (issue 362).
+                   ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
         for method, path, body in refused:
             with self.assertRaises(Unanswered, msg=(method, path, body)):
                 token.send({"method": method, "path": path, "body": body})
