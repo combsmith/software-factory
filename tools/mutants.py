@@ -1929,6 +1929,28 @@ MUTANTS = ISSUE + [
      '        return ["NEEDS cannot be read as JSON; give it ${{ toJSON(needs) }} in the job\'s env"]\n',
      "        return []\n", ("tests.test_tools.Workflows",)),
     # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
+    # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
+    ('the baseline runs the whole suite', 'tools/mutants.py',
+     '    tests = cases(named(muta' 'nts))\n    if not tests:',
+     '    tests = ()\n    if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline is split by the names its mutants give', 'tools/mutants.py',
+     '    tests = cases(named(muta' 'nts))\n',
+     '    tests = named(mutants)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline runs in one part', 'tools/mutants.py',
+     '    parts = [tests[at::workers] for a' 't in range(min(workers, len(tests)))]',
+     '    parts = [tests]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline runs a test its named class holds again', 'tools/mutants.py',
+     ' if not any(test.startswith(ot' 'her + ".") for other in tests)',
+     '', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a slow baseline reads as a red one', 'tools/mutants.py',
+     '        if status is not Non' 'e and outcome != "SURVIVED":',
+     '        if outcome != "SURVIVED":', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a slow baseline breaks the mutants anyway', 'tools/mutants.py',
+     '    if any(status is None' ' for status, _ in runs):\n',
+     '    if False:\n', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a red part after the first is passed over', 'tools/mutants.py',
+     '    for status, output in runs:\n       ' ' outcome, why = verdict(status, output)',
+     '    for status, output in runs[:1]:\n        outcome, why = verdict(status, output)', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
     ("a shard drops a mutant", "tools/mutants.py",
      "if place % count" " == index]", "if place % count == index and place]", ("tests.test_tools.Mutants",)),
     ("a mutant is in two shards", "tools/mutants.py",
@@ -8679,6 +8701,9 @@ MUTANTS = ISSUE + [
 
 WORKERS = 4        # runs at once, at most, unless told: each is a whole run of the suite, in a copy of its own
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
+# The baseline, the run of the unbroken tests before anything is broken, runs the tests the run's own mutants name,
+# split among its workers, each part one run held to TIMEOUT: a shard's eighth of what the mutants name, a quarter of
+# it at a time, never the whole suite, which outgrew TIMEOUT on a CI runner (issue 396).
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
 # issue 217): it breaks at most FILTER_MOST mutants, FILTER_WORKERS at a time, and never a shard.
 FILTER_MOST = 40
@@ -8699,14 +8724,15 @@ UNCONFIRMED = "unconfirmed"
 MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
 
-def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: str = None) -> tuple:
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only=None) -> tuple:
     """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out.
 
     The tests named in `first` run on their own before the rest: when they pass, or none is named, the whole suite
-    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone.
+    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone, or
+    each of a tuple of them and no other.
     """
     if only:
-        return _unittest(cwd, timeout, ["-q", "-f", only])
+        return _unittest(cwd, timeout, ["-q", "-f", *((only,) if isinstance(only, str) else only)])
     if first:
         status, output = _unittest(cwd, timeout, ["-q", "-f", *first])
         if status != 0:
@@ -8990,18 +9016,68 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
     return chosen, ", in shard %d of %d counted from 0" % (index, count), None
 
 
+def named(mutants: list) -> tuple:
+    """The tests `mutants` name, each once and in order, a test left out where a module or class that holds it is named
+    too: what the baseline runs (issue 396)."""
+    tests = {test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}
+    return tuple(sorted(test for test in tests if not any(test.startswith(other + ".") for other in tests)))
+
+
+def cases(tests: tuple) -> tuple:
+    """Each test method the dotted names in `tests` hold, as unittest's loader reads them here, in their order, each
+    once, so that a class or module named whole is shared among the baseline's parts and not run in one of them. A name
+    that cannot be read so is kept whole, for its own run to find (issue 396)."""
+    found = []
+    for name in tests:
+        try:
+            ids = [case.id() for case in _flat(unittest.defaultTestLoader.loadTestsFromName(name))]
+        except Exception:      # a name that is no test here: its run says why
+            ids = []
+        found.extend(ids if ids and not any(i.startswith("unittest.") for i in ids) else [name])
+    return tuple(dict.fromkeys(found))
+
+
+def _flat(suite) -> list:
+    """The test cases in `suite`, a suite of suites, in order."""
+    if isinstance(suite, unittest.TestSuite):
+        return [case for inner in suite for case in _flat(inner)]
+    return [suite]
+
+
+def baseline(mutants: list, root: pathlib.Path, run, workers: int) -> list:
+    """(exit status, output) of each run of the unbroken tests before anything is broken: the tests `mutants` name,
+    method by method, in `workers` parts run at once, so that it takes a share of what the run's own mutants name and
+    never the whole suite (issue 396). A list that names no test runs the whole suite, once."""
+    tests = cases(named(mutants))
+    if not tests:
+        return [run(root)]
+    parts = [tests[at::workers] for at in range(min(workers, len(tests)))]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(parts)) as pool:
+        return list(pool.map(lambda part: run(root, only=part), parts))
+
+
 def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "") -> int:
     mutants = MUTANTS if mutants is None else mutants
-    outcome, why = verdict(*run(root))
-    if outcome != "SURVIVED":
-        print("the tests fail before anything is broken; a mutant cannot be told from that%s"
-              % (" (%s)" % why if why else ""))
+    workers = workers or min(os.cpu_count() or 1, WORKERS)
+    runs = baseline(mutants, root, run, workers)
+    # A test that fails is told first, since it is a fault whatever else is slow; a part that only ran out of time
+    # failed no test, and says so, so that a slow baseline is never read as a red one.
+    for status, output in runs:
+        outcome, why = verdict(status, output)
+        if status is not None and outcome != "SURVIVED":
+            print("the tests fail before anything is broken; a mutant cannot be told from that%s"
+                  % (" (%s)" % why if why else ""))
+            return 1
+    if any(status is None for status, _ in runs):
+        print("the tests the mutants name took longer than %d s before anything was broken, and none failed; no mutant "
+              "can be run in that time: split the tests they name, or the shards, then run python3 -m tools.mutants "
+              "again" % TIMEOUT)
         return 1
     killed = 0
     # One run to a CPU, and no more than WORKERS: each holds a copy of the tree and runs the suite in it. map() hands
     # the results back in the order of `mutants`, however the runs finish.
     with tempfile.TemporaryDirectory() as made, \
-            concurrent.futures.ThreadPoolExecutor(max_workers=workers or min(os.cpu_count() or 1, WORKERS)) as pool:
+            concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         trees = Trees(root, made)
         results = pool.map(lambda mutant: guarded(mutant, root, run, trees), mutants)
         for mutant, (outcome, why) in zip(mutants, results):

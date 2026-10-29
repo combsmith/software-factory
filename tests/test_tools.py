@@ -6529,6 +6529,63 @@ class Mutants(unittest.TestCase):
         self.assertEqual((code, calls), (1, ["rule", "done rule"]))
         self.assertIn("the tests fail before anything is broken", said.getvalue())
 
+    def test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite(self):  # issue 396
+        # Before anything is broken, a shard runs the tests its own mutants name, each once, a test left out where the
+        # class or module that holds it is named too, split among the shard's workers: a share of the shard, never the
+        # whole suite, which outgrew a run's 600 s on a CI runner.
+        named = [("a", "k.py", "rule\n", "a\n", ("tests.test_x.T.test_a",)),
+                 ("b", "k.py", "rule\n", "b\n", ("tests.test_x.T", "tests.test_z.U.test_c")),
+                 ("c", "k.py", "rule\n", "c\n", ("tests.test_x.T.test_b", "tests.test_y"))]
+        self.assertEqual(mutants.named(named), ("tests.test_x.T", "tests.test_y", "tests.test_z.U.test_c"))
+        root = tree({"k.py": "rule\n"})
+        for workers, parts in ((2, [("tests.test_x.T", "tests.test_z.U.test_c"), ("tests.test_y",)]),
+                               (3, [("tests.test_x.T",), ("tests.test_y",), ("tests.test_z.U.test_c",)]),
+                               (5, [("tests.test_x.T",), ("tests.test_y",), ("tests.test_z.U.test_c",)])):
+            calls = []
+
+            def run(work, first=(), only=None):
+                calls.append((first, only))
+                return PASSES[1:]
+            self.assertEqual(mutants.baseline(named, root, run, workers), [PASSES[1:]] * len(parts))
+            self.assertEqual(sorted(calls), sorted(((), part) for part in parts), workers)
+        # A class or module named whole is read method by method, so that its tests are shared among the parts and do
+        # not hold one of them; a name that is no test here is kept whole, for its run to find.
+        whole = mutants.cases(("tests.test_coverage",))
+        self.assertGreater(len(whole), 2)
+        self.assertTrue(all(test.startswith("tests.test_coverage.") and test.count(".") == 3 for test in whole), whole)
+        self.assertEqual(mutants.cases(("tests.test_coverage", whole[0], "tests.test_gone.X")), whole + ("tests.test_gone.X",))
+        calls = []
+
+        def run(work, first=(), only=None):
+            calls.append(only)
+            return PASSES[1:]
+        mutants.baseline([("w", "k.py", "rule\n", "w\n", ("tests.test_coverage",))], root, run, 2)
+        self.assertEqual(sorted(calls), sorted([whole[0::2], whole[1::2]]))
+        # A list of mutants that names no test, as a test's own list may be, runs the whole suite once.
+        calls = []
+        self.assertEqual(mutants.baseline(mutate("plain"), root, told({"rule": PASSES}, calls), 4), [PASSES[1:]])
+        self.assertEqual(calls, ["rule", "done rule"])
+
+    def test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard(self):  # issue 396
+        # A part of the baseline that ran out of time failed no test, and says so; one in which a test failed stops
+        # the shard as before, whichever part it is and whatever else was slow. Either way no mutant is broken.
+        named = [(word, "k.py", "rule\n", word + "\n", ("tests.test_%s" % word,)) for word in ("a", "b")]
+        slow = "took longer than %d s before anything was broken, and none failed" % mutants.TIMEOUT
+        for answers, said in (({"tests.test_a": (None, ""), "tests.test_b": PASSES[1:]}, slow),
+                              ({"tests.test_a": (None, ""), "tests.test_b": (1, FAILS_A_TEST)}, "the tests fail before"),
+                              ({"tests.test_a": PASSES[1:], "tests.test_b": (1, FAILS_A_TEST)}, "the tests fail before")):
+            calls = []
+
+            def run(work, first=(), only=None):
+                calls.append(only)
+                return answers[only[0]] if only else (0, "OK\n")
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                code = mutants.main(named, tree({"k.py": "rule\n"}), run, 2)
+            self.assertEqual(code, 1, answers)
+            self.assertIn(said, printed.getvalue(), answers)
+            self.assertNotIn(slow if said != slow else "the tests fail before", printed.getvalue(), answers)
+            self.assertEqual(sorted(calls), [("tests.test_a",), ("tests.test_b",)], "no mutant was broken")
+
     def test_a_failure_the_mutant_causes_kills_it(self):
         code, lines, calls = self.check({"breaks": (0, 1, FAILS_A_TEST)}, ["breaks"])
         self.assertEqual((code, lines), (0, ["killed    breaks", "1 of 1 mutants killed"]))
