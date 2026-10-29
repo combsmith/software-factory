@@ -942,6 +942,14 @@ MUTANTS = ISSUE + [
     ('an approval whose pull request cannot be read again is claimed', 'adapters/effects.py',
      '    if after is not None and after["fault"] != "superseded":\n        return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}\n    return {"state": "applied"',
      '    return {"state": "applied"', ("tests.test_approve",)),
+    # Argon's read of PR 380: the bounds of a reopening's second, and the state of an approval sent and not claimed.
+    ('an approval in the second of the reopening is recovered', 'harness/approve.py',
+     'done["at"] > reopened', 'done["at"] >= reopened', ("tests.test_approve",)),
+    ('an approval of no time is compared with the reopening', 'harness/approve.py',
+     'isinstance(done.get("at"), str) and done["at"] > reopened', 'done["at"] > reopened', ("tests.test_approve",)),
+    ('an approval sent on a pull request closed under the act is refused', 'adapters/effects.py',
+     '{"state": "failed", "key": None, "fault": "superseded", "reason": "closed_under_act"}',
+     '{"state": "refused", "key": None, "fault": "superseded", "reason": "closed_under_act"}', ("tests.test_approve",)),
     # Issues 328 and 329: what reconciliation left whole, or alarmed on, that it should not have.
     ('a re-run that cannot be told is whole', 'controller/reconcile.py',
      'r["rerun_by_dispatcher"] is None and r["started_at"] >= since:\n                short = True',
@@ -1176,6 +1184,13 @@ MUTANTS = ISSUE + [
     ('a type GitHub does not give is read', 'adapters/timeline.py',
      ' \\\n                or user.get("type") not in ("User", "Bot"):',
      ':', ("tests.test_adapters",)),
+    # Argon's read of PR 341, and Muse's of PR 387: an id of True or 1.0 is no account's, though each == 1.
+    ('an account of id True is typed as the account of id 1', 'adapters/timeline.py',
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), float) or', ("tests.test_adapters",)),
+    ('an account of id 1.0 is typed as the account of id 1', 'adapters/timeline.py',
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), bool) or', ("tests.test_adapters",)),
+    ('a resolver of id True is told as the identity of id 1', 'adapters/seen.py',
+     'told == ident and _positive(ident)), None)', 'told == ident), None)', ("tests.test_reconcile",)),
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
     ('a machine-user push is matched to an approval', 'controller/reconcile.py',
      '    "approver": {"approval": (APPLIED, "approve")},',
