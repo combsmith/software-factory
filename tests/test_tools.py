@@ -10,6 +10,8 @@ import base64
 import concurrent.futures
 import contextlib
 import copy
+import datetime
+import email.utils
 import hashlib
 import importlib.machinery
 import io
@@ -1045,7 +1047,8 @@ class Apps(unittest.TestCase):
         self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
         self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
         installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
-        self.listed = installations[0]["response"]["body"]["installations"]
+        self.listing = installations[0]["response"]["body"]
+        self.listed = self.listing["installations"]
         self.installed = {i["app_slug"]: i for i in self.listed}
         self.registered = {e["response"]["body"]["slug"]: e["response"]["body"] for e in self.fixture["exchanges"]
                            if e["request"]["call"].startswith(check_apps.REGISTRATION)}
@@ -1131,6 +1134,50 @@ class Apps(unittest.TestCase):
             self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories read "
                                              "as combsmith-sf-%s" % (app, app)))
 
+    def test_a_reach_read_before_its_installation_last_changed_is_caught(self):
+        # The repos an installation reaches are read with a token of what it holds then, so a read GitHub answered
+        # before the installation last changed holds nothing of it now. The time is GitHub's own date on its answer,
+        # never the fixture's ran_at, which a session writes; a read answered at the very time it changed stands.
+        changed = {app: self.installed[entry["name"]]["updated_at"] for app, entry in self.apps.items()}
+        when = {app: check_apps._when(at) for app, at in changed.items()}
+        last = max(when, key=when.get)
+        answer = next(e["response"] for e in self.reach["exchanges"]
+                      if e["request"]["as"]["name"] == self.apps[last]["name"])
+        self.reach["ran_at"] = "2030-01-01T00:00:00Z"
+        answer["headers"]["date"] = email.utils.format_datetime(when[last].astimezone(datetime.timezone.utc),
+                                                                usegmt=True)
+        self.assertEqual(self.check(), [])
+        answer["headers"]["date"] = email.utils.format_datetime(
+            (when[last] - datetime.timedelta(seconds=1)).astimezone(datetime.timezone.utc), usegmt=True)
+        problems = self.check()
+        self.assertTrue(caught(problems, "%s: GitHub answered its reach in trials/P-39.reach.json at %s, before its "
+                                         "installation last changed at %s" % (last, answer["headers"]["date"],
+                                                                              changed[last])))
+        first = min(when, key=when.get)
+        self.assertFalse(caught(problems, "%s: GitHub answered" % first))
+        for unread in ("the 29th", "Thu, 29 Oct 2026 14:40:11 -0000", None):
+            answer["headers"]["date"] = unread
+            self.assertTrue(caught(self.check(), "%s: when GitHub answered its reach in trials/P-39.reach.json, or "
+                                                 "when its installation last changed in trials/P-39.grants.json, "
+                                                 "cannot be read" % last))
+        del answer["headers"]["date"]
+        self.assertTrue(caught(self.check(), "%s: when GitHub answered its reach" % last))
+        # Each read is held to its own date: a second read of the same App, answered before the change, is caught
+        # though the first was answered after it.
+        self.setUp()
+        early = json.loads(json.dumps(next(e for e in self.reach["exchanges"]
+                                           if e["request"]["as"]["name"] == self.apps[last]["name"])))
+        early["response"]["headers"]["date"] = email.utils.format_datetime(
+            (when[last] - datetime.timedelta(seconds=1)).astimezone(datetime.timezone.utc), usegmt=True)
+        self.reach["exchanges"].append(early)
+        self.assertTrue(caught(self.check(), "%s: GitHub answered its reach in trials/P-39.reach.json at %s"
+                                             % (last, early["response"]["headers"]["date"])))
+        self.setUp()
+        self.installed["combsmith-sf-reader"]["updated_at"] = "2026-10-29T00:53:36"
+        problems = self.check()
+        self.assertTrue(caught(problems, "reader: when GitHub answered its reach"))
+        self.assertFalse(caught(problems, "controller: when"))
+
     def test_a_read_github_refused_is_not_trusted(self):
         # A read answered with anything but 200 holds nothing GitHub granted, even when its body matches the data.
         exchange = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS][0]
@@ -1148,7 +1195,7 @@ class Apps(unittest.TestCase):
         twin = json.loads(json.dumps(self.installed["combsmith-sf-controller"]))
         twin["permissions"]["contents"] = "write"
         self.listed.insert(0, twin)
-        self.fixture["exchanges"][3]["response"]["body"]["total_count"] += 1
+        self.listing["total_count"] += 1
         problems = self.check()
         self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
                                          "App 5364130 more than once"))
@@ -1161,7 +1208,7 @@ class Apps(unittest.TestCase):
         self.reached["combsmith-sf-pr-review"]["total_count"] = 3
         repos = self.reached["combsmith-sf-reader"]["repositories"]
         repos[1] = json.loads(json.dumps(repos[0]))
-        self.fixture["exchanges"][3]["response"]["body"]["total_count"] = 19
+        self.listing["total_count"] = len(self.listed) + 1
         problems = self.check()
         call = "its read GET /installation/repositories?per_page=100"
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s has a link header, so it is one page of more"
@@ -1170,7 +1217,7 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists combsmith/software-factory more than once"
                                          % call))
         self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
-                                         "18 of the 19 it counts"))
+                                         "%d of the %d it counts" % (len(self.listed), len(self.listed) + 1)))
         for app in ("controller", "pr-review", "reader"):
             self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories"
                                              % app))
@@ -1189,7 +1236,10 @@ class Apps(unittest.TestCase):
         apps = self.apps
         apps["controller"]["key"], apps["reader"]["key"] = apps["reader"]["key"], apps["controller"]["key"]
         self.apps["pr-review"]["key"]["secret"] = "REVIEW_APP_KEY"
+        self.apps["queue"]["key"]["environment"] = "factory-apply"
         problems = self.check()
+        # The queue App's key is the queue step's alone, never apply's, where every Role's key is read (issue 381).
+        self.assertTrue(caught(problems, "queue: its key is kept in factory-apply, and the queue job holds it"))
         self.assertTrue(caught(problems, "controller: its key is kept in factory-run, and the poller job holds it"))
         self.assertTrue(caught(problems, "reader: its key is kept in factory-poller, and the run job holds it"))
         self.assertTrue(caught(problems, "controller: its key is kept as READER_APP_KEY; name it CONTROLLER_APP_KEY"))
@@ -1239,6 +1289,7 @@ class Apps(unittest.TestCase):
 
     def test_a_need_served_by_another_permission_or_level_is_caught(self):
         self.apps["controller"]["permissions"]["contents"]["needs"].append("read:facts.reviews")
+        self.apps["controller"]["permissions"]["pull_requests"]["level"] = "read"
         self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:comment")
         problems = self.check()
         self.assertTrue(caught(problems, "controller: contents serves read:facts.reviews, which the table maps to "
@@ -1247,9 +1298,9 @@ class Apps(unittest.TestCase):
                                          "table maps to pull_requests write"))
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
-        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:dequeue_merge")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:dequeue_merge, which waits on the "
-                                             "queue App, combsmith-sf-queue"))
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:assign")
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:assign, which waits on the "
+                                             "Controller's notification story"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
@@ -2588,6 +2639,8 @@ class Workflows(unittest.TestCase):
             "a mapping on one line": (GOOD.replace(STEP, "      - {uses: evil/action@main, continue-on-error: true}\n"), "form"),
             "two spaces after the dash": (GOOD.replace(STEP, "      -  uses: actions/checkout@v7\n"), "form"),
             "a quoted key": (GOOD.replace("    runs-on:", '    "runs-on":'), "form"),
+            # An on: with no event under it at all, which no list item stands in (#416's mutant run).
+            "an on: with nothing under it": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n"), "form"),
             "a colon set apart": (GOOD.replace(STEP, "      - uses : evil/action@main\n"), "form"),
             "an escaped event name": (GOOD.replace("  merge_group:\n", '  merge_group:\n  "pull_request\\x5ftarget":\n'), "form"),
             "a list on one line": (GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule: [{cron: '0 * * * *'}]\n"), "form"),
@@ -2724,6 +2777,22 @@ class Workflows(unittest.TestCase):
             self.assertEqual(check_workflows.run_jobs_problems(together, moved), [])
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
+
+    def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
+        # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
+        text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
+        self.assertEqual(check_workflows.lint(text), [])
+        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1))],
+                         ["form"])
+
+    def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392
+        # A run's value is its command; a # after a quoted command is no comment of the entry's, as it is for uses: the
+        # comment a pin is read by.
+        entries, bad = check_workflows.read('on:\n  pull_request:\njobs:\n  x:\n    steps:\n'
+                                            '      - run: "make verify" # a note\n      - uses: "a/b@c" # v1\n')
+        self.assertEqual(bad, [])
+        self.assertEqual([(e["key"], e["value"], e["comment"]) for e in entries if e["key"] in ("run", "uses")],
+                         [("run", "make verify", ""), ("uses", "a/b@c", "# v1")])
 
     def test_the_commit_a_later_job_checks_out_is_the_releases_own(self):  # decision 0066
         # A job output is as trusted as the step that writes it. `commit` is written by one step alone, `commit`, right
@@ -3590,18 +3659,19 @@ class Trials(unittest.TestCase):
         # Another org, a GraphQL query whose call looks like an App's, and a path that climbs out of /apps/ are each
         # a call of something else; the fixture's own calls are not.
         reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        n = len(reach["exchanges"])
         reach["exchanges"] += [json.loads(json.dumps(reach["exchanges"][0])) for _ in range(4)]
-        reach["exchanges"][3]["request"]["call"] = "GET /orgs/other-org/installations"
-        reach["exchanges"][4]["request"]["via"] = "graphql"
-        reach["exchanges"][4]["request"]["call"] = "GET /apps/combsmith-sf-reader"
-        reach["exchanges"][5]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
-        reach["exchanges"][6]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
+        reach["exchanges"][n]["request"]["call"] = "GET /orgs/other-org/installations"
+        reach["exchanges"][n + 1]["request"]["via"] = "graphql"
+        reach["exchanges"][n + 1]["request"]["call"] = "GET /apps/combsmith-sf-reader"
+        reach["exchanges"][n + 2]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
+        reach["exchanges"][n + 3]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
         self.assertEqual([where for where, _ in check_trials._askers(reach)],
-                         ["exchanges[%d].request.call" % i for i in (3, 4, 5, 6)])
-        reach["exchanges"][3]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
-        reach["exchanges"][4]["request"]["via"] = "rest"
+                         ["exchanges[%d].request.call" % i for i in range(n, n + 4)])
+        reach["exchanges"][n]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
+        reach["exchanges"][n + 1]["request"]["via"] = "rest"
         self.assertEqual([where for where, _ in check_trials._askers(reach)],
-                         ["exchanges[5].request.call", "exchanges[6].request.call"])
+                         ["exchanges[%d].request.call" % i for i in (n + 2, n + 3)])
 
     def test_a_call_of_a_repo_in_a_fixture_of_the_org_is_one_problem_whoever_asked(self):
         # The pairing is read once for the fixture, not once for each exchange, and an asker that cannot be read
@@ -4482,7 +4552,7 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: rowless})),
                                "a_request_for_changes_survives_a_push: P-41 has no row in section 6"))
         # Only section 6's own table counts: a row before it, or in a fenced block within it, is no trial.
-        p99 = GROUNDING.replace('("P-41",), None, None)', '("P-99",), None, None)', 1)
+        p99 = GROUNDING.replace('("P-38",), None, None)', '("P-99",), None, None)', 1)
         for elsewhere in ("| P-99 | x | y |\n" + design, design.replace("\n## 6. ", "\n```\n| P-99 | x | y |\n```\n## 6. ", 1),
                           design.replace("| P-41 |", "```\n| P-99 | x | y |\n```\n| P-41 |", 1)):
             self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: elsewhere, "sim/grounding.py": p99})),
