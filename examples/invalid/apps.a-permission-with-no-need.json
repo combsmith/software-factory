@@ -327,6 +327,33 @@
           ]
         }
       }
+    },
+    "queue": {
+      "name": "combsmith-sf-queue",
+      "app_id": 5519382,
+      "key": {
+        "environment": "factory-queue",
+        "secret": "QUEUE_APP_KEY"
+      },
+      "installed_on": [
+        "combsmith/software-factory",
+        "combsmith/software-factory-canary"
+      ],
+      "permissions": {
+        "contents": {
+          "level": "write",
+          "needs": [
+            "effect:enqueue_merge",
+            "effect:dequeue_merge"
+          ]
+        },
+        "metadata": {
+          "level": "read",
+          "needs": [
+            "read:facts.queue"
+          ]
+        }
+      }
     }
   }
 }

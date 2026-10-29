@@ -2108,7 +2108,7 @@ MUTANTS = ISSUE + [
     ("a reach read before its installation last changed is trusted", "tools/check_apps.py",
      "            elif read < changed:\n", "            elif False:\n", ("tests.test_tools.Apps",)),
     ("a reach is not held to when its installation last changed", "tools/check_apps.py",
-     "    return problems + _stale(app, name, reached, installations, reads[\"answered_at\"])\n", "    return problems\n",
+     "    return problems + _stale(app, reached, installations, reads[\"answered_at\"])\n", "    return problems\n",
      ("tests.test_tools.Apps",)),
     ("a time with no offset is read", "tools/check_apps.py",
      "    return when if when.tzinfo is not None else None\n", "    return when\n", ("tests.test_tools.Apps",)),

@@ -208,7 +208,8 @@
       "required": [
         "controller",
         "pr-review",
-        "reader"
+        "reader",
+        "queue"
       ],
       "properties": {
         "controller": {

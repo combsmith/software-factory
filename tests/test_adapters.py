@@ -2981,7 +2981,6 @@ class Contract(unittest.TestCase):
         p41_accounts = timeline.Accounts(p41_router, canary(), MACHINE, {})
         p41_reviews, _ = timeline.reviews(p41_router, p41_pull, p41_events, p41_accounts, BASE_HEAD)
         p41_head = body("P-41", 49)["head"]["sha"]
-        p41_kinds = sorted((r["by"]["kind"], (r["dismissed_by"] or {}).get("kind")) for r in p41_reviews)
         p41_labels = timeline.label_events(timeline.events(replay("P-41", 54), dict(p41_pull, number=66))[0],
                                            timeline.Accounts(Router(github.Replay([])), canary(), MACHINE, {}))
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
@@ -3002,9 +3001,6 @@ class Contract(unittest.TestCase):
                                  and {e["action"] for e in p41_labels} == {"labeled", "unlabeled"}
                                  and all(e["by"] == P41_CONTROLLER and e["label"] == "factory:hold"
                                          for e in p41_labels)),
-            # Each actor is told by its account type: the person, the machine user and two Apps, each where P-41 met it.
-            "an_actor_has_a_kind": ({"P-41"}, p41_kinds == [("human", "app"), ("machine_user", "human")]
-                                    and all(e["by"] == P41_CONTROLLER for e in p41_labels)),
             # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
             "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"

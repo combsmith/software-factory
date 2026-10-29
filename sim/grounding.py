@@ -107,9 +107,11 @@ RULES = (
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
      "label, "
      "and when", ("P-32",), "trials/P-32.json", None),
+    # P-41 read each actor on its reviews, dismissals and labels by its type, but it met no thread, so the rule's
+    # thread actors are not yet shown: unverified until a trial reads a thread's actors as the threads port does.
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
-     "other App and the machine user apart, never from a name's spelling", ("P-41",), "trials/P-41.json", None),
+     "other App and the machine user apart, never from a name's spelling", ("P-41",), None, None),
     # trials/P-44.json: four pushes under one concurrency group, cancel-in-progress false; the second and third runs
     # were cancelled as a newer one queued, with no runner and no step, and the running one finished. GitHub lists a
     # Run waiting for the group as pending, which the records port reads as queued. That the group's first Run holds it

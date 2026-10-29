@@ -83,8 +83,8 @@ def _short(kind: str, body: dict, headers) -> str:
 
 
 def _reads(root: pathlib.Path) -> tuple:
-    """({kind: [(fixture, who asked, body)]} for each read P-39 recorded, and "answered_at": {(fixture, who asked): the
-    date GitHub's answer to a reach read carries}; [problems with the fixtures])."""
+    """({kind: [(fixture, who asked, body)]} for each read P-39 recorded, and "answered_at": {the id of a reach read's
+    body: the date GitHub's answer carries}, one to each read; [problems with the fixtures])."""
     reads, problems = {"installations": [], "registration": [], "reach": [], "answered_at": {}}, []
     paths = sorted((root / "trials").glob(TRIAL + ".json")) + sorted((root / "trials").glob(TRIAL + ".*.json"))
     for path in paths:
@@ -121,7 +121,7 @@ def _reads(root: pathlib.Path) -> tuple:
             if kind == "reach":
                 headers = response.get("headers") if isinstance(response.get("headers"), dict) else {}
                 dated = [v for k, v in headers.items() if str(k).lower() == "date"]
-                reads["answered_at"][(rel, asker.get("name"))] = dated[0] if len(dated) == 1 else None
+                reads["answered_at"][id(body)] = dated[0] if len(dated) == 1 else None
     if not reads["installations"]:
         problems.append("no fixture of trial %s in trials/ records %s, so no App's permissions can be held to what "
                         "GitHub granted; run %s and add its fixture" % (TRIAL, INSTALLATIONS, TRIAL))
@@ -163,13 +163,13 @@ def _answered(value):
     return when
 
 
-def _stale(app: str, name: str, reached: list, installations: list, answered_at: dict) -> list:
+def _stale(app: str, reached: list, installations: list, answered_at: dict) -> list:
     """Each read of the repos the App reaches that GitHub answered before its installation last changed, or whose
     date cannot be read: what it reached then is not what the installation holds now. The date is GitHub's own, on
     the answer, never one a fixture writes by hand."""
     problems = []
-    for fixture, _ in reached:
-        said = answered_at.get((fixture, name))
+    for fixture, body in reached:
+        said = answered_at.get(id(body))
         read = _answered(said)
         for listed, installation in installations:
             changed = _when(installation.get("updated_at"))
@@ -238,7 +238,7 @@ def _granted(app: str, entry: dict, reads: dict) -> list:
             problems.append("%s: its installation reaches %s in %s, and installed_on names %s; they must agree "
                             "exactly" % (app, ", ".join(repos) or "no repo", fixture,
                                          ", ".join(sorted(str(r) for r in installed_on)) or "none"))
-    return problems + _stale(app, name, reached, installations, reads["answered_at"])
+    return problems + _stale(app, reached, installations, reads["answered_at"])
 
 
 def _secret(app: str) -> str:

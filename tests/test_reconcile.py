@@ -603,7 +603,9 @@ class SeenPort(unittest.TestCase):
         defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
         apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual((ACCOUNTS["approver"]["login"], ACCOUNTS["approver"]["id"]), (defaults["approver"], 281750570))
-        self.assertEqual(set(ACCOUNTS["roles"]), set(apps) - {"controller", "reader"})
+        # The queue App is no Role: its account joins the configuration with the step that writes through it (issue
+        # 381), and until then nothing it writes is read.
+        self.assertEqual(set(ACCOUNTS["roles"]), set(apps) - {"controller", "reader", "queue"})
         # A Role left out of the configuration could not be told at all: the configuration names every one.
         conf = json.loads((ROOT / "config" / "controller.json").read_text())
         self.assertEqual(validate(conf, SCHEMAS["controller"], schemas=SCHEMAS), [])

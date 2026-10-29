@@ -1162,6 +1162,16 @@ class Apps(unittest.TestCase):
                                                  "cannot be read" % last))
         del answer["headers"]["date"]
         self.assertTrue(caught(self.check(), "%s: when GitHub answered its reach" % last))
+        # Each read is held to its own date: a second read of the same App, answered before the change, is caught
+        # though the first was answered after it.
+        self.setUp()
+        early = json.loads(json.dumps(next(e for e in self.reach["exchanges"]
+                                           if e["request"]["as"]["name"] == self.apps[last]["name"])))
+        early["response"]["headers"]["date"] = email.utils.format_datetime(
+            (when[last] - datetime.timedelta(seconds=1)).astimezone(datetime.timezone.utc), usegmt=True)
+        self.reach["exchanges"].append(early)
+        self.assertTrue(caught(self.check(), "%s: GitHub answered its reach in trials/P-39.reach.json at %s"
+                                             % (last, early["response"]["headers"]["date"])))
         self.setUp()
         self.installed["combsmith-sf-reader"]["updated_at"] = "2026-10-29T00:53:36"
         problems = self.check()
@@ -4446,7 +4456,7 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: rowless})),
                                "a_request_for_changes_survives_a_push: P-41 has no row in section 6"))
         # Only section 6's own table counts: a row before it, or in a fenced block within it, is no trial.
-        p99 = GROUNDING.replace('("P-41",), None, None)', '("P-99",), None, None)', 1)
+        p99 = GROUNDING.replace('("P-38",), None, None)', '("P-99",), None, None)', 1)
         for elsewhere in ("| P-99 | x | y |\n" + design, design.replace("\n## 6. ", "\n```\n| P-99 | x | y |\n```\n## 6. ", 1),
                           design.replace("| P-41 |", "```\n| P-99 | x | y |\n```\n| P-41 |", 1)):
             self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: elsewhere, "sim/grounding.py": p99})),
