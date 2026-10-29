@@ -336,6 +336,7 @@
           "enum": [
             "human",
             "lens",
+            "queue",
             "app",
             "machine_user"
           ]
