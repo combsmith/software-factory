@@ -106,8 +106,13 @@ class Matching(unittest.TestCase):
         self.assertEqual(kinds(found), [("pr-review", "resolution")])
         # Until the queue App's account is set (issue 381) it is no identity, and leaves nothing short; once set, what
         # was seen tells its account as the queue App.
-        self.assertEqual(seen_.identities(accounts), (dict(seen_.identities(KNOWN)[0], **{(5000009, "Bot"): "queue"}),
-                                                      seen_.identities(KNOWN)[1]))
+        told = dict(seen_.identities(KNOWN)[0])
+        told[(5000009, "Bot")] = "queue"
+        self.assertEqual(seen_.identities(accounts), (told, seen_.identities(KNOWN)[1]))
+        # A queue account that is another identity's too cannot be told from it: neither is known.
+        twice = dict(accounts, queue=dict(accounts["queue"], id=KNOWN["roles"]["pr-review"]["id"]))
+        found, known = seen_.identities(twice)
+        self.assertEqual(((5000002, "Bot") in found, known), (False, False))
         self.assertEqual(reconcile._identities(KNOWN)[0].get("queue"), None)
         self.assertEqual(reconcile._identities(accounts), (dict(reconcile._identities(KNOWN)[0], queue="queue"), True))
 
