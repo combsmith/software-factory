@@ -9,7 +9,8 @@ A write permission serves a read of the same permission too, since GitHub's writ
 The data is held to what GitHub granted (decision 0035). Trial P-39's fixtures record each App's
 registration, the org's installations as GitHub listed them, and the repos each installation
 reaches. Each fixture's verdict is `pass`, each read was answered 200, and each list was read
-whole: one page, each item once, as many as it counts. For each App, its registration and its
+whole: one page, each item once, as many as it counts. The repos an installation reaches are read
+no earlier than it last changed, as the installations' read records it. For each App, its registration and its
 installation are of its `app_id` and its name, with exactly the permissions and levels here and no
 events; the installation is on `selected` repos; and it reaches exactly `installed_on`. Anything short of that is a fail, and no key is stored. Each App's
 key is kept in the environment of the one job that holds it (design §4.9): the Controller's in the
@@ -19,6 +20,7 @@ untrusted text, never holds one that writes. The secret is named for the App.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
 import re
@@ -79,8 +81,9 @@ def _short(kind: str, body: dict, headers) -> str:
 
 
 def _reads(root: pathlib.Path) -> tuple:
-    """({kind: [(fixture, who asked, body)]} for each read P-39 recorded, [problems with the fixtures])."""
-    reads, problems = {"installations": [], "registration": [], "reach": []}, []
+    """({kind: [(fixture, who asked, body)]} for each read P-39 recorded, and "ran_at": {fixture: when it ran};
+    [problems with the fixtures])."""
+    reads, problems = {"installations": [], "registration": [], "reach": [], "ran_at": {}}, []
     paths = sorted((root / "trials").glob(TRIAL + ".json")) + sorted((root / "trials").glob(TRIAL + ".*.json"))
     for path in paths:
         rel = "trials/" + path.name
@@ -90,6 +93,7 @@ def _reads(root: pathlib.Path) -> tuple:
             problems.append("%s cannot be read, so no App can be held to it: %s" % (rel, err))
             continue
         data = data if isinstance(data, dict) else {}
+        reads["ran_at"][rel] = data.get("ran_at")
         if data.get("verdict") != "pass":
             problems.append("%s: its verdict is %s; P-39 passes only if each of its fixtures does, and no App's key is "
                             "stored until then, so correct the registration and run %s again"
@@ -130,6 +134,36 @@ def _differ(app: str, want: dict, have: dict, seen: str) -> list:
             for name in sorted(set(want) | set(have)) if want.get(name) != have.get(name)]
 
 
+def _when(value):
+    """An ISO 8601 time with its offset, as GitHub and a fixture's ran_at write it, or None if it cannot be read."""
+    if not isinstance(value, str):
+        return None
+    try:
+        when = datetime.datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+    except ValueError:
+        return None
+    return when if when.tzinfo is not None else None
+
+
+def _stale(app: str, reached: list, installations: list, ran_at: dict) -> list:
+    """Each read of the repos the App reaches made before its installation last changed, or whose time cannot be
+    read: what it reached then is not what the installation holds now."""
+    problems = []
+    for fixture, _ in reached:
+        read = _when(ran_at.get(fixture))
+        for listed, installation in installations:
+            changed = _when(installation.get("updated_at"))
+            if read is None or changed is None:
+                problems.append("%s: when %s ran, or when its installation last changed in %s, cannot be read, so "
+                                "what it reaches cannot be held to the installation; run %s again"
+                                % (app, fixture, listed, TRIAL))
+            elif read < changed:
+                problems.append("%s: %s read the repos it reaches at %s, before its installation last changed at %s "
+                                "in %s; run tools/trial_p39_reach.sh again"
+                                % (app, fixture, ran_at.get(fixture), installation.get("updated_at"), listed))
+    return problems
+
+
 def _granted(app: str, entry: dict, reads: dict) -> list:
     """Each way what GitHub registered, installed and reached for the App differs from the data."""
     app_id, name = entry.get("app_id"), entry.get("name")
@@ -137,7 +171,7 @@ def _granted(app: str, entry: dict, reads: dict) -> list:
         return ["%s: has no app_id that is a whole number; give GitHub's id for the App" % app]
     permissions = entry.get("permissions") if isinstance(entry.get("permissions"), dict) else {}
     want = {need: (grant.get("level") if isinstance(grant, dict) else None) for need, grant in permissions.items()}
-    problems = []
+    problems, installations = [], []
     for fixture, _, body in reads["installations"]:
         listed = body.get("installations") if isinstance(body.get("installations"), list) else []
         installation = next((i for i in listed if isinstance(i, dict) and i.get("app_id") == app_id), None)
@@ -145,6 +179,7 @@ def _granted(app: str, entry: dict, reads: dict) -> list:
             problems.append("%s: %s records no installation of App %d; install it, or correct app_id"
                             % (app, fixture, app_id))
             continue
+        installations.append((fixture, installation))
         if installation.get("app_slug") != name:
             problems.append("%s: App %d is installed as %s in %s, and the data names it %s; correct app_id or the name"
                             % (app, app_id, installation.get("app_slug"), fixture, name))
@@ -182,7 +217,7 @@ def _granted(app: str, entry: dict, reads: dict) -> list:
             problems.append("%s: its installation reaches %s in %s, and installed_on names %s; they must agree "
                             "exactly" % (app, ", ".join(repos) or "no repo", fixture,
                                          ", ".join(sorted(str(r) for r in installed_on)) or "none"))
-    return problems
+    return problems + _stale(app, reached, installations, reads["ran_at"])
 
 
 def _secret(app: str) -> str:

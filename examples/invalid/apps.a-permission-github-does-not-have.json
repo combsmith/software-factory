@@ -38,6 +38,10 @@
     "write:tracking_issue": {
       "waits_on": "the Controller's notification story"
     },
+    "write:issue_label": {
+      "permission": "issues",
+      "level": "write"
+    },
     "write:write_view": {
       "waits_on": "the view App, combsmith-sf-view, registered with the feed story (Maintainer, 2026-10-14)"
     },

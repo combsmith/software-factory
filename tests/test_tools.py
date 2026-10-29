@@ -10,6 +10,7 @@ import base64
 import concurrent.futures
 import contextlib
 import copy
+import datetime
 import hashlib
 import importlib.machinery
 import io
@@ -1126,6 +1127,31 @@ class Apps(unittest.TestCase):
             self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories read "
                                              "as combsmith-sf-%s" % (app, app)))
 
+    def test_a_reach_read_before_its_installation_last_changed_is_caught(self):
+        # The repos an installation reaches are read with a token of what it holds then, so a read made before the
+        # installation last changed holds nothing of it now. A read at the very time it changed stands.
+        changed = self.installed["combsmith-sf-controller"]["updated_at"]
+        latest = max(self.installed[name]["updated_at"] for name in self.reached)
+        self.assertEqual(changed, latest)
+        self.reach["ran_at"] = check_apps._when(changed).astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertEqual(self.check(), [])
+        self.reach["ran_at"] = (check_apps._when(changed) - datetime.timedelta(seconds=1)).isoformat()
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: trials/P-39.reach.json read the repos it reaches at %s, before "
+                                         "its installation last changed at %s" % (self.reach["ran_at"], changed)))
+        self.assertFalse(caught(problems, "reader:"))
+        for unread in ("2026-10-29T00:53:36", "the 29th", None):
+            self.reach["ran_at"] = unread
+            problems = self.check()
+            for app in ("controller", "pr-review", "reader"):
+                self.assertTrue(caught(problems, "%s: when trials/P-39.reach.json ran, or when its installation last "
+                                                 "changed in trials/P-39.grants.json, cannot be read" % app))
+        self.setUp()
+        self.installed["combsmith-sf-reader"]["updated_at"] = "2026-10-29T00:53:36"
+        problems = self.check()
+        self.assertTrue(caught(problems, "reader: when trials/P-39.reach.json ran"))
+        self.assertFalse(caught(problems, "controller: when"))
+
     def test_a_read_github_refused_is_not_trusted(self):
         # A read answered with anything but 200 holds nothing GitHub granted, even when its body matches the data.
         exchange = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS][0]
@@ -1234,6 +1260,7 @@ class Apps(unittest.TestCase):
 
     def test_a_need_served_by_another_permission_or_level_is_caught(self):
         self.apps["controller"]["permissions"]["contents"]["needs"].append("read:facts.reviews")
+        self.apps["controller"]["permissions"]["pull_requests"]["level"] = "read"
         self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:comment")
         problems = self.check()
         self.assertTrue(caught(problems, "controller: contents serves read:facts.reviews, which the table maps to "

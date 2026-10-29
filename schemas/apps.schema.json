@@ -28,6 +28,7 @@
         "effect:remove_label",
         "write:status_on_item",
         "write:tracking_issue",
+        "write:issue_label",
         "write:write_view",
         "write:release_tag",
         "write:move_channel",
@@ -94,6 +95,9 @@
           "$ref": "#/$defs/mapping"
         },
         "write:tracking_issue": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:issue_label": {
           "$ref": "#/$defs/mapping"
         },
         "write:write_view": {
@@ -364,6 +368,7 @@
               "effect:remove_label",
               "write:status_on_item",
               "write:tracking_issue",
+              "write:issue_label",
               "write:write_view",
               "write:release_tag",
               "write:move_channel",

@@ -27,16 +27,22 @@
       "waits_on": "the Controller's notification story"
     },
     "effect:add_label": {
-      "waits_on": "the issue Lifecycle's Admission"
+      "permission": "pull_requests",
+      "level": "write"
     },
     "effect:remove_label": {
-      "waits_on": "the issue Lifecycle's Admission"
+      "permission": "pull_requests",
+      "level": "write"
     },
     "write:status_on_item": {
       "permission": "checks",
       "level": "write"
     },
     "write:tracking_issue": {
+      "permission": "issues",
+      "level": "write"
+    },
+    "write:issue_label": {
       "permission": "issues",
       "level": "write"
     },
@@ -212,6 +218,7 @@
           "level": "write",
           "needs": [
             "write:tracking_issue",
+            "write:issue_label",
             "read:facts.acceptance"
           ]
         },
@@ -225,8 +232,10 @@
           ]
         },
         "pull_requests": {
-          "level": "read",
+          "level": "write",
           "needs": [
+            "effect:add_label",
+            "effect:remove_label",
             "read:facts.class",
             "read:facts.state",
             "read:facts.is_draft",
