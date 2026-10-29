@@ -62,11 +62,8 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                 scripts = [script for script in expanded("\n".join(body)) if _readable(script)] if expands else []
                 if scripts:
                     nested = [_nested(script, room) for script in scripts]     # each level's quotes its own
-                    pieces = ['<"$(%s)" ' % (script if raw else _escaped(_spent(script, room))) for script in nested]
-                    # A script whose inserted form the reader cannot read, a quoted ) a nested $( ) holds, stays
-                    # data, as on main: the hooks are mistake guards, and refusing it would be a false refusal (#410).
-                    kept.append((expands, "".join(piece for piece, script in zip(pieces, nested)
-                                                  if _reads('<"$(%s)"' % _escaped(script)))))
+                    kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(_spent(script, room)))
+                                                  for script in nested)))
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
                 body.append(line)
@@ -110,9 +107,7 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                     # A quote or a backslash anywhere in the word, an empty quote too (EOF""), keeps the body
                     # literal, as the shell keeps it.
                     literal = re.search(r"[\\'\"]", DELIMITER.match(line, i + 2).group())
-                    # A here-document opened inside a substitution or a double quote is data, as on main: its
-                    # scripts, written there, would take that place's quotes too (#410).
-                    expands = None if literal or len(stack) > 1 else (len(out) - 1, i)
+                    expands = None if literal else (len(out) - 1, i)
                     waiting.append((found.group(1) == "-", _terminator(DELIMITER.match(line, i + 2).group(), found.group(3)),
                                     expands, []))
                     i = found.end()
@@ -192,20 +187,15 @@ def _nested(script: str, room: list) -> str:
 def _terminator(word: str, first: str) -> str:
     """The line that ends a here-document: its whole word after the <<, as the shell reads it once its quotes and
     backslashes are taken out, E\\OF as EOF (#410); `first`, the word up to its first quote, where it cannot be read."""
+    if "\\" in word and ("'" in word or '"' in word):
+        return first        # a backslash in quotes: shlex and the shell take it out apart, so main's reading is kept
     try:
         words = shlex.split(word.lstrip("-").strip())
     except ValueError:
         return first
-    return words[0] if len(words) == 1 else first
-
-
-def _reads(text: str) -> bool:
-    """Whether commands() reads `text` at all."""
-    try:
-        commands(text)
-    except (ValueError, RecursionError):
-        return False
-    return True
+    # A word that ends in a backslash ends at a line that would join the next to it when kept: main's reading, a body
+    # that never ends, is kept for it (Codex on #417).
+    return words[0] if len(words) == 1 and not words[0].endswith("\\") else first
 
 
 def _readable(script: str) -> bool:

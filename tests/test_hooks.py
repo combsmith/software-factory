@@ -1186,7 +1186,8 @@ class Identity(unittest.TestCase):
         # the substitutions in its body, so each is read as one in a word is, where the command stands.
         for command in ('cat < "$(git commit -m x)"', 'echo x > "$(git commit -m x)"', 'cat <<< "`git commit -m x`"',
                         "cat <<EOF\n$(git commit -m x)\nEOF", "cat <<-EOF\n\tit is `git commit -m x`\n\tEOF",
-                        "cat <<EOF | tee /tmp/x\nfirst\n$(git commit\n -m x)\nEOF"):
+                        "cat <<EOF | tee /tmp/x\nfirst\n$(git commit\n -m x)\nEOF",
+                        'echo "$(cat <<EOF\n$(git commit -m y)\nEOF\n)"'):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
         self.assertIn("git_directory_written", self.refused("cd .git; cat <<EOF\n$(cp /tmp/x config)\nEOF\ncd ..; "
                                                             "git -C %s push" % self.here))
@@ -1197,13 +1198,14 @@ class Identity(unittest.TestCase):
             self.assertEqual(self.codes(command, self.bad), "", command)
         # Issue 410: a here-document ends at its whole word, quotes and backslashes taken out (E\\OF ends at EOF), and a
         # backslash before a newline in an expanded body joins the lines, so $\\ then ( is a substitution.
-        for command in ("cat <<E\\OF\nhello\nEOF\ngit commit -m x\nE", "cat <<EOF\n$\\\n(git commit -m x)\nEOF"):
+        for command in ("cat <<E\\OF\nhello\nEOF\ngit commit -m x\nE", "cat <<EOF\n$\\\n(git commit -m x)\nEOF",
+                        # Codex and the Claude review of #417: in a plain ( ) or an unquoted $( ), a body is read as
+                        # anywhere; only a double quote's sends it back to main's reading.
+                        "(cat <<EOF\n$(git commit -m x)\nEOF\n)", "x=$(cat <<EOF\n$(git commit -m x)\nEOF\n)"):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
-        # Issue 410: a here-document opened inside a substitution or a double quote, and a body script whose written
-        # form the reader cannot read, are data, as on main: refusing them would be false refusals (Codex on #395).
-        for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',
-                        'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)"; git commit -m x'):
-            self.assertEqual(self.codes(command), "", command)
+        # A word that ends in a backslash, or holds one in quotes, which shlex and the shell take out apart, is main's
+        # reading, a body that never ends (Codex and Muse on #417).
+        self.assertIn("command_unreadable", self.codes("cat <<EOF\\\\\nhi\nEOF\\\ngit commit -m x"))
         # The review of pull request 395: a commit message or a body sent by a bare here-document, whose backticks hold
         # prose the reader cannot read, passes as on main.
         for command in ("git commit -F - <<EOF\nHooks: don't read `it's` twice\nEOF",
@@ -2530,8 +2532,12 @@ class MergesAndSettings(Asks):
                         "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git push origin main')):
             self.asked(self.run_(command), "merge", command)
         # Issue 410: a here-document ends at its whole word, and a backslash-newline in an expanded body joins its lines.
-        for command in ("cat <<E\\OF\nhello\nEOF\ngit push origin main\nE", "cat <<EOF\n$\\\n(git push origin main)\nEOF"):
+        for command in ("cat <<E\\OF\nhello\nEOF\ngit push origin main\nE", "cat <<EOF\n$\\\n(git push origin main)\nEOF",
+                        "(cat <<EOF\n$(git push origin main)\nEOF\n)"):
             self.asked(self.run_(command), "merge", command)
+        # A word with a backslash in quotes, which shlex and the shell take out apart, keeps main's reading: a body that
+        # never ends, so the push after the shell's own terminator is asked about (Muse on #417).
+        self.asked(self.run_('cat <<E"\\$OF"\nhi\nE$OF\ngit push origin main\nE\\$OF'), "command_unreadable", "a quoted backslash")
         # The review's third round. A cd in what a redirection's operand runs is its own: the command stays where it was.
         for command in ('cd lifecycle; cat < "$(cd /tmp; echo /dev/null)"; touch x.json',
                         # Issue 410: an eval's script reads its redirections' places as the command's own do.
