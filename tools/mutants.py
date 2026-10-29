@@ -8946,7 +8946,7 @@ MUTANTS = ISSUE + [
      'any(JSON_TYPE.match(line) for head in heads for line in head.splitlines())',
      'heads and any(JSON_TYPE.match(line) for line in heads[-1].splitlines())', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('a byte order mark is read past', "tools/redact_trial.py",
-     '    if "\\ufeff" in raw:\n', '    if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
+     '    raw = raw.replace("\\ufeff", "")\n', '', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('a JSON string is read as fields', "tools/redact_trial.py",
      '    if isinstance(data, str):\n', '    if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('a refusal in a body falls back to its lines', "tools/redact_trial.py",

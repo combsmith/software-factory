@@ -176,12 +176,11 @@ def main(argv: list, stdin=None, stdout=None, stderr=None) -> int:
     # `gh api --include` ends its header lines with CR LF. Read as text from a file, they became LF; read as bytes they
     # stay, and a capture with no blank line between its headers and its body would be redacted as one body.
     raw = (sys.stdin.buffer if stdin is None else stdin).read().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    # A byte order mark would hide a status line from the reading of heads and a brace from the reading of JSON. A run's
+    # log writes one at the start of its lines, so each is taken out before anything is read, and what it hid is read
+    # as what it is.
+    raw = raw.replace("\ufeff", "")
     said = []
-    if "\ufeff" in raw:
-        # A byte order mark hides a status line from the reading of heads and a brace from the reading of JSON: no
-        # capture GitHub or curl writes holds one, so one that does is refused whole.
-        print("refused: the capture holds a byte order mark, so none of it is kept; nothing is written", file=stderr)
-        return 1
     try:
         out = json.dumps(redact_json(_fields(raw), said), indent=2) + "\n"
     except Unreadable as refused:
