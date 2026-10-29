@@ -6679,9 +6679,13 @@ class Mutants(unittest.TestCase):
                          "the share is of what every mutant names, not of what the shard's own name")
         self.assertIsNone(mutants.shared(None, root), "a run with no shard runs what its own mutants name")
         self.assertIsNone(mutants.shared((mutate("plain"), 0, 2), root), "mutants that name no test share nothing")
-        self.assertIsNone(mutants.shared((every, 0, 2), root / "gone"), "a tree that cannot be read is not shared")
-        # A shard whose share holds no test runs none, and breaks its mutants; one whose tree cannot be read runs what
-        # its own mutants name, whole.
+        # Where any name cannot be read method by method, the shards' lists cannot be told to agree: each shard runs all
+        # of them, each read as far as it can be, so that no named test is left in no share.
+        self.assertEqual(mutants.shared((every, 1, 2), root / "gone"),
+                         ("tests.test_x.T", "tests.test_x.T.test_b", "tests.test_x.T.test_g"))
+        gone = every + [("n4", "k.py", "rule\n", "n4\n", ("tests.test_x.Gone",))]
+        self.assertEqual(mutants.shared((gone, 1, 4), root), ("tests.test_x.Gone",) + tests)
+        # A shard whose share holds no test runs none, and breaks its mutants.
         calls = []
 
         def run(work, first=(), only=None):
@@ -6690,7 +6694,20 @@ class Mutants(unittest.TestCase):
         self.assertEqual(mutants.baseline(every[:1], root, run, 2, (every, 8, 9)), [])
         self.assertEqual(calls, [])
         mutants.baseline(every[1:2], root / "gone", run, 2, (every, 0, 2))
-        self.assertEqual(calls, [("tests.test_x.T.test_b",)])
+        self.assertEqual(sorted(calls), [("tests.test_x.T", "tests.test_x.T.test_g"), ("tests.test_x.T.test_b",)])
+        # From the front door, a shard runs its share, and a filtered run its own names on FILTER_WORKERS. The names
+        # are this throwaway tree's, which this checkout's check of them could not find.
+        for environ, paths, parts in (({"MUTANTS_SHARD": "1", "MUTANTS_SHARDS": "4"}, [],
+                                       [("tests.test_x.T.test_b",), ("tests.test_x.T.test_f",)]),
+                                      ({}, ["k.py"], [tests[0::2], tests[1::2]])):
+            calls = []
+            with mock.patch("os.cpu_count", return_value=4), mock.patch.object(mutants, "unnamed", return_value=[]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(mutants.front(environ, paths, run, root, every), 1, "every mutant survived")
+            self.assertEqual(sorted(call for call in calls if call), parts, environ)
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(mutants.front({"MUTANTS_SHARD": "1", "MUTANTS_SHARDS": "4"}, [], run, root, every), 1)
+        self.assertIn("4 mutant(s) name no test, or one that does not exist", printed.getvalue(), "refused, not run")
         # A test red on the unbroken code fails the one shard that holds it, as red, whichever that is; every other
         # shard goes on to its mutants.
         for count in (1, 2, 3, 9):
@@ -6744,9 +6761,16 @@ class Mutants(unittest.TestCase):
             self.assertEqual(mutants.suite(where, 30, first=("tests.test_x.T.test_b",))[0], 0)
             self.assertEqual([part for _, part in given], [("tests.test_x.T.test_b",)] + dealt)
             self.assertEqual(mutants.whole_suite(tree({"k.py": "rule\n"})), [], "a tree with no test runs none")
+            # A module that cannot be read method by method is a part of its own, after the dealt ones.
+            unread = suite_of("    def test_a(self):\n        pass\n", dict(files, **{
+                "tests/test_bad.py": "import a_module_left_out\n", "tests/test_worse.py": "import another_left_out\n"}))
+            self.assertEqual(mutants.whole_suite(unread), [("tests.test_new.T.test_a", "tests.test_x.T.test_a"),
+                                                           ("tests.test_new.T.test_b", "tests.test_hooks.T.test_a"),
+                                                           ("tests.test_bad",), ("tests.test_worse",)])
         self.assertEqual(mutants.whole_suite(where), [("tests.test_new.T.test_a", "tests.test_new.T.test_b",
                                                        "tests.test_x.T.test_a", "tests.test_x.T.test_b",
                                                        "tests.test_hooks.T.test_a")], "the suite's own parts")
+        self.assertEqual(mutants.PART_MOST, 100)
 
     def test_a_failure_the_mutant_causes_kills_it(self):
         code, lines, calls = self.check({"breaks": (0, 1, FAILS_A_TEST)}, ["breaks"])

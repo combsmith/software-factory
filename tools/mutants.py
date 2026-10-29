@@ -2046,8 +2046,8 @@ MUTANTS = ISSUE + [
      '        return [ru' 'n(root)]\n    parts',
      '        return []\n    parts', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('a test named twice runs twice', 'tools/mutants.py',
-     '    return tuple(di' 'ct.fromkeys(found)), True\n',
-     '    return tuple(found), True\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+     '    return tuple(di' 'ct.fromkeys(found)), read\n',
+     '    return tuple(found), read\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('a name read as no test runs as what it was read as', 'tools/mutants.py',
      '        found.extend(id' 's if whole else [name])\n',
      '        found.extend(ids)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
@@ -2077,16 +2077,28 @@ MUTANTS = ISSUE + [
      '    for status, output in runs[:1]:\n        outcome, why = verdict(status, output)', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
     # Issue 398: a shard's baseline is its share of what every mutant names, and the whole suite runs in parts.
     ('the shards share no baseline', 'tools/mutants.py',
-     'return tests[index::count] if re' 'ad and tests else None', 'return tests if read and tests else None',
+     '    return tests[index::count] if re' 'ad else tests\n', '    return tests\n',
      (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
     ('a tree that cannot be read is shared', 'tools/mutants.py',
-     'return tests[index::count] if re' 'ad and tests else None', 'return tests[index::count] if tests else None',
+     '    return tests[index::count] if re' 'ad else tests\n', '    return tests[index::count]\n',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ("a tree that cannot be read runs only the shard's own names", 'tools/mutants.py',
+     '    return tests[index::count] if re' 'ad else tests\n', '    return tests[index::count] if read else None\n',
      (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
     ('mutants that name no test share nothing, and run nothing', 'tools/mutants.py',
-     'return tests[index::count] if re' 'ad and tests else None', 'return tests[index::count] if read else None',
+     '    if not tests:\n        return No' 'ne\n    return tests[index', '    return tests[index',
      (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
     ('a tree that cannot be read is read as read', 'tools/mutants.py',
      '        return tuple(dict.fromk' 'eys(tests)), False\n', '        return tuple(dict.fromkeys(tests)), True\n',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('a name kept whole is read as read', 'tools/mutants.py',
+     '        read = read and bo' 'ol(whole)\n', '',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('the front door gives no share', 'tools/mutants.py',
+     'workers=at_once, where=where, sh' 'are=share)', 'workers=at_once, where=where)',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('the front door runs the default workers', 'tools/mutants.py',
+     'workers=at_o' 'nce, where=where, share=share)', 'where=where, share=share)',
      (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
     ('a shard is given no share', 'tools/mutants.py',
      ' counted from 0" % (index, count), None, (mutan' 'ts, index, count)', ' counted from 0" % (index, count), None, None',
@@ -2098,11 +2110,20 @@ MUTANTS = ISSUE + [
      '    if not pa' 'rts:\n        return []\n', '',
      (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
     ('the whole suite runs in one part', 'tools/mutants.py',
-     '    return [tests[at::co' 'unt] for at in range(count)]\n', '    return [tests] if tests else []\n',
+     '    return [methods[at::co' 'unt] for at in range(count)] + [', '    return [methods] + [',
      (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
     ("the whole suite's slow tests are held in one part", 'tools/mutants.py',
-     '    return [tests[at::co' 'unt] for at in range(count)]\n',
-     '    return [tests[at:at + PART_MOST] for at in range(0, len(tests), PART_MOST)]\n',
+     '    return [methods[at::co' 'unt] for at in range(count)] + [',
+     '    return [methods[at:at + PART_MOST] for at in range(0, len(methods), PART_MOST)] + [',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a module that cannot be read is left out of the whole suite', 'tools/mutants.py',
+     ' + [(name,) for name in te' 'sts if name in names]', '',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a module that cannot be read is run twice', 'tools/mutants.py',
+     '(test for test in tests if test not in na' 'mes)', '(test for test in tests)',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('the whole suite is one part again', 'tools/mutants.py',
+     'PART_MOST = 1' '00    #', 'PART_MOST = 100000    #',
      (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
     ('the whole suite runs on past a part that failed', 'tools/mutants.py',
      '        if status != 0:\n            br' 'eak\n', '        if False:\n            break\n',
@@ -8969,11 +8990,13 @@ def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only=N
 def whole_suite(cwd: pathlib.Path) -> list:
     """The whole suite in `cwd` as the runs it is made in: its test methods, as `cases` reads them there, dealt in turn
     into as few parts as hold at most PART_MOST each, each in the order `modules` gives, so that no run of the whole
-    suite grows with it and its slow tests, which stand together, are spread among the parts; a module that cannot be
-    read is a name of its own (issue 398)."""
-    tests = cases(tuple(modules(cwd)), cwd)
-    count = -(-len(tests) // PART_MOST)
-    return [tests[at::count] for at in range(count)]
+    suite grows with it and its slow tests, which stand together, are spread among the parts. A module that cannot be
+    read method by method is a part of its own, after them (issue 398)."""
+    names = tuple(modules(cwd))
+    tests = cases(names, cwd)
+    methods = tuple(test for test in tests if test not in names)
+    count = -(-len(methods) // PART_MOST)
+    return [methods[at::count] for at in range(count)] + [(name,) for name in tests if name in names]
 
 
 def modules(cwd: pathlib.Path) -> list:
@@ -9280,7 +9303,7 @@ def cases(tests: tuple, root: pathlib.Path) -> tuple:
 
 
 def read_cases(tests: tuple, root: pathlib.Path) -> tuple:
-    """(`cases`, and whether the tree was read: False where every name is kept whole, since it could not be)."""
+    """(`cases`, and whether every name was read method by method: False where any is kept whole)."""
     try:
         listed = subprocess.run([sys.executable, "-c", LISTING], cwd=str(root), input=json.dumps(list(tests)),
                                 capture_output=True, text=True, timeout=TIMEOUT,
@@ -9290,11 +9313,12 @@ def read_cases(tests: tuple, root: pathlib.Path) -> tuple:
         said = None
     if not isinstance(said, list) or len(said) != len(tests):
         return tuple(dict.fromkeys(tests)), False
-    found = []
+    found, read = [], True
     for name, ids in zip(tests, said):
         whole = isinstance(ids, list) and ids and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
         found.extend(ids if whole else [name])
-    return tuple(dict.fromkeys(found)), True
+        read = read and bool(whole)
+    return tuple(dict.fromkeys(found)), read
 
 
 def baseline(mutants: list, root: pathlib.Path, run, workers: int, share: tuple = None) -> list:
@@ -9318,13 +9342,16 @@ def shared(share: tuple, root: pathlib.Path):
     """A shard's share of the baseline, given `share`, (every mutant of the run, the shard, the count of shards): of
     the tests every mutant names, method by method as `cases` reads them in `root`, each `count`-th from the shard's
     place, so that across the shards each runs once, whichever shard's mutants name it, and a shard's share shrinks as
-    shards are added (issue 398). None with no share, for mutants that name no test, and for a tree that cannot be
-    read, where one shard's list cannot be told to be another's: the shard then runs what its own mutants name."""
+    shards are added (issue 398). Where any name cannot be read method by method, one shard's list cannot be told to
+    be another's, so the shard runs all of them, each read as far as it can be, and no named test is left in no
+    share. None with no share, and for mutants that name no test."""
     if share is None:
         return None
     every, index, count = share
     tests, read = read_cases(named(every), root)
-    return tests[index::count] if read and tests else None
+    if not tests:
+        return None
+    return tests[index::count] if read else tests
 
 
 def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "",
@@ -9360,10 +9387,15 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
     return 0 if killed == len(mutants) else 1
 
 
-if __name__ == "__main__":
+def front(environ, paths: list, run=suite, root: pathlib.Path = ROOT, mutants: list = None) -> int:
+    """`python3 -m tools.mutants [PATH...]`: the run `selected` reads from `environ` and `paths`, as `main` runs it."""
     try:
-        chosen, where, at_once, share = selected(os.environ, sys.argv[1:])
+        chosen, where, at_once, share = selected(environ, paths, mutants)
     except ValueError as err:
         print(err)
-        sys.exit(1)
-    sys.exit(main(chosen, where=where, workers=at_once, share=share))
+        return 1
+    return main(chosen, root, run, workers=at_once, where=where, share=share)
+
+
+if __name__ == "__main__":
+    sys.exit(front(os.environ, sys.argv[1:]))
