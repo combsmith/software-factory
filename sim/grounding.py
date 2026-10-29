@@ -66,12 +66,14 @@ RULES = (
      "category, by an identity holding security_events: write, cannot replace that verdict on the head",
      ("P-36",), None, None),
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", ("P-2",), None, None),
-    ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue", ("P-2",), None, None),
+    ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue, with contents: write; "
+     "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
     ("a_pass_comes_before_the_merge", "The merge queue merges a pull request only after a pass has read it whole and "
      "current, and found the same facts GitHub holds at the merge", ("P-2",), None, None),
-    ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue", ("P-2",), None, None),
+    ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
+     "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
      "timeline says who and what the review was before", ("P-41",), None, None),
     # Contradicted by this repo's own merge queue, which ran the verify workflow on #243's merge group and ejected it on
@@ -90,11 +92,14 @@ RULES = (
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request",
-     ("P-5",), None, None),
+     ("P-5",), "trials/P-5.json", None),
+    # Contradicted by P-5 (trials/P-5.json): GitHub refuses an App a thread another opened without contents: write,
+    # which the reviewer's App does not hold. Left unverified, as the fake applies it, until issue 366 rules who may
+    # resolve a Lens's thread: changing the fake is a story of its own.
     ("an_app_resolves_a_lens_thread", "The reviewer's App can resolve a thread a Lens opened", ("P-5",), None, None),
-    ("an_app_resolves_any_thread", "An App with pull_requests: write can resolve any review thread, a person's too, "
-     "and "
-     "the thread says who resolved it", ("P-5",), None, None),
+    ("an_app_resolves_any_thread", "An App with contents: write and pull_requests: write can resolve any review "
+     "thread, a person's too, and the thread says who resolved it; with pull_requests: write alone GitHub refuses it",
+     ("P-5",), "trials/P-5.json", None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
      ("P-41",), None, None),
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
