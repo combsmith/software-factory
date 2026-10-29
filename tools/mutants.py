@@ -9007,14 +9007,20 @@ MUTANTS = ISSUE + [
      'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
     ('an eval dispatch of id True is read', 'adapters/candidate.py',
      'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
-    # Issue 414: eval is read only as a command word, never the word in a quoted title or message.
-    ("eval is read wherever its word stands", "tools/hooks/shell.py",
-     '        evals = any(_leading(_commands_of(words))[1] == "eval" for words, _ in commands(stripped))\n',
-     '        evals = re.search(r"(?:^|[\\s;&|(){}`])eval(?:[\\s;&|]|$)", stripped) is not None\n', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
-    ("eval in a substitution is not read", "tools/hooks/shell.py",
-     '_leading(_commands_of(words))[1] == "eval" for words, _ in commands(stripped)', 'False for words, _ in []', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
+    # Issue 414: eval is read only where the shell may run it, never the word in a quoted title or message.
+    ("eval in a quoted title is read as code", "tools/hooks/shell.py",
+     'PROSE = re.compile(r"\'[^\']*\'|\\"(?:[^\\"\\\\$`]|\\\\.)*\\"")', 'PROSE = re.compile(r"\'[^\']*\'")', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
+    ("eval outside prose is not read", "tools/hooks/shell.py",
+     '            evals = BUILTIN_WORD.search(PROSE.sub("\'\'", stripped)) is not None \\\n',
+     '            evals = False \\\n', ("tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs",)),
+    ("a script's eval is not read", "tools/hooks/shell.py",
+     '                or any(os.path.basename(word) == "eval" for words, _ in ran for word in words) \\\n', '', ("tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs",)),
+    ("a trap's script is not read for eval", "tools/hooks/shell.py",
+     '_leading(_commands_of(words))[1] == "trap" and BUILTIN_WORD.search(word)', 'False', ("tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs",)),
     ("eval in text the reader cannot split is not read", "tools/hooks/shell.py",
-     '        evals = re.search(r"(?:^|[\\s;&|(){}`])eval(?:[\\s;&|]|$)", stripped) is not None\n', '        evals = False\n', ("tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs",)),
+     '        except ValueError:\n            evals = True\n', '        except ValueError:\n            evals = False\n', ("tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs",)),
+    ("an argument named eval is read as one the shell runs", "tools/hooks/shell.py",
+     '    if BUILTIN_WORD.search(stripped):\n', '    if True:\n', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
 ]
 
 
