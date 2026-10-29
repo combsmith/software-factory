@@ -1,4 +1,4 @@
-# 0084. The merge queue merges, ejects, refuses a push and a draft; and GitHub approves a closed pull request
+# 0085. The merge queue merges, ejects, refuses a push and a draft; and GitHub approves a closed pull request
 
 Status: accepted. The second machine-user window's P-2 rest and P-7.refused, under the orchestrator's rulings of
 2026-10-28. It adds to decision 0081, and grounds the approving act of
