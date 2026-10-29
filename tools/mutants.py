@@ -8639,6 +8639,27 @@ MUTANTS = ISSUE + [
      '(typed or body.lstrip()[:1] in ("{", "["))',
      '(body.lstrip()[:1] in ("{", "["))',
      ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
+    # Issue 375: a link the agent left in the export is held as a link and never followed.
+    ("a file reached through a linked folder is the export's own", "tools/context_eval.py",
+     '    return os.path.realpath(str(path)).startswith(os.path.realpath(str(folder)) + os.sep)\n',
+     '    return True\n',
+     ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
+    ('a link the agent left is not a change', "tools/context_eval.py",
+     '        if path.is_symlink():\n            out[rel] = LINK\n            continue\n',
+     '',
+     ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
+    ('a test file that is a link is read', "tools/context_eval.py",
+     'path.suffix == ".py") or not _own(folder, path):',
+     'path.suffix == ".py"):',
+     ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
+    ('a mutants file that is a link is read', "tools/context_eval.py",
+     '    text = path.read_text() if _own(folder, path) else ""\n',
+     '    text = path.read_text() if path.is_file() else ""\n',
+     ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
+    ('a Kernel file that is a link is read', "tools/context_eval.py",
+     'if rel.startswith("kernel/") and _own(work, work / rel):',
+     'if rel.startswith("kernel/") and (work / rel).is_file():',
+     ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
 ]
 
 

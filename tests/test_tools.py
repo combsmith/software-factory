@@ -6851,6 +6851,33 @@ class ContextEval(unittest.TestCase):
         put_back = context_eval.record(self.transcript(work), pristine, work, self.PASSED, dict(self.META, restored=["Makefile"]))
         self.assertEqual(put_back["restored"], ["Makefile"])
 
+    def test_a_link_the_agent_left_is_never_followed(self):
+        # Issue 375: a link in the export the agent left, to a file outside it, was read, and the names of the tests in
+        # that file reached the record. A link is held as a link and is never read, nor is a file reached through one.
+        pristine, work = self.export(changed=False)
+        outside = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (outside / "test_held.py").write_text("def test_a_private_name(self):\n    pass\n")
+        (outside / "kernel.py").write_text('x = "empty_diff"\n')
+        (outside / "mutants.py").write_text('MUTANTS = [\n    ("a private mutant", "kernel/derive.py", "a", "b", ("t",)),\n]\n')
+        (work / "tests" / "test_x.py").symlink_to(outside / "test_held.py")
+        (work / "tests" / "more").symlink_to(outside, target_is_directory=True)
+        (work / "kernel" / "derive.py").unlink()
+        (work / "kernel" / "derive.py").symlink_to(outside / "kernel.py")
+        (work / "tools" / "mutants.py").unlink()
+        (work / "tools" / "mutants.py").symlink_to(outside / "mutants.py")
+        run = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertEqual(run["added"], {"test": None, "mutant": None, "reason": None})
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        self.assertEqual(context_eval.new_mutants(pristine, work), [])
+        self.assertNotIn("private", json.dumps(run))
+        self.assertIn({"path": "tests/test_x.py", "added": 1, "removed": 0}, run["changed"])
+        self.assertEqual(run["verdicts"]["mutant"], "survived")      # the mutants the export held are gone with the link
+        # A whole tests/ that is a link is not read either.
+        pristine, work = self.export(changed=False)
+        shutil.rmtree(work / "tests")
+        (work / "tests").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+
     def test_what_cannot_be_read_makes_no_record(self):
         pristine, work = self.export()
         text = self.transcript(work)

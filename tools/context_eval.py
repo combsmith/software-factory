@@ -142,14 +142,28 @@ def reads_and_commands(text: str, work: pathlib.Path) -> tuple:
     return read, ran, counts, outside
 
 
+LINK = "\0link"     # what a link is held as: it is never followed, so what it points at is never read
+
+
+def _own(folder: pathlib.Path, path: pathlib.Path) -> bool:
+    """Whether `path` is a file of the export's own: not a link, and inside `folder` when every link on the way to it
+    is followed. A link the agent left may point anywhere, and what it points at is not the export's."""
+    if path.is_symlink() or not path.is_file():
+        return False
+    return os.path.realpath(str(path)).startswith(os.path.realpath(str(folder)) + os.sep)
+
+
 def _files(folder: pathlib.Path) -> dict:
     """Every file under `folder` by its relative path, with its text, as the one walk lists an export; a file that is
-    not text is held by its bytes' size."""
+    not text is held by its bytes' size, and a link by LINK, never by what it points at."""
     out = {}
     for path in walk.files(folder):
-        if not path.is_file():
-            continue
         rel = path.relative_to(folder).as_posix()
+        if path.is_symlink():
+            out[rel] = LINK
+            continue
+        if not _own(folder, path):
+            continue
         try:
             out[rel] = path.read_text()
         except (UnicodeDecodeError, OSError):
@@ -180,7 +194,7 @@ def _mutant_entries(folder: pathlib.Path) -> list:
     """Each mutant tools/mutants.py under `folder` holds, as (name, target), a target named by a constant of that file
     read through it."""
     path = folder / "tools" / "mutants.py"
-    text = path.read_text() if path.is_file() else ""
+    text = path.read_text() if _own(folder, path) else ""
     named = dict(re.findall(r'^([A-Z_]+) = "([^"\n]+)"$', text, re.M))
     return [(m.group(1), m.group(2) or named.get(m.group(3), m.group(3))) for m in MUTANT.finditer(text)]
 
@@ -202,7 +216,7 @@ def new_tests(pristine: pathlib.Path, work: pathlib.Path) -> list:
         out = set()
         for path in (walk.files(folder, "tests") if (folder / "tests").is_dir() else []):
             rel = path.relative_to(folder).as_posix()
-            if not (path.name.startswith("test_") and path.suffix == ".py"):
+            if not (path.name.startswith("test_") and path.suffix == ".py") or not _own(folder, path):
                 continue
             for m in re.finditer(r"^\s*def (test_[a-z0-9_]+)\(", path.read_text(), re.M):
                 out.add("%s::%s" % (rel, m.group(1)))
@@ -223,8 +237,8 @@ def record(transcript: str, pristine: pathlib.Path, work: pathlib.Path, verdicts
     added_lines = []
     for change in changed:
         rel = change["path"]
-        if rel.startswith("kernel/") and (work / rel).is_file():
-            old = (pristine / rel).read_text().splitlines() if (pristine / rel).is_file() else []
+        if rel.startswith("kernel/") and _own(work, work / rel):
+            old = (pristine / rel).read_text().splitlines() if _own(pristine, pristine / rel) else []
             added_lines += [line for line in difflib.unified_diff(old, (work / rel).read_text().splitlines(), lineterm="", n=0)
                             if line.startswith("+") and not line.startswith("+++")]
     reason = (code if isinstance(code, str) and re.fullmatch(r"[a-z_]+", code)
