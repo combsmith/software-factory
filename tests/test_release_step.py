@@ -230,6 +230,7 @@ class Candidate(unittest.TestCase):
             ([manifest(), eval_runs(runs=[run_of(event="push")])], "eval_not_run"),
             # A dispatch whose id is no GitHub id is none, though a run of that number would answer with a report.
             ([manifest(), eval_runs(runs=[run_of(id=0)])] + report_download(report(), run=0), "eval_not_run"),
+            ([manifest(), eval_runs(runs=[run_of(id=True)])] + report_download(report(), run=1), "eval_not_run"),
             ([manifest(data=b"[" * 60000)], "eval_set_unreadable"),
             (gate_reads(document="[" * 60000), "report_unreadable"),
             (gate_reads(document=report(release="factory/v0.2.9")), "another_release"),
@@ -321,6 +322,10 @@ class Writes(unittest.TestCase):
                                                                            "environment": "factory-next"})),
                          dict(status, request=dict(status["request"],
                                                    call="POST /repos/%s/deployments/0/statuses" % REPO))],
+                        [dict(made, response=dict(made["response"], body={"id": True, "sha": D,
+                                                                           "environment": "factory-next"})),
+                         dict(status, request=dict(status["request"],
+                                                   call="POST /repos/%s/deployments/1/statuses" % REPO))],
                         [made, dict(status, response=dict(status["response"], status=200))]):
             with self.subTest(answers=len(answers)):
                 self.assertIsNone(deployments.record(github.Replay(answers), REPO, D, VERSION))
@@ -519,7 +524,8 @@ class Step(unittest.TestCase):
                          ({"writes": [], "deployments": []}, cut.STEP_UNREADABLE))
         # A home that is no object names neither the repo nor the branch: the step stops there, for every command, and
         # reads no default for either (Argon's read of #354).
-        for bad in ("combsmith/software-factory", ["combsmith/software-factory"], 1, True):
+        for bad in ("combsmith/software-factory", ["combsmith/software-factory"], 1, True, {"repo": 1, "branch": "main"},
+                    {"branch": "main"}, {"repo": REPO, "branch": 1}, {"repo": REPO, "branch": ""}, {"repo": REPO}):
             for command in ("cut", "move", "rollback"):
                 with self.subTest(home=bad, command=command):
                     env = {"RELEASE_COMMAND": command, "RELEASE_TOKEN": "t", "RELEASE_CUT_COMMIT": D,

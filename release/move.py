@@ -81,10 +81,11 @@ def asked(environ: dict, channel) -> dict:
     return {"command": command, "channel": channel, "to": environ.get("RELEASE_TO") or None}
 
 
-def branch(controller) -> str:
-    """The branch a Release is cut from: the Controller's home branch."""
+def branch(controller):
+    """The branch a Release is cut from: the Controller's home branch, or None where the home names none, which
+    `schemas/controller.schema.json` requires it to."""
     found = (_home(controller) or {}).get("branch")
-    return found if isinstance(found, str) else "main"
+    return found if isinstance(found, str) and found else None
 
 
 def _named(after, write, released) -> bool:
@@ -101,8 +102,9 @@ def run(environ: dict, connect, rings=READ, controller=READ) -> tuple:
     repo, channel = home(controller), next_channel(rings)
     token = environ.get("RELEASE_TOKEN")
     done = {"writes": [], "deployments": []}
-    # A home that is no object names no repo (`_home`), so the step stops here and never reads a default branch for it.
-    if environ.get("RELEASE_COMMAND") not in COMMANDS or repo is None or channel is None:
+    # A home that is no object names no repo (`_home`), and one that names no branch names none: the step stops here,
+    # and never reads a default for either.
+    if environ.get("RELEASE_COMMAND") not in COMMANDS or repo is None or branch(controller) is None or channel is None:
         return done, cut.STEP_UNREADABLE
     if not isinstance(token, str) or not token:
         return done, "token_unreadable"

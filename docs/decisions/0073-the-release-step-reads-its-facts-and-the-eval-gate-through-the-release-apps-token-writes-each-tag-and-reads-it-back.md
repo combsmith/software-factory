@@ -35,6 +35,6 @@ holds cases.
 | A Deployment counts only of the commit moved to, its status success | `tests/test_release_step.py::test_a_deployment_of_next_is_recorded_with_its_status` |
 | The step prints codes alone; a step that cannot be read asks nothing | `tests/test_release_step.py::test_the_step_prints_codes_alone_and_exits_by_them`, `tests/test_release_step.py::test_a_step_that_cannot_be_read_asks_nothing` |
 | main's head counts only read by its branch's ref, as a commit, by a sha, though the comparison it leads to would pass | `tests/test_release_step.py::test_the_facts_of_a_commit_on_main_verified_and_judged` |
-| A Deployment, or an eval dispatch, whose id is no GitHub id is none | `tests/test_release_step.py::test_a_deployment_of_next_is_recorded_with_its_status`, `tests/test_release_step.py::test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed` |
-| A Controller home that is no object stops every command as unreadable, with no default branch read for it | `tests/test_release_step.py::test_a_step_that_cannot_be_read_asks_nothing` |
+| A Deployment, or an eval dispatch, whose id is no GitHub id, 0 or a boolean among them, is none | `tests/test_release_step.py::test_a_deployment_of_next_is_recorded_with_its_status`, `tests/test_release_step.py::test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed` |
+| A Controller home that is no object, or that names no repo or no branch as text, stops every command as unreadable, with no default read for either | `tests/test_release_step.py::test_a_step_that_cannot_be_read_asks_nothing` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

@@ -8696,6 +8696,20 @@ MUTANTS = ISSUE + [
     ('a release step that runs any command passes', 'tools/check_workflows.py',
      'return "step" if _lines(step.get("run")) == [RELEASE_STEP] and "uses" not in step else None',
      'return "step" if "run" in step and "uses" not in step else None', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    # The review round of #397: the home's repo and branch are read as text, and an id of True is no id.
+    ("a home's repo that is no text is read", 'release/move.py',
+     '    found = (_home(controller) or {}).get("repo")\n    return found if isinstance(found, str) else None\n',
+     '    found = (_home(controller) or {}).get("repo")\n    return found\n', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a home with no branch reads main', 'release/move.py',
+     'return found if isinstance(found, str) and found else None', 'return found if isinstance(found, str) and found else "main"', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('an empty branch is read', 'release/move.py',
+     'return found if isinstance(found, str) and found else None', 'return found if isinstance(found, str) else None', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('the step goes on with no branch', 'release/move.py',
+     ' or branch(controller) is None or channel is None:', ' or channel is None:', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a Deployment of id True is recorded', 'adapters/deployments.py',
+     'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
+    ('an eval dispatch of id True is read', 'adapters/candidate.py',
+     'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
 ]
 
 
