@@ -1183,9 +1183,11 @@ MUTANTS = ISSUE + [
     ('a type GitHub does not give is read', 'adapters/timeline.py',
      ' \\\n                or user.get("type") not in ("User", "Bot"):',
      ':', ("tests.test_adapters",)),
-    # Argon's read of PR 341: an id of True is no account's, though True == 1.
+    # Argon's read of PR 341, and Muse's of PR 387: an id of True or 1.0 is no account's, though each == 1.
     ('an account of id True is typed as the account of id 1', 'adapters/timeline.py',
-     ' or isinstance(user.get("id"), bool)', '', ("tests.test_adapters",)),
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), float) or', ("tests.test_adapters",)),
+    ('an account of id 1.0 is typed as the account of id 1', 'adapters/timeline.py',
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), bool) or', ("tests.test_adapters",)),
     ('a resolver of id True is told as the identity of id 1', 'adapters/seen.py',
      'told == ident and _positive(ident)), None)', 'told == ident), None)', ("tests.test_reconcile",)),
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).

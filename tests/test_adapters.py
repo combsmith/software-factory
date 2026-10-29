@@ -2193,15 +2193,16 @@ class Threads(unittest.TestCase):
     def test_an_account_is_typed_by_the_permission_read_held_to_its_id(self):  # issue 331, decision 0067
         # The permission read answers the account, its id and type (trials/P-53.json): a type is taken only for the id
         # asked, never for a read that failed, another id, or a type GitHub does not give an account.
-        router = Router(github.Replay([]), {"don-petry": "admin", "gone": "missing", "boolean": "admin"},
-                        users={"odd": (5, "Organization"), "boolean": (True, "User")})
+        router = Router(github.Replay([]), {"don-petry": "admin", "gone": "missing", "boolean": "admin", "float": "admin"},
+                        users={"odd": (5, "Organization"), "boolean": (True, "User"), "float": (1.0, "Bot")})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {})
         self.assertEqual([accounts.typed("don-petry", MAINTAINER), accounts.typed("combsmith-sf-trial-author[bot]", 344141469)],
                          ["User", "Bot"])
         for login, ident in (("gone", 1), ("don-petry", MAINTAINER + 1), ("odd", 5), (None, MAINTAINER),
                              ("don-petry", True), ("don-petry", 0),
-                             # An answer of id True is no account's, never the account of id 1, as True == 1 would.
-                             ("boolean", 1)):
+                             # An answer of id True, or 1.0, is no account's, never the account of id 1, as True == 1
+                             # and 1.0 == 1 would.
+                             ("boolean", 1), ("float", 1)):
             self.assertIsNone(accounts.typed(login, ident), (login, ident))
 
     def test_a_resolver_is_read_once_a_login_whatever_it_resolved(self):  # issue 331: the cost
