@@ -6,6 +6,11 @@ what a ruling fixed (issues 62 and 95). This check holds the values written in t
 `app_id`; `verify`'s check is among them, so GitHub merges nothing the verification check has not passed; and each
 tool of the code-scanning rule is the check of a deterministic Lens that no workflow runs. Whether the live rulesets
 still say this is `tools/rulesets_drift.sh`'s, run by hand: nothing here reads GitHub.
+
+No external Lens's approval counts toward the merge (issue 366): CodeRabbit approves once its threads are resolved, by
+whoever resolves them (trials/P-25.json). So a `main` ruleset that counts an approval asks for a code owner's, of the
+last push, and `.github/CODEOWNERS` names on every line, a catch-all among them, only the team through which the
+machine user is a code owner (issue 198's ruling 2). An App is never a code owner, so none can meet it.
 """
 from __future__ import annotations
 
@@ -15,6 +20,9 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BRANCH = "main"
 VERIFY = "verify"
+# The team through which the machine user, and only it beside the Maintainer, is a code owner (issue 198's ruling 2).
+CODE_OWNER = "@combsmith/org-leads"
+CATCH_ALL = ("*", "/**", "**")
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -57,6 +65,30 @@ def _agree(root: pathlib.Path) -> list:
         if lens is None or lens.get("workflow") is not None:
             problems.append("config/rulesets.json: the code-scanning rule names the tool %r, which is no deterministic "
                             "Lens's check that no workflow runs in config/defaults.json; make them agree" % (tool,))
+    review = rules.get("pull_request") or {}
+    if review.get("required_approving_review_count", 0) != 0:
+        if review.get("require_code_owner_review") is not True or review.get("require_last_push_approval") is not True:
+            problems.append("config/rulesets.json: the %s ruleset counts an approval without asking for a code owner's, "
+                            "of the last push, so an external Lens's approval could count; ask for both" % BRANCH)
+        problems += _code_owners(root)
+    return problems
+
+
+def _code_owners(root: pathlib.Path) -> list:
+    """What lets an approval by anyone but the code owners' team count, in a ruleset that asks for a code owner's."""
+    try:
+        text = (root / ".github" / "CODEOWNERS").read_text()
+    except (OSError, ValueError) as err:
+        return [".github/CODEOWNERS cannot be read, so who may approve cannot be told: %s" % err]
+    lines = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    problems = []
+    for words in lines:
+        if words[1:] != [CODE_OWNER]:
+            problems.append(".github/CODEOWNERS: %s is owned by %s, not by %s alone, so another account's approval "
+                            "could count" % (words[0], " ".join(words[1:]) or "no one", CODE_OWNER))
+    if not any(words[0] in CATCH_ALL for words in lines):
+        problems.append(".github/CODEOWNERS has no line for every path, so a path no code owner holds could merge on "
+                        "an external Lens's approval; add `* %s`" % CODE_OWNER)
     return problems
 
 

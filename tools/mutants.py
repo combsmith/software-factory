@@ -8725,6 +8725,27 @@ MUTANTS = ISSUE + [
      'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
     ('an eval dispatch of id True is read', 'adapters/candidate.py',
      'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    # Issue 366: an external Lens's approval never counts, in the Kernel or toward the Factory's ruleset.
+    ("an external Lens's approval stands", 'kernel/derive.py',
+     '            rv["by"]["kind"] == t.MACHINE_USER\n', '            rv["by"]["kind"] in (t.MACHINE_USER, "lens", t.APP)\n', ('tests.test_decide.OnlyAPersonEnds.test_an_external_lenss_approval_never_counts',)),
+    ("an App with write judges a change to a model Lens's input", 'kernel/derive.py',
+     '        if is_person(rv["by"]) and rv["state"] != "commented" and rv["dismissed_from"] != "commented":\n',
+     '        if rv["by"]["can_write"] is True and rv["state"] != "commented" and rv["dismissed_from"] != "commented":\n', ('tests.test_decide.OnlyAPersonEnds.test_an_external_lenss_approval_never_counts',)),
+    ("a counted approval needs no code owner's", 'tools/check_rulesets.py',
+     'if review.get("require_code_owner_review") is not True or review.get("require_last_push_approval") is not True:',
+     'if review.get("require_last_push_approval") is not True:', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a counted approval needs not be of the last push", 'tools/check_rulesets.py',
+     'if review.get("require_code_owner_review") is not True or review.get("require_last_push_approval") is not True:',
+     'if review.get("require_code_owner_review") is not True:', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("the code owners are read whatever is counted", 'tools/check_rulesets.py',
+     '    if review.get("required_approving_review_count", 0) != 0:\n', '    if True:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("the code owners are not read", 'tools/check_rulesets.py', '        problems += _code_owners(root)\n', '', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("an owner beside the team passes", 'tools/check_rulesets.py',
+     '        if words[1:] != [CODE_OWNER]:\n', '        if CODE_OWNER not in words[1:]:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("a path owned by no one passes", 'tools/check_rulesets.py',
+     '        if words[1:] != [CODE_OWNER]:\n', '        if words[1:] and words[1:] != [CODE_OWNER]:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("code owners with no catch-all pass", 'tools/check_rulesets.py',
+     '    if not any(words[0] in CATCH_ALL for words in lines):\n', '    if False:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
 ]
 
 

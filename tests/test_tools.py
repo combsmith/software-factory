@@ -7372,6 +7372,38 @@ class Rulesets(unittest.TestCase):
         self.main["code_scanning"]["code_scanning_tools"][0]["tool"] = "verify"    # a Lens a workflow runs
         self.assertTrue(caught(self.run_on(), "names the tool 'verify'"))
 
+    def counted(self, owners: str = None) -> list:
+        """The check on a `main` ruleset that counts one approval, of a code owner, of the last push, as issue 198's
+        switch makes it, beside `owners` as `.github/CODEOWNERS`, the repo's own by default."""
+        review = self.main["pull_request"]
+        review.update(required_approving_review_count=1, require_code_owner_review=True, require_last_push_approval=True)
+        owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                        "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
+
+    def test_an_approval_counts_only_a_code_owners_of_the_last_push(self):  # issue 366
+        # The switch issue 198 makes is let through: the machine user's team owns every path.
+        self.assertEqual(self.counted(), [])
+        # A count with no code owner's review, or not of the last push, could be met by CodeRabbit's approval.
+        for key in ("require_code_owner_review", "require_last_push_approval"):
+            with self.subTest(key=key):
+                self.counted()
+                self.main["pull_request"][key] = False
+                self.assertTrue(caught(self.run_on(), "counts an approval without asking for a code owner's"), key)
+
+    def test_the_code_owners_are_the_machine_users_team_on_every_path(self):  # issue 366
+        for owners, words in (("docs/ @combsmith/org-leads\n", "has no line for every path"),
+                              ("* @combsmith/org-leads\ndocs/ @someone-else\n", "docs/ is owned by @someone-else"),
+                              ("* @combsmith/org-leads @coderabbitai\n", "not by @combsmith/org-leads alone"),
+                              ("* @combsmith/org-leads\ndocs/\n", "docs/ is owned by no one")):
+            with self.subTest(owners=owners):
+                self.assertTrue(caught(self.counted(owners), words), (owners, self.counted(owners)))
+        # A ruleset that counts no approval reads no code owners at all.
+        self.main["pull_request"]["required_approving_review_count"] = 0
+        self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                                  "config/defaults.json": json.dumps(self.defaults),
+                                                  ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
+
     def test_files_that_cannot_be_read_are_a_problem(self):
         self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": "{}"})), "cannot be read"))
 
