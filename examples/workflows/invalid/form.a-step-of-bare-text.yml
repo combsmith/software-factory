@@ -1,0 +1,20 @@
+# Must be rejected. A step that is a bare text is a step the reading by keys never sees (Argon's read of #392).
+name: factory
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - justastring
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make verify
+      - run: python3 -m tools.mutants

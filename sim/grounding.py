@@ -76,6 +76,9 @@ RULES = (
      "CodeQL that GitHub Advanced Security, 57789, reports: an upload to code scanning under CodeQL's tool and "
      "category, by an identity holding security_events: write, cannot replace that verdict on the head",
      ("P-36",), None, None),
+    # Contradicted by P-2 (trials/P-2.queue.json): GitHub refuses an App's push, through the contents API, to a queued
+    # pull request's branch (409), and the queue merges it unchanged; a git push while queued is not asked. Left
+    # unverified, as the fake applies it: changing the fake is a story of its own.
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", ("P-2",), None, None),
     ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue, with contents: write; "
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
@@ -98,16 +101,12 @@ RULES = (
      "assumed, no trial can ask it: a fault of the item or of the environment that drops an approval cannot be forced "
      "on demand"),
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
-     ("P-2",), None, None),
+     ("P-2",), "trials/P-2.queue.json", None),
     ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request",
      ("P-5",), "trials/P-5.json", None),
-    # Contradicted by P-5 (trials/P-5.json): GitHub refuses an App a thread another opened without contents: write,
-    # which the reviewer's App does not hold. Left unverified, as the fake applies it, until issue 366 rules who may
-    # resolve a Lens's thread: changing the fake is a story of its own.
-    ("an_app_resolves_a_lens_thread", "The reviewer's App can resolve a thread a Lens opened", ("P-5",), None, None),
     ("an_app_resolves_any_thread", "An App with contents: write and pull_requests: write can resolve any review "
      "thread, a person's too, and the thread says who resolved it; with pull_requests: write alone GitHub refuses it",
      ("P-5",), "trials/P-5.json", None),
@@ -242,6 +241,8 @@ RULES = (
      "time, so the first close of its present life is read across a reopening", ("P-34",), "trials/P-34.json", None),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention",
      ("P-16",), None, None),
+    # Contradicted by the fake's issues world, where a person merges a stranger's draft; P-2 (trials/P-2.queue.json) saw
+    # GitHub refuse a draft both the queue and a person. Left unverified until the fake refuses it.
     ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue",
      ("P-2",), None, None),
     ("a_forks_run_never_counts", "A pull request from a fork runs its own workflow file, on pull_request, never on a "
@@ -320,7 +321,6 @@ ASKS = {
               "type",
     },
     "a_lens_review_opens_a_thread": {"P-5": "a review thread opened by another App"},
-    "an_app_resolves_a_lens_thread": {"P-5": "Can one App resolve a review thread opened by another App"},
     "an_app_resolves_any_thread": {
         "P-5": "Can one App resolve a review thread opened by another App or by a third-party reviewer?",
     },

@@ -572,6 +572,28 @@ JUDGED = {"pull_request", "merge_group"}
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
 
 
+# A space or a line break of any kind but the plain space and the newline: YAML reads none of them as Python's strip()
+# does, so a line led by one is no comment, and one may end a line where no line ends here (the security pass on #392).
+ODD_SPACE = re.compile(r"[^\S \n]")      # Python's \s holds NEL, U+2028 and U+2029, YAML 1.1's line breaks
+
+
+def _closed(rest: str):
+    """Where the quoted value `rest` opens with ends, past its closing quote, or None where it does not close on its
+    line: YAML would read the lines after it as more of the value, which these entries do not hold."""
+    quote, at = rest[0], 1
+    while at < len(rest):
+        if quote == '"' and rest[at] == "\\":
+            at += 2
+            continue
+        if rest[at] == quote:
+            if quote == "'" and rest[at + 1:at + 2] == "'":
+                at += 2
+                continue
+            return at + 1
+        at += 1
+    return None
+
+
 def _unquote(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
         return value[1:-1]
@@ -583,11 +605,14 @@ def read(text: str) -> tuple:
 
     Its `path` is the keys above it, `step` numbers the list item it belongs to, and `body` holds
     the lines of a block of text under it. A key written twice in one mapping is not in the narrow form: a
-    YAML reader would refuse it or keep one of the two, and the entries would merge what no reader yields.
+    YAML reader would refuse it or keep one of the two, and the entries would merge what no reader yields. Nor is a
+    bare list item anywhere but under a key with no value, beside the items before it: under a key that has one, a
+    YAML reader reads it as more of that value, and a `run:` would run a command these entries do not hold (issue 371).
     """
     entries, bad, stack, step, block, seen = [], [], [], 0, None, [set()]
+    items = None        # where a bare list item may stand: (the least indent, the indent of the items before it)
     for number, raw in enumerate(text.split("\n"), 1):
-        if "\t" in raw or "\r" in raw:
+        if "\t" in raw or "\r" in raw or ODD_SPACE.search(raw):
             bad.append(number)
             continue
         if block is not None:
@@ -602,12 +627,28 @@ def read(text: str) -> tuple:
         found, item = ENTRY.match(line), ITEM.match(line)
         if found is None:
             if item is None or len(item.group(1)) % 2 or item.group(2)[0] in "{[&*!|>'\"" or \
-                    re.search(r":(\s|$)", item.group(2)):
+                    re.search(r":(\s|$)", item.group(2)) or items is None or len(item.group(1)) < items[0] or \
+                    items[1] not in (None, len(item.group(1))):
                 bad.append(number)
+            else:
+                items = (items[0], len(item.group(1)))
             continue
         indent = len(found.group(1)) + (2 if found.group(2) else 0)
         key, rest = found.group(3), (found.group(4) or "").strip()
-        value, _, comment = (rest, "", "") if key == "run" else rest.partition(" #")
+        if rest.startswith("#"):
+            rest = ""       # a comment alone is no value, as YAML reads it: the key's list may follow (Muse's read of #392)
+        quoted = rest.startswith(("'", '"'))
+        end = _closed(rest) if quoted else None
+        # A quote not closed on its line, or text after the one that closes it: YAML reads it otherwise.
+        if quoted and end is None:
+            bad.append(number)
+            end = len(rest)
+        elif quoted and rest[end:].strip()[:1] not in ("", "#"):
+            bad.append(number)
+        if end is not None:
+            value, comment = rest[:end], rest[end:].strip()[1:] if key != "run" else ""
+        else:
+            value, _, comment = (rest, "", "") if key == "run" else rest.partition(" #")
         value = value.strip()
         while stack and stack[-1][0] >= indent:
             stack.pop()
@@ -627,6 +668,7 @@ def read(text: str) -> tuple:
         entries.append(entry)
         stack.append((indent, key))
         seen.append(set())
+        items = None if value else (indent, None)
     return entries, bad
 
 
@@ -642,8 +684,18 @@ def lint(text: str) -> list:
     jobs = under("jobs")
     if bad:
         found.append(("form", "line %d is not in the narrow form" % bad[0]))
-    elif "on" not in top or not jobs:
+    elif "on" not in top or not jobs or not (top["on"]["value"] or under("on")):
+        # An on: written as a list of events is never read as events here, so it is no on: section (the security
+        # pass on #392).
         found.append(("form", "no on: section, or no job that can be read"))
+    elif _on_items(text, top["on"]):
+        # Any list item under on:, a bare event or a keyed one, is an on: these entries do not read whole: a bare
+        # pull_request_target beside keyed items would be no event here (Argon's read of #392).
+        found.append(("form", "line %d writes on: as a list; write each event as a key" % _on_items(text, top["on"])[0]))
+    elif any(_scalar_items(text, entries, job["key"], steps_only=True) for job in jobs):
+        # A step that is a bare text is one the reading by keys never sees (Argon's read of #392).
+        found.append(("form", "line %d is a step of bare text; write it as a uses: or a run: step"
+                      % next(n for job in jobs for n in _scalar_items(text, entries, job["key"], steps_only=True))))
 
     events = {e["key"] for e in under("on")}
     if top.get("on", {}).get("value"):
@@ -1180,13 +1232,31 @@ def release_problems(text: str) -> list:
     return problems
 
 
-def _scalar_items(text: str, entries: list, job: str) -> list:
+def _on_items(text: str, on: dict) -> list:
+    """The lines of the top-level on: section that are list items where its events stand, keyed or bare: an on:
+    written as a list, which `read` keeps only the keyed items of, as entries (Argon's read of #392). A list deeper in,
+    an event's `branches:`, is its own. The items may stand at the key's own indent, YAML's compact form."""
+    section = []
+    for number, raw in enumerate(text.split("\n")[on["line"]:], on["line"] + 1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        item = raw.lstrip(" ").startswith("- ")
+        lead = len(raw) - len(raw.lstrip(" "))
+        if lead < on["indent"] or (lead == on["indent"] and not item):
+            break       # the next key beside on:, at its own indent however far the root stands in (Muse's read)
+        section.append((lead, number, item))
+    events = min((lead for lead, _, _ in section), default=0)
+    return [number for lead, number, item in section if item and lead == events]
+
+
+def _scalar_items(text: str, entries: list, job: str, steps_only: bool = False) -> list:
     """The lines of `job`'s steps that are no mapping, a bare `- text` item, which `read` keeps no entry of (issue 197,
-    Muse's read of #358): such a step is one more step the reading by keys would not see."""
+    Muse's read of #358): such a step is one more step the reading by keys would not see. With `steps_only`, only a
+    line where the steps stand: a `- ` deeper in, a block's text, is no step (#416's review)."""
     above = [e for e in entries if e["key"] == "steps" and e["path"] == ["jobs", job]]
     if len(above) != 1:
         return []
-    found, indent = [], above[0]["indent"]
+    found, indent, items = [], above[0]["indent"], None
     for number, raw in enumerate(text.split("\n")[above[0]["line"]:], above[0]["line"] + 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
@@ -1194,7 +1264,9 @@ def _scalar_items(text: str, entries: list, job: str) -> list:
         # The items may sit at the key's own indent, YAML's compact form, which `read` takes too.
         if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):
             break
-        if ENTRY.match(raw.rstrip()) is None and ITEM.match(raw.rstrip()) is not None:
+        if items is None and raw.lstrip(" ").startswith("- "):
+            items = lead        # where the steps stand
+        if (lead == items or not steps_only) and ENTRY.match(raw.rstrip()) is None and ITEM.match(raw.rstrip()) is not None:
             found.append(number)
     return found
 

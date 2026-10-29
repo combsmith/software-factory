@@ -330,13 +330,16 @@ def required_model_lenses(facts: dict, config: dict) -> list:
 
 
 def unreadable_thread(th: dict, lenses: list, facts: dict, config: dict) -> bool:
-    """Whether a thread cannot be read whole: who opened it, whether it is resolved and by whom, or, on a required
-    Lens's open thread, its category or severity.
+    """Whether a thread cannot be read whole: who opened it, whether it is resolved and by whom, the Lens's ruling on
+    it, or, on a required Lens's open thread, its category or severity.
 
-    Who opened and who resolved a thread decide whether it is closed (closed), so a thread with either unread could be
-    a person's left open. Who resolved a thread belongs to a resolved one alone, as who dismissed a review does.
+    Who opened and who resolved a thread, and the ruling, decide whether it is closed (closed), so a thread with any of
+    them unread could be a person's, or a Lens's, left open. Who resolved a thread belongs to a resolved one alone, as
+    who dismissed a review does. A ruling that is null is read: the Lens decided nothing the port could hold.
     """
     if not readable_actor(th.get("opened_by"), facts, config) or type(th.get("resolved")) is not bool:
+        return True
+    if "ruling" not in th or (th["ruling"] is not None and th["ruling"] not in t.RULINGS):
         return True
     if th["resolved"] and not readable_actor(th.get("resolved_by"), facts, config):
         return True
@@ -1082,6 +1085,15 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
 
     # Every gate before the approval: a standing approval never passes over a person's objection.
     open_gates = gates(facts, config)
+    # A Lens's thread that Lens accepted, still open on GitHub, is resolved by the Kernel's act, which the queue App
+    # carries out, before the author is sent back or a Lens's gate holds: the Lens judged it, and only the act closes it
+    # (issue 389). A person's gate comes first: it holds the merge whatever the Lens's threads do, and is never hidden
+    # behind an act. A queued item reads past it, so a gating thread open on it takes it out of the queue first: the
+    # queue checks threads only as an item enters it.
+    due = [th["id"] for th in facts["threads"]
+           if th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["ruling"] == "accepted"]
+    if due and "resolve_due" not in past and not any(g["by"]["kind"] == "human" for g in open_gates):
+        return {"state": t.ADJUDICATING, "reason": "resolve_due", "evidence": due}
     if open_gates:
         turns = {g["id"]: whose_turn(g, mine, config) for g in open_gates}
         for_author = [gid for gid, who in turns.items() if who == "author"]

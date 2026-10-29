@@ -37,7 +37,7 @@ REOPENED_BY = ("writer", "other", "never")
 # The classes of a pull request, as the port gives them.
 CLASSES = ("agent", "maintainer", "dependency", "outside")
 # The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
-APP_KINDS = ("app", "lens")
+APP_KINDS = ("app", "lens", "queue")
 # What GitHub says of an issue: open, or closed.
 ISSUE_STATES = ("open", "closed")
 # The fewest and the most digits of a content id after its prefix, as schemas/issue-facts.schema.json gives them,

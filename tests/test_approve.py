@@ -142,16 +142,18 @@ class TheAct(unittest.TestCase):
                    ("POST", "/graphql", {"query": "mutation { resolveReviewThread(input: {threadId: \"T\"}) { thread "
                                                   "{ id } } }", "variables": {"owner": repo.split("/")[0],
                                                                              "name": repo.split("/")[1], "number": 42}}),
-                   ("GET", "/orgs/combsmith/members", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
+                   ("GET", "/orgs/combsmith/members", None),
+                   # The org's own variable, which the Pause is no longer read from (issue 362).
+                   ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
         for method, path, body in refused:
             with self.assertRaises(Unanswered, msg=(method, path, body)):
                 token.send({"method": method, "path": path, "body": body})
         self.assertEqual(github.log, [])
-        # The reads the act makes go through: the item's repo, who the token is, the org's Pause and the facts port's
-        # own GraphQL reads of this pull request.
+        # The reads the act makes go through: the item's repo, who the token is, the org's Pause as the repo's list of
+        # the org's variables (issue 362), and the facts port's own GraphQL reads of this pull request.
         owner, name = repo.split("/")
         allowed = [("GET", "/user", None), ("GET", PULL + "/reviews?per_page=100", None),
-                   ("GET", "/orgs/%s/actions/variables/FACTORY_PAUSED" % owner, None),
+                   ("GET", "/repos/%s/actions/organization-variables?per_page=100" % repo, None),
                    ("POST", PULL + "/reviews", {"commit_id": HEAD, "event": "APPROVE"})]
         for query in (threads.QUERY, checks.QUERY, acceptance.QUERY):
             allowed.append(("POST", "/graphql", {"query": query, "variables": {"owner": owner, "name": name,
@@ -229,12 +231,14 @@ class TheAct(unittest.TestCase):
         # names the approval as a write no Effect recorded. One at another head now keeps the approval of the commit
         # it read; one that cannot be read claims nothing.
         opened = {"status": 200, "body": {"state": "open", "head": {"sha": HEAD}}}
-        for after, want, key in (({"state": "closed", "head": {"sha": HEAD}}, ("superseded", "closed_under_act"), None),
-                                 ({"state": "closed", "merged": True, "head": {"sha": HEAD}},
-                                  ("superseded", "closed_under_act"), None),
-                                 ({"state": "open", "head": {"sha": "f" * 40}}, (None, None), NODE)):
+        # The approval was sent, so the Effect is failed, never refused: a refusal sends nothing.
+        for after, want, landed in (({"state": "closed", "head": {"sha": HEAD}}, ("superseded", "closed_under_act"),
+                                     ("failed", None)),
+                                    ({"state": "closed", "merged": True, "head": {"sha": HEAD}},
+                                     ("superseded", "closed_under_act"), ("failed", None)),
+                                    ({"state": "open", "head": {"sha": "f" * 40}}, (None, None), ("applied", NODE))):
             done, ended, github = act(GitHub({("GET", PULL): [opened, {"status": 200, "body": after}]}))
-            self.assertEqual((fault(ended), effect(done)[2], len(github.writes())), (want, key, 1), after)
+            self.assertEqual((fault(ended), effect(done)[1:3], len(github.writes())), (want, landed, 1), after)
         for after in ({"status": 500, "body": {}}, None, {"status": 200, "body": {"state": "open"}}):
             done, ended, github = act(GitHub({("GET", PULL): [opened, after]}))
             self.assertEqual((fault(ended), effect(done)[1:3]), (("environment", "not_read_back"), ("failed", None)), after)
@@ -249,6 +253,14 @@ class TheAct(unittest.TestCase):
                                   read=reads(facts(reviews=[earlier], last_reopened_at="2026-10-11T12:20:00Z")))
         self.assertEqual((effect(done), fault(ended), len(github.writes())), (("approve", "applied", NODE, None),
                                                                             (None, None), 1))
+        # One submitted in the second of the reopening, or whose time cannot be read, is not after it either.
+        for at in ("2026-10-11T12:20:00Z", None):
+            listed = {"status": 200, "body": [dict(LANDED, submitted_at=at)]}
+            done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}),
+                                      read=reads(facts(reviews=[review(at="2026-10-11T12:20:00Z")],
+                                                       last_reopened_at="2026-10-11T12:20:00Z")))
+            self.assertEqual((effect(done), fault(ended), len(github.writes())),
+                             (("approve", "applied", NODE, None), (None, None), 1), at)
         later = review(at="2026-10-11T12:25:00Z")
         listed = {"status": 200, "body": [dict(LANDED, submitted_at="2026-10-11T12:25:00Z")]}
         done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}),

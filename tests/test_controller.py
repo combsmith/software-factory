@@ -556,7 +556,7 @@ class Feed(unittest.TestCase):
         with self.assertRaises(pass_.Refused):
             passed(reads(seen=dict(SEEN, writes=odd)))
         # Matched, nothing is raised; what was seen or recorded that cannot be read raises the one alert that says so.
-        done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [],
+        done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [], "rulings": [],
                 "effects": [{"id": "e1", "type": "approve", "state": "applied", "key": "PRR_0", "reason": None}]}
         self.assertEqual(passed(reads(seen=dict(SEEN, writes=approvals[:1]),
                                       effects=dict(RECORDED, applied=[done])))["alerts"], [])
@@ -782,7 +782,12 @@ class Entry(unittest.TestCase):
             ("GET", listed_runs % "approve.yml"): runs,
             ("POST", "/graphql"): open_page(list(numbers), total)["response"],
             ("GET", "/repos/%s/actions/runs/%s" % (self.HOME, self.RUN)): started,
-            ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED"): {"status": pause, "headers": {}, "body": None},
+            # The org's Pause, read from the home repo's list of the org's variables (issue 362): by default one that
+            # names it, set to false; otherwise GitHub's refusal.
+            ("GET", "/repos/%s/actions/organization-variables?per_page=100" % self.HOME):
+                {"status": 200, "headers": {}, "body": {"total_count": 1, "variables": [
+                    {"name": "FACTORY_PAUSED", "value": "false"}]}} if pause == 404
+                else {"status": pause, "headers": {}, "body": None},
             ("GET", "/repos/%s/actions/variables/FACTORY_PAUSED" % self.HOME):
                 {"status": pause if repo_pause is None else repo_pause, "headers": {}, "body": None},
             ("GET", "/repos/%s/pulls/7" % self.HOME): {"status": 502, "headers": {}, "body": None},
@@ -844,9 +849,12 @@ class Entry(unittest.TestCase):
     def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
 
+        whos = []
+
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded):
             handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener,
                            recorded))
+            whos.append(who)
             return support.facts(item=dict(support.ITEM, number=number)), "A title"
         from tests.test_steps import recorded_spy
         asked = []
@@ -861,6 +869,12 @@ class Entry(unittest.TestCase):
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
                                    (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None, ({}, True, []))])
+        # The queue App's account, as the configuration holds it, is told to the account reader (issue 389).
+        self.assertIsNone(whos[0].queue)
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry, "queue_of", lambda controller: (5000009, "Bot")):
+            self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual(whos[-1].queue, (5000009, "Bot"))
         # The App that opens pull requests, as the configuration names it, is said to each snapshot (issue 295).
         handed.clear()
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \

@@ -1,4 +1,4 @@
-"""Every commit a pull request carries is the Maintainer's, checked outside the shell.
+"""Every commit a pull request carries names the Maintainer as its author and committer, checked outside the shell.
 
 The `commits` job of the required check runs this from a checkout of the base, never the head, as `verify` runs
 `needs_passed.py`: a change cannot make its own verdict pass. It fetches the head from origin, the repo itself, and
@@ -7,7 +7,9 @@ reads each commit between BASE_SHA and HEAD_SHA. Each one's author and committer
 place, never by the name they carry: on a merge group (EVENT merge_group) the head, which the queue made, is read for
 its author alone, since GitHub commits it. Anything else refuses: another identity, a range that holds no commit, or a
 commit list the check cannot read. The session hook `tools/hooks/identity.py` guards against the same mistake before a
-commit is made, and reads words; this reads what git recorded. Run with `python3 -m tools.commits_are_the_maintainers`.
+commit is made, and reads words; this reads what git recorded. What git recorded is what the commit's maker wrote: a
+name written to forge the Maintainer's passes here, and is left to the Maintainer's review (decision 0087). Run with
+`python3 -m tools.commits_are_the_maintainers`.
 """
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ def commits(root: pathlib.Path, base: str, head: str, run=git) -> list:
 
 
 def problems(root: pathlib.Path, environ, run=git) -> list:
-    """Why the commits BASE_SHA..HEAD_SHA are not all the Maintainer's: nothing where every one is."""
+    """Why the commits BASE_SHA..HEAD_SHA do not all name the Maintainer: nothing where every one does."""
     base, head, event = (environ.get(name) for name in ("BASE_SHA", "HEAD_SHA", "EVENT"))
     if not base or not head or event not in ("pull_request", "merge_group"):
         return ["BASE_SHA, HEAD_SHA and EVENT (pull_request or merge_group) must be set from the event"]
@@ -67,10 +69,10 @@ def problems(root: pathlib.Path, environ, run=git) -> list:
     for sha, author_name, author_email, committer_name, committer_email in read:
         made_by_github = event == "merge_group" and sha == read[-1][0]     # the queue's own commit: its head
         if (author_name, author_email) != who:
-            found.append("%s is authored by %s <%s>, and every commit here is the Maintainer's, %s <%s>"
+            found.append("%s is authored by %s <%s>, and every commit here names the Maintainer, %s <%s>"
                          % (sha[:7], author_name, author_email, *who))
         if (committer_name, committer_email) != who and not made_by_github:
-            found.append("%s is committed by %s <%s>, and every commit here is the Maintainer's, %s <%s>"
+            found.append("%s is committed by %s <%s>, and every commit here names the Maintainer, %s <%s>"
                          % (sha[:7], committer_name, committer_email, *who))
     return found
 
@@ -80,7 +82,8 @@ def main(environ=os.environ, root: pathlib.Path = ROOT) -> int:
     for problem in found:
         print(problem)
     if not found:
-        print("every commit from %s to %s is the Maintainer's" % (environ["BASE_SHA"][:7], environ["HEAD_SHA"][:7]))
+        print("every commit from %s to %s names the Maintainer as its author, and as its committer where GitHub did not "
+              "commit it" % (environ["BASE_SHA"][:7], environ["HEAD_SHA"][:7]))
     return 1 if found else 0
 
 

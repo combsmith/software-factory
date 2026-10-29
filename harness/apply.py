@@ -7,9 +7,10 @@ held, or the Kernel, asked again with this Run left out, not admitting this Run'
 under the Run (`superseded`); then the Result: not this Run's or this Release's, not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, or a Finding where it has no place; a
-Disposition that gives neither half or both, or the half this Run's Role may not make; a `security` thread resolved
-on a proposal of declined or deferred. Each is the Role's (`item`), but an uncovered Result whose rubric cannot be read
-is the Factory's (`environment`).
+Disposition that gives neither half or both, or the half this Run's Role may not make; a `security` Finding accepted
+before its author's proposal can be read. Each is the Role's (`item`), but an uncovered Result whose rubric cannot be
+read is the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
+rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
 `requests(...)` is what is written, in `effect/1`'s order, each with what `apply`, never the Result, decides: a review
 is a comment on the commit the Decision admitted, so a Role's review never approves; a check run's name, conclusion
@@ -36,13 +37,12 @@ from kernel.coverage import covered
 from kernel.decide import decide
 from tools.hooks import protected
 
-# The order `apply` writes in: effect/1's, one list for each type (section 3.6).
-ORDER = ("submit_review", "create_check_run", "resolve_thread", "comment")
+# The order `apply` writes in: effect/1's, one list for each type (section 3.6). No Role resolves a thread: the Lens
+# rules, and resolving is the Kernel's act, which the queue App carries out (issue 389).
+ORDER = ("submit_review", "create_check_run", "comment")
 # The halves of a Disposition, and the kind of Role that may make each (section 3.8).
 PROPOSES = "author"
 DECIDES = "owner"
-# Proposals a security Finding's thread is never resolved on (section 3.8).
-NOT_ON_SECURITY = ("declined", "deferred")
 # What `apply` reads again with the Role App's own token (the Maintainer, 2026-10-22): every fact the Kernel is asked
 # on, and the run records with each failed Run's outcome. Its grants for them wait on the App's registration.
 READS = ("read:facts.item", "read:facts.state", "read:facts.is_draft", "read:facts.class", "read:facts.author",
@@ -151,8 +151,7 @@ def _effects(task: dict, result: dict, facts: dict):
     # A thread's id is global, and the App's token reaches every item it is installed on: an Effect on a thread is
     # on one of this item's (decision 0038).
     threads = {th["id"] for th in facts["threads"]}
-    on = [e["thread"] for e in effects.get("resolve_thread", ())] + [
-        e["on"] for e in effects.get("comment", ()) if e["on"] != "item"]
+    on = [e["on"] for e in effects.get("comment", ()) if e["on"] != "item"]
     if any(thread not in threads for thread in on):
         return "thread_not_on_item"
     raised = {f["ref"]: f for f in result["findings"]}
@@ -200,29 +199,22 @@ def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: 
             owner = authority["categories"].get(threads[d["finding"]]["category"], {}).get("owner")
             if role["kind"] != DECIDES or role["name"] != owner:
                 return "disposition_not_yours"
-    # A security Finding's thread is never resolved on a proposal of declined or deferred, whichever Role asks.
-    security = {th["id"] for th in facts["threads"] if th["category"] == "security"}
-    declined = {d["finding"] for d in result["dispositions"]
-                if d.get("proposal", {}).get("outcome") in NOT_ON_SECURITY}
-    for resolve in result["effects"].get("resolve_thread", ()):
-        if resolve["thread"] in security and declined & set(_findings_of(facts, resolve["thread"])):
-            return "security_finding_declined"
-    # A resolved thread is an accepted Disposition (section 3.8): only the owner of the thread's category resolves it,
-    # and only on its own decision, in this Result, to accept it.
-    accepted = {d["finding"] for d in result["dispositions"] if d.get("decision", {}).get("result") == "accepted"}
-    for resolve in result["effects"].get("resolve_thread", ()):
-        th = next(th for th in facts["threads"] if th["id"] == resolve["thread"])
-        owner = authority["categories"].get(th["category"], {}).get("owner")
-        if role["kind"] != DECIDES or role["name"] != owner:
-            return "resolve_not_yours"
-        if not accepted & set(_findings_of(facts, resolve["thread"])):
-            return "resolve_not_accepted"
-        # The owner may accept a security Finding only on a proposal of fixed or not applicable, and that proposal is
-        # in the author's Run, which `apply` cannot read yet: a security thread is not resolved by any Role (Muse's
-        # read). It waits on the fix Intent, which brings the author's proposal to the owner's Task.
-        if resolve["thread"] in security:
+    # An accepted decision is the ruling the Kernel resolves a Lens's thread on, through the queue App (issue 389). The
+    # owner may accept a security Finding only on a proposal of fixed or not applicable, and that proposal is in the
+    # author's Run, which `apply` cannot read yet: no accepted decision on a security thread is taken (Muse's read). It
+    # waits on the fix Intent, which brings the author's proposal to the owner's Task.
+    for d in result["dispositions"]:
+        if d.get("decision", {}).get("result") == "accepted" and threads[d["finding"]]["category"] == "security":
             return "security_proposal_unread"
     return None
+
+
+def rulings(result: dict, facts: dict) -> list:
+    """`applied/1`'s rulings: each decision of a Result `_dispositions` took, `{finding, thread, result}`, the thread
+    the Finding is on. The Lens's own record, by which the Kernel resolves its thread (issue 389)."""
+    threads = {fid: th["id"] for th in facts["threads"] for fid in _findings_of(facts, th["id"])}
+    return [{"finding": d["finding"], "thread": threads[d["finding"]], "result": d["decision"]["result"]}
+            for d in result["dispositions"] if "decision" in d]
 
 
 def _findings_of(facts: dict, thread: str) -> list:
@@ -268,8 +260,6 @@ def requests(task: dict, result: dict, head: str, role: dict, since: str = None)
             "external_id": "%s:%s" % (task["run"], check["id"]),
             "annotations": [dict(_place(raised[a["finding"]]), finding=a["finding"], body=a["body"],
                                  severity=raised[a["finding"]]["severity"]) for a in check["annotations"]]}))
-    for resolve in result["effects"].get("resolve_thread", ()):
-        out.append((resolve["id"], "resolve_thread", {"thread": resolve["thread"]}))
     # A comment on the item is recovered by its place among the Run's comments on the item, and no other's.
     index = 0
     for comment in result["effects"].get("comment", ()):
@@ -285,18 +275,19 @@ def _place(finding: dict) -> dict:
     return {"path": where["path"], "start_line": start, "end_line": where.get("end_line", start)}
 
 
-def applied(task: dict, result: dict, written: list, role: dict, refused=None) -> dict:
+def applied(task: dict, result: dict, written: list, role: dict, refused=None, ruled=()) -> dict:
     """`applied/1`. `written` is `(effect id, type, read-back)` for each Effect the port was asked to write, its
     read-back `{state, key, surfaces, reason}`. An Effect is `applied` or `already_applied` only with the key it was
     read back by, and each Finding it posted only with the surface it was read back on; anything less is `failed`,
-    `not_read_back`. A refused Result lists each Effect it asked for `refused`, with the reason, and posts nothing."""
+    `not_read_back`. A refused Result lists each Effect it asked for `refused`, with the reason, and posts nothing
+    and rules on nothing; `ruled` is a Result's rulings, which a taken one records whatever its Effects did."""
     effects, findings = [], []
     if refused is not None:
         for kind in ORDER:
             for e in result["effects"].get(kind, ()):
                 effects.append({"id": e["id"], "type": kind, "state": "refused", "key": None, "reason": refused})
         return {"schema": "applied/1", "run": task["run"], "release": task["release"], "effects": effects,
-                "findings": []}
+                "findings": [], "rulings": []}
     raised = {f["ref"]: f for f in result["findings"]}
     for effect_id, kind, back in written:
         state, key, surfaces = back.get("state"), back.get("key"), back.get("surfaces") or {}
@@ -311,7 +302,7 @@ def applied(task: dict, result: dict, written: list, role: dict, refused=None) -
         else:
             effects.append({"id": effect_id, "type": kind, "state": "failed", "key": None, "reason": "not_read_back"})
     return {"schema": "applied/1", "run": task["run"], "release": task["release"], "effects": effects,
-            "findings": findings}
+            "findings": findings, "rulings": list(ruled)}
 
 
 def _surface(kind: str, key: str, ref: str, at) -> bool:
@@ -382,7 +373,7 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
     if result is None:
         record = {"schema": "applied/1", "run": admit["run"], "release": admit["release"], "effects": [],
-                  "findings": []}
+                  "findings": [], "rulings": []}
         return record, _ended(admit, ("environment", "result_unreadable"))
     facts, head, runs, context = read()
     # When the Run began: its record's start, or, while it is listed before its name, its run's creation (decision
@@ -397,12 +388,13 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
         record = applied(admit, result, [], role, refused=why[1])
         return record, outcome(admit, record, why)
     asked = requests(admit, result, head, role, since)
+    ruled = rulings(result, facts)
     # A comment on the item is recovered by when the Run began: not read, nothing is minted and nothing written.
     if since is None and any(kind == "comment" and req["on"] == "item" for _, kind, req in asked):
         record = applied(admit, result, [], role, refused="run_start_unread")
         return record, outcome(admit, record, ("environment", "run_start_unread"))
     if not asked:
-        record = applied(admit, result, [], role)
+        record = applied(admit, result, [], role, ruled=ruled)
         return record, outcome(admit, record)
     try:
         wanted = identity.permissions(config["app"], config["needs"], [kind for _, kind, _ in asked])
@@ -430,7 +422,7 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
                 written.append((effect_id, kind, {"state": "failed", "reason": "effect_raised"}))
     finally:
         revoked = revoke()
-    record = applied(admit, result, written, role)
+    record = applied(admit, result, written, role, ruled=ruled)
     # A token GitHub did not confirm revoked may still write: the Run is the Factory's to look at.
     if revoked is not True:
         return record, outcome(admit, record, ("environment", "token_not_revoked"))
