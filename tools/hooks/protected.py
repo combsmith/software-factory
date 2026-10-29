@@ -515,9 +515,16 @@ class Command:
             self.ask("command_unreadable", "the command cannot be split into words")
             return self.found
         self.sessions(commands)
+        stood = []      # where the command stood when each subshell a redirection's operand runs began (issue 376)
         for at, (words, redirections) in enumerate(commands):
             self.spend()
-            if words and words[-1].endswith("=$") and at + 1 < len(commands):
+            if (words, redirections) in shell.SCOPE:
+                if (words, redirections) == shell.SCOPE[0]:
+                    stood.append(self.here)
+                elif stood:
+                    self.here = stood.pop()     # a cd in it was its own
+                continue
+            if words and words[-1].endswith("=$") and at + 1 < len(commands) and commands[at + 1][0]:
                 # Unquoted, D=$(mktemp -d) is read as D=$ and the command inside: put them together again.
                 words = words[:-1] + [words[-1] + "(%s)" % " ".join(commands[at + 1][0])]
             self.redirections(redirections)
@@ -1387,9 +1394,9 @@ def _split(text: str, spend) -> list:
     """The simple commands of a command, each (words, redirections), a process substitution's among them. Raises
     ValueError or RecursionError when it cannot be split."""
     outer, inner = _process_substitutions(text)
-    commands = shell.commands(outer, spend)
+    commands = shell.commands(outer, spend, places=True)
     for script in inner:
-        commands += shell.commands(script, spend)
+        commands += shell.commands(script, spend, places=True)
     return commands
 
 
