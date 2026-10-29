@@ -45,6 +45,18 @@ case "$out/" in "$root"/*)
     echo "trial_reader_reads: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
+# OUT's parent, and each directory above it, is one no other user can write to, or one that is sticky: in any other,
+# another user could rename OUT once it is made and put a link where it was (issue 367).
+above=$parent
+while :; do
+    if [ -n "$(find "$above" -maxdepth 0 -perm -0002 ! -perm -1000)" ]; then
+        echo "trial_reader_reads: $above can be written by other users and is not sticky; name a directory under one only you can" \
+            "write to" >&2
+        exit 2
+    fi
+    [ "$above" = / ] && break
+    above=$(dirname -- "$above")
+done
 key=$2
 if [ ! -r "$key" ]; then
     echo "trial_reader_reads: cannot read the key file $key" >&2
@@ -199,21 +211,27 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             echo "trial_reader_reads: $slug: GitHub minted a token narrowed to $1 and its answer was cut short; the" \
                 "token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
         fi
+        echo "trial_reader_reads: $slug: nothing read, and nothing of the answer kept." >&2
         exit 1
     fi
-    if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
-        # No token was minted, so the answer is GitHub's error; it is still redacted before it is shown.
-        token=""
-        printf '%s\n' "$minted" | sed '$d' > "$scratch/mint"
+    if [ "$minted_status" != 201 ] && [ -n "$token" ]; then
+        # A token the refusal carried all the same is left set, for the exit trap to revoke; its answer is not shown.
         minted=""
+        echo "trial_reader_reads: $slug: the mint answered ${minted_status:-none} and held a token all the same;" \
+            "nothing read, and the token is revoked as the script stops." >&2
+        exit 1
+    fi
+    if [ "$minted_status" != 201 ]; then
+        # No token was minted, so the answer is GitHub's error: it is redacted before it is shown, and never written
+        # to a file.
         echo "trial_reader_reads: $slug: no token narrowed to $1 was minted (status ${minted_status:-none});" \
             "GitHub answered, redacted:" >&2
-        if (cd "$root" && python3 -m tools.redact_trial < "$scratch/mint" > "$scratch/mint.clean") 2>/dev/null; then
-            cat "$scratch/mint.clean" >&2
+        if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
+            printf '%s\n' "$shown" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2
         fi
-        rm -f "$scratch/mint" "$scratch/mint.clean"
+        minted=""
         exit 1
     fi
     minted=""

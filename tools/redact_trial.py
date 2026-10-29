@@ -10,7 +10,8 @@ It applies the rules of `tools/check_trials.py`, so what it writes passes them. 
 it names on standard error by where it was, never by what it held.
 
 In JSON, a field named for a credential, or whose key or string is shaped like one, is deleted,
-and so is such an item of a list. In a fixture, every place a credential was deleted from is added to
+and so is such an item of a list. A string is judged as a line of text is: one that holds a status line, or a field
+named for a credential written inside it, is deleted too. NaN and Infinity are not JSON, and are refused. In a fixture, every place a credential was deleted from is added to
 `removed`, and a header not on the list a fixture may keep is deleted too. In text, a header line
 not on that list and any line shaped like a credential are deleted, and a body that is JSON is
 treated as JSON. A capture may hold more than one head, as an interim answer or a proxy's gives one
@@ -37,6 +38,13 @@ QUOTED_FIELD = re.compile(r'"([^"\\]{1,64})"\s*:')
 HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+:")
 
 
+def _held(text: str) -> bool:
+    """Whether a string of JSON holds a credential: by its shape, or as a text line would be refused for one, by a status
+    line (a head and its headers written inside it) or a field named for a credential written inside it."""
+    return shaped(text) or any(ANY_STATUS.match(line) or any(refused_key(name) for name in QUOTED_FIELD.findall(line))
+                               for line in text.splitlines())
+
+
 def _clean(value, where: str, removed: list):
     """`value` without any field or item that is, or holds, a credential; each place is added to `removed`."""
     if isinstance(value, dict):
@@ -44,7 +52,7 @@ def _clean(value, where: str, removed: list):
         for key, item in value.items():
             shown = KEY_SHAPED if shaped(key) else key     # a place is never named by a credential
             here = "%s.%s" % (where, shown) if where else shown
-            if refused_key(key) or shaped(key) or (isinstance(item, str) and shaped(item)):
+            if refused_key(key) or shaped(key) or (isinstance(item, str) and _held(item)):
                 removed.append(here)
             else:
                 out[key] = _clean(item, here, removed)
@@ -53,12 +61,12 @@ def _clean(value, where: str, removed: list):
         out = []
         for i, item in enumerate(value):
             here = "%s[%d]" % (where, i)
-            if isinstance(item, str) and shaped(item):
+            if isinstance(item, str) and _held(item):
                 removed.append(here)
             else:
                 out.append(_clean(item, here, removed))
         return out
-    if isinstance(value, str) and shaped(value):
+    if isinstance(value, str) and _held(value):
         removed.append(where or "$")
         return None
     return value
@@ -97,10 +105,15 @@ def _opens_json(text: str) -> bool:
     return text.lstrip()[:1] in ("{", "[")
 
 
+def _constant(name: str):
+    """NaN, Infinity or -Infinity, which Python reads and JSON does not: what holds one is not JSON, and is refused."""
+    raise Unreadable("the capture holds %s, which is not JSON" % name)
+
+
 def _fields(text: str):
     """`text` read as JSON. A JSON string is refused: it holds no field to judge, and a head or a credential may be
     written inside it."""
-    data = json.loads(text)
+    data = json.loads(text, parse_constant=_constant)
     if isinstance(data, str):
         raise Unreadable("the capture is a JSON string, which holds no field to judge")
     return data
@@ -114,6 +127,9 @@ def _head(block: str, first: int, said: list) -> str:
     for n, line in enumerate(block.splitlines(), first):
         if n == first and not STATUS_LINE.fullmatch(line):
             raise Unreadable("a head's status line holds more than a status")
+        if n == first and shaped(line):
+            # Deleted, it would leave headers with no status line above them: a head that is not one.
+            raise Unreadable("a head's status line is shaped like a credential")
         if n > first and not HEADER.match(line):
             raise Unreadable("a head holds a line that is no header")
         if n > first and _opens_json(line.partition(":")[2]):
@@ -133,8 +149,10 @@ def redact_text(raw: str, said: list) -> str:
     if STATUS.match(raw):
         # An interim answer (100 Continue) or a proxy's (200 Connection established) comes with a head of its own
         # before the response's: each head that follows is read as one, and only what comes after the last is the body.
+        # A later head ends at a blank line as every head does; a status line with none after it is the body, and is read
+        # as one, never as a head.
         gap = "\n\n"
-        while gap and (not heads or STATUS.match(body)):
+        while gap and (not heads or (STATUS.match(body) and "\n\n" in body)):
             head, gap, body = body.partition("\n\n")
             heads.append(head)
     kept, first = [], 1

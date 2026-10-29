@@ -62,8 +62,18 @@ command -v python3 >/dev/null || refuse "python3 is needed"
 case "$2" in as-is | userns) phase=$2; order="plain scrubbed" ;; userns-reversed) phase=$2; order="scrubbed plain" ;;
     *) refuse "PHASE is as-is, userns or userns-reversed" ;; esac
 [[ ! -e "$1" ]] || refuse "$1 exists; name a new directory"
+case "$(basename -- "$1")" in .|..) refuse "$1 names no new directory, since it ends in . or ..; name the directory itself" ;; esac
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into.
 mkdir -p -- "$(dirname -- "$1")"
+# OUT's parent, and each directory above it, is one no other user can write to, or one that is sticky: in any other,
+# another user could rename OUT once it is made and put a link where it was (issue 367).
+above=$(cd "$(dirname -- "$1")" && pwd -P)
+while :; do
+    [[ -z "$(find "$above" -maxdepth 0 -perm -0002 ! -perm -1000)" ]] ||
+        refuse "$above can be written by other users and is not sticky; name a directory under one only you can write to"
+    [[ "$above" != / ]] || break
+    above=$(dirname -- "$above")
+done
 mkdir -m 700 -- "$1" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
 out=$(cd "$1" && pwd -P)
 [[ -f "$3" && -x "$3" ]] || refuse "no CLI at '$3'"

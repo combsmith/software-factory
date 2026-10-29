@@ -47,6 +47,18 @@ case "$out/" in "$root"/*)
     echo "trial_p4_narrow: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
+# OUT's parent, and each directory above it, is one no other user can write to, or one that is sticky: in any other,
+# another user could rename OUT once it is made and put a link where it was (issue 367).
+above=$parent
+while :; do
+    if [ -n "$(find "$above" -maxdepth 0 -perm -0002 ! -perm -1000)" ]; then
+        echo "trial_p4_narrow: $above can be written by other users and is not sticky; name a directory under one only you can" \
+            "write to" >&2
+        exit 2
+    fi
+    [ "$above" = / ] && break
+    above=$(dirname -- "$above")
+done
 key=$2
 if [ ! -r "$key" ]; then
     echo "trial_p4_narrow: cannot read the key file $key" >&2
