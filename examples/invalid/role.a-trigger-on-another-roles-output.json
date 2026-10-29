@@ -45,7 +45,6 @@
       "name": "adjudicate-findings",
       "tier": "deep",
       "permitted_effects": [
-        "resolve_thread",
         "comment"
       ],
       "budget_class": "gate",

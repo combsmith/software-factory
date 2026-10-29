@@ -954,7 +954,8 @@ class Counts(unittest.TestCase):
 
     def test_only_an_app_is_read_as_the_declared_app(self):
         cfg = config(label_apps={"factory:triage": None, "factory:ready": "readiness"})
-        for kind, want in (("app", "ready"), ("lens", "ready"), ("human", "new")):
+        # The queue App is an App too, typed by its account (issue 389).
+        for kind, want in (("app", "ready"), ("lens", "ready"), ("queue", "ready"), ("human", "new")):
             by = {"kind": kind, "name": "readiness", "can_write": False}
             self.assertEqual(state(facts(label_events=[labelled(READY, by)]), [run(minute=0)], cfg), want, kind)
 

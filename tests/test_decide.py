@@ -9,7 +9,8 @@ import unittest
 
 from kernel import derive
 from kernel.decide import decide, still_wanted, stuck_runs, unnamed_scope
-from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, REPORTER, ROOT,
+from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, QUEUE_APP,
+                           REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
 from tools.jsonschema_lite import validate
@@ -836,24 +837,88 @@ class OnlyAPersonEnds(unittest.TestCase):
         self.assertEqual(go(facts(threads=[th]), REVIEWED)["action"], "issue_approval")
         self.assertEqual(go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)["reason"], "in_merge_queue")
 
-    def test_a_lens_thread_resolved_by_anyone_but_that_lens_or_a_writer_stays_open(self):  # L-17
-        # The author agent resolving the threads that hold it among them: no Role decides a Finding about its own work.
+    def test_a_lens_thread_resolved_by_anyone_but_a_writer_or_the_queue_on_its_ruling_stays_open(self):  # issue 389
+        # The Lens judges, and resolving its thread is the Kernel's act, which the queue App carries out: no Role closes
+        # a Finding by resolving it, the author agent among them, and nor does the Lens's own App. The queue App closes
+        # it only on the Lens's accepted ruling: none, or a rejected one, leaves it open.
         another_lens = dict(REVIEWER_APP, name="security-review")
-        for who in (AUTHOR_APP, ADVISORY, another_lens, MACHINE, STRANGER):
+        for who, ruling in ((AUTHOR_APP, "accepted"), (ADVISORY, "accepted"), (another_lens, "accepted"),
+                            (MACHINE, "accepted"), (STRANGER, "accepted"), (REVIEWER_APP, "accepted"),
+                            (REVIEWER_APP, None), (QUEUE_APP, None), (QUEUE_APP, "rejected")):
             for category in ("functional", "security"):
-                th = thread(category=category, resolved=True, resolved_by=who)
+                th = thread(category=category, resolved=True, resolved_by=who, ruling=ruling)
                 d = go(facts(threads=[th]), REVIEWED)
-                self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]), who)
+                self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]),
+                                 (who, ruling))
                 d = go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)
-                self.assertEqual((d["reason"], d.get("action")), ("gate_open", "dequeue"), who)
+                self.assertEqual((d["reason"], d.get("action")), ("gate_open", "dequeue"), (who, ruling))
             # Still open, it is read: a category or severity it cannot be read is unreadable.
-            th = thread(severity=None, category=None, resolved=True, resolved_by=who)
-            self.assertEqual(go(facts(threads=[th]), REVIEWED)["reason"], "thread_unreadable", who)
-        # The other side: that Lens's own App, or a person with write access, closes it.
-        for who in (REVIEWER_APP, MAINTAINER, COLLEAGUE):
-            for th in (thread(resolved=True, resolved_by=who), thread(severity=None, category=None, resolved=True,
-                                                                       resolved_by=who)):
-                self.assertEqual(go(facts(threads=[th]), REVIEWED)["action"], "issue_approval", who)
+            th = thread(severity=None, category=None, resolved=True, resolved_by=who, ruling=ruling)
+            self.assertEqual(go(facts(threads=[th]), REVIEWED)["reason"], "thread_unreadable", (who, ruling))
+        # The other side: the queue App on the accepted ruling, or a person with write access whatever the ruling,
+        # closes it.
+        for who, ruling in ((QUEUE_APP, "accepted"), (MAINTAINER, None), (COLLEAGUE, "rejected")):
+            for th in (thread(resolved=True, resolved_by=who, ruling=ruling),
+                       thread(severity=None, category=None, resolved=True, resolved_by=who, ruling=ruling)):
+                self.assertEqual(go(facts(threads=[th]), REVIEWED)["action"], "issue_approval", (who, ruling))
+
+    def test_a_thread_whose_ruling_cannot_be_read_defers(self):  # issue 389
+        # A ruling decides whether the queue App's resolution closes a Lens's thread, so one missing, or a word the
+        # Kernel does not know, could hide a gate: nothing converges on it. One that is null is read, and closes nothing.
+        resolved = thread(resolved=True)
+        for th in ({k: v for k, v in resolved.items() if k != "ruling"}, dict(resolved, ruling="approved"),
+                   dict(resolved, ruling=True), dict(thread(kind="human", name="don-petry", severity=None),
+                                                     ruling="yes")):
+            for queue in (False, True):
+                d = go(facts(queue=queue, reviews=APPROVED, threads=[th]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "thread_unreadable", ["T1"]), th)
+        self.assertEqual(go(facts(threads=[dict(resolved, ruling=None)]), REVIEWED)["reason"], "findings_open")
+
+    def test_a_thread_its_lens_accepted_is_resolved_by_the_kernels_act(self):  # issue 389
+        # The Lens judges; the Kernel resolves, as an act the queue App carries out, every Lens thread whose Lens accepted
+        # it that GitHub shows open, before the author is sent back. The act names the threads.
+        minor = thread(tid="T2", severity="minor", ruling="accepted")
+        for threads, due in (([thread(ruling="accepted")], ["T1"]), ([thread(ruling="accepted"), minor], ["T1", "T2"]),
+                             ([minor], ["T2"]), ([thread(ruling="accepted", kind="lens", name="coderabbit")], ["T1"])):
+            d = go(facts(threads=threads), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                             ("adjudicating", "resolve_due", due, "act", "resolve_thread"), threads)
+        # The other side: a ruling of none or rejected is no act, nor is a person's thread, nor one GitHub shows resolved,
+        # by anyone; nor is anything while a Run is seen to wait.
+        for th, reason in ((thread(ruling=None), "findings_open"), (thread(ruling="rejected"), "findings_open"),
+                           (thread(kind="human", name="don-petry", severity=None, ruling="accepted"), "human_finding"),
+                           # A stranger's thread gates nothing, and is no Lens's to rule on, whatever it says.
+                           (thread(kind="human", name="stranger", can_write=False, severity=None, ruling="accepted"),
+                            "approval_due"),
+                           (thread(resolved=True, resolved_by=AUTHOR_APP, ruling="accepted"), "findings_open")):
+            d = go(facts(threads=[th]), REVIEWED)
+            self.assertEqual(d["reason"], reason, th)
+            self.assertNotEqual(d.get("action"), "resolve_thread", th)
+        d = go(facts(threads=[thread(ruling="accepted")]), [run(), run(status="in_progress", name="r9")])
+        self.assertEqual((d["reason"], d["outcome"]), ("resolve_due", "nothing"))
+        # A person's gate comes first: their open thread, or their request for changes, holds the merge whatever the
+        # Lens's threads do, and is never hidden behind the act.
+        person = thread(tid="T9", kind="human", name="don-petry", severity=None)
+        d = go(facts(threads=[thread(ruling="accepted"), person]), REVIEWED)
+        self.assertEqual((d["reason"], "T9" in d["evidence"]), ("human_finding", True))
+        asked = review("changes_requested", kind="human", name="a-colleague")
+        d = go(facts(threads=[thread(ruling="accepted")], reviews=[asked]), REVIEWED)
+        self.assertNotEqual(d["reason"], "resolve_due")
+        # The act is no Run: the Run ceiling, spent, holds no resolution while a Run waits, as it holds no enqueue.
+        spent = [run()] + [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i)
+                           for i in range(LIMITS["max_runs_per_item"] - 1)]
+        d = go(facts(threads=[thread(ruling="accepted")]), spent + [run(status="in_progress", at=at(40), name="w")])
+        self.assertEqual((d["reason"], d["outcome"]), ("resolve_due", "nothing"))
+        self.assertEqual(go(facts(threads=[thread(ruling=None)]),
+                            spent + [run(status="in_progress", at=at(40), name="w")])["reason"], "run_ceiling")
+        # A queued item with a gating thread open, accepted or not, leaves the queue before anything else: the queue
+        # checks threads only as an item enters it, and merged canary PR 70 with a thread opened after (window 3). One
+        # whose accepted thread gates nothing stays queued.
+        for th in (thread(ruling="accepted"), thread(ruling=None)):
+            d = go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("gate_open", "act", "dequeue"), th)
+        d = go(facts(queue=True, reviews=APPROVED, threads=[minor]), REVIEWED)
+        self.assertEqual((d["state"], d["outcome"]), ("queued", "nothing"))
 
     def test_a_thread_whose_resolution_cannot_be_read_defers(self):  # I-13
         # A thread says whether it is resolved, exactly, and a resolved one says who resolved it: without them, a
@@ -2397,11 +2462,14 @@ class Ceilings(unittest.TestCase):
 
     def test_acts_are_bounded(self):  # I-8, FR-17
         limit = LIMITS["max_acts_per_item"]
-        for reviews, action in (([], "issue_approval"), (APPROVED, "enqueue")):
-            d = go(facts(reviews=reviews, acts_since_writer=limit - 1), REVIEWED)
+        # The resolution of a thread its Lens accepted is an act like any other (issue 389).
+        accepted = [thread(ruling="accepted")]
+        for reviews, threads, action in (([], [], "issue_approval"), (APPROVED, [], "enqueue"),
+                                         ([], accepted, "resolve_thread")):
+            d = go(facts(reviews=reviews, threads=threads, acts_since_writer=limit - 1), REVIEWED)
             self.assertEqual((d["outcome"], d["action"]), ("act", action))
             for acts in (limit, limit + 1):
-                d = go(facts(reviews=reviews, acts_since_writer=acts), REVIEWED)
+                d = go(facts(reviews=reviews, threads=threads, acts_since_writer=acts), REVIEWED)
                 self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"]),
                                  ("held", "hold", "act_ceiling", "needs_you"), (action, acts))
 

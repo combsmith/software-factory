@@ -27,7 +27,7 @@ import sys
 import time
 
 from adapters import applied, facts as facts_, identity, items, passes, pause as pause_, records, timeline
-from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher, opener_of as opener
+from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher, opener_of as opener, queue_of
 from adapters.github import Live, Unanswered
 from controller import configuration as configured, pass_, reads as reads_, writes as writes_
 from controller.shared import Refused
@@ -87,7 +87,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
     if not whole:
         raise Stop("pull_requests_unreadable")
     identities, approver, lenses, factory = accounts(controller)
-    who = timeline.Accounts(transport, home, approver, lenses, factory)
+    who = timeline.Accounts(transport, home, approver, lenses, factory, queue_of(controller))
     opens = opener(controller, config["kernel"], config["apps"])
     runs_whole = isinstance(runs, dict) and runs.get("complete") is True
     # What each Lens recorded on each open pull request, in its Runs' applied/1, which the threads are held to.

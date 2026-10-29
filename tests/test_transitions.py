@@ -47,6 +47,7 @@ FIRST_MOVE = 30
 COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
 STRANGER = {"kind": "human", "name": "stranger", "can_write": False}
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
+QUEUE_APP = {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False}
 AUTHOR_APP = {"kind": "app", "name": "combsmith-sf-dev-lead[bot]", "can_write": True}
 # An App that is neither a Lens's nor a Role's: any App installed with write access.
 ANOTHER_APP = {"kind": "app", "name": "another-app[bot]", "can_write": True}
@@ -129,6 +130,7 @@ BASES = {
                                                     **AGENT),
     "awaiting_human": base([reviewed(), fix()], threads=[PERSONS_THREAD]),
     "proposals_await_owner": base([reviewed(), fix()], threads=[thread()]),
+    "resolve_due": base([reviewed(), fix(), ruling()], threads=[thread(ruling="accepted")]),
     "proposals_await_owner, with a ruling Run": base([reviewed(), fix(), dict(ruling(), status="in_progress",
                                                                               conclusion=None)], threads=[thread()]),
     "proposals_await_owner, and a fix Run still running": base(
@@ -411,8 +413,10 @@ def fix_ends(pr: dict) -> dict:
 def ruling_ends(pr: dict, accepts: bool) -> dict:
     if applies(pr, "adjudicate-findings") is None:
         return None
-    if accepts:
-        resolve(pr, REVIEWER_APP, lambda th: th["opened_by"]["kind"] == "lens")
+    # The owner rules on each Lens thread still open; resolving one it accepted is the Kernel's act (issue 389).
+    for th in pr["facts"]["threads"]:
+        if th["opened_by"]["kind"] == "lens" and not th["resolved"]:
+            th["ruling"] = "accepted" if accepts else "rejected"
     return pr
 
 
@@ -443,6 +447,11 @@ def acts(pr: dict, lands: bool = True) -> dict:
         f["reviews"].append(review(content=f["content_id"], at=now(pr)))
     elif not lands:
         return None
+    elif d["action"] == "resolve_thread":
+        # The queue App resolves the threads the act names (issue 389).
+        for th in f["threads"]:
+            if th["id"] in d["evidence"]:
+                th.update(resolved=True, resolved_by=dict(QUEUE_APP))
     else:
         f["queue"] = d["action"] == "enqueue"
     f["acts_since_writer"] += 1
