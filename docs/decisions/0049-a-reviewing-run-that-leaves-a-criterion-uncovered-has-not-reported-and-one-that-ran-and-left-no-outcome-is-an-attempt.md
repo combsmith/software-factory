@@ -21,11 +21,7 @@ that applies is uncovered when it has no entry, or two; when its verdict is `fin
 cites it; when a Finding cites it and its verdict is not `finding`; and when its verdict is
 `not_applicable` and its reason is not a code. So is an entry for an id the rubric does not have,
 named by that id, or as `unreadable` when it is none. An entry for a criterion that does not apply
-is passed over. A Finding that cites a criterion of the rubric has the severity the rubric gives it,
-`severity_if_violated`, never the model's (§3.14): one at another severity, or at none, leaves that
-criterion uncovered, whether it applies or not, named once. A Finding that cites no criterion keeps
-the severity the model gives it. A rubric that cannot be read, a criterion with no severity in
-`blocking`, `major`, `minor` and `info` among it, or paths not read whole, are `unreadable`.
+is passed over. A rubric that cannot be read, or paths not read whole, are `unreadable`.
 
 The path syntax gains one form: `**` as a whole name stands for any run of names, none included.
 `matches` reads it, and the session hooks' matcher reads it alike, so the rubric's `**/*.py` reaches
@@ -86,17 +82,6 @@ was refused would let content converge on a review that applied nothing.
 Python file one directory deep. The matcher the Kernel and the hooks share is the one place to fix
 it, and the test that holds the two to one corpus now reads the rubric's patterns too.
 
-Whether a Finding gates is read from its category and its severity (§4.2), and so is where `apply`
-posts it: a thread for one that gates, an annotation for one that does not (§3.7). A severity the
-model gives a Finding that cites a criterion would let a model, steered by the diff it reads, grade
-a `major` criterion's Finding `minor` and post it as an annotation, which holds nothing (issue 373).
-Section 3.14 already says the severity comes from the rubric. A Result that gives another is
-refused, as one whose Finding cites a criterion it says is `met` is, rather than given the rubric's:
-`apply` writes what a Result says or nothing, and a Finding raised at the rubric's severity could
-need another surface than the one the Result chose. One graded above the rubric is refused too:
-the rubric says what the severity is, not its floor. The cost is an attempt, which `max_attempts`
-bounds.
-
 The working ruling on "Kernel: a reviewing Run that leaves a rubric criterion uncovered has not
 reported" (issue 16) gave the record the next number, 0029. Coverage is the Result's, and the Result's
 schema is "Schemas for Task, Result, Effect and Disposition" (issue 19), which waits on trials for
@@ -112,13 +97,12 @@ usage, not coverage, so coverage has its own schema now.
 | A renamed file's previous path makes a criterion apply | `tests/test_coverage.py::test_a_renamed_files_old_path_makes_a_criterion_apply` |
 | `not_applicable` needs a reason that is a code | `tests/test_coverage.py::test_not_applicable_needs_a_reason_code` |
 | `finding` needs a Finding that cites the criterion, and a Finding that cites one needs the verdict `finding` | `tests/test_coverage.py::test_a_finding_verdict_needs_a_finding_that_cites_it` |
-| A Finding that cites a criterion has the rubric's severity: below it, above it or none leaves the criterion uncovered, whether it applies or not, named once; one off the rubric keeps the model's | `tests/test_coverage.py::test_a_finding_that_cites_a_criterion_has_the_rubrics_severity` |
-| A rubric that cannot be read, a criterion with no severity among it, or paths not read whole, are unreadable, never covered | `tests/test_coverage.py::test_an_unreadable_rubric_is_unreadable_never_covered` |
+| A rubric that cannot be read, or paths not read whole, are unreadable, never covered | `tests/test_coverage.py::test_an_unreadable_rubric_is_unreadable_never_covered` |
 | `**` as a whole name stands for any run of names, none included, in the Kernel's matcher and the hooks' alike, on the rubric's patterns too | `tests/test_tools.py::test_two_stars_as_a_whole_name_stand_for_any_run_of_names`, `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
 | A protected or reported path with `**` as a whole name is refused by the hooks, until their reading of a directory that holds a protected path reads it | `tests/test_hooks.py::test_a_protected_or_reported_path_with_two_stars_is_refused` |
 | The coverage example is covered against the rubric, the Finding example and the paths of the facts example; the counter-example, valid to the schema, is refused by `covered` | `examples/invalid/coverage.a-criterion-that-applies-left-out.json`, `tests/test_tools.py::test_a_coverage_that_leaves_a_criterion_uncovered_is_caught` |
 | Under faults, a review is now and then uncovered; it is admitted again and, at its attempts, held. An approval or a merge has a review of that content that succeeded by every required model Lens, a Lens's thread comes only from one that succeeded, and uncovered review Runs since a writer acted are at most `max_attempts` | `tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`, `tests/test_simulator.py::test_invariants_hold_under_faults` |
-| `apply` calls `covered` before any Effect, and ends an uncovered Run `failure` and `item`, an unreadable one `failure` and `environment`; a cited Finding graded below its criterion and posted as an annotation writes nothing | `tests/test_apply.py::test_an_uncovered_result_writes_nothing` |
+| `apply` calls `covered` before any Effect, and ends an uncovered Run `failure` and `item`, an unreadable one `failure` and `environment` | `tests/test_apply.py::test_an_uncovered_result_writes_nothing` |
 | The port reads the outcome of a Run that did not succeed | `tests/test_adapters.py::test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other` |
 | The Result's schema takes `coverage/1` by reference, in "Schemas for Task, Result, Effect and Disposition" (issue 19) | `schemas/result.schema.json`, `tools/check_examples.py` |
 | A Run that failed or timed out with no outcome is an attempt, of a review, an approval, an issue's Run or any Intent, held at `max_attempts`; one cancelled with none is no attempt; an outcome a Run wrote is read as it says | `tests/test_decide.py::test_a_run_that_ran_and_left_no_outcome_is_an_attempt`, `tests/test_decide.py::test_an_approval_that_ran_and_left_no_outcome_is_an_attempt`, `tests/test_issue.py::test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt` |
