@@ -336,6 +336,13 @@ def identities(accounts: dict) -> tuple:
             found[told] = code
         else:
             known = False
+    # The queue App is an identity once its account is set (issue 381); until then no write is its, and none is short.
+    queue = accounts.get("queue")
+    if isinstance(queue, dict):
+        told = (queue["id"], "Bot")
+        if told in found:
+            twice.add(told)
+        found[told] = "queue"
     for told in twice:
         del found[told]
     return found, known and not twice

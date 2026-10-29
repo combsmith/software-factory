@@ -54,7 +54,7 @@ def facts(content=CONTENT) -> dict:
     return f
 
 
-def manifest(effects=("submit_review", "create_check_run", "resolve_thread"), tier="standard") -> dict:
+def manifest(effects=("submit_review", "create_check_run", "comment"), tier="standard") -> dict:
     return {"schema": "role/1", "name": "pr-review", "kind": "reviewer", "owns": ["functional"], "app": "combsmith-sf-pr-review",
             "lens": {"scope": {"paths": ["**"], "exclude": [], "always": True}, "raises": ["functional"]},
             "intents": [{"name": "review-change", "tier": tier, "permitted_effects": list(effects),
@@ -160,7 +160,7 @@ class Task(unittest.TestCase):
                          (RUN, "pr-review", "review-change", CONTENT, RECORD["release"]))
         self.assertEqual(t["item"], RECORD["pull_requests"][0]["facts"]["item"])
         self.assertEqual((t["tier"], t["permitted_effects"]), ("standard", ["submit_review", "create_check_run",
-                                                                           "resolve_thread"]))
+                                                                           "comment"]))
         self.assertEqual(t["limits"], HARNESS["limits"]["standard"])
         deep = built(role=manifest(tier="deep"))
         self.assertEqual((deep["tier"], deep["limits"]), ("deep", HARNESS["limits"]["deep"]))

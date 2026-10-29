@@ -36,7 +36,6 @@
   },
   "tier": "deep",
   "permitted_effects": [
-    "resolve_thread",
     "comment"
   ],
   "result_schema": "result/1"

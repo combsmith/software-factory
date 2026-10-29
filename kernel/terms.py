@@ -53,12 +53,14 @@ SEVERITIES = ("blocking", "major", "minor", "info")
 # The reasons an open gate gives, whoever's turn it is. On a queued item each is the one reason `gate_open`.
 GATE_REASONS = ("human_finding", "findings_open", "awaiting_human", "proposals_await_owner")
 # The waits that end on their own, and that a queued item is read past: they never take it out of the merge queue.
-QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review")
+QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review", "resolve_due")
 
 # The kinds of actor, and the states of a review: schemas/facts.schema.json names them too. The port tells them apart
 # from GitHub's account type and the configuration, never from a name's spelling: a person (`human`), the App of a
 # Lens (`lens`), any other App (`app`), and the machine user, the approver the configuration names (`machine_user`).
-ACTOR_KINDS = ("human", "lens", "app", "machine_user")
+ACTOR_KINDS = ("human", "lens", "queue", "app", "machine_user")
+# What the Lens that opened a thread last decided of its Finding, joined from its own record (issue 389).
+RULINGS = ("accepted", "rejected")
 MACHINE_USER = "machine_user"
 APP = "app"
 # How GitHub ends the login of an App's bot account. No User's login can: it only ever refuses a person.

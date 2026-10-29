@@ -63,11 +63,13 @@ class Accounts:
     """Who an actor is, read once a login for one snapshot: its kind, its name and whether it can write.
 
     `approver` is the machine user, `(id, "User")`; `lenses` maps each Lens's App, `(id, "Bot")`, to the Lens's name;
-    `factory` is every App account of the Factory's, `(id, "Bot")`, whose acts the act ceiling counts."""
+    `factory` is every App account of the Factory's, `(id, "Bot")`, whose acts the act ceiling counts; `queue` is the
+    queue App's, `(id, "Bot")`, or None while it has none, which types no account queue (issue 389)."""
 
-    def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=()):
+    def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=(), queue=None):
         self.transport, self.repo, self.approver = transport, repo, tuple(approver)
         self.lenses, self.factory, self.answers = dict(lenses), set(factory), {}
+        self.queue = tuple(queue) if queue is not None else None
 
     def _permission(self, login: str) -> dict:
         """The repo's permission answer for `login`, read once a login for all the reader serves."""
@@ -124,6 +126,8 @@ class Accounts:
         if kind == "Bot":
             if (ident, kind) in self.lenses:
                 return {"kind": "lens", "name": self.lenses[(ident, kind)], "can_write": False}
+            if (ident, kind) == self.queue:
+                return {"kind": "queue", "name": login, "can_write": False}
             return {"kind": "app", "name": login, "can_write": False}
         if login.endswith("[bot]") or not LOGIN.match(login):
             raise Unanswered("a User whose login is none GitHub gives: the read was wrong")

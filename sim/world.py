@@ -49,6 +49,8 @@ AUTHOR = "combsmith-sf-dev-lead[bot]"
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
+# The App that carries out the Kernel's acts on the merge queue and on a Lens's threads (decision 0081, issue 389).
+QUEUE_APP = {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False}
 # The author's App: it pushes the agent's fixes, and can label and resolve threads, as any App with write access can.
 AUTHOR_APP = {"kind": "app", "name": AUTHOR, "can_write": True}
 # Someone with no write access, who can comment and nothing more.
@@ -816,6 +818,17 @@ class World:
             self.last_act = "dequeue"
             self.note("apply: dequeued (%s)" % d["reason"])
             return
+        if d["action"] == "resolve_thread":
+            # GitHub: an_app_resolves_any_thread
+            for th in self.threads:
+                if th["id"] in d["evidence"]:
+                    self.check(th["opened_by"]["kind"] == "lens" and th["ruling"] == "accepted" and not th["resolved"],
+                               "the queue App resolves a thread no Lens accepted")
+                    th.update(resolved=True, resolved_by=dict(QUEUE_APP))
+            self.acts += 1
+            self.last_act = "resolve_thread"
+            self.note("apply: resolved %s" % ", ".join(d["evidence"]))
+            return
         # Only that person's approval, or a writer's dismissal, ends it: never new content or an App (L-17).
         self.check(not self.asked, "a writer's request for changes is passed over")
         if d["action"] == "issue_approval":
@@ -939,15 +952,16 @@ class World:
                     self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                                          "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
                                          "category": category, "severity": severity, "resolved_by": None,
-                                         "opened_at": self.now()})
+                                         "opened_at": self.now(), "ruling": None})
         elif run["intent"] == "fix-findings":
             # GitHub: an_app_pushes_to_the_head
             self.push("combsmith-sf-dev-lead[bot]", writer=False)
         elif run["intent"] == "adjudicate-findings":
-            # GitHub: an_app_resolves_a_lens_thread
+            # The owner rules on each Lens thread still open, in its own record; resolving one it accepted is the
+            # Kernel's act, which the queue App carries out (issue 389).
             for th in self.threads:
-                if not th["resolved"] and th["opened_by"]["kind"] == "lens" and self.rng.random() < 0.7:
-                    th.update(resolved=True, resolved_by=dict(REVIEWER_APP))
+                if not th["resolved"] and th["opened_by"]["kind"] == "lens":
+                    th["ruling"] = "accepted" if self.rng.random() < 0.7 else "rejected"
         self.note("run %s: applied" % run["run"])
 
     # ---- the platform and the people
@@ -1235,7 +1249,8 @@ class World:
     def open_thread(self):
         self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                              "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
-                             "category": "human", "severity": None, "resolved_by": None, "opened_at": self.now()})
+                             "category": "human", "severity": None, "resolved_by": None, "opened_at": self.now(),
+                             "ruling": None})
         self.writer_acted()
         self.note("maintainer opened a thread")
 
