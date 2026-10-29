@@ -68,6 +68,14 @@ def reported(entry: dict, cited: bool) -> bool:
     return verdict != t.NOT_APPLICABLE or is_code(entry.get("reason"))
 
 
+def _off(said, out: list) -> None:
+    """Name `said`, an id the rubric does not have, among the criteria `out` holds uncovered: as that id, or as
+    `unreadable` when it is none, once."""
+    shown = said if is_criterion_id(said) else "unreadable"
+    if shown not in out:
+        out.append(shown)
+
+
 def covered(rubric, coverage, findings, changed) -> tuple:
     """Whether a reviewing Result reports on every criterion of `rubric` that applies to the change, as
     ("covered", []), ("uncovered", ids) or ("unreadable", []).
@@ -79,8 +87,10 @@ def covered(rubric, coverage, findings, changed) -> tuple:
     entry for an id the rubric does not have, shown as that id, or as `unreadable` when it is none. An entry for a
     criterion that does not apply is passed over. A Finding that cites a criterion of the rubric has the severity the
     rubric gives it, never the model's: one at another severity leaves that criterion uncovered, whether it applies or
-    not, so a Finding cannot be moved off the gate (issue 373). A rubric, or paths, that cannot be read are
-    unreadable, never covered: the Factory's fault, not the item's.
+    not, so its severity cannot move it off the gate (issue 373). A Finding that cites an id the rubric does not have
+    is uncovered as a coverage entry for one is, shown as that id, or as `unreadable` when it is none; one that cites
+    none keeps the model's severity. Its category is not read here (issue 407). A rubric, or paths, that cannot be read
+    are unreadable, never covered: the Factory's fault, not the item's.
     """
     if not (readable_rubric(rubric) and readable_changes(changed)):
         return "unreadable", []
@@ -100,10 +110,10 @@ def covered(rubric, coverage, findings, changed) -> tuple:
         said = f.get("criterion") if isinstance(f, dict) else None
         if said in ids and f.get("severity") != severity[said] and said not in out:
             out.append(said)
+        elif said is not None and said not in ids:
+            _off(said, out)
     for e in coverage:
         said = e.get("criterion") if isinstance(e, dict) else None
         if said not in ids:
-            shown = said if is_criterion_id(said) else "unreadable"
-            if shown not in out:
-                out.append(shown)
+            _off(said, out)
     return ("uncovered", out) if out else ("covered", [])

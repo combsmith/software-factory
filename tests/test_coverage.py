@@ -115,8 +115,10 @@ class Coverage(unittest.TestCase):
             said = every(entry(c, "finding"))
             self.assertEqual(covered(RUBRIC, said, [finding(c)], KERNEL), ("covered", []), c)
             # With no Finding that cites it, or only one that cites another criterion or none, it is uncovered.
-            for found in ([], [finding("PR-5")], [finding(None)], [finding("PR-9")], ["%s" % c]):
+            for found in ([], [finding("PR-5")], [finding(None)], ["%s" % c]):
                 self.assertEqual(covered(RUBRIC, said, found, KERNEL), ("uncovered", [c]), (c, found))
+            # One that cites an id the rubric does not have is uncovered as well.
+            self.assertEqual(covered(RUBRIC, said, [finding("PR-9")], KERNEL), ("uncovered", [c, "PR-9"]), c)
             # A Finding that cites a criterion said to be `met`, or not to apply, contradicts it.
             for verdict, reason in (("met", None), ("not_applicable", "no_linked_issue")):
                 self.assertEqual(covered(RUBRIC, every(entry(c, verdict, reason)), [finding(c)], KERNEL),
@@ -141,7 +143,20 @@ class Coverage(unittest.TestCase):
         # Beside the rest of what is uncovered.
         self.assertEqual(covered(RUBRIC, every(entry("PR-2", "finding"), entry("PR-9")), [finding("PR-2", "info")],
                                  KERNEL), ("uncovered", ["PR-2", "PR-9"]))
-        # The other side: a Finding off the rubric has the severity the model gives it.
+        # Each Finding is read, a wrong one after one that is right too (Muse's read of #405).
+        first, second = sorted(SEVERITY)[:2]
+        said = every(*(entry(c, "finding") for c in (first, second) if c in APPLYING))
+        wrong = next(s for s in t.SEVERITIES if s != SEVERITY[second])
+        self.assertEqual(covered(RUBRIC, said, [finding(first), finding(second, wrong)], KERNEL), ("uncovered", [second]))
+        astray = next(s for s in t.SEVERITIES if s != SEVERITY[first])
+        self.assertEqual(covered(RUBRIC, said, [finding(first, astray), finding(second, wrong)], KERNEL),
+                         ("uncovered", [first, second]))
+        # A Finding that cites an id the rubric does not have is uncovered, as an entry for one is: shown as that id, or
+        # as unreadable when it is none (the Claude review and the security pass on #405).
+        self.assertEqual(covered(RUBRIC, every(), [finding("PR-9", "minor")], KERNEL), ("uncovered", ["PR-9"]))
+        self.assertEqual(covered(RUBRIC, every(), [finding("pr-3", "minor")], KERNEL), ("uncovered", ["unreadable"]))
+        self.assertEqual(covered(RUBRIC, every(entry("PR-9")), [finding("PR-9", "minor")], KERNEL), ("uncovered", ["PR-9"]))
+        # The other side: a Finding off the rubric, citing none, has the severity the model gives it.
         for severity in t.SEVERITIES:
             self.assertEqual(covered(RUBRIC, every(), [finding(None, severity)], KERNEL), ("covered", []), severity)
 
