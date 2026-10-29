@@ -6248,7 +6248,10 @@ class Redaction(unittest.TestCase):
                 ("HTTP/2 200\nx-api-key: part1\n\tsecretcontinuation\ncontent-type: text/plain\n\nfine\n", "header"),
                 ("HTTP/1.1 100 Continue\ncontent-type: application/json\n\nHTTP/2 200\n\nnot json\n", "JSON"),
                 ('HTTP/1.1 100 Continue\n\nHTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n', "JSON"),
-                ("HTTP/2 200\ncontent-type: text/plain\n\n\ufeff" + secret, "JSON"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\n\ufeff" + secret, "mark"),
+                ("\ufeffHTTP/2 200\nX-Secret: hunter2\ncontent-type: application/json\n\nnot json\n", "mark"),
+                ('"HTTP/1.1 200\\nauthorization: hunter2"', "string"),
+                ('HTTP/2 200\ncontent-type: application/json\n\n"hunter2 is the password"', "string"),
                 ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + secret + "\n", "JSON"),
                 ('{\n\n"password": "hunter2"\n', "JSON"),
                 ('HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 500 {"token": "opaque"}', "status"),
@@ -6258,7 +6261,8 @@ class Redaction(unittest.TestCase):
             self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
             self.assertEqual(out.getvalue(), "", raw)
             self.assertIn({"head": "a head it was not read as", "header": "a line that is no header",
-                           "JSON": "should be JSON", "status": "holds more than a status"}[why], said.getvalue(), raw)
+                           "JSON": "should be JSON", "status": "holds more than a status", "mark": "a byte order mark",
+                           "string": "is a JSON string"}[why], said.getvalue(), raw)
         # Text with no status line is text, its blank lines and all, as a run's log is.
         log = ("approve\tApprove\t2026-10-28T02:00:00Z a\napprove\tApprove\t2026-10-28T02:00:00Z a2\n\n"
                "approve\tApprove\t2026-10-28T02:00:01Z b\n")

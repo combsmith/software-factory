@@ -91,8 +91,17 @@ class Unreadable(ValueError):
 
 
 def _opens_json(text: str) -> bool:
-    """Whether `text` begins, past white space and a byte order mark, as JSON does."""
-    return text.lstrip().lstrip("\ufeff").lstrip()[:1] in ("{", "[")
+    """Whether `text` begins, past white space, as JSON does."""
+    return text.lstrip()[:1] in ("{", "[")
+
+
+def _fields(text: str):
+    """`text` read as JSON. A JSON string is refused: it holds no field to judge, and a head or a credential may be
+    written inside it."""
+    data = json.loads(text)
+    if isinstance(data, str):
+        raise Unreadable("the capture is a JSON string, which holds no field to judge")
+    return data
 
 
 def _head(block: str, first: int, said: list) -> str:
@@ -131,7 +140,9 @@ def redact_text(raw: str, said: list) -> str:
         kept.append(_head(head, first, said))
         first += len(head.splitlines()) + 1
     try:
-        cleaned = json.dumps(redact_json(json.loads(body), said), indent=2) + "\n"
+        cleaned = json.dumps(redact_json(_fields(body), said), indent=2) + "\n"
+    except Unreadable:
+        raise
     except ValueError:
         # What should be JSON and is not cannot be judged field by field, and a line of it may hold a credential no
         # shape finds under a name that would refuse it: it is refused whole, never kept in part.
@@ -166,8 +177,16 @@ def main(argv: list, stdin=None, stdout=None, stderr=None) -> int:
     # stay, and a capture with no blank line between its headers and its body would be redacted as one body.
     raw = (sys.stdin.buffer if stdin is None else stdin).read().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     said = []
+    if "\ufeff" in raw:
+        # A byte order mark hides a status line from the reading of heads and a brace from the reading of JSON: no
+        # capture GitHub or curl writes holds one, so one that does is refused whole.
+        print("refused: the capture holds a byte order mark, so none of it is kept; nothing is written", file=stderr)
+        return 1
     try:
-        out = json.dumps(redact_json(json.loads(raw), said), indent=2) + "\n"
+        out = json.dumps(redact_json(_fields(raw), said), indent=2) + "\n"
+    except Unreadable as refused:
+        print("refused: %s, so none of it is kept; nothing is written" % refused, file=stderr)
+        return 1
     except ValueError:
         try:
             out = redact_text(raw, said)
