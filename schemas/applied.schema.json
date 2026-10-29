@@ -8,8 +8,7 @@
     "run",
     "release",
     "effects",
-    "findings",
-    "rulings"
+    "findings"
   ],
   "properties": {
     "schema": {
@@ -81,7 +80,7 @@
       }
     },
     "rulings": {
-      "description": "The owner's decision on each Finding its Result decided, in the Result's order: the Finding, the thread it is on, and the result. The Lens's latest ruling on a thread, read whole, is the one the queue App's resolution closes it on",
+      "description": "The owner's decision on each Finding its Result decided, in the Result's order: the Finding, the thread it is on, and the result. The Lens's latest ruling on a thread, read whole, is the one the queue App's resolution closes it on. A record of a Release before issue 389 has none: it ruled on nothing, and so closes nothing, which is the reading that fails closed",
       "type": "array",
       "items": {
         "type": "object",

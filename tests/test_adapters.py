@@ -2417,6 +2417,14 @@ class Recorded(unittest.TestCase):
         # The other side: no ruling on the thread, two in its latest Run, a start that cannot be read, a ruling by
         # another Lens than the one that recorded it, or a category that Lens does not own, give none.
         self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_8", "accepted"))))
+        # A ruling on another Finding than the one the thread holds is none of the thread's.
+        other = ruled(self.RUN, ("PRRT_7", "accepted"))
+        other["rulings"][0]["finding"] = "f_0000"
+        self.assertIsNone(ruling(other))
+        # A record of a Release before rulings has none: it is read whole, and closes nothing.
+        old = ruled(self.RUN)
+        del old["rulings"]
+        self.assertIsNone(ruling(old))
         self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted"), ("PRRT_7", "accepted"))))
         self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted")),
                                  ruled(later, ("PRRT_7", "accepted"), findings=()),

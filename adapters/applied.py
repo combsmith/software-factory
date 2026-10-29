@@ -23,7 +23,8 @@ never none.
   Kernel defers on a required Lens's open thread as it does today (`kernel/derive.py`'s `unreadable_thread`).
 
 - A Lens's thread takes its ruling from that Lens's own record too (issue 389): the result, accepted or rejected, of
-  its latest Run that ruled on the thread, by when the Run started. None where no Run of the Lens ruled on it, where
+  its latest Run that ruled on the thread's Finding, by when the Run started: a ruling on another Finding is none of
+  the thread's. None where no Run of the Lens ruled on it, where
   that latest Run ruled on it twice, where a start cannot be read, where the Lens is not the owner of the thread's
   category, as the category itself says, or where the category is security, which `apply` never takes as accepted. The queue App's resolution closes the thread on an accepted ruling alone.
 
@@ -101,10 +102,11 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
                 break
             held = _finding(posted)
             if held is not None:
-                found[number].setdefault(held[1], []).append(held + (record["run"],))
+                found[number].setdefault(held[1], []).append(held + (record["run"], posted["id"]))
+        # A record of an earlier Release holds no rulings: it ruled on nothing, so it closes nothing.
         for ruling in (done or {}).get("rulings", ()):
             ruled[number].setdefault(ruling["thread"], []).append(
-                (record["role"], record["run"], record.get("started_at"), ruling["result"]))
+                (record["role"], record["run"], record.get("started_at"), ruling["result"], ruling["finding"]))
         read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
                              "started_at": record.get("started_at"),
                              "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"
@@ -124,7 +126,8 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
                             "runs": sorted({h[4] for h in held}),
                             # A security Finding is never accepted before the author's proposal can be read, so
                             # none of its threads has a ruling the queue App could close it on (decision 0086).
-                            "ruling": _ruling(ruled[number].get(key, []), lens)
+                            "ruling": _ruling([r for r in ruled[number].get(key, []) if r[4] in {h[5] for h in held}],
+                                              lens)
                             if category not in (None, "security") else None}
         out[number] = (threads, True, read[number])
     return out
@@ -142,7 +145,8 @@ def _start(when):
 
 
 def _ruling(rulings: list, lens):
-    """The result of `lens`'s latest Run that ruled on a thread, of `rulings`, `(lens, run, started_at, result)`; None
+    """The result of `lens`'s latest Run that ruled on a thread's Finding, of `rulings`, `(lens, run, started_at, result,
+    finding)`, each on the Finding the thread holds; None
     where it made none, where its latest Run ruled twice, or where any of its starts cannot be read."""
     mine = [r for r in rulings if r[0] == lens]
     if not mine or any(_start(r[2]) is None for r in mine):
