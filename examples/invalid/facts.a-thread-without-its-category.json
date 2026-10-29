@@ -88,7 +88,8 @@
       "category": null,
       "severity": null,
       "resolved_by": null,
-      "opened_at": "2026-10-11T12:15:00Z"
+      "opened_at": "2026-10-11T12:15:00Z",
+      "ruling": null
     }
   ],
   "checks": [

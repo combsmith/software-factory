@@ -119,7 +119,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     if "intent" not in admit:
         raise Stop("not_the_decision")       # an approval is the approving act's, and runs no Task
     identities, approver, lenses, factory = facts_.accounts_of(controller)
-    who = timeline.Accounts(transport, home, approver, lenses, factory)
+    who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
     number = parts["item"]["number"]
     # The threads are held to what the item's Lenses recorded, read from their Runs (adapters/applied.py, issue 338).
     listed = records.runs(transport, home, branch, [controller["workflows"]["run"], controller["workflows"]["approval"]],

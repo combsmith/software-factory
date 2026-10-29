@@ -108,11 +108,9 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
             return identity.from_key(config["app"], home, wanted, key, int(clock()), connect)
 
         def write(transport, kind, req):
-            facts, head = held["item"][0], held["item"][1]
-            threads = [t["id"] for t in facts["threads"]]
+            head = held["item"][1]
             login = config["app"]["name"] + "[bot]"
-            allowed = effects.Allowed(transport, *effects.role_permits(admit["item"], head, "factory / " + parts["role"],
-                                                                      threads))
+            allowed = effects.Allowed(transport, *effects.role_permits(admit["item"], head, "factory / " + parts["role"]))
             return effects.role_write(allowed, admit["item"], kind, req, login)
         told = {"kernel": dict(config["kernel"], lifecycle=config["lifecycles"]["pull_request"]),
                 "rubric": steps.read_json(steps.ROOT, os.path.join("config", "rubric-%s.json" % parts["role"])),

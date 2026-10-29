@@ -7,6 +7,7 @@
     },
     "relay": null,
     "controller": null,
+    "queue": null,
     "maintainer": {
       "login": "don-petry",
       "id": 36422719

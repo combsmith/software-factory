@@ -539,7 +539,7 @@ class Examples(unittest.TestCase):
             self.assertEqual("close" in row["choices"], not mended, row["reason"])
 
     def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038
-        # With no oneOf, one list for each type is the only shape in which "a resolve_thread with no thread" is refused.
+        # With no oneOf, one list for each type is the only shape in which "a comment with no place" is refused.
         effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
         self.assertEqual(sorted(effect["$defs"]["type"]["enum"]), sorted(effect["properties"]))
         self.assertEqual(effect["required"] if "required" in effect else [], [])
@@ -548,7 +548,7 @@ class Examples(unittest.TestCase):
             self.assertIs(listed["items"]["additionalProperties"], False, name)
             self.assertIn("id", listed["items"]["required"], name)
         # The Controller's acts are never a Result's Effects, and a review carries no event: approval is the act Run's.
-        for act in ("add_label", "remove_label", "assign", "enqueue_merge", "dequeue_merge"):
+        for act in ("add_label", "remove_label", "assign", "enqueue_merge", "dequeue_merge", "resolve_thread"):
             self.assertNotIn(act, effect["properties"])
         self.assertNotIn("event", effect["properties"]["submit_review"]["items"]["properties"])
 

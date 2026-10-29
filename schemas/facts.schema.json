@@ -264,7 +264,8 @@
           "category",
           "severity",
           "resolved_by",
-          "opened_at"
+          "opened_at",
+          "ruling"
         ],
         "properties": {
           "id": {
@@ -301,7 +302,7 @@
             ]
           },
           "resolved_by": {
-            "description": "Who resolved the thread, of what kind and with what access; null unless it is resolved. A person's thread resolved by anyone but that person stays open, and a Lens's resolved by anyone but that Lens's App or a person",
+            "description": "Who resolved the thread, of what kind and with what access; null unless it is resolved. A person's thread resolved by anyone but that person stays open, and a Lens's resolved by anyone but a person, or the queue App on that Lens's accepted ruling",
             "type": [
               "object",
               "null"
@@ -327,6 +328,14 @@
           },
           "opened_at": {
             "$ref": "#/$defs/time"
+          },
+          "ruling": {
+            "description": "A Lens's thread: what the Lens that opened it, the owner of its category, last decided of its Finding, accepted or rejected, joined from that Lens's own record by surface.key, never the comment text. Null where it decided nothing, decided twice in one Run, is not the owner, or the thread is no Lens's. Only on an accepted ruling does the queue App's resolution close the thread",
+            "enum": [
+              "accepted",
+              "rejected",
+              null
+            ]
           }
         }
       }
@@ -614,10 +623,11 @@
       }
     },
     "actor_kind": {
-      "description": "The port's contract: it tells the kind from GitHub's own account type and the configuration, never from a name's spelling (I-28, L-57). human: a User account. machine_user: the User the configuration names as the approver, and no other. lens: the Bot account of an App that reports as a Lens, a Role's or a third-party reviewer's. app: the Bot account of any other App. A person is human with write access, read with one named credential; nobody else is",
+      "description": "The port's contract: it tells the kind from GitHub's own account type and the configuration, never from a name's spelling (I-28, L-57). human: a User account. machine_user: the User the configuration names as the approver, and no other. lens: the Bot account of an App that reports as a Lens, a Role's or a third-party reviewer's. queue: the Bot account of the App the configuration names as the queue's, which carries out the Kernel's acts on the merge queue and on a Lens's threads. app: the Bot account of any other App. A person is human with write access, read with one named credential; nobody else is",
       "enum": [
         "human",
         "lens",
+        "queue",
         "app",
         "machine_user"
       ]

@@ -22,6 +22,11 @@ never none.
   matches none, matches two, or names a category the authority table does not give that Lens has neither, and the
   Kernel defers on a required Lens's open thread as it does today (`kernel/derive.py`'s `unreadable_thread`).
 
+- A Lens's thread takes its ruling from that Lens's own record too (issue 389): the result, accepted or rejected, of
+  its latest Run that ruled on the thread, by when the Run started. None where no Run of the Lens ruled on it, where
+  that latest Run ruled on it twice, where a start cannot be read, or where the Lens is not the owner of the thread's
+  category, as the category itself says. The queue App's resolution closes the thread on an accepted ruling alone.
+
 A thread no Lens recorded, a person's or an outside reviewer's, is left as `adapters/threads.py` read it.
 
 A later review supersedes a Lens's earlier records for the first rule (issue 347): a Lens Run that reviewed the change,
@@ -57,11 +62,11 @@ def _finding(found: dict):
 
 def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: dict) -> dict:
     """`{number: (threads, whole, read)}` for each open pull request numbered: `threads` maps each thread a Lens
-    recorded to `{lens, category, severity, runs}`, the category and severity null unless one Finding of that Lens
-    alone names it and the authority table gives the Lens that category, `lens` null when two Lenses recorded it, and
-    `runs` the Runs that recorded it; `read` is each Lens Run whose `applied/1` was read whole, `{lens, run,
-    content_id, started_at, reviewed}`, `reviewed` whether it is a review that succeeded, which `held` reads for a
-    later review. `runs` is the records port's list, `lenses` the model Lenses' names, `authority`
+    recorded to `{lens, category, severity, runs, ruling}`, the category and severity null unless one Finding of that
+    Lens alone names it and the authority table gives the Lens that category, `lens` null when two Lenses recorded it,
+    `runs` the Runs that recorded it, and `ruling` the Lens's latest (the module's rules); `read` is each Lens Run
+    whose `applied/1` was read whole, `{lens, run, content_id, started_at, reviewed}`, `reviewed` whether it is a
+    review that succeeded, which `held` reads for a later review. `runs` is the records port's list, `lenses` the model Lenses' names, `authority`
     `config/authority.json`."""
     whole = isinstance(runs, dict) and runs.get("complete") is True
     ids = runs.get("github_ids") if whole else None
@@ -69,6 +74,7 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
     if not out or not whole or not isinstance(ids, dict):
         return out
     found = {n: {} for n in numbers}
+    ruled = {n: {} for n in numbers}
     read = {n: [] for n in numbers}
     for record in runs["runs"]:
         item = record["item"]
@@ -96,6 +102,9 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
             held = _finding(posted)
             if held is not None:
                 found[number].setdefault(held[1], []).append(held + (record["run"],))
+        for ruling in (done or {}).get("rulings", ()):
+            ruled[number].setdefault(ruling["thread"], []).append(
+                (record["role"], record["run"], record.get("started_at"), ruling["result"]))
         read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
                              "started_at": record.get("started_at"),
                              "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"
@@ -112,9 +121,32 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
             if category is not None and (owners.get(category) or {}).get("owner") != lens:
                 category, severity = None, None
             threads[key] = {"lens": lens, "category": category, "severity": severity,
-                            "runs": sorted({h[4] for h in held})}
+                            "runs": sorted({h[4] for h in held}),
+                            "ruling": _ruling(ruled[number].get(key, []), lens) if category is not None else None}
         out[number] = (threads, True, read[number])
     return out
+
+
+def _start(when):
+    """A Run's start as the records port reads it, or None where it is no moment."""
+    if not isinstance(when, str) or not TIME.fullmatch(when):
+        return None
+    try:
+        datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+    return when
+
+
+def _ruling(rulings: list, lens):
+    """The result of `lens`'s latest Run that ruled on a thread, of `rulings`, `(lens, run, started_at, result)`; None
+    where it made none, where its latest Run ruled twice, or where any of its starts cannot be read."""
+    mine = [r for r in rulings if r[0] == lens]
+    if not mine or any(_start(r[2]) is None for r in mine):
+        return None
+    latest = max(r[2] for r in mine)
+    last = [r for r in mine if r[2] == latest]
+    return last[0][3] if len(last) == 1 else None
 
 
 def superseded(read: list, content_id) -> set:
@@ -122,14 +154,7 @@ def superseded(read: list, content_id) -> set:
     succeeded, read whole, on the pull request's current content `content_id`. A start that cannot be read, or no
     current content, supersedes nothing."""
     def start(r):
-        when = r.get("started_at")
-        if not isinstance(when, str) or not TIME.fullmatch(when):
-            return None
-        try:
-            datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
-        except ValueError:
-            return None
-        return when
+        return _start(r.get("started_at"))
     if not isinstance(content_id, str) or not content_id:
         return set()
     fresh = [r for r in read if r.get("reviewed") is True and r.get("content_id") == content_id
@@ -156,6 +181,6 @@ def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
     for th in found:
         finding = threads.get(th["id"])
         if th["opened_by"]["kind"] == "lens" and finding is not None and finding["lens"] == th["opened_by"]["name"]:
-            th = dict(th, category=finding["category"], severity=finding["severity"])
+            th = dict(th, category=finding["category"], severity=finding["severity"], ruling=finding.get("ruling"))
         joined.append(th)
     return joined, whole

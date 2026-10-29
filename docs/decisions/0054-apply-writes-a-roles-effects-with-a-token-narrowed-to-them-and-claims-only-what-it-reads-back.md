@@ -39,7 +39,7 @@ back, so a claim in `applied/1` is never the model's word.
 | A token is for one repo, held to what was asked, never shown, and revoked only on GitHub's word | `tests/test_apply.py::test_a_token_is_minted_for_the_one_repo_and_held_to_what_was_asked`, `tests/test_apply.py::test_a_token_is_revoked_only_when_github_says_so` |
 | A review is sent once, recovered by this App on this commit, and read back with its threads | `tests/test_apply.py::test_a_review_is_sent_once_as_a_comment_and_read_back_with_its_threads`, `tests/test_apply.py::test_a_write_github_did_not_take_is_never_claimed_or_sent_again` |
 | A check run is made once, complete, and read back with its annotations | `tests/test_apply.py::test_a_check_run_is_made_once_complete_and_read_back_with_its_annotations` |
-| A thread is resolved once, on its own item, and read back resolved | `tests/test_apply.py::test_a_thread_is_resolved_once_on_its_own_item_and_read_back_resolved` |
+| A thread is resolved once, on its own item, and read back resolved | `tests/test_apply.py::test_no_role_write_resolves_a_thread`: decision 0083 takes the write from every Role, to the queue App's step (issue 381) |
 | A comment is recovered by this App's comments since the Run began, never by its text | `tests/test_apply.py::test_a_comment_is_recovered_by_this_apps_comments_since_the_run_began_never_by_its_text` |
 | A Role's token sends only its writes, on its one item | `tests/test_apply.py::test_a_role_token_sends_only_its_writes_on_its_one_item` |
 | What `apply` reads again is read-only, and within the App's grant for each need | `tests/test_apply.py::test_what_apply_reads_again_is_read_only_and_within_the_apps_grant` |
