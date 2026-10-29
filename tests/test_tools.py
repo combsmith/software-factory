@@ -7528,13 +7528,14 @@ class Rulesets(unittest.TestCase):
                 self.counted()
                 self.main["pull_request"][key] = value
                 self.assertTrue(caught(self.run_on(), "counts an approval otherwise than as one"), key)
-        # A ruleset counts an approval when it asks for a code owner's, or a required reviewer's, with a count of none.
-        for key, value in (("require_code_owner_review", True),
+        # A ruleset counts an approval when it asks for a code owner's, a required reviewer's, or one of the last push,
+        # with a count of none: GitHub asks for an approval by someone other than the last pusher, which an App's meets.
+        for key, value in (("require_code_owner_review", True), ("require_last_push_approval", True),
                            ("required_reviewers", [{"minimum_approvals": 1, "file_patterns": ["*"],
                                                     "reviewer": {"id": 1, "type": "Team"}}])):
             with self.subTest(none_counted=key):
                 self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
-                                                 required_reviewers=[])
+                                                 required_reviewers=[], require_last_push_approval=False)
                 self.main["pull_request"][key] = value
                 self.assertTrue(caught(self.run_on(), "counts an approval otherwise than as one"), key)
 
@@ -7546,7 +7547,8 @@ class Rulesets(unittest.TestCase):
             with self.subTest(owners=owners):
                 self.assertTrue(caught(self.counted(owners), words), (owners, self.counted(owners)))
         # A ruleset that counts no approval, of anyone, reads no code owners at all.
-        self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False)
+        self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
+                                         require_last_push_approval=False)
         self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
                                                   "config/defaults.json": json.dumps(self.defaults),
                                                   ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
