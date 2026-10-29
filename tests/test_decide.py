@@ -968,9 +968,12 @@ class OnlyAPersonEnds(unittest.TestCase):
                 self.assertFalse(derive.judged_by_a_person(dict(own, reviews=[review(**who)])))
                 d = go(facts(**AGENT, reviews=[asked, review(**who, at=at(30))]), ANSWERED)
                 self.assertEqual((d["reason"], d["evidence"]), ("awaiting_human", ["don-petry"]))
-        # The other side: the machine user's approval stands, and a person's judges and answers.
+        # The other side: the machine user's approval stands, a person's judges, and that person's answers their own
+        # request.
         self.assertIsNotNone(derive.standing_approval(facts(reviews=[review(**MACHINE)]), CONFIG))
         self.assertTrue(derive.judged_by_a_person(dict(own, reviews=[review(kind="human", name="a-colleague")])))
+        d = go(facts(**AGENT, reviews=[asked, review(**MAINTAINER, at=at(30))]), ANSWERED)
+        self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
 
     def test_only_a_person_ends_a_request_for_changes(self):  # L-17
         asked = review(state="changes_requested", **MAINTAINER)
