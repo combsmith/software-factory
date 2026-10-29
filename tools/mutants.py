@@ -5135,6 +5135,17 @@ MUTANTS = ISSUE + [
     ("a key may be written twice in one mapping", "tools/check_workflows.py",
      "        if key in seen[len(stack)]:\n", "        if False:\n",
      ("tests.test_tools.Workflows.test_a_rule_is_not_dodged_by_writing_the_workflow_another_way",) + SHARDS_TESTS + JUDGING_SHAPE_TESTS),
+    # Issue 371: a bare list item stands only under a key with no value, beside the items before it; elsewhere a YAML
+    # reader reads it as more of a value, and a run: would run a command the check never held.
+    ("a list item may carry on a key's value", "tools/check_workflows.py",
+     "        items = None if value else (indent, None)\n", "        items = (indent, None)\n",
+     ("tests.test_tools.Workflows.test_a_rule_is_not_dodged_by_writing_the_workflow_another_way",)),
+    ("a list item may stand left of its key", "tools/check_workflows.py",
+     "len(item.group(1)) < items[0] or", "False or",
+     ("tests.test_tools.Workflows.test_a_rule_is_not_dodged_by_writing_the_workflow_another_way",)),
+    ("a list item may stand apart from the items before it", "tools/check_workflows.py",
+     "items[1] not in (None, len(item.group(1)))", "False",
+     ("tests.test_tools.Workflows.test_a_rule_is_not_dodged_by_writing_the_workflow_another_way",)),
     ("the judging job's env may hold more than NEEDS", "tools/check_workflows.py",
      '    if [e["key"] for e in mine if e["path"] == ["jobs", job, "env"]] != ["NEEDS"]:\n', "    if False:\n",
      JUDGING_SHAPE_TESTS),

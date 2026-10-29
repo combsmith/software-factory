@@ -2600,8 +2600,18 @@ class Workflows(unittest.TestCase):
             "a key written twice": (GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    timeout-minutes: 600\n"), "form"),
             "a step's key written twice": (GOOD.replace(STEP, "      - run: make verify\n        run: make evil\n"), "form"),
             "nothing at all": ("", "form"),
+            # Issue 371: a YAML reader reads each as more of the command, `make verify - ; exit 0`, and runs it whole.
+            "a command carried on as a list item": (GOOD.replace(STEP, STEP + "          - ; exit 0\n"), "form"),
+            "a command carried on past a blank line": (GOOD.replace(STEP, STEP + "\n          - ; exit 0\n"), "form"),
+            "a list item under a key with a value": (GOOD.replace(STEP, STEP + "        - ; exit 0\n"), "form"),
+            "a list item after a step": (GOOD.replace(STEP, STEP + "      - exit 0\n"), "form"),
+            "a list item indented apart from the one before": (
+                GOOD.replace("      - checks\n", "      - checks\n        - mutants\n"), "form"),
+            "a list left of its key": (GOOD.replace("      - checks\n      - commits\n      - mutants\n",
+                                                    "  - checks\n  - commits\n  - mutants\n"), "form"),
         }
         for name, (text, rule) in ways.items():
+            self.assertNotEqual(text, GOOD, name)
             self.assertIn(rule, rules(text), name)
 
     def test_a_workflow_that_keeps_the_rules_is_not_refused(self):
@@ -2612,6 +2622,9 @@ class Workflows(unittest.TestCase):
             "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
             "an off-zero schedule": POLLER.replace('"13 * * * *"', "'17,47 * * * *'"),
             "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")),
+            "a list under its key's own indent": GOOD.replace("      - checks\n      - commits\n      - mutants\n",
+                                                              "    - checks\n    - commits\n    - mutants\n"),
+            "a comment between a list's items": GOOD.replace("      - checks\n", "      - checks\n      # and\n"),
         }
         for name, text in fine.items():
             self.assertEqual(rules(text), [], name)

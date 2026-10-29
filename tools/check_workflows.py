@@ -583,9 +583,12 @@ def read(text: str) -> tuple:
 
     Its `path` is the keys above it, `step` numbers the list item it belongs to, and `body` holds
     the lines of a block of text under it. A key written twice in one mapping is not in the narrow form: a
-    YAML reader would refuse it or keep one of the two, and the entries would merge what no reader yields.
+    YAML reader would refuse it or keep one of the two, and the entries would merge what no reader yields. Nor is a
+    bare list item anywhere but under a key with no value, beside the items before it: under a key that has one, a
+    YAML reader reads it as more of that value, and a `run:` would run a command these entries do not hold (issue 371).
     """
     entries, bad, stack, step, block, seen = [], [], [], 0, None, [set()]
+    items = None        # where a bare list item may stand: (the least indent, the indent of the items before it)
     for number, raw in enumerate(text.split("\n"), 1):
         if "\t" in raw or "\r" in raw:
             bad.append(number)
@@ -602,8 +605,11 @@ def read(text: str) -> tuple:
         found, item = ENTRY.match(line), ITEM.match(line)
         if found is None:
             if item is None or len(item.group(1)) % 2 or item.group(2)[0] in "{[&*!|>'\"" or \
-                    re.search(r":(\s|$)", item.group(2)):
+                    re.search(r":(\s|$)", item.group(2)) or items is None or len(item.group(1)) < items[0] or \
+                    items[1] not in (None, len(item.group(1))):
                 bad.append(number)
+            else:
+                items = (items[0], len(item.group(1)))
             continue
         indent = len(found.group(1)) + (2 if found.group(2) else 0)
         key, rest = found.group(3), (found.group(4) or "").strip()
@@ -627,6 +633,7 @@ def read(text: str) -> tuple:
         entries.append(entry)
         stack.append((indent, key))
         seen.append(set())
+        items = None if value else (indent, None)
     return entries, bad
 
 
