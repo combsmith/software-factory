@@ -8609,6 +8609,23 @@ MUTANTS = ISSUE + [
      ("tests.test_tools.Context.test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before",)),
     ("a title after a new line is not looked for", "tools/check_context.py", '(?:^|(?<=[”\\n]))', '(?:^|(?<=[”]))',
      ("tests.test_tools.Context.test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before",)),
+    # Issue 370: a run that holds auth or eyJ is read once, from its start, so a long one is read in time.
+    ('every eyJ in a run is tried to its end', "tools/check_trials.py",
+     '    r"(?<![a-z0-9_-])(?=[a-z0-9_-]*?eyJ)[a-z0-9_-]*\\.",',
+     '    r"eyJ[a-z0-9_-]*\\.",',
+     ('tests.test_tools.Trials.test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen',)),
+    ('an eyJ after the start of its run is not seen', "tools/check_trials.py",
+     '(?=[a-z0-9_-]*?eyJ)',
+     '(?=eyJ)',
+     ('tests.test_tools.Trials.test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen',)),
+    ('every auth in a run of letters is tried to its end', "tools/check_trials.py",
+     '    r"(?<![a-z])(?=(?P<auth>[a-z]*?auth))(?P=auth)[a-z]*\\W{0,3}[0-9a-f]{40}",',
+     '    r"auth[a-z]*\\W{0,3}[0-9a-f]{40}",',
+     ('tests.test_tools.Trials.test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen',)),
+    ('an auth after the start of its run of letters is not seen', "tools/check_trials.py",
+     '(?=(?P<auth>[a-z]*?auth))',
+     '(?=(?P<auth>auth))',
+     ('tests.test_tools.Trials.test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen',)),
 ]
 
 

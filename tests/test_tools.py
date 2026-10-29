@@ -3409,6 +3409,21 @@ class Trials(unittest.TestCase):
             self.assertTrue(caught(problems, words), words)
         self.assertEqual(check_trials.run(clone({"trials/P-12.json": fixture(), "trials/P-12.retry.json": fixture()})), [])
 
+    def test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen(self):
+        # Issue 370: each auth in a run of letters, and each eyJ in a run with no dot, was tried again to the run's end.
+        for text in ("auth" * 10000, "eyJ" * 40000):     # each took ten seconds or more, and takes a hundredth now
+            began = time.monotonic()
+            self.assertFalse(check_trials.shaped(text))
+            self.assertLess(time.monotonic() - began, 2, text[:4])
+        hexed = "0123456789abcdef" * 2 + "deadbeef"
+        for text, found in (("auth" * 50 + hexed, True), ("xauthorization: " + hexed, True), ("authorization" + hexed, True),
+                            ("Authorizationdeadbeef" + hexed, True), ("authx" * 30 + "=" + hexed, True),
+                            ("aéauth " + hexed, True), ("authé" + hexed, False), ("auth" + hexed[:39], False),
+                            ("auth" * 9 + ": : " + hexed, False), ("noeyJ" * 30 + ".x", True), ("x-eyJ_0.", True),
+                            ("ey" * 40 + "J.", True), ("eyJ" * 40 + "/.", False), ("ey-J" * 30 + ".", False),
+                            ("eyJ" * 20 + " ." + "eyJ" * 20, False)):
+            self.assertEqual(check_trials.shaped(text), found, text)
+
     def test_a_credential_in_a_fixture_is_caught(self):
         for name, value in sorted(SHAPED.items()):
             self.assertTrue(check_trials._credentials({"note": value}, ""), name)
