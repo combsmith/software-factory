@@ -177,7 +177,8 @@ def scopes(writes: dict, config: dict) -> tuple:
 
 def controller_permits(config: dict, org: str, repos: list) -> tuple:
     """`(permits, patterns)`: the requests the Controller's token may send for the Pause and the tracking issue. Each
-    scope's `FACTORY_PAUSED`; the open issues its App opened, one page; an issue opened with the one title, a body and
+    repo's `FACTORY_PAUSED`, and the org's as the first repo's list of the org's variables, each page (issue 362); the
+    open issues its App opened, one page; an issue opened with the one title, a body and
     the Maintainer assigned; and an issue of the home repo edited, its body alone or with the Maintainer assigned
     again, or closed as completed."""
     home = config["home"]["repo"]
@@ -197,11 +198,17 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
                                            or set(body) == {"body", "assignees"} and isinstance(body["body"], str)
                                            and isinstance(maintainer, str) and body["assignees"] == [maintainer]
                                            or body == {"state": "closed", "state_reason": "completed"})
-    permits = {("GET", pause_.path(scope)): none for scope in [org] + list(repos)}
+    # The org's Pause is read from the first repo's list of the org's variables, page by page (issue 362).
+    permits = {("GET", pause_.path(repo)): none for repo in repos}
+    via = sorted(set(repos))[0] if repos else None
+    if via is not None:
+        permits[("GET", pause_.listed(via))] = none
     if account.get("login"):
         permits[("GET", listed(home, account))] = none
     permits[("POST", "/repos/%s/issues" % home)] = opened
-    return permits, (("PATCH", re.compile(re.escape("/repos/%s/issues/" % home) + r"[1-9][0-9]{0,9}"), edited),)
+    pages = (("GET", re.compile(re.escape(pause_.listed(via) + "&page=") + r"(?:[2-9]|[1-9][0-9]{1,3})"), none),) \
+        if via is not None else ()
+    return permits, (("PATCH", re.compile(re.escape("/repos/%s/issues/" % home) + r"[1-9][0-9]{0,9}"), edited),) + pages
 
 
 def listed(home: str, account: dict) -> str:
@@ -657,7 +664,8 @@ GONE = 404             # with 401 and 403, a token GitHub will not take for this
 
 class Approving:
     """The approver's transport, narrowed to what one step may send, and anything else refused before it leaves. With
-    no item, it may ask only who the token is; with an item, also read that item's repo, the org's Pause and the facts
+    no item, it may ask only who the token is; with an item, also read that item's repo, the org's Pause among it as the
+    repo's list of the org's variables (issue 362), and the facts
     port's own GraphQL reads of that pull request; with the head the act just read as well, also write one review, the
     approval of that commit and nothing else in it. No path may climb out of the item's repo."""
 
@@ -665,13 +673,12 @@ class Approving:
         self._transport, self._item, self._head = transport, dict(item) if item else None, head
         if item:
             self._repo = "/repos/%s/" % item["repo"]
-            self._pause = "/orgs/%s/actions/variables/FACTORY_PAUSED" % item["repo"].split("/")[0]
             self._reviews = "/repos/%s/pulls/%d/reviews" % (item["repo"], item["number"])
 
     def _read(self, path) -> bool:
         if not isinstance(path, str) or ".." in path or "%2e" in path.lower() or "//" in path:
             return False
-        return path == "/user" or (self._item is not None and (path == self._pause or path.startswith(self._repo)))
+        return path == "/user" or (self._item is not None and path.startswith(self._repo))
 
     def _query(self, body) -> bool:
         """One of the facts port's own reads of this pull request, its variables this item's and a page's cursor."""

@@ -3045,7 +3045,7 @@ REFUSALS = {
     ("P-4", 2): None, ("P-4", 3): None, ("P-4", 9): None,   # a trial's own writes and reads of a file
     ("P-43", 3): None,                 # a review written by the trial, which no port writes yet
     ("P-44", 3): "runs",               # a list of runs GitHub did not find
-    ("P-52", 2): "pause",              # the org's own variable, refused the Controller's token: the Pause unreadable
+    ("P-52", 2): None,                 # the org's own variable, refused the Controller's token: no port asks it (issue 362)
     # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
     ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 19): None,
     ("P-2.least", 30): None,
@@ -3159,11 +3159,11 @@ class Contract(unittest.TestCase):
                 pull.last_pusher(replay("P-7", 11), body("P-7", 7)) == "combsmith-sf-trial-author[bot]"),
             # The App pushed the head last, read after the approval too, and the machine user's approval of that head
             # stands: approved, on that commit, dismissed by no one.
-            # The repo's Pause is read with the Controller's token, and the org's own endpoint refuses it, read as a
-            # Pause unreadable; the repo's list of the org's variables, which also names it, the port reads from issue 362.
+            # The repo's Pause is read with the Controller's token, and the org's from the repo's list of the org's
+            # variables, since the org's own endpoint refuses it (issue 362).
             "the_pause_is_read_with_the_controllers_token": ({"P-52"},
-                pause.read(replay("P-52", 2, 1), "combsmith", [canary()])
-                == {"org": pause.UNREADABLE, "repos": {canary(): "false"}}),
+                pause.read(replay("P-52", 3, 1), "combsmith", [canary()])
+                == {"org": "false", "repos": {canary(): "false"}}),
             "the_machine_users_approval_counts": ({"P-7"},
                 pull.last_pusher(replay("P-7", 24), body("P-7", 20)) == "combsmith-sf-trial-author[bot]"
                 and [(r["state"], r["dismissed_by"] is None) for r in reviewed if r["by"]["kind"] == "machine_user"]
@@ -3197,9 +3197,7 @@ class Contract(unittest.TestCase):
                  and (e["response"]["status"] >= 400
                       or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
         self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "pause", "runs"])
-        # The org's variable GitHub refused the Controller's token, as P-52 recorded its 403, is a Pause unreadable.
-        self.assertIs(pause.read(replay("P-52", 2), "combsmith", [])["org"], pause.UNREADABLE)
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "runs"])
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]
