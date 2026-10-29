@@ -2948,10 +2948,9 @@ class Context(unittest.TestCase):
 
     def test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before(self):
         # Issue 369: every opening quote was tried, each to the line's end, so a line of them took time in its square.
-        began = time.monotonic()
         self.assertTrue(check_context.TITLE.search("x" * 10 + "\u201c" * 40000 + "\u201d") is not None)
         self.assertIsNone(check_context.TITLE.search("See issue 12 " + "\u201ca" * 20000))
-        self.assertLess(time.monotonic() - began, 3)
+        read_in_linear_cpu(self, check_context.TITLE.search, "\u201ca", 12000)
         # Only the first opening quote of a run is tried; it is a title wherever a later one in the run would be.
         for text, titled in (("\u201cdocs: \u201cfactory\u201d MVP\u201d", True), ('"docs: \u201cfactory MVP"', True),
                              ("\u201cshort \u201cdocs: factory MVP\u201d", True), ('"ab" \u201cdocs: factory\u201d', True),
@@ -3404,6 +3403,20 @@ PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", 
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
 
+def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
+    """Fail `test` unless `read(unit * n)` spends CPU time linearly in n, and under half a second at `size`. CPU time is
+    what a busy machine does not stretch, and no clock is judged, so a pattern read in time in its square is a mutant
+    this kills (issues 369 and 370); where it was so, the reading at `size` took a second or more of CPU."""
+    read(unit * (size // 4))    # once, untimed, so what the first reading warms is not counted to it
+    spent = []
+    for n in support.sizes(size):
+        with support.Spent() as one:
+            read(unit * n)
+        spent.append(one)
+    test.assertEqual(support.faster_than_linear(*spent), "", unit)
+    test.assertLess(spent[-1].cpu, 0.5, unit)
+
+
 class Trials(unittest.TestCase):
     def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
         root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
@@ -3417,10 +3430,9 @@ class Trials(unittest.TestCase):
 
     def test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen(self):
         # Issue 370: each auth in a run of letters, and each eyJ in a run with no dot, was tried again to the run's end.
-        for text in ("auth" * 10000, "eyJ" * 40000):     # each took ten seconds or more, and takes a hundredth now
-            began = time.monotonic()
-            self.assertFalse(check_trials.shaped(text))
-            self.assertLess(time.monotonic() - began, 2, text[:4])
+        self.assertFalse(check_trials.shaped("auth" * 10000) or check_trials.shaped("eyJ" * 40000))
+        read_in_linear_cpu(self, check_trials.SHAPES.search, "auth", 4800)
+        read_in_linear_cpu(self, check_trials.SHAPES.search, "eyJ", 12000)
         hexed = "0123456789abcdef" * 2 + "deadbeef"
         for text, found in (("auth" * 50 + hexed, True), ("xauthorization: " + hexed, True), ("authorization" + hexed, True),
                             ("Authorizationdeadbeef" + hexed, True), ("authx" * 30 + "=" + hexed, True),
