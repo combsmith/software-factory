@@ -1357,6 +1357,44 @@ class Timeline(unittest.TestCase):
             odd = Router(github.Replay([]), {"x": level})
             with self.assertRaises(github.Unanswered, msg=level):
                 self.accounts(odd).actor({"login": "x", "id": 1, "type": "User"})
+        from kernel import derive
+        # Issue 368, L-02: an event an App made with a person's token is the App's. GitHub names a User as the actor of
+        # what an App did with that User's token, and the App in the event's performed_via_github_app. No fixture yet
+        # holds such a label event or dismissal: events in the timeline's shape. The writer's own removal of a Hold
+        # ends it; the same removal made through an App is the App's, which ends no Hold, hands-off or admission
+        # (kernel/derive.py's standing_labels), and dismisses no request for changes.
+        at, later = "2026-10-19T18:00:00Z", "2026-10-19T19:00:00Z"
+        writer = {"login": "don-petry", "id": 9, "type": "User"}
+        app = {"id": 77, "slug": "some-app"}
+        placed = {"event": "labeled", "label": {"name": "factory:hold"}, "created_at": at, "actor": writer,
+                  "performed_via_github_app": None}
+        removed = dict(placed, event="unlabeled", created_at=later)
+        router = Router(github.Replay([]), {"don-petry": "admin"})
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        self.assertEqual([e["by"] for e in timeline.label_events([placed, removed], self.accounts(router))],
+                         [person, person])
+        got = timeline.label_events([placed, dict(removed, performed_via_github_app=app)], self.accounts(router))
+        self.assertEqual([e["by"] for e in got], [person, {"kind": "app", "name": "don-petry", "can_write": False}])
+        self.assertEqual(derive.standing_labels({"label_events": got}), {"factory:hold": got[0]})
+        # An App's own Bot, the machine user, and a Lens are read as they always are, whatever names the App.
+        bot = {"login": "coderabbitai[bot]", "id": 8, "type": "Bot"}
+        machine = {"login": APPROVER, "id": MACHINE[0], "type": "User"}
+        lens = {"login": "combsmith-sf-pr-review[bot]", "id": 7, "type": "Bot"}
+        mixed = Router(github.Replay([]), {APPROVER: "write"})
+        others = [dict(removed, actor=who, performed_via_github_app=app) for who in (bot, machine, lens)]
+        self.assertEqual([e["by"]["kind"] for e in timeline.label_events(others, self.accounts(mixed, {(7, "Bot"): "x"}))],
+                         ["app", "machine_user", "lens"])
+        # A dismissal is read the same way: P-7's Maintainer dismissed the App's approval himself; made through an App,
+        # the dismissal is the App's.
+        events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d", "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"}
+        via = [dict(e, performed_via_github_app=app) if e.get("event") == "review_dismissed"
+               and e["actor"]["login"] == "don-petry" else e for e in events]
+        for timeline_read, by in ((events, {"kind": "human", "name": "don-petry", "can_write": True}),
+                                  (via, {"kind": "app", "name": "don-petry", "can_write": False})):
+            router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
+            got, _ = timeline.reviews(router, p7_pull(), timeline_read, self.accounts(router), BASE_HEAD)
+            self.assertEqual(got[0]["dismissed_by"], by)
 
     def test_a_reopening_is_read_from_the_timeline(self):  # issue 378, trials/P-7.reopened.json
         # Canary pull request 61, closed and then approved by the machine user, was reopened with no push: the timeline
