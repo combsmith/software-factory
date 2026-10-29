@@ -4525,6 +4525,43 @@ exit 0
         asked = json.loads((folder / "out" / "requests.json").read_text())
         self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
 
+
+class OutputMadeAlone(unittest.TestCase):
+    """Each trial the Maintainer runs with a key finds OUT absent, then makes it itself (issue 367). A directory made in
+    between, by another, may hold a link where the run will write; it is refused, and nothing is written through it."""
+
+    READER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY"),
+               "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
+               "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry")}
+
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        for script, args in self.SCRIPTS.items():
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                out, victim = folder / "out", folder / "victim"
+                victim.write_text("kept\n")
+                # mktemp runs after the check and before OUT is made: here it plants OUT, with a link inside it.
+                (folder / "bin" / "mktemp").write_text(
+                    '#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/mktemp "$@"\n'
+                    % (out, out, victim, out))
+                (folder / "bin" / "curl").write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
+                for name in ("mktemp", "curl"):
+                    (folder / "bin" / name).chmod(0o755)
+                (folder / "key.pem").write_text("not a key\n")
+                argv = [str(folder / "key.pem") if a == "KEY" else a for a in args]
+                done = subprocess.run(["sh", str(ROOT / "tools" / script), str(out), *argv], capture_output=True, text=True,
+                                      env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
+                                           "LANG": "C", "TMPDIR": str(folder)},
+                                      cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("was made by something else after it was found absent", done.stderr)
+                self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+                self.assertFalse((folder / "calls").exists(), "a call was made")
+
+
 class TrialScript(unittest.TestCase):
     """`tools/trial_p13_cli.sh`, run against a stand-in CLI and never the real one (issue 178): the environment the CLI is
     given, each refusal before anything is asked, the login that must say yes, and the answer kept by allowlist so that

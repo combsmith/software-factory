@@ -59,7 +59,9 @@ case "$2" in forward) order="unset plain scrubbed" ;; reversed) order="scrubbed 
 cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 [[ -f "$4" ]] || refuse "no stub at '$4'"
 stub=$(cd "$(dirname "$4")" && pwd -P)/$(basename "$4")
-mkdir -p "$1"
+# OUT is made here, by this script alone: one made since it was found absent is refused, never written into.
+mkdir -p -- "$(dirname -- "$1")"
+mkdir -m 700 -- "$1" || refuse "$1 was made by something else after it was found absent; name a new directory"
 out=$(cd "$1" && pwd -P)
 
 # The scratch directory, and so each work directory's parent, is under the runner's own temporary directory, where a

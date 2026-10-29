@@ -8586,6 +8586,22 @@ MUTANTS = ISSUE + [
     ('a verify suite not answered is an error', 'adapters/candidate.py',
      '    try:\n        answer = transport.send(request("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (repo, suite)))\n    except Unanswered:\n        return False\n',
      '    answer = transport.send(request("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (repo, suite)))\n', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
+    # Issue 367: OUT is made by the trial alone, never taken as another made it after the check.
+    ("P-4's trial takes an OUT another made after the check", "tools/trial_p4_narrow.sh",
+     'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
+     ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
+    ("P-39's trial of reach takes an OUT another made after the check", "tools/trial_p39_reach.sh",
+     'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
+     ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
+    ("P-52's trial takes an OUT another made after the check", "tools/trial_p52_pause.sh",
+     'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
+     ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
+    ("P-8's trial takes an OUT another made after the check", "tools/trial_p8_cost.sh",
+     'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
+     ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
+    ("the reader's trial takes an OUT another made after the check", "tools/trial_reader_reads.sh",
+     'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
+     ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
 ]
 
 

@@ -87,7 +87,12 @@ for app in ("controller", "pr-review", "reader"):
     print(app, apps[app]["name"], apps[app]["app_id"], found[apps[app]["app_id"]])
 ')
 
-mkdir -p "$out"
+# OUT is made here, by this script alone and for its user alone: one made since it was found absent is refused,
+# never written into, since what is in it may be a link to a file this run would overwrite.
+if ! mkdir -m 700 "$out"; then
+    echo "trial_p39_reach: $out was made by something else after it was found absent; name a new directory" >&2
+    exit 2
+fi
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 asked=""
 
