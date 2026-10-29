@@ -102,7 +102,7 @@ class Accounts:
             user = self._permission(login).get("user")
         except Unanswered:
             return None
-        if not isinstance(user, dict) or user.get("id") != ident or isinstance(user.get("id"), bool) \
+        if not isinstance(user, dict) or type(user.get("id")) is not int or user.get("id") != ident \
                 or user.get("type") not in ("User", "Bot"):
             return None
         return user["type"]
