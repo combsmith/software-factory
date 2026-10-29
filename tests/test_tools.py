@@ -6242,6 +6242,7 @@ class Redaction(unittest.TestCase):
                 ('HTTP/2 200\ncontent-type: application/json\n{ "client_secret": "abc123xyz" }', "header"),
                 ("HTTP/2 200\nx-api-key: part1\n\tsecretcontinuation\ncontent-type: text/plain\n\nfine\n", "header"),
                 ("HTTP/1.1 100 Continue\ncontent-type: application/json\n\nHTTP/2 200\n\nnot json\n", "JSON"),
+                ('HTTP/1.1 100 Continue\n\nHTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n', "JSON"),
                 ("HTTP/2 200\ncontent-type: text/plain\n\n\ufeff" + secret, "JSON"),
                 ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + secret + "\n", "JSON"),
                 ('{\n\n"password": "hunter2"\n', "JSON")):
