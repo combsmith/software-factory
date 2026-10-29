@@ -32,4 +32,5 @@ person's label as an override was not taken: who may apply one needs its own dec
 | A later Run that failed, was cancelled, timed out, or adjudicated, or a review whose record is past retention, releases nothing | `tests/test_adapters.py::test_only_a_later_review_that_succeeded_supersedes` |
 | A thread both reviews record is still held to its opener | `tests/test_adapters.py::test_a_thread_both_reviews_record_is_still_held_to_its_opener` |
 | The snapshot tells the threads its content | `tests/test_adapters.py::test_a_snapshot_tells_the_threads_its_content_so_a_later_review_supersedes` |
+| No current content, missing or empty, supersedes nothing, though a later Run's record names none in the same way | `tests/test_adapters.py::test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

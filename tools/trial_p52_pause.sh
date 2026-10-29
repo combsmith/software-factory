@@ -120,9 +120,9 @@ import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
 if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
-    token=""
+    # A token the refusal carried all the same is left for the trap, which revokes it and says so (Muse on #364).
     minted=""
-    echo "trial_p52_pause: $slug: no token was minted for installation $installation (status ${minted_status:-none});" \
+    echo "trial_p52_pause: $slug: the mint was refused for installation $installation (status ${minted_status:-none});" \
         "nothing read" >&2
     exit 1
 fi

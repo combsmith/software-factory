@@ -860,6 +860,11 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(self.team({"pr-review": self.review(), "pr-review-two": twin}),
                                "security is owned by ['pr-review', 'pr-review-two']"))
 
+    def test_the_review_role_permits_its_check_run_now_its_app_is_granted_it(self):  # decision 0059, Muse on #364
+        manifest = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        review = next(i for i in manifest["intents"] if i["name"] == "review-change")
+        self.assertEqual(review["permitted_effects"], ["submit_review", "create_check_run"])
+
     def test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app(self):  # section 5.4, decision 0005
         wide = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=["submit_review",
                                                                                          "create_check_run"])])
@@ -1242,8 +1247,9 @@ class Apps(unittest.TestCase):
                                          "table maps to pull_requests write"))
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
-        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("read:facts.queue")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 185"))
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:dequeue_merge")
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:dequeue_merge, which waits on the "
+                                             "queue App, combsmith-sf-queue"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
@@ -3479,6 +3485,11 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
         self.assertTrue(caught(problems, "exchanges[1].response.headers.X-GitHub-SSO is not a header a fixture may keep"))
         self.assertFalse(caught(problems, "X-RateLimit-Used"))
+        # What the asking token may do is not kept: no rule needs it, and it advertises the Maintainer's scopes.
+        data["exchanges"][1]["response"]["headers"]["x-oauth-scopes"] = "admin:org, delete_repo, repo"
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "exchanges[1].response.headers.x-oauth-scopes is not a header a fixture may keep"))
+        self.assertNotIn("x-oauth-scopes", check_trials.HEADERS)
 
     def test_every_example_of_a_fixture_and_the_folder_notes_are_scanned(self):
         data = json.loads((ROOT / "examples" / "invalid" / "trial.run-outside-the-canary.json").read_text())
@@ -3640,21 +3651,41 @@ class Trials(unittest.TestCase):
         self.assertNotEqual(second, reworded)
         self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: second})),
                                "section 6 has more than one row for P-41; a trial has one"))
-        # A row fenced with tildes, or in an HTML comment, holds no row either.
-        for hidden in ("~~~\n%s\n~~~", "<!--\n%s\n-->"):
+        # A row fenced with tildes, or in an HTML comment, holds no row either; nor does a fence indented up to three
+        # spaces, or a longer one, which a shorter line does not close (the second-family read of #384).
+        for hidden in ("~~~\n%s\n~~~", "<!--\n%s\n-->", "   ```\n%s\n   ```", "````\n```\n%s\n````",
+                       "~~~~\n~~~\n%s\n~~~~"):
             veiled = reworded.replace("\n## 7. ", "\n" + hidden % "| P-41 | does a request for changes survive the push | x |"
                                       + "\n\n## 7. ", 1)
             problems = check_trials.run(clone({check_trials.DESIGN: veiled}))
             self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not "
                                              "ask it"), hidden)
             self.assertFalse(caught(problems, "more than one row"), hidden)
+        # The blocks are read in one pass from the top, as a renderer reads them: a fence inside a comment, or a
+        # comment's close inside a block, ends nothing, and the row the tildes hold is hidden still (the second-family
+        # read of #357).
+        nested = "<!--\n```\n-->\n~~~\n```\n-->\n%s\n<!--\n~~~\n-->" % "| P-41 | does a request for changes survive the push | x |"
+        problems = check_trials.run(clone({check_trials.DESIGN: reworded.replace("\n## 7. ", "\n" + nested + "\n\n## 7. ", 1)}))
+        self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
+        self.assertFalse(caught(problems, "more than one row"))
+        # A question is its cell alone: a cell whose close lacks its space does not run on into the next.
+        start = reworded.index("| P-41 | ")
+        for row in ("| P-41 | is a request for changes kept |does a request for changes survive the push | x |",
+                    "| P-41 | is a request for changes kept \ndoes a request for changes survive the push | x |"):
+            run_on = reworded[:start] + row + reworded[reworded.index("\n", start):]
+            self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: run_on})),
+                                   "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"), row)
+        # A pipe escaped is the cell's own, and the question goes on past it.
+        piped = design.replace("does a request for changes survive the push", "does a request for changes survive the push, a\\|b", 1)
+        self.assertNotEqual(piped, design)
+        self.assertEqual(check_trials.run(clone({check_trials.DESIGN: piped})), [])
         # An opener left unclosed hides every row after it, as a renderer reads it: those trials have no row.
-        for opener in ("<!--", "~~~", "```"):
+        for opener in ("<!--", "~~~", "```", "   ```"):
             unclosed = design.replace("| P-41 |", opener + "\n| P-41 |", 1)
             self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unclosed})),
                                    "a_request_for_changes_survives_a_push: P-41 has no row in section 6"), opener)
         # A block that is closed hides only itself: the rows after it are read as before.
-        for block in ("```\nx\n```", "~~~\nx\n~~~", "<!-- x -->"):
+        for block in ("```\nx\n```", "~~~\nx\n~~~", "<!-- x -->", "   ```\nx\n   ```", "````\n```\n````"):
             closed = design.replace("| P-41 |", block + "\n| P-41 |", 1)
             self.assertEqual(check_trials.run(clone({check_trials.DESIGN: closed})), [], block)
         # A row in a fenced block asks nothing, though it quotes the old question.
@@ -3878,6 +3909,30 @@ class Trials(unittest.TestCase):
                       "P-27, `trials/P-27.json`)", "(P-20,\n  `trials/P-20.json`)"):
             self.assertIn(cited, design)
 
+    def test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered(self):
+        # Window 2's answers are GraphQL writes, which name a node and no repo: a fixture may record one of WRITES, by
+        # its one `id`, on a node a read of the canary alone in the same fixture answered, and nothing else.
+        data = json.loads((ROOT / "examples" / "invalid" / "trial.a-write-on-a-node-no-read-answered.json").read_text())
+        data["exchanges"][1]["request"]["body"]["variables"]["id"] = data["exchanges"][0]["response"]["body"]["node_id"]
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        for field, key in check_trials.WRITES.items():
+            query = "mutation($id: ID!) { %s(input: {%s: $id}) { clientMutationId } }" % (field, key)
+            self.assertEqual(check_trials.written({"via": "graphql", "body": {"query": query, "variables": {"id": "N"}}}),
+                             (field, "N"))
+            for wrong in (query.replace(key, "other"), query + " query { viewer { login } }", query.replace("$id", '"N"', 1)):
+                self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": wrong, "variables": {"id": "N"}}}))
+        # A merge method rides only on auto-merge; and a node id names its repository, read as GitHub writes it.
+        merged = "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id, mergeMethod: SQUASH}) { clientMutationId } }"
+        self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": merged, "variables": {"id": "N"}}}))
+        self.assertEqual(check_trials.node_repo("PR_kwDOVFD6788AAAABLI32PA"), check_trials.CANARY_ID)
+        self.assertEqual(check_trials.node_repo("PRRT_kwDOVFD6786w86vx"), check_trials.CANARY_ID)
+        for unreadable in ("", "PR_", "PR_!!", "MDExOlB1bGxSZXF1ZXN0MQ==", "PR_AAAA"):
+            self.assertIsNone(check_trials.node_repo(unreadable), unreadable)
+        # The node a read answered is held only when that read is of the canary alone.
+        outside = json.loads(json.dumps(data))
+        outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
+        self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
         # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
@@ -3916,6 +3971,23 @@ class Trials(unittest.TestCase):
             "a-trial-of-forks-reading-an-outside-org": "names the owner outside",
             "a-star-beside-another-read": "names the owner outside",
             "a-star-that-climbs": "climbs out of its repo",
+            # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
+            "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
+            "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-on-another-repos-node-a-canary-read-holds": "on a node that is not the canary's by its id: 999999",
+            # However a write is carried, by a command line or inside an answer, it is held as one sent; and a read that
+            # also names another repo ties no node to the canary.
+            "a-write-carried-by-a-command-line": "carries a GraphQL write that is not one of WRITES",
+            "a-write-carried-inside-an-answer-on-another-repos-node": "carries a write of enqueuePullRequest on a node no read",
+            "a-write-on-a-node-a-read-naming-another-repo-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            # Only a read answered 200 ties a node, never a refused one or a write's answer; a comment hides no write, nor
+            # does another field of a GraphQL body.
+            "a-write-on-a-node-a-refused-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-on-a-node-a-post-answered": "writes enqueuePullRequest on a node no read of the canary alone",
+            "a-write-behind-a-comment-in-a-command-line": "carries a GraphQL write that is not one of WRITES",
+            "a-write-in-another-field-of-a-graphql-body": "carries a GraphQL write that is not one of WRITES",
+            "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
+            "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
@@ -4951,12 +5023,18 @@ if path == "repos/%s" % repo:
     answer(200, {"full_name": repo, "default_branch": "main"})
 if path.endswith("/git/ref/heads/main"):
     answer(200, {"object": {"sha": "a" * 40}})
-if path.endswith("/git/refs") or "/contents/" in path:
+if path.endswith("/git/refs"):
     answer(201, {"ok": True})
+if "/contents/" in path:
+    # The commit the push makes; GitHub then reads the pull request's head as the old one once, as it did in window 2.
+    state["pushed"] = True
+    answer(201, {"commit": {"sha": "b" * 40}})
 if path.endswith("/pulls") and method == "POST":
     answer(201, {"number": 7})
 if path.endswith("/pulls/7") and method == "GET":
-    answer(200, {"number": 7, "state": "open", "head": {"sha": "b" * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
+    stale = os.environ.get("STANDIN_STALE") == "always" or (state.get("pushed") and not state.get("moved"))
+    state["moved"] = bool(state.get("pushed"))
+    answer(200, {"number": 7, "state": "open", "head": {"sha": ("c" if stale else "b") * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
 if path.endswith("/pulls/7/reviews"):
     state["reviews"] += 1
     answer(200, {"id": state["reviews"]})
@@ -5004,9 +5082,36 @@ esac
                              capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
         return bin_, ran
 
+    def test_a_head_github_never_moves_is_read_five_times_and_said_so(self):
+        bin_, ran = self.run_threads(STANDIN_STALE="always")
+        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+        reads = [c for c in calls if any(a.endswith("/pulls/7") for a in c["argv"]) and "GET" in c["argv"]]
+        self.assertEqual(len(reads), 5)
+        self.assertIn("the push made " + "b" * 40 + ", and the pull request still read " + "c" * 40, ran.stderr)
+
+    def test_the_token_is_read_after_the_last_status_lines_headers(self):
+        # The mint's answer as curl -i prints it: through a proxy a block of its own comes first, and GitHub
+        # pretty-prints an empty list across a blank line, which once hid the window's token, unread and unrevoked.
+        token = "ghs_" + "Q" * 36
+        body = json.dumps({"token": token, "repositories": [], "permissions": {"contents": "write"}}, indent=2)
+        script = self.SCRIPT.read_text()
+        parse = re.search(r"/access_tokens\" \|\n    python3 -I -c '\n(.*?)' \"\$raw\"\)", script, re.S).group(1)
+        for answer in ("HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n" + body.replace("[]", "[\n\n  ]"),
+                       "HTTP/1.1 200 Connection established\r\n\r\nHTTP/2 201 \r\nx: y\r\n\r\n" + body):
+            kept = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "02.raw"
+            ran = subprocess.run([sys.executable, "-I", "-c", parse, str(kept)], input=answer, capture_output=True,
+                                 text=True, timeout=60)
+            self.assertEqual((ran.returncode, ran.stdout), (0, token), answer[:40])
+            self.assertNotIn(token, kept.read_text())
+            self.assertTrue(kept.read_text().startswith("HTTP/2 201"), kept.read_text()[:40])
+
     def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
         bin_, ran = self.run_threads()
         self.assertEqual(ran.returncode, 0, ran.stderr)
+        # The head it says is the commit its push made, read again until GitHub moved the pull request to it (window 2
+        # printed the head before the push).
+        self.assertIn("head " + "b" * 40, ran.stdout)
+        self.assertNotIn("still read", ran.stderr)
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
         calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
         curl_calls = [json.loads(line) for line in (bin_ / "curl-calls").read_text().splitlines()]
@@ -5842,6 +5947,8 @@ if method == "POST" and url.endswith("/access_tokens"):
     code = status("mint", 201)
     body = {"token": "''' + "ghs_" + "P" * 36 + r'''", "expires_at": "2026-10-22T19:00:00Z",
             "permissions": {"actions_variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"}
+    if (here / "status-notoken").exists():
+        body.pop("token")
     print(json.dumps(body) + "\n" + str(code), end="")
     sys.exit(0)
 if method == "DELETE":
@@ -5916,9 +6023,22 @@ esac
         folder = self.stand_in(mint=403)
         out, ran = self.run_script(folder)
         self.assertEqual(ran.returncode, 1)
-        self.assertIn("no token was minted", ran.stderr)
-        self.assertEqual(len(self.calls(folder)), 1)
+        self.assertIn("the mint was refused", ran.stderr)
+        # The stand-in's refusal carries a token all the same, and the trap revokes it before the script ends; nothing
+        # else is asked, and the token is said nowhere.
+        said = self.calls(folder)
+        self.assertEqual(len(said), 2, said)
+        self.assertIn("installation/token", json.dumps(said[1]))
+        self.assertIn("stopped with a token live", ran.stderr)
         self.assertFalse((out / "token.json").exists())
+        self.assertNotIn("ghs_", ran.stdout + ran.stderr)
+        for kept in ("token.json", "requests.json", "ran_at"):
+            self.assertFalse((out / kept).exists() and "ghs_" in (out / kept).read_text(), kept)
+        # A refusal that carries no token revokes nothing: one call, the mint.
+        folder = self.stand_in(mint=403, notoken=1)
+        out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual(len(self.calls(folder)), 1)
 
     def test_a_revocation_refused_stops_it_and_says_so(self):
         folder = self.stand_in(revoke=500)
@@ -6556,6 +6676,85 @@ class Mutants(unittest.TestCase):
             code = mutants.main(mutate("fails"), tree({"k.py": "rule\n"}), told({"rule": (0, 1, FAILS_A_TEST)}, calls))
         self.assertEqual((code, calls), (1, ["rule", "done rule"]))
         self.assertIn("the tests fail before anything is broken", said.getvalue())
+
+    def test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite(self):  # issue 396
+        # Before anything is broken, a run runs the tests its own mutants name, each once and method by method, dealt
+        # among its workers: a share of what they name, never one run of the whole suite, which outgrew a run's 600 s
+        # on a CI runner. The names are read in the tree the baseline runs in; a name read as no test is kept whole.
+        named = [("a", "k.py", "rule\n", "a\n", ("tests.test_x.T",)),
+                 ("b", "k.py", "rule\n", "b\n", ("tests.test_x.T", "tests.test_z.U.test_c")),
+                 ("c", "k.py", "rule\n", "c\n", ("tests.test_y",))]
+        self.assertEqual(mutants.named(named), ("tests.test_x.T", "tests.test_y", "tests.test_z.U.test_c"))
+        root = tree({"k.py": "rule\n"})
+        for workers, parts in ((2, [("tests.test_x.T", "tests.test_z.U.test_c"), ("tests.test_y",)]),
+                               (3, [("tests.test_x.T",), ("tests.test_y",), ("tests.test_z.U.test_c",)]),
+                               (5, [("tests.test_x.T",), ("tests.test_y",), ("tests.test_z.U.test_c",)])):
+            calls = []
+
+            def run(work, first=(), only=None):
+                calls.append((first, only))
+                return PASSES[1:]
+            self.assertEqual(mutants.baseline(named, root, run, workers), [PASSES[1:]] * len(parts))
+            self.assertEqual(sorted(calls), sorted(((), part) for part in parts), workers)
+        # A class or module named whole is read method by method, in the tree, so that its tests are shared among the
+        # parts and do not hold one of them; a test named twice is run once.
+        whole = mutants.cases(("tests.test_coverage",), ROOT)
+        self.assertGreater(len(whole), 2)
+        self.assertTrue(all(test.startswith("tests.test_coverage.") and test.count(".") == 3 for test in whole), whole)
+        self.assertEqual(mutants.cases(("tests.test_coverage", whole[0], "tests.test_gone.X"), ROOT),
+                         whole + ("tests.test_gone.X",))
+        calls = []
+
+        def run(work, first=(), only=None):
+            calls.append(only)
+            return PASSES[1:]
+        mutants.baseline([("w", "k.py", "rule\n", "w\n", ("tests.test_coverage",))], ROOT, run, 2)
+        self.assertEqual(sorted(calls), sorted([whole[0::2], whole[1::2]]))
+        two = suite_of("    def test_a(self):\n        pass\n\n    def test_b(self):\n        self.fail()\n")
+        self.assertEqual(mutants.cases(("tests.test_x.T",), two), ("tests.test_x.T.test_a", "tests.test_x.T.test_b"))
+        # An id that is no test under tests/, as one a test could make its own, is never run as an option of unittest;
+        # and where the tree cannot be read at all, each name is kept whole, once.
+        odd = suite_of("    def id(self):\n        return '-h'\n\n    def test_a(self):\n        pass\n")
+        self.assertEqual(mutants.cases(("tests.test_x.T",), odd), ("tests.test_x.T",))
+        try:
+            unread = mutants.cases(("tests.test_x.T", "tests.test_x.T"), root / "gone")
+        except OSError as err:
+            self.fail("a tree that cannot be read raised %r" % err)
+        self.assertEqual(unread, ("tests.test_x.T",))
+        # The tests a part names run together, and no other.
+        try:
+            alone = mutants.suite(two, only=("tests.test_x.T.test_a",))
+            both = mutants.suite(two, only=("tests.test_x.T.test_a", "tests.test_x.T.test_b"))
+        except TypeError as err:
+            self.fail("the tests a part names were not run together: %r" % err)
+        self.assertEqual((alone[0], alone[1].count("Ran 1 test")), (0, 1))
+        self.assertEqual(both[0], 1)
+        # A list of mutants that names no test, as a test's own list may be, runs the whole suite once.
+        calls = []
+        self.assertEqual(mutants.baseline(mutate("plain"), root, told({"rule": PASSES}, calls), 4), [PASSES[1:]])
+        self.assertEqual(calls, ["rule", "done rule"])
+
+    def test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard(self):  # issue 396
+        # A part of the baseline that ran out of time, with no test that ran failed, says so; one in which a test failed
+        # stops the run as before, whichever part it is, whatever else was slow, and though it then ran out of time.
+        # Either way no mutant is broken.
+        named = [(word, "k.py", "rule\n", word + "\n", ("tests.test_%s" % word,)) for word in ("a", "b")]
+        slow = "took longer than %d s before anything was broken, and none that ran failed" % mutants.TIMEOUT
+        for answers, said in (({"tests.test_a": (None, ""), "tests.test_b": PASSES[1:]}, slow),
+                              ({"tests.test_a": (None, ""), "tests.test_b": (1, FAILS_A_TEST)}, "the tests fail before"),
+                              ({"tests.test_a": PASSES[1:], "tests.test_b": (1, FAILS_A_TEST)}, "the tests fail before"),
+                              ({"tests.test_a": (None, FAILS_A_TEST), "tests.test_b": PASSES[1:]}, "the tests fail before")):
+            calls = []
+
+            def run(work, first=(), only=None):
+                calls.append(only)
+                return answers[only[0]] if only else (0, "OK\n")
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                code = mutants.main(named, tree({"k.py": "rule\n"}), run, 2)
+            self.assertEqual(code, 1, answers)
+            self.assertIn(said, printed.getvalue(), answers)
+            self.assertNotIn(slow if said != slow else "the tests fail before", printed.getvalue(), answers)
+            self.assertEqual(sorted(calls), [("tests.test_a",), ("tests.test_b",)], "no mutant was broken")
 
     def test_a_failure_the_mutant_causes_kills_it(self):
         code, lines, calls = self.check({"breaks": (0, 1, FAILS_A_TEST)}, ["breaks"])

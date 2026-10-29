@@ -18,10 +18,10 @@
       "level": "write"
     },
     "effect:enqueue_merge": {
-      "waits_on": "trial P-2"
+      "waits_on": "the queue App, combsmith-sf-queue, with contents and pull-request write alone, which trial P-2 showed the queue takes, registered by the Maintainer and read again by trial P-39 (issue 381; Maintainer, 2026-10-28)"
     },
     "effect:dequeue_merge": {
-      "waits_on": "trial P-2"
+      "waits_on": "the queue App, combsmith-sf-queue, with contents and pull-request write alone, which trial P-2 showed the queue takes, registered by the Maintainer and read again by trial P-39 (issue 381; Maintainer, 2026-10-28)"
     },
     "effect:assign": {
       "waits_on": "the Controller's notification story"
@@ -123,7 +123,8 @@
       "level": "read"
     },
     "read:facts.queue": {
-      "waits_on": "issue 185, whose canary trial P-2 records what reading membership of the queue takes"
+      "permission": "metadata",
+      "level": "read"
     },
     "read:facts.content_id": {
       "permission": "contents",
@@ -219,7 +220,8 @@
           "needs": [
             "read:facts.item",
             "read:facts.targets_protected",
-            "read:facts.actor.can_write"
+            "read:facts.actor.can_write",
+            "read:facts.queue"
           ]
         },
         "pull_requests": {
