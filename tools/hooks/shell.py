@@ -31,7 +31,7 @@ WRAPPERS = {"env", "sudo", "doas", "xargs", "parallel", "timeout", "gtimeout", "
 HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 
 
-def without_heredocs(text: str) -> str:
+def without_heredocs(text: str, raw: bool = False) -> str:
     """`text` with the body of each here-document left out. Raises ValueError if one is never ended.
 
     An operator counts only where the shell would read it: not inside quotes, unless inside a
@@ -39,7 +39,10 @@ def without_heredocs(text: str) -> str:
     the word, the shell runs each substitution in the body: those are kept, each written as the
     operand of a `<` just before the operator, `<"$(...)" <<EOF`, so that they are read as a
     redirection's are, where the command stands. Before the operator, not after the word: a script
-    over several lines there would end the line the body is read after (issue 376).
+    over several lines there would end the line the body is read after (issue 376). Each script's
+    quotes are its own: it is written as requoted writes one, which commands reads as it stands, or,
+    with `raw`, as the shell writes it, for a reader that quotes the text itself, as the identity
+    hook's _quoted does, which would otherwise escape it twice.
     """
     out, waiting, stack, kept = [], [], ["code"], []
     for line in text.split("\n"):
@@ -49,7 +52,8 @@ def without_heredocs(text: str) -> str:
                 waiting.pop(0)
                 scripts = expanded("\n".join(body)) if expands else []
                 if scripts:
-                    kept.append((expands, "".join('<"$(%s)" ' % script for script in scripts)))
+                    kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(script))
+                                                  for script in scripts)))
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
                 body.append(line)
@@ -100,6 +104,12 @@ def without_heredocs(text: str) -> str:
     for (at, start), scripts in sorted(kept, reverse=True):    # the last on a line first, so each place still holds
         out[at] = out[at][:start] + scripts + out[at][start:]
     return "\n".join(out)
+
+
+def _escaped(script: str) -> str:
+    """`script` spelt to stand in "$(...)" as the hook reads one: each backslash and double quote escaped, so that its
+    own quotes stay its own and do not end the word (requoted)."""
+    return script.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def expanded(body: str) -> list:
@@ -260,12 +270,19 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
                 read = commands(script, spend, texts, scopes, marked)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
             continue
+        # A redirection's operand is expanded as a word is, `< "$(...)"` too, and without_heredocs writes what an
+        # expanded here-document's body runs as one (issue 376). The shell makes a redirection before the command
+        # runs, so what its operand runs is read before the command: a cd it is given has not moved yet.
+        made = []
+        for _, target in targets:
+            for script in _substituted(target, spend):
+                read = commands(script, spend, texts, scopes, marked)
+                made += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
         plain = [unmarked(word) for word in words]
+        out += made
         out.append((words, targets) if marked else (plain, [(op, unmarked(target)) for op, target in targets]))
         out += _inner(plain, spend, texts, marked, scopes)
-        # A redirection's operand is expanded as a word is, `< "$(...)"` too, and without_heredocs writes what an
-        # expanded here-document's body runs as one (issue 376).
-        for word in words + [target for _, target in targets]:
+        for word in words:
             for script in _substituted(word, spend):
                 read = commands(script, spend, texts, scopes, marked)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read     # a substitution runs in a subshell

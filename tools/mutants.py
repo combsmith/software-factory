@@ -4615,7 +4615,7 @@ MUTANTS = ISSUE + [
      "held = brakes.on_run(_decision, facts, state, evidence, context, wanted[1], done, config[\"limits\"])",
      ("tests.test_decide.Ceilings",)),
     ("an alias whose value runs git is not counted", "tools/hooks/identity.py",
-     "    if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):\n", "    if False:\n", ALIAS_TESTS),
+     "    if shell.aliased(_quoted(shell.without_heredocs(text, raw=True)), REDEFINABLE):\n", "    if False:\n", ALIAS_TESTS),
     ("an alias's value that cannot be split is read as one that runs no git", "tools/hooks/shell.py",
      "            except ValueError:\n                found.add(_unquoted(name))\n",
      "            except ValueError:\n", ALIAS_TESTS),
@@ -4849,14 +4849,14 @@ MUTANTS = ISSUE + [
      "            if False:\n",
      EXPANSION_TESTS),
     ("a substitution a quote holds is read before the aliases", "tools/hooks/identity.py",
-     "    table = {}\n    try:\n        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)\n"
+     "    table = {}\n    try:\n        table = shell.alias_values(_quoted(shell.without_heredocs(text, raw=True)), spend)\n"
      "        commands = _unaliased(commands, table, spend=spend)\n"
      "    except (Unreadable, ValueError) as err:\n"
      "        always.append((\"command_unreadable\", \"the command's aliases cannot be read (%s)\" % err))\n"
      "    # After the aliases, so that an alias for trap or eval is read as the program it runs.\n"
      "    commands = _evaluated(commands, spend, table)\n",
      "    table, commands = {}, _evaluated(commands, spend)\n    try:\n"
-     "        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)\n"
+     "        table = shell.alias_values(_quoted(shell.without_heredocs(text, raw=True)), spend)\n"
      "        commands = _unaliased(commands, table, spend=spend)\n"
      "    except (Unreadable, ValueError) as err:\n"
      "        always.append((\"command_unreadable\", \"the command's aliases cannot be read (%s)\" % err))\n",
@@ -4992,7 +4992,7 @@ MUTANTS = ISSUE + [
     ("zsh's two-operand cd, and an option the hook does not know, are read as a plain cd", "tools/hooks/identity.py",
      "    if letters - CD_OPTIONS[words[0]] or len(args) > 1:\n", "    if False:\n", PLACED_TESTS),
     ("CDPATH set in the command is ignored", "tools/hooks/identity.py",
-     "shell.sets(CDPATH, _quoted(\n        shell.without_heredocs(text)))\n", "False\n", PLACED_TESTS),
+     "shell.sets(CDPATH, _quoted(\n        shell.without_heredocs(text, raw=True)))\n", "False\n", PLACED_TESTS),
     ("a subshell's cd moves the command", "tools/hooks/shell.py",
      '            out.append(SCOPE[0] if one == "(" else SCOPE[1])\n', "            pass\n", OWN_CD_TESTS),
     ("a substitution's cd moves the command", "tools/hooks/shell.py",
@@ -5569,9 +5569,23 @@ MUTANTS = ISSUE + [
      (IDENTITY_TESTS + "test_the_lexer_reads_what_shlex_reads_and_grows_a_word_in_pieces",)),
     # Issue 376: a substitution in a redirection's operand, or in an expanded here-document's body, is read as a word's.
     ("a substitution in a redirection's operand is not read", "tools/hooks/shell.py",
-     "        for word in words + [target for _, target in targets]:\n", "        for word in words:\n",
+     "        for _, target in targets:\n            for script in _substituted(target, spend):\n",
+     "        for _, target in []:\n            for script in _substituted(target, spend):\n",
      (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",
       "tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks")),
+    ("what a redirection's operand runs is read after its command", "tools/hooks/shell.py",
+     "        out += made\n        out.append((words, targets) if marked else (plain, [(op, unmarked(target)) for op, target"
+     " in targets]))\n",
+     "        out.append((words, targets) if marked else (plain, [(op, unmarked(target)) for op, target in targets]))\n"
+     "        out += made\n",
+     (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
+    ("a here-document's script is written with its quotes bare", "tools/hooks/shell.py",
+     "(script if raw else _escaped(script))", "script",
+     ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
+    ("the identity hook quotes a here-document's script twice", "tools/hooks/identity.py",
+     "        commands = shell.commands(_quoted(shell.without_heredocs(read, raw=True)), spend, scopes=True, marked=True)\n",
+     "        commands = shell.commands(_quoted(shell.without_heredocs(read)), spend, scopes=True, marked=True)\n",
+     (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
     ("an expanded here-document's body runs nothing", "tools/hooks/shell.py",
      '                scripts = expanded("\\n".join(body)) if expands else []\n', "                scripts = []\n",
      (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",
