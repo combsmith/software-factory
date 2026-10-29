@@ -56,7 +56,10 @@ def without_heredocs(text: str, raw: bool = False) -> str:
             strip, word, expands, body = waiting[0]
             if (line.lstrip("\t") if strip else line) == word:
                 waiting.pop(0)
-                scripts = expanded("\n".join(body)) if expands else []
+                # A script the reader could not read, an apostrophe in prose between backticks (`it's`), stays data, as on
+                # main: the shell fails it and writes the body mangled, and refusing a commit message for it would be a
+                # false refusal (decision 0040's triage row).
+                scripts = [script for script in expanded("\n".join(body)) if _readable(script)] if expands else []
                 if scripts:
                     nested = [_nested(script, room) for script in scripts]     # each level's quotes its own
                     kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(_spent(script, room)))
@@ -178,6 +181,15 @@ def _nested(script: str, room: list) -> str:
         out.append(c)
         i += 1
     return "".join(out)
+
+
+def _readable(script: str) -> bool:
+    """Whether the reader splits `script` into simple commands at all: no quote left open, no ( in a word."""
+    try:
+        simple_commands(script)
+    except ValueError:
+        return False
+    return True
 
 
 def expanded(body: str) -> list:

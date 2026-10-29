@@ -1196,7 +1196,13 @@ class Identity(unittest.TestCase):
                         "cat <<\\EOF\n$(git commit -m x)\nEOF", "cat <<EOF\n\\$(git commit -m x) and \\`git push\\`\nEOF",
                         "cat <<EOF\nIt's (done); then git push later, ${x:-y}\nEOF"):
             self.assertEqual(self.codes(command, self.bad), "", command)
-        # The review of pull request 395: a body's script keeps its own quotes, so what they hold stays data.
+        # The review of pull request 395: a commit message or a body sent by a bare here-document, whose backticks hold
+        # prose the reader cannot read, passes as on main.
+        for command in ("git commit -F - <<EOF\nHooks: don't read `it's` twice\nEOF",
+                        "gh pr create --body-file - <<EOF\n```\nIt's green\n```\nEOF",
+                        "gh issue create --body \"$(cat <<EOF\n```python\nprint('ok')\n```\nEOF\n)\""):
+            self.assertEqual(self.codes(command), "", command)
+        # A body's script keeps its own quotes, so what they hold stays data.
         for command in ('cat <<EOF\n$(printf "%s" "hello (world)")\nEOF',
                         'cat <<EOF\n$(printf "%s" "a;git commit -m x;")\nEOF', "cat <<EOF\n%s\nEOF" % NESTED[2],
                         "cat <<EOF\n%s\nEOF" % NESTED[3]):
@@ -2487,7 +2493,9 @@ class MergesAndSettings(Asks):
         for command in ('cat < "$(git push origin main)"', 'cat <<< "$(git push origin main)"',
                         "cat <<EOF\n$(git push origin main)\nEOF", "cat <<-EOF\n\t`gh pr merge --admin 5`\n\tEOF"):
             self.asked(self.run_(command), "merge", command)
-        for command in ("cat <<'EOF'\n$(git push origin main)\nEOF", 'cat <<"EOF"\n$(git push origin main)\nEOF',
+        for command in ("git commit -F - <<EOF\nHooks: don't read `it's` twice\nEOF",
+                        "gh pr create --body-file - <<EOF\n```\nIt's green\n```\nEOF",
+                        "cat <<'EOF'\n$(git push origin main)\nEOF", 'cat <<"EOF"\n$(git push origin main)\nEOF',
                         "cat <<\\EOF\n`git push origin main`\nEOF", "cat <<EOF\n\\$(git push origin main)\nEOF",
                         'cat < "$(echo docs/notes.md)"',
                         # The review of pull request 395: a body's script keeps its own quotes.
@@ -3237,6 +3245,18 @@ class Settings(unittest.TestCase):
 
 class ShellReading(unittest.TestCase):
     """shell.py reads the command's structure: here-documents, top-level assignments, and plain values."""
+
+    def test_a_here_documents_nesting_past_its_room_is_unreadable(self):  # the review of pull request 395
+        # The room the reader spells a body's substitutions in is bounded, whatever the clock: past it, ValueError.
+        with self.assertRaisesRegex(ValueError, "nest deeper than the hook reads"):
+            shell.without_heredocs(DEEP)
+
+    def test_a_body_script_the_reader_cannot_split_stays_data(self):  # the review of pull request 395
+        # Prose between backticks with an apostrophe, or a ( in a word, is no script the reader splits: it stays data, as
+        # on main, and a script it can split is still kept.
+        self.assertEqual(shell.without_heredocs("cat <<EOF\n`it's`\nEOF"), "cat <<EOF\nEOF")
+        self.assertNotIn("print", shell.without_heredocs("cat <<EOF\n```python\nprint('ok')\n```\nEOF"))
+        self.assertIn('<"$(', shell.without_heredocs("cat <<EOF\n`echo hi`\nEOF"))
 
     def test_a_here_document_body_is_not_read_as_commands(self):
         kept = shell.without_heredocs("git commit -F - <<'EOF'\nthen git push\nEOF\nls")
