@@ -13,14 +13,20 @@ In JSON, a field named for a credential, or whose key or string is shaped like o
 and so is such an item of a list. In a fixture, every place a credential was deleted from is added to
 `removed`, and a header not on the list a fixture may keep is deleted too. In text, a header line
 not on that list and any line shaped like a credential are deleted, and a body that is JSON is
-treated as JSON.
+treated as JSON. A capture may hold more than one head, as an interim answer or a proxy's gives one
+before the response's; each is read as a head. A body that should be JSON, by its type or its first character,
+and cannot be read as JSON is refused: nothing is written and the exit is 1.
 """
 from __future__ import annotations
 
 import json
+import re
 import sys
 
 from tools.check_trials import HEADERS, KEY_SHAPED, refused_key, shaped
+
+STATUS = re.compile(r"HTTP/[0-9.]+ [0-9]{3}\b")
+JSON_TYPE = re.compile(r"content-type\s*:.*\bjson\b", re.I)
 
 
 def _clean(value, where: str, removed: list):
@@ -74,30 +80,54 @@ def redact_json(data, said: list):
     return data
 
 
-def redact_text(raw: str, said: list) -> str:
-    head, gap, body = raw.partition("\n\n")
-    if not gap:
-        head, body = "", raw
+class Unreadable(ValueError):
+    """A body that should be JSON and cannot be read as JSON: it is refused whole, since its fields cannot be judged."""
+
+
+def _head(block: str, first: int, said: list) -> str:
+    """`block`, a status line and its headers starting at line `first`, without a header a fixture may not keep or any
+    line shaped like a credential."""
     kept = []
-    for n, line in enumerate(head.splitlines(), 1):
+    for n, line in enumerate(block.splitlines(), first):
         name, colon, _ = line.partition(":")
-        header = n > 1 and colon and " " not in name.strip()
+        header = n > first and colon and " " not in name.strip()
         if shaped(line) or (header and name.strip().lower() not in HEADERS):
             shown = KEY_SHAPED if shaped(name.strip()) else name.strip()    # a place is never named by a credential
             said.append("removed: line %d%s" % (n, ", the header " + shown if header else ""))
         else:
             kept.append(line)
+    return "\n".join(kept)
+
+
+def redact_text(raw: str, said: list) -> str:
+    heads, body = [], raw
+    if "\n\n" in raw or STATUS.match(raw):
+        # An interim answer (100 Continue) or a proxy's (200 Connection established) comes with a head of its own
+        # before the response's: each head that follows is read as one, and only what comes after the last is the body.
+        gap = "\n\n"
+        while gap and (not heads or STATUS.match(body)):
+            head, gap, body = body.partition("\n\n")
+            heads.append(head)
+    kept, first = [], 1
+    for head in heads:
+        kept.append(_head(head, first, said))
+        first += len(head.splitlines()) + 1
     try:
         cleaned = json.dumps(redact_json(json.loads(body), said), indent=2) + "\n"
     except ValueError:
-        lines, start = [], len(head.splitlines()) + (2 if gap else 0)
-        for n, line in enumerate(body.splitlines(), start + 1):
+        # What should be JSON and is not cannot be judged field by field, and a line of it may hold a credential no
+        # shape finds under a name that would refuse it: it is refused whole, never kept in part.
+        typed = heads and any(JSON_TYPE.match(line) for line in heads[-1].splitlines())
+        if body.strip() and (typed or body.lstrip()[:1] in ("{", "[")):
+            raise Unreadable("the body should be JSON and cannot be read as JSON") from None
+        lines = []
+        for n, line in enumerate(body.splitlines(), first):
             if shaped(line):
                 said.append("removed: line %d" % n)
             else:
                 lines.append(line)
         cleaned = "\n".join(lines) + ("\n" if lines else "")
-    return ("\n".join(kept) + "\n\n" if gap else "") + cleaned
+    return "".join(head + "\n\n" for head in kept) + cleaned
 
 
 def main(argv: list, stdin=None, stdout=None, stderr=None) -> int:
@@ -115,7 +145,11 @@ def main(argv: list, stdin=None, stdout=None, stderr=None) -> int:
     try:
         out = json.dumps(redact_json(json.loads(raw), said), indent=2) + "\n"
     except ValueError:
-        out = redact_text(raw, said)
+        try:
+            out = redact_text(raw, said)
+        except Unreadable as refused:
+            print("refused: %s, so none of it is kept; nothing is written" % refused, file=stderr)
+            return 1
     # Written as UTF-8 whatever the locale, as it was to a file.
     target = getattr(stdout, "buffer", None)
     if target is not None:

@@ -6050,6 +6050,34 @@ class Redaction(unittest.TestCase):
         out, said = self.redact("kept line\none line, " + SHAPED["jwt"] + " and done\n")
         self.assertEqual((out, said.splitlines()[0]), ("kept line\n", "removed: line 2"))
 
+    def test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused(self):
+        # Issue 372: a second head, after an interim answer or a proxy's, was read as the body, and a field that holds a
+        # credential no shape finds was kept because the body was no longer JSON.
+        body = '{"login": "don", "client_secret": "opaque-7Qp", "password": "hunter2"}'
+        for first in ("HTTP/1.1 100 Continue\r\n\r\n", "HTTP/1.1 200 Connection established\r\nVia: proxy\r\n\r\n",
+                      "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 100 Continue\r\n\r\n"):
+            out, said = self.redact(first + "HTTP/2 200\r\nX-Foo: bar\r\nContent-Type: application/json\r\n\r\n" + body)
+            heads, _, kept = out.rpartition("\n\n")
+            self.assertEqual(json.loads(kept), {"login": "don"}, first)
+            self.assertEqual(heads.splitlines()[-2:], ["HTTP/2 200", "Content-Type: application/json"], first)
+            self.assertNotIn("X-Foo", out)
+            self.assertNotIn("Via", out)
+        # A head with no body after it is a head, and its headers are read as headers.
+        self.assertEqual(self.redact("HTTP/2 204\nX-Foo: bar\nDate: x\n")[0], "HTTP/2 204\nDate: x\n\n")
+        # A body that should be JSON, by its type or its first character, and cannot be read as JSON is refused whole.
+        for raw in ('HTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n',
+                    'HTTP/2 200\nContent-Type: text/plain\n\n{"password": "hunter2"\n',
+                    'HTTP/1.1 100 Continue\n\nHTTP/2 200\n\n[{"password": "hunter2"}\n', '{"password": "hunter2"\n'):
+            out, said = io.StringIO(), io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
+            self.assertEqual(out.getvalue(), "", raw)
+            self.assertIn("refused: the body should be JSON", said.getvalue())
+        # Text is still text, and an empty body under a JSON type has nothing to refuse.
+        self.assertEqual(self.redact("HTTP/2 200\nContent-Type: text/plain\n\nfine\n")[0],
+                         "HTTP/2 200\nContent-Type: text/plain\n\nfine\n")
+        self.assertEqual(self.redact("HTTP/2 204\nContent-Type: application/json\n\n")[0],
+                         "HTTP/2 204\nContent-Type: application/json\n\n")
+
 
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {

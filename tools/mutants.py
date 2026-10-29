@@ -8626,6 +8626,19 @@ MUTANTS = ISSUE + [
      '(?=(?P<auth>[a-z]*?auth))',
      '(?=(?P<auth>auth))',
      ('tests.test_tools.Trials.test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen',)),
+    # Issue 372: every head of a capture is read as a head, and a body that should be JSON and is not is refused.
+    ('a second head is read as the body', "tools/redact_trial.py",
+     '    while gap and (not heads or STATUS.match(body)):\n',
+     '    while gap and not heads:\n',
+     ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
+    ('a body that should be JSON and is not is kept in part', "tools/redact_trial.py",
+     '        if body.strip() and (typed or body.lstrip()[:1] in ("{", "[")):\n',
+     '        if False:\n',
+     ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
+    ('a body typed as JSON that is not is kept in part', "tools/redact_trial.py",
+     '(typed or body.lstrip()[:1] in ("{", "["))',
+     '(body.lstrip()[:1] in ("{", "["))',
+     ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
 ]
 
 
