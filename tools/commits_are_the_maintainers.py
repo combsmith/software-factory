@@ -1,4 +1,4 @@
-"""Every commit a pull request carries is the Maintainer's, checked outside the shell.
+"""Every commit a pull request carries names the Maintainer as its author and committer, checked outside the shell.
 
 The `commits` job of the required check runs this from a checkout of the base, never the head, as `verify` runs
 `needs_passed.py`: a change cannot make its own verdict pass. It fetches the head from origin, the repo itself, and
@@ -7,7 +7,9 @@ reads each commit between BASE_SHA and HEAD_SHA. Each one's author and committer
 place, never by the name they carry: on a merge group (EVENT merge_group) the head, which the queue made, is read for
 its author alone, since GitHub commits it. Anything else refuses: another identity, a range that holds no commit, or a
 commit list the check cannot read. The session hook `tools/hooks/identity.py` guards against the same mistake before a
-commit is made, and reads words; this reads what git recorded. Run with `python3 -m tools.commits_are_the_maintainers`.
+commit is made, and reads words; this reads what git recorded. What git recorded is what the commit's maker wrote: a
+name written to forge the Maintainer's passes here, and is left to the Maintainer's review (decision 0087). Run with
+`python3 -m tools.commits_are_the_maintainers`.
 """
 from __future__ import annotations
 
@@ -80,7 +82,7 @@ def main(environ=os.environ, root: pathlib.Path = ROOT) -> int:
     for problem in found:
         print(problem)
     if not found:
-        print("every commit from %s to %s is the Maintainer's" % (environ["BASE_SHA"][:7], environ["HEAD_SHA"][:7]))
+        print("every commit from %s to %s names the Maintainer as its author and committer" % (environ["BASE_SHA"][:7], environ["HEAD_SHA"][:7]))
     return 1 if found else 0
 
 
