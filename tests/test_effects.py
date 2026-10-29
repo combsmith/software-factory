@@ -315,7 +315,7 @@ class Effects(unittest.TestCase):
         self.assertEqual({(w["state"], w["reason"]) for w in refused["writes"]}, {("refused", "plan_refused")})
         self.assertEqual({token for token, _, _ in sent}, {"c"})
         self.assertEqual(sorted(path for _, method, path in sent if method == "GET"),
-                         sorted([pause.path("combsmith"), pause.path("combsmith/software-factory")]))
+                         sorted([pause.listed("combsmith/software-factory"), pause.path("combsmith/software-factory")]))
 
     def test_a_failed_write_is_recorded_and_fails_the_step(self):
         o = out()
@@ -446,17 +446,19 @@ class Pause(unittest.TestCase):
                 asked.append(req["path"])
                 return {"status": 200, "headers": {}, "body": {"name": pause.NAME, "value": "false"}}
         for scope in ("combsmith/..", "-x", "a/b/c", "", "combsmith/software-factory?x=1", "combsmith/."):
-            self.assertEqual(pause.read(Clear(), scope, [])["org"], pause.UNREADABLE, scope)
+            self.assertEqual(pause.read(Clear(), "combsmith", [scope])["repos"], {scope: pause.UNREADABLE}, scope)
         self.assertEqual(asked, [])
-        self.assertEqual(pause.read(Clear(), "combsmith", [])["org"], "false")
-        self.assertEqual(asked, [pause.path("combsmith")])
+        self.assertEqual(pause.read(Clear(), "", ["combsmith/software-factory"])["repos"],
+                         {"combsmith/software-factory": "false"})
+        self.assertEqual(asked, [pause.path("combsmith/software-factory")])
         # An answer of 200 that is not this variable, by its name and a text value, is unreadable too.
         for body in ({"name": "OTHER", "value": "false"}, {"name": pause.NAME, "value": False}, {"name": pause.NAME},
                      ["false"]):
             class Odd:
                 def send(self, req, body=body):
                     return {"status": 200, "headers": {}, "body": body}
-            self.assertEqual(pause.read(Odd(), "combsmith", [])["org"], pause.UNREADABLE, body)
+            self.assertEqual(pause.read(Odd(), "", ["combsmith/software-factory"])["repos"],
+                             {"combsmith/software-factory": pause.UNREADABLE}, body)
         refused = copy.deepcopy(missing)
         refused["response"]["status"] = 403
         self.assertEqual(pause.read(github.Replay([refused]), "x", ["combsmith/software-factory"])["repos"],
@@ -474,13 +476,79 @@ class Pause(unittest.TestCase):
         self.assertEqual(answer["response"]["status"], 200)
         self.assertEqual(pause.read(github.Replay([answer]), "", [repo])["repos"], {repo: "false"})
 
-    @pending
     def test_the_orgs_pause_is_read_through_the_repos_list_of_the_orgs_variables(self):
-        # Issue 362: GitHub refuses the Controller's token the org's own variable (P-52's 403), and names it in each
-        # repo's list of the org's variables; read whole, a list that does not name it is unreadable, never unset.
+        # Issue 362: GitHub refuses the Controller's token the org's own variable (P-52's 403), and names it, with its
+        # value, in the repo's list of the org's variables, which P-52 read: eight variables, FACTORY_PAUSED false.
         recorded = json.loads((ROOT / "trials" / "P-52.json").read_text())
+        repo = recorded["repo"]
         listed = next(e for e in recorded["exchanges"] if "/actions/organization-variables" in e["request"]["call"])
-        self.assertEqual(pause.read(github.Replay([listed]), "combsmith", [])["org"], "false")
+        own = next(e for e in recorded["exchanges"]
+                   if e["request"]["call"] == "GET /repos/%s/actions/variables/FACTORY_PAUSED" % repo)
+        self.assertEqual(pause.read(github.Replay([listed, own]), "combsmith", [repo]),
+                         {"org": "false", "repos": {repo: "false"}})
+        home = "combsmith/software-factory"
+        entry = lambda name, value="false": {"name": name, "value": value, "created_at": "2026-10-24T14:24:01Z",
+                                             "updated_at": "2026-10-24T14:24:01Z"}
+        nxt = {"link": '<https://api.github.com/repositories/1/actions/organization-variables?per_page=100&page=2>; '
+                       'rel="next"'}
+
+        class Pages:
+            """Answers the org's list page by page, as the pages given, the repo's own variable as false once they are
+            spent, and records each path asked."""
+            def __init__(self, *pages):
+                self.pages, self.asked = list(pages), []
+
+            def send(self, req):
+                self.asked.append(req["path"])
+                if not self.pages:
+                    return {"status": 200, "headers": {}, "body": {"name": pause.NAME, "value": "false"}}
+                status, body, headers = self.pages.pop(0)
+                return {"status": status, "headers": headers, "body": body}
+        one = lambda *variables: (200, {"total_count": len(variables), "variables": list(variables)}, {})
+        # Read whole and naming it: its value. Read whole and not naming it: the org holds no Pause. Over two pages,
+        # each named by the last's next link, as many as the count says.
+        for pages, want in (([one(entry("OTHER"), entry(pause.NAME, "true"))], "true"), ([one(entry("OTHER"))], None),
+                            ([one()], None),
+                            ([(200, {"total_count": 2, "variables": [entry("OTHER")]}, nxt),
+                              (200, {"total_count": 2, "variables": [entry(pause.NAME)]}, {})], "false")):
+            asked = Pages(*pages)
+            self.assertEqual(pause.read(asked, "combsmith", [home])["org"], want, pages)
+            self.assertEqual(asked.asked[:len(pages)], [pause.listed(home, n + 1) for n in range(len(pages))])
+        # The other side, each unreadable: a refusal; a list short of its count, or past it, or a count that moves
+        # between pages; a next page after an empty one, or after every entry the count names; a name twice; an entry
+        # that is not one, or a value that is not text; no count, or one that is no whole number.
+        for pages in ([(403, {"message": "Resource not accessible by integration"}, {})],
+                      [(200, {"total_count": 2, "variables": [entry(pause.NAME)]}, {})],
+                      [(200, {"total_count": 1, "variables": [entry("OTHER"), entry(pause.NAME)]}, {})],
+                      [(200, {"total_count": 2, "variables": [entry("OTHER")]}, nxt),
+                       (200, {"total_count": 3, "variables": [entry(pause.NAME), entry("THIRD")]}, {})],
+                      [(200, {"total_count": 2, "variables": []}, nxt)],
+                      [(200, {"total_count": 1, "variables": [entry(pause.NAME)]}, nxt)],
+                      [one(entry(pause.NAME), entry(pause.NAME, "true"))],
+                      [(200, {"total_count": 1, "variables": [5]}, {})],
+                      [(200, {"total_count": 1, "variables": [{"value": "false"}]}, {})],
+                      [one(entry(pause.NAME, False))],
+                      [(200, {"variables": [entry(pause.NAME)]}, {})],
+                      [(200, {"total_count": True, "variables": [entry(pause.NAME)]}, {})],
+                      [(200, {"total_count": 1, "variables": "x"}, {})],
+                      [(200, ["false"], {})]):
+            self.assertIs(pause.read(Pages(*pages), "combsmith", [home])["org"], pause.UNREADABLE, pages)
+        # A list that names a next page after an empty one, or after every entry its count names, is not asked again,
+        # however many pages it would go on naming.
+        for page in ((200, {"total_count": 2, "variables": []}, nxt),
+                     (200, {"total_count": 1, "variables": [entry(pause.NAME)]}, nxt)):
+            asked = Pages(*[page] * 4)
+            self.assertIs(pause.read(asked, "combsmith", [home])["org"], pause.UNREADABLE, page)
+            self.assertEqual(sum(p.startswith(pause.listed(home)) for p in asked.asked), 1, page)
+        # With no repo to read it through, or a repo of another owner, the org's Pause is unreadable, and nothing is
+        # asked; it is read through the first repo, once, however many are given.
+        for org, repos in (("combsmith", []), ("other", [home]), ("-x", [home])):
+            asked = Pages(one(entry(pause.NAME)), (200, {"name": pause.NAME, "value": "false"}, {}))
+            self.assertIs(pause.read(asked, org, repos)["org"], pause.UNREADABLE, (org, repos))
+            self.assertNotIn(pause.listed(home), asked.asked)
+        asked = Pages(one(entry(pause.NAME)), *[(200, {"name": pause.NAME, "value": "false"}, {})] * 2)
+        pause.read(asked, "combsmith", ["combsmith/z", "combsmith/a"])
+        self.assertEqual(asked.asked[0], pause.listed("combsmith/a"))
 
 
 class Tracking(unittest.TestCase):
@@ -607,7 +675,8 @@ class Tracking(unittest.TestCase):
             def send(self, req):
                 return {"status": 200, "headers": {}, "body": None}
         allowed = effects.Allowed(Anything(), permits, patterns)
-        good = [github.request("GET", pause.path("combsmith")), github.request("GET", pause.path(self.HOME)),
+        good = [github.request("GET", pause.listed(self.HOME)), github.request("GET", pause.listed(self.HOME, 2)),
+                github.request("GET", pause.listed(self.HOME, 12)), github.request("GET", pause.path(self.HOME)),
                 github.request("GET", effects.listed(self.HOME, cfg["accounts"]["controller"])),
                 github.request("POST", "/repos/%s/issues" % self.HOME,
                                body={"title": effects.TITLE, "body": "b", "assignees": ["don-petry"]}),
@@ -618,6 +687,12 @@ class Tracking(unittest.TestCase):
         for req in good:
             self.assertEqual(allowed.send(req)["status"], 200, req)
         bad = [github.request("GET", pause.path("combsmith/other")),
+               # The org's own variable, which GitHub refuses the Controller's token (P-52), is never asked (issue 362).
+               github.request("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED"),
+               github.request("GET", pause.listed("combsmith/other")),
+               github.request("GET", pause.listed(self.HOME) + "&page=1"),
+               github.request("GET", pause.listed(self.HOME) + "&page=0"),
+               github.request("GET", pause.listed(self.HOME) + "&page=2x"),
                github.request("POST", "/repos/%s/issues" % self.HOME,
                               body={"title": effects.TITLE, "body": "b", "assignees": ["someone"]}),
                github.request("POST", "/repos/%s/issues" % self.HOME,
@@ -629,7 +704,7 @@ class Tracking(unittest.TestCase):
                github.request("PATCH", "/repos/combsmith/other/issues/52", body={"body": "b"}),
                github.request("POST", "/repos/%s/issues/52/comments" % self.HOME, body={"body": "b"}),
                github.request("POST", effects.dispatch_path(cfg, "run"), body={"ref": "main"}),
-               github.request("GET", pause.path("combsmith"), body={}),
+               github.request("GET", pause.listed(self.HOME), body={}),
                github.request("POST", "/repos/%s/issues" % self.HOME,
                               body={"title": effects.TITLE, "body": 7, "assignees": ["don-petry"]}),
                github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": 7}),

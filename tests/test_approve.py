@@ -147,11 +147,11 @@ class TheAct(unittest.TestCase):
             with self.assertRaises(Unanswered, msg=(method, path, body)):
                 token.send({"method": method, "path": path, "body": body})
         self.assertEqual(github.log, [])
-        # The reads the act makes go through: the item's repo, who the token is, the org's Pause and the facts port's
-        # own GraphQL reads of this pull request.
+        # The reads the act makes go through: the item's repo, who the token is, the org's Pause as the repo's list of
+        # the org's variables (issue 362), and the facts port's own GraphQL reads of this pull request.
         owner, name = repo.split("/")
         allowed = [("GET", "/user", None), ("GET", PULL + "/reviews?per_page=100", None),
-                   ("GET", "/orgs/%s/actions/variables/FACTORY_PAUSED" % owner, None),
+                   ("GET", "/repos/%s/actions/organization-variables?per_page=100" % repo, None),
                    ("POST", PULL + "/reviews", {"commit_id": HEAD, "event": "APPROVE"})]
         for query in (threads.QUERY, checks.QUERY, acceptance.QUERY):
             allowed.append(("POST", "/graphql", {"query": query, "variables": {"owner": owner, "name": name,

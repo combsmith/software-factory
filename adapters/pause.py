@@ -2,7 +2,14 @@
 transport with the Controller's token (#193's rulings for PR 3; L-58). It hands back what `controller/pass_.py`'s
 `human_pause` reads: `{"org": value, "repos": {repo: value}}`, each value the variable's text, None where GitHub holds
 none, or `UNREADABLE` where the read was not answered as GitHub answers a variable. It decides nothing: the Pause's
-meaning is the pass's, and an unreadable scope is a Pause unreadable (I-13)."""
+meaning is the pass's, and an unreadable scope is a Pause unreadable (I-13).
+
+The org's own endpoint refuses the Controller's token, which holds the repo's Variables read and nothing of the org's
+(trials/P-52.json, a 403); the repo's list of the org's variables names the org's FACTORY_PAUSED with its value. So the
+org's Pause is read from that list, for the first repo the read is of, its owner the org, paged by its `link` header
+until read whole: as many entries as `total_count` says, each name once. Absent from a list read whole, the org holds no
+Pause; a list not read whole, an answer that is not 200, or an entry that cannot be read leaves it unreadable (issue
+362, "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found")."""
 from __future__ import annotations
 
 import re
@@ -14,17 +21,60 @@ PAUSED, NOT_PAUSED = "true", "false"     # the two values a person sets, as `con
 UNREADABLE = {"unreadable": True}      # no text a variable can hold: `human_pause` reads anything else as unreadable
 ORG = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
+PAGE = 100                             # the most entries GitHub gives a page of the org's variables
+NEXT = re.compile(r'<[^>]*>;\s*rel="next"')
 
 
-def path(scope: str) -> str:
-    """The variable's path for an org, `owner`, or a repo, `owner/name`."""
-    if "/" in scope:
-        return "/repos/%s/actions/variables/%s" % (scope, NAME)
-    return "/orgs/%s/actions/variables/%s" % (scope, NAME)
+def path(repo: str) -> str:
+    """The variable's path on a repo, `owner/name`."""
+    return "/repos/%s/actions/variables/%s" % (repo, NAME)
+
+
+def listed(repo: str, page: int = 1) -> str:
+    """The path of a page of the org's variables, as the repo `owner/name` lists them."""
+    first = "/repos/%s/actions/organization-variables?per_page=%d" % (repo, PAGE)
+    return first if page == 1 else "%s&page=%d" % (first, page)
+
+
+def _named(repo: str) -> bool:
+    return bool(REPO.fullmatch(repo)) and repo.split("/")[1] not in (".", "..")
+
+
+def _org_value(transport, org: str, repo):
+    """The org's FACTORY_PAUSED, as `repo`'s list of the org's variables names it, read whole (the module's rule)."""
+    if repo is None or not ORG.fullmatch(org) or not _named(repo) or repo.split("/")[0] != org:
+        return UNREADABLE
+    entries, total, page = [], None, 1
+    while True:
+        try:
+            answer = transport.send(request("GET", listed(repo, page)))
+        except Unanswered:
+            return UNREADABLE
+        body = answer["body"]
+        if answer["status"] != 200 or not isinstance(body, dict) or not isinstance(body.get("variables"), list) \
+                or type(body.get("total_count")) is not int or total not in (None, body["total_count"]):
+            return UNREADABLE
+        total = body["total_count"]
+        entries += body["variables"]
+        if not NEXT.search(str((answer.get("headers") or {}).get("link", ""))):
+            break
+        # A next page after an empty one, or after every entry the count names, contradicts the count.
+        if not body["variables"] or len(entries) >= total:
+            return UNREADABLE
+        page += 1
+    if any(not isinstance(e, dict) or not isinstance(e.get("name"), str) for e in entries):
+        return UNREADABLE
+    names = [e["name"] for e in entries]
+    if len(entries) != total or len(set(names)) != len(names):
+        return UNREADABLE
+    pause = [e for e in entries if e["name"] == NAME]
+    if not pause:
+        return None
+    return pause[0]["value"] if isinstance(pause[0].get("value"), str) else UNREADABLE
 
 
 def _value(transport, scope: str):
-    if not (ORG.fullmatch(scope) or (REPO.fullmatch(scope) and scope.split("/")[1] not in (".", ".."))):
+    if not _named(scope):
         return UNREADABLE
     try:
         answer = transport.send(request("GET", path(scope)))
@@ -40,7 +90,10 @@ def _value(transport, scope: str):
 
 
 def read(transport, org: str, repos) -> dict:
-    """The Pause on `org` and on each of `repos`, each read once; with no transport, every scope is unreadable."""
+    """The Pause on `org`, read from the first of `repos`'s list of the org's variables, and on each of `repos`, each
+    read once; with no transport, or no repo to read the org's through, the org's is unreadable."""
+    repos = sorted(set(repos))
     if transport is None:
-        return {"org": UNREADABLE, "repos": {repo: UNREADABLE for repo in sorted(set(repos))}}
-    return {"org": _value(transport, org), "repos": {repo: _value(transport, repo) for repo in sorted(set(repos))}}
+        return {"org": UNREADABLE, "repos": {repo: UNREADABLE for repo in repos}}
+    return {"org": _org_value(transport, org, repos[0] if repos else None),
+            "repos": {repo: _value(transport, repo) for repo in repos}}

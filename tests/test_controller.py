@@ -782,7 +782,11 @@ class Entry(unittest.TestCase):
             ("GET", listed_runs % "approve.yml"): runs,
             ("POST", "/graphql"): open_page(list(numbers), total)["response"],
             ("GET", "/repos/%s/actions/runs/%s" % (self.HOME, self.RUN)): started,
-            ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED"): {"status": pause, "headers": {}, "body": None},
+            # The org's Pause, read from the home repo's list of the org's variables (issue 362): one GitHub holds as
+            # none is a list read whole that does not name it.
+            ("GET", "/repos/%s/actions/organization-variables?per_page=100" % self.HOME):
+                {"status": 200, "headers": {}, "body": {"total_count": 0, "variables": []}} if pause == 404
+                else {"status": pause, "headers": {}, "body": None},
             ("GET", "/repos/%s/actions/variables/FACTORY_PAUSED" % self.HOME):
                 {"status": pause if repo_pause is None else repo_pause, "headers": {}, "body": None},
             ("GET", "/repos/%s/pulls/7" % self.HOME): {"status": 502, "headers": {}, "body": None},
