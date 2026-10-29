@@ -103,9 +103,9 @@ def eval_runs(commit=D, runs=None, total=None):
               {"total_count": len(runs) if total is None else total, "workflow_runs": runs})
 
 
-def report_download(document, ident=9):
+def report_download(document, ident=9, run=EVAL_RUN):
     data = zipped(document)
-    return [ex("GET", "/repos/%s/actions/runs/%d/artifacts?name=eval-report&per_page=100" % (REPO, EVAL_RUN), 200,
+    return [ex("GET", "/repos/%s/actions/runs/%d/artifacts?name=eval-report&per_page=100" % (REPO, run), 200,
                {"total_count": 1, "artifacts": [{"id": ident, "name": "eval-report", "expired": False,
                                                  "size_in_bytes": len(data),
                                                  "digest": "sha256:" + hashlib.sha256(data).hexdigest()}]}),
@@ -129,8 +129,12 @@ class Candidate(unittest.TestCase):
         missing = [main_ref(), dict(compared()[1], response={"status": 404, "headers": {}, "body": {"message": "x"}})]
         for odd in (compared(status="diverged"), compared(status="behind"), compared(base=A), missing,
                     [dict(compared()[0], response=dict(compared()[0]["response"], body={"status": "ahead"}))],
-                    [main_ref(ref="refs/tags/main")], [main_ref(object={"sha": MAIN, "type": "tag"})],
-                    [main_ref(object="bad")], [main_ref(sha="main")],
+                    # Each with the comparison it would lead to, so the ref's own reading is what refuses it.
+                    [main_ref(ref="refs/tags/main"), compared()[1]],
+                    [main_ref(object={"sha": MAIN, "type": "tag"}), compared()[1]],
+                    [main_ref(object="bad")],
+                    [main_ref(sha="main"), ex("GET", "/repos/%s/compare/%s...main?per_page=1" % (REPO, D), 200,
+                                              {"status": "ahead", "merge_base_commit": {"sha": D}})],
                     [main_ref(), dict(compared()[1], response=dict(compared()[1]["response"],
                                                                      body={"status": "ahead", "merge_base_commit": "x"}))]):
             with self.subTest(reads=odd):
@@ -224,6 +228,8 @@ class Candidate(unittest.TestCase):
             ([manifest(), eval_runs(total=2)], "eval_not_run"),
             ([manifest(), eval_runs(runs=[run_of(conclusion="failure")])], "eval_not_run"),
             ([manifest(), eval_runs(runs=[run_of(event="push")])], "eval_not_run"),
+            # A dispatch whose id is no GitHub id is none, though a run of that number would answer with a report.
+            ([manifest(), eval_runs(runs=[run_of(id=0)])] + report_download(report(), run=0), "eval_not_run"),
             ([manifest(data=b"[" * 60000)], "eval_set_unreadable"),
             (gate_reads(document="[" * 60000), "report_unreadable"),
             (gate_reads(document=report(release="factory/v0.2.9")), "another_release"),
@@ -312,7 +318,9 @@ class Writes(unittest.TestCase):
                         [dict(made, response=dict(made["response"], body={"id": 77, "sha": D, "environment": "other"})),
                          status],
                         [dict(made, response=dict(made["response"], body={"id": 0, "sha": D,
-                                                                           "environment": "factory-next"})), status],
+                                                                           "environment": "factory-next"})),
+                         dict(status, request=dict(status["request"],
+                                                   call="POST /repos/%s/deployments/0/statuses" % REPO))],
                         [made, dict(status, response=dict(status["response"], status=200))]):
             with self.subTest(answers=len(answers)):
                 self.assertIsNone(deployments.record(github.Replay(answers), REPO, D, VERSION))
@@ -509,6 +517,15 @@ class Step(unittest.TestCase):
                          ({"writes": [], "deployments": []}, cut.STEP_UNREADABLE))
         self.assertEqual(move.run({"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t"}, None, controller={}),
                          ({"writes": [], "deployments": []}, cut.STEP_UNREADABLE))
+        # A home that is no object names neither the repo nor the branch: the step stops there, for every command, and
+        # reads no default for either (Argon's read of #354).
+        for bad in ("combsmith/software-factory", ["combsmith/software-factory"], 1, True):
+            for command in ("cut", "move", "rollback"):
+                with self.subTest(home=bad, command=command):
+                    env = {"RELEASE_COMMAND": command, "RELEASE_TOKEN": "t", "RELEASE_CUT_COMMIT": D,
+                           "RELEASE_TO": VERSION}
+                    self.assertEqual(move.run(env, None, controller={"home": bad}),
+                                     ({"writes": [], "deployments": []}, cut.STEP_UNREADABLE))
 
     def test_the_step_prints_codes_alone_and_exits_by_them(self):
         out = io.StringIO()
