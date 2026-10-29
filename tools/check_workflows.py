@@ -1173,8 +1173,9 @@ def release_problems(text: str) -> list:
             if have != RELEASE_GIVEN[kind].get(under, {}):
                 problems.append("its %s step is given under %s: %s, exactly"
                                 % (kind, under, RELEASE_GIVEN[kind].get(under, {})))
-            # A value written beside `with:` or `env:` is no mapping: the step is given that text, not its keys.
-            if under in step and (step[under]["value"] or under not in RELEASE_GIVEN[kind]):
+            # A value written beside `with:` or `env:` is no mapping: the step is given that text, not its keys. A step
+            # that takes neither has it as a key of its own, refused above.
+            if under in step and step[under]["value"]:
                 problems.append("its %s step has a %s: it is not given" % (kind, under))
     return problems
 

@@ -84,14 +84,19 @@ WORD = re.compile(r"[A-Za-z]{2,}")
 SECOND = re.compile(r"[.!?]\s+\S")       # a sentence that ends before the reason does
 ROW = re.compile(r"^\| (P-[1-9][0-9]*) \|", re.M)
 # A row's question is its second cell. A rule a row asks quotes the words of that question that ask it (issue 265): at
-# least this many, so that a quote names a question and not a word every row has.
-QUESTION = re.compile(r"^\| (P-[1-9][0-9]*) \| (.*?) \| ", re.M)
+# least this many, so that a quote names a question and not a word every row has. The question is its cell alone: a
+# cell whose close lacks its space does not run on into the next, nor past its line, and a pipe escaped is the cell's
+# own (the second-family read of #357).
+QUESTION = re.compile(r"^\| (P-[1-9][0-9]*) \| ((?:[^\\|\n]|\\[^\n])*?) \| ", re.M)
 QUOTED_WORDS = 4
-FENCED = re.compile(r"^```.*?^```", re.M | re.S)
-# A block fenced with tildes, and an HTML comment, hold no row either (the review of #265).
-HIDDEN = re.compile(r"(?:^~~~.*?^~~~)|(?:<!--.*?-->)", re.M | re.S)
+# A fenced block holds no row, nor does a block fenced with tildes or an HTML comment (the review of #265). They are
+# read in one pass from the top, as a renderer reads them, so that a fence inside a comment, or a comment's close inside
+# a block, ends nothing (the second-family read of #357). A fence is three marks or more, indented three spaces at
+# most, and only a line of the same mark, at least as long, closes it.
+HIDDEN = re.compile(r"(?:^ {0,3}(`{3,})[^\n]*\n.*?^ {0,3}\1`*[ \t]*$)|(?:^ {0,3}(~{3,})[^\n]*\n.*?^ {0,3}\2~*[ \t]*$)"
+                    r"|(?:<!--.*?-->)", re.M | re.S)
 # An opener with no close hides the rest, as a renderer reads it: no row after it is a trial.
-OPENED = re.compile(r"(?:^(?:```|~~~))|(?:<!--)", re.M)
+OPENED = re.compile(r"(?:^ {0,3}(?:```|~~~))|(?:<!--)", re.M)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -109,10 +114,12 @@ KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "
                 "output_tokens_details"}
 # The headers a fixture may keep, compared in lower case. Any other is left out: allow what is named.
 # age and if-none-match: the records port keeps a read's age, and may ask by its etag (decision 0036, ruling 4).
+# x-oauth-scopes is not among them: it names what the token that asked may do, the Maintainer's admin scopes among
+# them, which no rule needs and a public repo should not advertise (the orchestrator's ruling, 2026-10-28).
 HEADERS = {"accept", "age", "cache-control", "content-length", "if-none-match", "content-type", "date", "etag", "last-modified", "link",
            "location", "retry-after", "server", "user-agent", "vary", "x-accepted-github-permissions",
            "x-accepted-oauth-scopes", "x-github-api-version", "x-github-media-type", "x-github-request-id",
-           "x-oauth-scopes", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",
+           "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",
            "x-ratelimit-resource", "x-ratelimit-used"}
 # What a credential looks like inside any string, at any length and in any case.
 SHAPES = re.compile("|".join((
@@ -316,6 +323,98 @@ def _bound(args: str, key: str, variables: dict):
     return literal if literal is not None else variables.get(var)
 
 
+# The writes a trial of the canary may record, each on one node by its input's one key: a pull request or a review
+# thread. Its scope is the node's, so a fixture holds a write only on a node a read of the canary alone in it answered.
+WRITES = {"enqueuePullRequest": "pullRequestId", "dequeuePullRequest": "id", "enablePullRequestAutoMerge": "pullRequestId",
+          "convertPullRequestToDraft": "pullRequestId", "resolveReviewThread": "threadId"}
+WRITE = re.compile(r"^\s*mutation\s*\(\s*\$id\s*:\s*ID!\s*\)\s*\{\s*(\w+)\s*\(\s*input\s*:\s*\{\s*(\w+)\s*:\s*\$id"
+                   r"(\s*,\s*mergeMethod\s*:\s*[A-Z]+)?\s*\}\s*\)\s*\{")
+# The canary's repository id, as its reads answer it (trials/P-49.json, trials/P-2.least.json). A node id GitHub issues
+# today is a prefix and base64url of msgpack [0, the repository's id, ...]: a write is held to a node of the canary by it.
+CANARY_ID = 1414593263
+
+
+def node_repo(node: str):
+    """The repository id a node id of GitHub's current form names, or None when it cannot be read as one."""
+    prefix, _, encoded = node.partition("_") if isinstance(node, str) else ("", "", "")
+    if not prefix.isalpha() or not encoded or not re.fullmatch(r"[A-Za-z0-9_-]+", encoded):
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+    except (ValueError, TypeError):
+        return None
+    if len(raw) < 3 or not 0x92 <= raw[0] <= 0x9f or raw[1] != 0:
+        return None
+    tag, rest = raw[2], raw[3:]
+    if tag <= 0x7f:
+        return tag
+    width = {0xcc: 1, 0xcd: 2, 0xce: 4, 0xcf: 8}.get(tag)
+    return int.from_bytes(rest[:width], "big") if width and len(rest) >= width else None
+
+
+def written(request: dict):
+    """(the write, the node id it writes) of a GraphQL mutation a fixture may record, or None: one root field among
+    WRITES, its input's one key bound to the one variable `id`, a node id, and nothing after its selection."""
+    body = request.get("body") if isinstance(request, dict) and isinstance(request.get("body"), dict) else {}
+    query, variables = body.get("query"), body.get("variables")
+    if request.get("via") != "graphql" or not isinstance(query, str) or '"' in query or "#" in query \
+            or set(body) != {"query", "variables"} \
+            or not isinstance(variables, dict) or set(variables) != {"id"} or not isinstance(variables["id"], str):
+        return None
+    found = WRITE.match(query)
+    if not found or WRITES.get(found.group(1)) != found.group(2) \
+            or (found.group(3) and found.group(1) != "enablePullRequestAutoMerge"):
+        return None
+    depth, at = 1, found.end()
+    while at < len(query) and depth:
+        depth += {"{": 1, "}": -1}.get(query[at], 0)
+        at += 1
+    return (found.group(1), variables["id"]) if depth == 0 and query[at:].strip() == "}" else None
+
+
+# Anything but a brace between the word and its brace, a GraphQL comment among it, in one repeated class, so the match
+# is linear in the text (Sonar's S8786).
+MUTATION = re.compile(r"\bmutation\b[^{}]*\{")
+
+
+def _sent_writes(value) -> list:
+    """Each GraphQL write an exchange carries anywhere but as its own request, as a dict of `query` and `variables`
+    (a script's record of what it sent), at any depth; and each other string that reads as a mutation, as None."""
+    out = []
+    if isinstance(value, dict):
+        query = value.get("query")
+        if isinstance(query, str) and MUTATION.search(query):
+            out.append(value if set(value) <= {"query", "variables"} else None)
+        out += [w for k, v in value.items() if k != "query" for w in _sent_writes(v)]
+    elif isinstance(value, list):
+        out += [w for v in value for w in _sent_writes(v)]
+    elif isinstance(value, str) and MUTATION.search(value):
+        out.append(None)
+    return out
+
+
+def _a_read(request: dict) -> bool:
+    """Whether a request reads: a GraphQL query, or a REST GET. Only a read's answer ties a node to a repo."""
+    if request.get("via") == "graphql":
+        body = request.get("body") if isinstance(request.get("body"), dict) else {}
+        return isinstance(body.get("query"), str) and body["query"].lstrip().startswith(("query", "{"))
+    return request.get("via") == "rest" and isinstance(request.get("call"), str) and request["call"].startswith("GET ")
+
+
+def _nodes(value) -> set:
+    """Every node id an answer holds: a `node_id`, or an `id` that is a string, at any depth."""
+    out = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in ("node_id", "id") and isinstance(item, str):
+                out.add(item)
+            out |= _nodes(item)
+    elif isinstance(value, list):
+        for item in value:
+            out |= _nodes(item)
+    return out
+
+
 def _asked(request: dict) -> tuple:
     """({owners}, {repos}, [what is wrong]) a request names, by its query's root fields, its REST path or its
     command line."""
@@ -325,8 +424,10 @@ def _asked(request: dict) -> tuple:
         body = request.get("body") if isinstance(request.get("body"), dict) else {}
         query = body.get("query")
         variables = body.get("variables") if isinstance(body.get("variables"), dict) else {}
+        if written(request):
+            return owners, repos, []      # held to the node a read of the org's repos answered (_repos)
         if not isinstance(query, str) or not query.lstrip().startswith(("query", "{")):
-            return owners, repos, ["is not a query; a read is one query, not a mutation or a subscription"]
+            return owners, repos, ["is not a query; a read is one query, and a write one of WRITES on one node by `id`"]
         roots, problem = _roots(query)
         if problem:
             return owners, repos, [problem]
@@ -448,11 +549,44 @@ def _repos(data: dict, installed) -> list:
     trial = data.get("trial")
     fork = lambda repo: trial in TRIALS_OF_FORKS and repo.count("/") == 1 and repo.split("/")[1] == CANARY
     allowed = lambda repo: repo.startswith(ORG + "/") or fork(repo)
+    # The nodes a read of the canary itself answered, naming no other repo, which alone a recorded write may name: a read
+    # of another repo of the org ties its nodes to that repo.
+    nodes = set()
+    for exchange in data.get("exchanges") or []:
+        request = exchange.get("request") if isinstance(exchange, dict) else None
+        response = exchange.get("response") if isinstance(exchange, dict) and isinstance(exchange.get("response"), dict) else {}
+        if isinstance(request, dict) and _a_read(request) and response.get("status") == 200:
+            owners, repos, wrong = _asked(request)
+            if not wrong and repos == {canary} and set(_named(response.get("body"))) <= {canary}:
+                nodes |= _nodes(response.get("body"))
     for i, exchange in enumerate(data.get("exchanges") or []):
         request = exchange.get("request") if isinstance(exchange, dict) else None
         if not isinstance(request, dict):
             continue
         where = "exchanges[%d].request" % i
+        write = written(request)
+        if write and write[1] not in nodes:
+            out.append((where + ".body", "writes %s on a node no read of the canary alone in this fixture answered"
+                        % write[0]))
+        elif write and node_repo(write[1]) != CANARY_ID:
+            out.append((where + ".body", "writes %s on a node that is not the canary's by its id: %s"
+                        % (write[0], node_repo(write[1]) or "an id that cannot be read")))
+        # A write carried any other way, by a command line, a workflow, or inside an answer, is held as one sent: one of
+        # WRITES, on a node of the canary a read here answered; a mutation in any other text is refused.
+        response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
+        # A GraphQL request's own query and variables are its read or its write, held above; any other field of its body
+        # is scanned as the rest of the exchange is.
+        body = request.get("body") if isinstance(request.get("body"), dict) else {}
+        own = request.get("via") == "graphql"
+        carried = _sent_writes({k: v for k, v in request.items() if not (own and k == "body")}) \
+            + _sent_writes({k: v for k, v in body.items() if k not in ("query", "variables")} if own else {}) \
+            + _sent_writes(response)
+        for sent in carried:
+            held = written({"via": "graphql", "body": sent}) if sent is not None else None
+            if held is None:
+                out.append((where, "carries a GraphQL write that is not one of WRITES, sent as a request of its own"))
+            elif held[1] not in nodes or node_repo(held[1]) != CANARY_ID:
+                out.append((where, "carries a write of %s on a node no read of the canary alone answered" % held[0]))
         owners, repos, wrong = _asked(request)
         out += [(where + ".call", what) for what in wrong]
         forks_named = {r.split("/")[0] for r in repos if fork(r)} - _orgs_named(request)
@@ -629,7 +763,7 @@ def _section_6(root: pathlib.Path):
     start = text.find("\n## 6. ")
     end = text.find("\n## ", start + 1) if start >= 0 else -1
     section = text[start:end if end >= 0 else len(text)] if start >= 0 else ""
-    section = HIDDEN.sub("", FENCED.sub("", section))
+    section = HIDDEN.sub("", section)
     opened = OPENED.search(section)
     return section[:opened.start()] if opened else section
 

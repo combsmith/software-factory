@@ -845,7 +845,8 @@ class Push(unittest.TestCase):
 
     def test_a_list_that_is_none_or_empty_refuses_every_push(self):
         for listed in (None, [], [""], ["kernel/", None], "kernel/", {"kernel/": 1}, ["/kernel/gate.py"], ["."], [".."],
-                       ["kernel//"], ["kernel/", "a//b"]):
+                       ["kernel//"], ["kernel/", "a//b"], ["kernel\\decide.py"], ["kernel/", "config/hooks.json\x00"],
+                       ["kernel/\x7f"]):
             self.assertEqual(apply.push_refusal(["docs/a.md"], [None], listed), "push_list_unreadable", listed)
 
     def test_the_repos_own_list_holds_the_kernel_and_the_review_roles_inputs(self):

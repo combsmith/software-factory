@@ -65,10 +65,11 @@ def push_refusal(paths, previous_paths, protected_list):
     that touches the list is always refused, and a person pushes such a change (decisions 0020 and 0052). A path that
     cannot be read as one from the top of the repo (an empty name, `.` or `..`, a control character or a backslash), or
     paths that are no list, could be any, and are refused too. A list that is none, or empty, or holds what the Kernel
-    reads as no pattern (`kernel/derive.py`'s `readable_pattern`), is
-    `push_list_unreadable`, never nothing to touch. No Effect pushes yet: slice 2's push Effect calls this."""
+    reads as no pattern (`kernel/derive.py`'s `readable_pattern`), or a pattern with a control character or a backslash,
+    which no path it is matched against may hold and so protects nothing, is `push_list_unreadable`, never nothing to
+    touch. No Effect pushes yet: slice 2's push Effect calls this."""
     if not isinstance(protected_list, list) or not protected_list \
-            or not all(derive.readable_pattern(p) for p in protected_list):
+            or not all(derive.readable_pattern(p) and not UNREADABLE_PATH.search(p) for p in protected_list):
         return LIST_UNREADABLE
     if not isinstance(paths, (list, tuple)) or not isinstance(previous_paths, (list, tuple)):
         return "push_protected"

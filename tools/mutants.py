@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import importlib
+import json
 import os
 import pathlib
 import re
@@ -941,6 +942,14 @@ MUTANTS = ISSUE + [
     ('an approval whose pull request cannot be read again is claimed', 'adapters/effects.py',
      '    if after is not None and after["fault"] != "superseded":\n        return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}\n    return {"state": "applied"',
      '    return {"state": "applied"', ("tests.test_approve",)),
+    # Argon's read of PR 380: the bounds of a reopening's second, and the state of an approval sent and not claimed.
+    ('an approval in the second of the reopening is recovered', 'harness/approve.py',
+     'done["at"] > reopened', 'done["at"] >= reopened', ("tests.test_approve",)),
+    ('an approval of no time is compared with the reopening', 'harness/approve.py',
+     'isinstance(done.get("at"), str) and done["at"] > reopened', 'done["at"] > reopened', ("tests.test_approve",)),
+    ('an approval sent on a pull request closed under the act is refused', 'adapters/effects.py',
+     '{"state": "failed", "key": None, "fault": "superseded", "reason": "closed_under_act"}',
+     '{"state": "refused", "key": None, "fault": "superseded", "reason": "closed_under_act"}', ("tests.test_approve",)),
     # Issues 328 and 329: what reconciliation left whole, or alarmed on, that it should not have.
     ('a re-run that cannot be told is whole', 'controller/reconcile.py',
      'r["rerun_by_dispatcher"] is None and r["started_at"] >= since:\n                short = True',
@@ -1175,6 +1184,13 @@ MUTANTS = ISSUE + [
     ('a type GitHub does not give is read', 'adapters/timeline.py',
      ' \\\n                or user.get("type") not in ("User", "Bot"):',
      ':', ("tests.test_adapters",)),
+    # Argon's read of PR 341, and Muse's of PR 387: an id of True or 1.0 is no account's, though each == 1.
+    ('an account of id True is typed as the account of id 1', 'adapters/timeline.py',
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), float) or', ("tests.test_adapters",)),
+    ('an account of id 1.0 is typed as the account of id 1', 'adapters/timeline.py',
+     ' or type(user.get("id")) is not int or', ' or isinstance(user.get("id"), bool) or', ("tests.test_adapters",)),
+    ('a resolver of id True is told as the identity of id 1', 'adapters/seen.py',
+     'told == ident and _positive(ident)), None)', 'told == ident), None)', ("tests.test_reconcile",)),
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
     ('a machine-user push is matched to an approval', 'controller/reconcile.py',
      '    "approver": {"approval": (APPLIED, "approve")},',
@@ -1929,6 +1945,52 @@ MUTANTS = ISSUE + [
      '        return ["NEEDS cannot be read as JSON; give it ${{ toJSON(needs) }} in the job\'s env"]\n',
      "        return []\n", ("tests.test_tools.Workflows",)),
     # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
+    # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
+    ('the baseline runs the whole suite', 'tools/mutants.py',
+     '    tests = cases(named(muta' 'nts), root)\n    if not tests:',
+     '    tests = ()\n    if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline is split by the names its mutants give', 'tools/mutants.py',
+     '    tests = cases(na' 'med(mutants), root)\n',
+     '    tests = named(mutants)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline runs in one part', 'tools/mutants.py',
+     '    parts = [tests[at::workers] for a' 't in range(min(workers, len(tests)))]',
+     '    parts = [tests]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline has parts that hold no test', 'tools/mutants.py',
+     'for at in range(min(w' 'orkers, len(tests)))]',
+     'for at in range(workers)]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a list naming no test runs nothing first', 'tools/mutants.py',
+     '        return [ru' 'n(root)]\n    parts',
+     '        return []\n    parts', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a test named twice runs twice', 'tools/mutants.py',
+     '    return tuple(di' 'ct.fromkeys(found))\n',
+     '    return tuple(found)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a name read as no test runs as what it was read as', 'tools/mutants.py',
+     '        found.extend(id' 's if whole else [name])\n',
+     '        found.extend(ids)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('an id that is no test under tests/ is run', 'tools/mutants.py',
+     'and i.startswith("te' 'sts.") for i in ids)',
+     'and not i.startswith("unittest.") for i in ids)', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the names are read here, not in the tree', 'tools/mutants.py',
+     'cwd=str(root), input=j' 'son.dumps(list(tests)),',
+     'cwd=str(ROOT), input=json.dumps(list(tests)),', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a tree that cannot be read stops the run', 'tools/mutants.py',
+     '    except (OSError, ValueError, subproce' 'ss.SubprocessError):\n        said = None\n',
+     '    except ValueError:\n        said = None\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the tests named together run as one name', 'tools/mutants.py',
+     '*((only,) if isinstance' '(only, str) else only)]',
+     'only]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a slow baseline reads as a red one', 'tools/mutants.py',
+     'if (status is not None a' 'nd outcome != "SURVIVED")',
+     'if (outcome != "SURVIVED")', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a part that failed and then ran out of time reads as slow', 'tools/mutants.py',
+     ' or (status is None and FA' 'ILURE_LINE.search(output)):',
+     ':', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a slow baseline breaks the mutants anyway', 'tools/mutants.py',
+     '    if any(status is None' ' for status, _ in runs):\n',
+     '    if False:\n', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a red part after the first is passed over', 'tools/mutants.py',
+     '    for status, output in runs:\n       ' ' outcome, why = verdict(status, output)',
+     '    for status, output in runs[:1]:\n        outcome, why = verdict(status, output)', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
     ("a shard drops a mutant", "tools/mutants.py",
      "if place % count" " == index]", "if place % count == index and place]", ("tests.test_tools.Mutants",)),
     ("a mutant is in two shards", "tools/mutants.py",
@@ -2094,12 +2156,8 @@ MUTANTS = ISSUE + [
      "        elif note is not None:\n", "        elif note is not None and fixture is None:\n",
      ("tests.test_tools.Trials.test_a_rule_no_trial_asks_names_one_or_says_why_none_can",)),
     ("a row anywhere in the design is a trial", "tools/check_trials.py",
-     '    section = HIDDEN.sub("", FENCED.sub("", section))\n', "    section = HIDDEN.sub(\"\", FENCED.sub(\"\", text))\n",
+     '    section = HIDDEN.sub("", section)\n', '    section = HIDDEN.sub("", text)\n',
      ("tests.test_tools.Trials.test_a_rule_no_trial_asks_names_one_or_says_why_none_can",)),
-    ("a row in a fenced block is a trial", "tools/check_trials.py",
-     '    section = HIDDEN.sub("", FENCED.sub("", section))\n', "    section = HIDDEN.sub(\"\", section)\n",
-     ("tests.test_tools.Trials.test_a_rule_no_trial_asks_names_one_or_says_why_none_can",
-      "tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it")),
     ("a design that cannot be decoded raises", "tools/check_trials.py",
      "    except (OSError, ValueError):\n        return None\n    start", "    except OSError:\n        return None\n    start",
      ("tests.test_tools.Trials.test_a_rule_no_trial_asks_names_one_or_says_why_none_can",)),
@@ -2113,9 +2171,39 @@ MUTANTS = ISSUE + [
     ('a rule with no quote of its trial is let through', 'tools/check_trials.py',
      '            if quoted is not None and asked is not None and not (',
      '            if quote is not None and asked is not None and not (', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('a row in a fenced block is a trial', 'tools/check_trials.py',
+     '(?:^ {0,3}(`{3,})',
+     '(?:(?!)(`{3,})', ('tests.test_tools.Trials.test_a_rule_no_trial_asks_names_one_or_says_why_none_can', 'tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it')),
     ("a row's answer is read as its question", 'tools/check_trials.py',
-     'QUESTION = re.compile(r"^\\| (P-[1-9][0-9]*) \\| (.*?) \\| ", re.M)',
+     'QUESTION = re.compile(r"^\\| (P-[1-9][0-9]*) \\| ((?:[^\\\\|\\n]|\\\\[^\\n])*?) \\| ", re.M)',
      'QUESTION = re.compile(r"^\\| (P-[1-9][0-9]*) \\| (.*) ", re.M)', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ("a row's question runs on into its answer", 'tools/check_trials.py',
+     '(?:[^\\\\|\\n]|',
+     '(?:[^\\\\\\n]|', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ("a row's question runs on past its line", 'tools/check_trials.py',
+     '(?:[^\\\\|\\n]|',
+     '(?:[^\\\\|]|', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('an escaped pipe ends a question', 'tools/check_trials.py',
+     '((?:[^\\\\|\\n]|\\\\[^\\n])*?)',
+     '([^|\\n]*?)', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('a row fenced with tildes asks', 'tools/check_trials.py',
+     '(?:^ {0,3}(~{3,})',
+     '(?:(?!)(~{3,})', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('a row in a comment asks', 'tools/check_trials.py',
+     'r"|(?:<!--.*?-->)"',
+     'r"|(?:(?!)<!--.*?-->)"', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('an indented fence hides nothing', 'tools/check_trials.py',
+     '(?:^ {0,3}(`{3,})',
+     '(?:^(`{3,})', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('a longer fence is closed by a shorter one', 'tools/check_trials.py',
+     '^ {0,3}\\1`*[ \\t]*$',
+     '^```', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('a tilde fence is closed by a shorter one', 'tools/check_trials.py',
+     '^ {0,3}\\2~*[ \\t]*$',
+     '^~~~', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ('an indented opener left unclosed hides nothing', 'tools/check_trials.py',
+     'OPENED = re.compile(r"(?:^ {0,3}(?:',
+     'OPENED = re.compile(r"(?:^(?:', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
     ('a quote of a trial its rule does not name is kept', 'tools/check_trials.py',
      '        for trial in sorted(set(by_trial) - set(named.get(code) or ()), key=str):',
      '        for trial in ():', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
@@ -2134,9 +2222,9 @@ MUTANTS = ISSUE + [
     ('a quote may start or end inside a word', 'tools/check_trials.py',
      '    return re.search(r"(?<![\\w`\'])%s(?![\\w`])" % re.escape(quote), question) is not None',
      '    return quote in question', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
-    ('a row fenced with tildes or in a comment asks', 'tools/check_trials.py',
-     '    section = HIDDEN.sub("", FENCED.sub("", section))',
-     '    section = FENCED.sub("", section)', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
+    ("a fence is read before the comment that holds it", 'tools/check_trials.py',
+     '    section = HIDDEN.sub("", section)\n',
+     '    section = HIDDEN.sub("", re.sub(r"(?ms)^```.*?^```", "", section))\n', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
     ('a quote of three words names a question', 'tools/check_trials.py',
      'QUOTED_WORDS = 4\n',
      'QUOTED_WORDS = 3\n', ('tests.test_tools.Trials.test_a_rule_names_only_a_trial_whose_row_asks_it',)),
@@ -2165,6 +2253,10 @@ MUTANTS = ISSUE + [
     ("a person's push ends the contract's approval whatever it dismissed", 'sim/world.py',
      'rv["by"]["name"] == self.approved["by"]["name"] and rv["commit"] == self.approved["commit"]',
      'True', ('tests.test_simulator.Simulation.test_a_stale_dismissal_takes_approvals_alone_and_ends_only_the_contracts_own',)),
+    ("a person's push ends the contract's approval on any review its approver gave", 'sim/world.py',
+     ' and rv["commit"] == self.approved["commit"]\n', '\n', ('tests.test_simulator.Simulation.test_a_stale_dismissal_takes_approvals_alone_and_ends_only_the_contracts_own',)),
+    ("a person's push ends the contract's approval on any review of its commit", 'sim/world.py',
+     'rv["by"]["name"] == self.approved["by"]["name"] and rv["commit"]', 'rv["commit"]', ('tests.test_simulator.Simulation.test_a_stale_dismissal_takes_approvals_alone_and_ends_only_the_contracts_own',)),
     ('a stale dismissal takes a request for changes too', 'sim/world.py',
      '            dismissed = [rv for rv in self.reviews if rv["state"] == "approved"]\n',
      '            dismissed = [rv for rv in self.reviews if rv["state"] in ("approved", "changes_requested")]\n', ('tests.test_simulator.Simulation.test_a_stale_dismissal_takes_approvals_alone_and_ends_only_the_contracts_own',)),
@@ -2838,6 +2930,9 @@ MUTANTS = ISSUE + [
     ("another Run's outcome is read", 'adapters/artifacts.py',
      ' or record["run"] != run or record["outcome"] is None:',
      ' or record["outcome"] is None:', ('tests.test_adapters',)),
+    ('an outcome nested past what Python parses ends the pass', 'adapters/artifacts.py',
+     '    except (ValueError, RecursionError):\n        # A body nested deeper',
+     '    except ValueError:\n        # A body nested deeper', ('tests.test_adapters.Artifacts.test_an_outcome_that_cannot_be_read_whole_is_not_whole',)),
     ('an outcome off outcome/1 is read', 'adapters/artifacts.py',
      ' or validate(record, SCHEMA)',
      '', ('tests.test_adapters',)),
@@ -5211,6 +5306,22 @@ MUTANTS = ISSUE + [
     ("the redaction writes in the locale's encoding", "tools/redact_trial.py",
      '    target = getattr(stdout, "buffer", None)\n', '    target = None\n',
      ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
+    ("the App reads the token after the last blank line", "tools/trial_as_app.sh",
+     'cut = text.find("\\n\\n", starts[-1]) if starts else -1', 'cut = text.rfind("\\n\\n")',
+     ("tests.test_tools.AppThreads.test_the_token_is_read_after_the_last_status_lines_headers",)),
+    ("the App says the head before its push moved it", "tools/trial_as_app.sh",
+     '    [[ "$read_head" = "$pushed" ]] && break\n', '    break\n',
+     ("tests.test_tools.AppThreads.test_the_app_opens_resolves_and_deletes_and_revokes_its_token",)),
+    ("P-52 forgets a token its refused mint carried", "tools/trial_p52_pause.sh",
+     '    # A token the refusal carried all the same is left for the trap, which revokes it and says so (Muse on #364).\n',
+     '    token=""\n',
+     ("tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing",)),
+    ("the review Role does not permit its check run", "roles/pr-review.json",
+     '"submit_review",\n        "create_check_run"\n', '"submit_review"\n',
+     ("tests.test_tools.Authority.test_the_review_role_permits_its_check_run_now_its_app_is_granted_it",)),
+    ("the App says nothing of a head that never moved", "tools/trial_as_app.sh",
+     '[[ "$read_head" = "$pushed" ]] || echo "trial_as_app: the push made', '[[ "$read_head" = "$pushed" ]] || true "trial_as_app: the push made',
+     ("tests.test_tools.AppThreads.test_a_head_github_never_moves_is_read_five_times_and_said_so",)),
     ("the App's failed redaction leaves its partial clean file", "tools/trial_as_app.sh",
      '        rm -f "${1%.raw}.clean"\n', '', ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
     # Issue 282: the App's review threads, run against a stand-in gh, curl and openssl.
@@ -5391,6 +5502,38 @@ MUTANTS = ISSUE + [
     ("P-52 keeps the mint's whole answer", "tools/trial_p52_pause.sh",
      'json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},', 'json.dump(dict(answer, permissions=answer.get("permissions")),',
      ('tests.test_tools.PauseReadTrial.test_one_token_reads_three_times_and_is_revoked_and_never_kept',)),
+    # Window 2: a fixture records a write only on a node a read of the org's repos answered.
+    ("a write is recorded on any node", "tools/check_trials.py",
+     '        if write and write[1] not in nodes:\n', '        if False:\n',
+     ("tests.test_tools.Trials.test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered",)),
+    ("a write's node may come from a read of another repo of the org", "tools/check_trials.py",
+     '            if not wrong and repos == {canary} and set(_named(response.get("body"))) <= {canary}:\n',
+     '            if not wrong and owners <= {ORG}:\n',
+     ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
+    ("a write's node need not be the canary's by its id", "tools/check_trials.py",
+     '        elif write and node_repo(write[1]) != CANARY_ID:\n', '        elif False:\n',
+     ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
+    ("a merge method rides on any write", "tools/check_trials.py",
+     '            or (found.group(3) and found.group(1) != "enablePullRequestAutoMerge"):\n', '            or False:\n',
+     ("tests.test_tools.Trials.test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered",)),
+    ("a read that also names another repo ties a node to the canary", "tools/check_trials.py",
+     '            if not wrong and repos == {canary} and set(_named(response.get("body"))) <= {canary}:\n',
+     '            if not wrong and repos == {canary}:\n',
+     ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
+    ("a write carried another way is not held", "tools/check_trials.py",
+     '        for sent in carried:\n', '        for sent in []:\n',
+     ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
+    ("a write's node may come from any answer", "tools/check_trials.py",
+     '        if isinstance(request, dict) and _a_read(request) and response.get("status") == 200:\n',
+     '        if isinstance(request, dict) and not written(request):\n',
+     ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
+    ("a GraphQL body's other fields are not scanned", "tools/check_trials.py",
+     '            + _sent_writes({k: v for k, v in body.items() if k not in ("query", "variables")} if own else {}) \\\n',
+     '            + _sent_writes({}) \\\n',
+     ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
+    ("any mutation is a write a fixture may record", "tools/check_trials.py",
+     '    if not found or WRITES.get(found.group(1)) != found.group(2) \\\n', '    if not found \\\n',
+     ("tests.test_tools.Trials.test_a_write_is_recorded_only_on_a_node_a_read_of_the_org_answered",)),
     # P-39 read again on 2026-10-27: the review Role's App is granted what apply reads again and its check run.
     ("the effects step's token cannot read the Pause", "adapters/effects.py",
      'CONTROLLER_NEEDS = ("write:status_on_item", "write:tracking_issue", "read:pass.pause")',
@@ -7882,9 +8025,9 @@ MUTANTS = ISSUE + [
     ('an empty list refuses nothing', 'harness/apply.py',
      '    if not isinstance(protected_list, list) or not protected_list \\\n', '    if not isinstance(protected_list, list) \\\n', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
     ('a list of what is no pattern is read', 'harness/apply.py',
-     '            or not all(derive.readable_pattern(p) for p in protected_list):\n', ':\n', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
+     '            or not all(derive.readable_pattern(p) and not UNREADABLE_PATH.search(p) for p in protected_list):\n', ':\n', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
     ('a pattern of an empty name is read', 'harness/apply.py',
-     'not all(derive.readable_pattern(p) for p in protected_list)', 'not all(isinstance(p, str) and p for p in protected_list)', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
+     'not all(derive.readable_pattern(p) and not UNREADABLE_PATH.search(p) for p in protected_list)', 'not all(isinstance(p, str) and p and not UNREADABLE_PATH.search(p) for p in protected_list)', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
     ('a path with no previous one is refused', 'harness/apply.py',
      '[p for p in previous_paths if p is not None]', 'list(previous_paths)', ('tests.test_apply.Push.test_a_push_that_touches_nothing_on_the_list_is_not_refused',)),
     ("GitHub's wrapped base64 is refused", 'adapters/rules.py',
@@ -7943,6 +8086,8 @@ MUTANTS = ISSUE + [
     ("a Run's record of another Lens's Finding is read", 'adapters/applied.py',
      '            if posted["source"]["lens"] != record["role"]:\n',
      '            if False:\n', ('tests.test_adapters.Recorded.test_what_a_lens_recorded_that_cannot_be_read_is_not_whole',)),
+    ('a Finding on any surface is recorded on a thread', 'adapters/applied.py',
+     '    if surface["type"] != "thread":\n        return None\n', '', ('tests.test_adapters.Recorded.test_a_lens_runs_applied_record_is_read_by_the_one_github_run_its_name_names',)),
     ("a thread with two Findings takes the first's category", 'adapters/applied.py',
      'if len(held) == 1 else (None, None)',
      'if held else (None, None)', ('tests.test_adapters.Recorded.test_a_lens_thread_takes_its_category_from_its_one_finding_the_lens_owns',)),
@@ -8579,7 +8724,7 @@ MUTANTS = ISSUE + [
     ('a release step of text passes', 'tools/check_workflows.py',
      ' or _scalar_items(text, entries, RELEASE_JOB):', ':', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     ('a release step given a text passes', 'tools/check_workflows.py',
-     '            if under in step and (step[under]["value"] or under not in RELEASE_GIVEN[kind]):', '            if False:', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+     '            if under in step and step[under]["value"]:', '            if False:', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     ("a moved Run's unrevoked token leaves its outcome", 'harness/read.py',
      '        if revoke() is not True:\n            raise Stop("token_not_revoked") from None\n', '', ('tests.test_steps.Reader.test_a_run_on_another_release_than_its_pass_builds_no_task',)),
     ('next is held to the last read back, not the plan', 'release/move.py',
@@ -8600,11 +8745,72 @@ MUTANTS = ISSUE + [
     ('a verify suite not answered is an error', 'adapters/candidate.py',
      '    try:\n        answer = transport.send(request("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (repo, suite)))\n    except Unanswered:\n        return False\n',
      '    answer = transport.send(request("GET", "/repos/%s/actions/runs?check_suite_id=%d&per_page=100" % (repo, suite)))\n', ('tests.test_release_step.Candidate.test_verify_counts_only_from_verify_yml_as_the_kernels_lens_reads_it',)),
+    # Argon's reads of #348, #355 and #379, owed while it had no quota (no record; Boundaries rows on 0070, 0075, 0080).
+    ('a list pattern with a backslash or a control character is read', 'harness/apply.py',
+     'derive.readable_pattern(p) and not UNREADABLE_PATH.search(p) for p in protected_list', 'derive.readable_pattern(p) for p in protected_list', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
+    ("a base list answered with no 200 is read", 'adapters/rules.py',
+     'if answer["status"] != 200 or not isinstance(body, dict):', 'if not isinstance(body, dict):', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a base list's size that is no integer is read", 'adapters/rules.py',
+     ' or type(size) is not int \\\n', ' \\\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a repo named . is asked", 'adapters/rules.py',
+     'repo.split("/")[1] in (".", "..")', 'repo.split("/")[1] == ".."', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("no current content supersedes", 'adapters/applied.py',
+     '    if not isinstance(content_id, str) or not content_id:\n        return set()\n', '', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
+    ("an empty current content supersedes", 'adapters/applied.py',
+     'if not isinstance(content_id, str) or not content_id:', 'if not isinstance(content_id, str):', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
+    ("the step step takes a with", 'tools/check_workflows.py',
+     '"step": {"run", "env"}}', '"step": {"run", "env", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    ("a step of text after a step's keys is not read", 'tools/check_workflows.py',
+     'if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):', 'if lead < indent or not raw.lstrip(" ").startswith("- "):', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    # Muse's read of #383: the one reader of the list refuses a pattern no path may hold.
+    ("the hooks read a path with a control character or a backslash", "tools/hooks/protected.py",
+     '    if any(re.search(r"[\\x00-\\x1f\\x7f\\\\]", p) for p, _ in paths):\n', "    if False:\n",
+     ("tests.test_hooks.RulesChanged.test_a_path_with_a_control_character_or_a_backslash_is_refused",)),
+    # Argon's reads of #354 and #358, owed while it had no quota (no record; Boundaries rows on 0073 and 0076).
+    ("main's head read by a ref of another kind counts", 'adapters/candidate.py',
+     'if _dict(answer["body"]).get("ref") != "refs/heads/" + branch or head.get("type") != "commit" \\',
+     'if head.get("type") != "commit" \\', ('tests.test_release_step.Candidate.test_the_facts_of_a_commit_on_main_verified_and_judged',)),
+    ("main's head that is no commit counts", 'adapters/candidate.py',
+     ' + branch or head.get("type") != "commit" \\', ' + branch \\', ('tests.test_release_step.Candidate.test_the_facts_of_a_commit_on_main_verified_and_judged',)),
+    ("main's head named by no sha counts", 'adapters/candidate.py',
+     '                or not cut.sha(head.get("sha")):\n            return False\n        answer = transport.send(request("GET", "/repos/%s/compare',
+     '                or False:\n            return False\n        answer = transport.send(request("GET", "/repos/%s/compare', ('tests.test_release_step.Candidate.test_the_facts_of_a_commit_on_main_verified_and_judged',)),
+    ('a Deployment of id 0 is recorded', 'adapters/deployments.py',
+     'if type(ident) is not int or ident < 1 or', 'if type(ident) is not int or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
+    ('an eval dispatch of id 0 is read', 'adapters/candidate.py',
+     'return ident if type(ident) is int and ident > 0 else None', 'return ident if type(ident) is int else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    ('a home that is no object is read', 'release/move.py',
+     '    found = controller.get("home") if isinstance(controller, dict) else None\n    return found if isinstance(found, dict) else None\n',
+     '    found = controller.get("home") if isinstance(controller, dict) else None\n    return found\n', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a checkout at any pin is the release checkout', 'tools/check_workflows.py',
+     '        if (uses, step["uses"]["comment"]) == CHECKOUT:\n            return "checkout"\n        return "mint" if',
+     '        if "id" not in step:\n            return "checkout"\n        return "mint" if', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    ('a release step that runs any command passes', 'tools/check_workflows.py',
+     'return "step" if _lines(step.get("run")) == [RELEASE_STEP] and "uses" not in step else None',
+     'return "step" if "run" in step and "uses" not in step else None', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+    # The review round of #397: the home's repo and branch are read as text, and an id of True is no id.
+    ("a home's repo that is no text is read", 'release/move.py',
+     '    found = (_home(controller) or {}).get("repo")\n    return found if isinstance(found, str) else None\n',
+     '    found = (_home(controller) or {}).get("repo")\n    return found\n', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a home with no branch reads main', 'release/move.py',
+     'return found if isinstance(found, str) and found else None', 'return found if isinstance(found, str) and found else "main"', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('an empty branch is read', 'release/move.py',
+     'return found if isinstance(found, str) and found else None', 'return found if isinstance(found, str) else None', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('the step goes on with no branch', 'release/move.py',
+     ' or branch(controller) is None or channel is None:', ' or channel is None:', ('tests.test_release_step.Step.test_a_step_that_cannot_be_read_asks_nothing',)),
+    ('a Deployment of id True is recorded', 'adapters/deployments.py',
+     'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
+    ('an eval dispatch of id True is read', 'adapters/candidate.py',
+     'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
 ]
 
 
 WORKERS = 4        # runs at once, at most, unless told: each is a whole run of the suite, in a copy of its own
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
+# The baseline, the run of the unbroken tests before anything is broken, runs the tests the run's own mutants name,
+# method by method, shared among its workers, each part one run held to TIMEOUT, never the whole suite, which outgrew
+# TIMEOUT on a CI runner (issue 396). A shard names most of the suite's tests, since its mutants name whole classes
+# that the other shards' do too: the room under TIMEOUT is the workers', not the shard's.
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
 # issue 217): it breaks at most FILTER_MOST mutants, FILTER_WORKERS at a time, and never a shard.
 FILTER_MOST = 40
@@ -8625,14 +8831,15 @@ UNCONFIRMED = "unconfirmed"
 MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
 
-def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: str = None) -> tuple:
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only=None) -> tuple:
     """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out.
 
     The tests named in `first` run on their own before the rest: when they pass, or none is named, the whole suite
-    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone.
+    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone, or
+    each of a tuple of them and no other.
     """
     if only:
-        return _unittest(cwd, timeout, ["-q", "-f", only])
+        return _unittest(cwd, timeout, ["-q", "-f", *((only,) if isinstance(only, str) else only)])
     if first:
         status, output = _unittest(cwd, timeout, ["-q", "-f", *first])
         if status != 0:
@@ -8916,18 +9123,82 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
     return chosen, ", in shard %d of %d counted from 0" % (index, count), None
 
 
+def named(mutants: list) -> tuple:
+    """The tests `mutants` name, each once, sorted: what the baseline runs (issue 396)."""
+    return tuple(sorted({test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}))
+
+
+# Read in a child, in the tree the baseline runs in, by unittest's own loader: the ids of the test methods each name
+# holds, an empty list for one it cannot read.
+LISTING = """import json, sys, unittest
+def flat(s):
+    return [c for i in s for c in flat(i)] if isinstance(s, unittest.TestSuite) else [s]
+said = []
+for name in json.loads(sys.stdin.read()):
+    try:
+        said.append([c.id() for c in flat(unittest.defaultTestLoader.loadTestsFromName(name))])
+    except Exception:
+        said.append([])
+print(json.dumps(said))
+"""
+
+
+def cases(tests: tuple, root: pathlib.Path) -> tuple:
+    """Each test method the dotted names in `tests` hold, as unittest's loader reads them in `root`, in their order,
+    each once, so that a class or module named whole is shared among the baseline's parts and does not hold one of
+    them. A name read as no test, or as any id that is not a test under tests/, is kept whole, for its own run to
+    find; and every name is, where the tree cannot be read at all (issue 396)."""
+    try:
+        listed = subprocess.run([sys.executable, "-c", LISTING], cwd=str(root), input=json.dumps(list(tests)),
+                                capture_output=True, text=True, timeout=TIMEOUT,
+                                env=dict(os.environ, SIM_SEEDS="40", MUTATING="1"))
+        said = json.loads(listed.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        said = None
+    if not isinstance(said, list) or len(said) != len(tests):
+        return tuple(dict.fromkeys(tests))
+    found = []
+    for name, ids in zip(tests, said):
+        whole = isinstance(ids, list) and ids and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
+        found.extend(ids if whole else [name])
+    return tuple(dict.fromkeys(found))
+
+
+def baseline(mutants: list, root: pathlib.Path, run, workers: int) -> list:
+    """(exit status, output) of each run of the unbroken tests before anything is broken: the tests `mutants` name,
+    method by method, in `workers` parts run at once, so that the baseline is shared among the run's workers and is
+    never one run of the whole suite (issue 396). A list that names no test runs the whole suite, once."""
+    tests = cases(named(mutants), root)
+    if not tests:
+        return [run(root)]
+    parts = [tests[at::workers] for at in range(min(workers, len(tests)))]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(parts)) as pool:
+        return list(pool.map(lambda part: run(root, only=part), parts))
+
+
 def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "") -> int:
     mutants = MUTANTS if mutants is None else mutants
-    outcome, why = verdict(*run(root))
-    if outcome != "SURVIVED":
-        print("the tests fail before anything is broken; a mutant cannot be told from that%s"
-              % (" (%s)" % why if why else ""))
+    workers = workers or min(os.cpu_count() or 1, WORKERS)
+    runs = baseline(mutants, root, run, workers)
+    # A test that fails is told first, since it is a fault whatever else is slow, a part that ran out of time after
+    # one failed among them; a part that only ran out of time failed no test that ran, and says so, so that a slow
+    # baseline is never read as a red one.
+    for status, output in runs:
+        outcome, why = verdict(status, output)
+        if (status is not None and outcome != "SURVIVED") or (status is None and FAILURE_LINE.search(output)):
+            print("the tests fail before anything is broken; a mutant cannot be told from that%s"
+                  % (" (%s)" % why if why else ""))
+            return 1
+    if any(status is None for status, _ in runs):
+        print("the tests the mutants name took longer than %d s before anything was broken, and none that ran failed; no "
+              "mutant can be run in that time: name narrower tests in the mutants, or run more workers, then run "
+              "python3 -m tools.mutants again" % TIMEOUT)
         return 1
     killed = 0
     # One run to a CPU, and no more than WORKERS: each holds a copy of the tree and runs the suite in it. map() hands
     # the results back in the order of `mutants`, however the runs finish.
     with tempfile.TemporaryDirectory() as made, \
-            concurrent.futures.ThreadPoolExecutor(max_workers=workers or min(os.cpu_count() or 1, WORKERS)) as pool:
+            concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         trees = Trees(root, made)
         results = pool.map(lambda mutant: guarded(mutant, root, run, trees), mutants)
         for mutant, (outcome, why) in zip(mutants, results):
