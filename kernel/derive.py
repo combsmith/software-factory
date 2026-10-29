@@ -1083,17 +1083,17 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         if not reviewed_clean_or_not(mine, facts, lens) and ("awaiting_review" not in past or rules):
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens] + rules}
 
-    # A Lens's thread that Lens accepted, still open on GitHub, is resolved by the Kernel's act, which the queue App
-    # carries out, before the author is sent back or any gate holds: the Lens judged it, and only the act closes it
-    # (issue 389). A queued item reads past it, so a gating thread open on it takes it out of the queue first: the queue
-    # checks threads only as an item enters it.
-    due = [th["id"] for th in facts["threads"]
-           if th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["ruling"] == "accepted"]
-    if due and "resolve_due" not in past:
-        return {"state": t.ADJUDICATING, "reason": "resolve_due", "evidence": due}
-
     # Every gate before the approval: a standing approval never passes over a person's objection.
     open_gates = gates(facts, config)
+    # A Lens's thread that Lens accepted, still open on GitHub, is resolved by the Kernel's act, which the queue App
+    # carries out, before the author is sent back or a Lens's gate holds: the Lens judged it, and only the act closes it
+    # (issue 389). A person's gate comes first: it holds the merge whatever the Lens's threads do, and is never hidden
+    # behind an act. A queued item reads past it, so a gating thread open on it takes it out of the queue first: the
+    # queue checks threads only as an item enters it.
+    due = [th["id"] for th in facts["threads"]
+           if th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["ruling"] == "accepted"]
+    if due and "resolve_due" not in past and not any(g["by"]["kind"] == "human" for g in open_gates):
+        return {"state": t.ADJUDICATING, "reason": "resolve_due", "evidence": due}
     if open_gates:
         turns = {g["id"]: whose_turn(g, mine, config) for g in open_gates}
         for_author = [gid for gid, who in turns.items() if who == "author"]

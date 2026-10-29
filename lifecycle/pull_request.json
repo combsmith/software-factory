@@ -916,12 +916,6 @@
       "bound": null
     },
     {
-      "from": "addressing",
-      "to": "held",
-      "by": "factory",
-      "bound": "max_acts_per_item"
-    },
-    {
       "from": "adjudicating",
       "to": "held",
       "by": "lens",

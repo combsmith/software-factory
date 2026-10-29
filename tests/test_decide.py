@@ -887,12 +887,23 @@ class OnlyAPersonEnds(unittest.TestCase):
         # by anyone; nor is anything while a Run is seen to wait.
         for th, reason in ((thread(ruling=None), "findings_open"), (thread(ruling="rejected"), "findings_open"),
                            (thread(kind="human", name="don-petry", severity=None, ruling="accepted"), "human_finding"),
+                           # A stranger's thread gates nothing, and is no Lens's to rule on, whatever it says.
+                           (thread(kind="human", name="stranger", can_write=False, severity=None, ruling="accepted"),
+                            "approval_due"),
                            (thread(resolved=True, resolved_by=AUTHOR_APP, ruling="accepted"), "findings_open")):
             d = go(facts(threads=[th]), REVIEWED)
             self.assertEqual(d["reason"], reason, th)
             self.assertNotEqual(d.get("action"), "resolve_thread", th)
         d = go(facts(threads=[thread(ruling="accepted")]), [run(), run(status="in_progress", name="r9")])
         self.assertEqual((d["reason"], d["outcome"]), ("resolve_due", "nothing"))
+        # A person's gate comes first: their open thread, or their request for changes, holds the merge whatever the
+        # Lens's threads do, and is never hidden behind the act.
+        person = thread(tid="T9", kind="human", name="don-petry", severity=None)
+        d = go(facts(threads=[thread(ruling="accepted"), person]), REVIEWED)
+        self.assertEqual((d["reason"], "T9" in d["evidence"]), ("human_finding", True))
+        asked = review("changes_requested", kind="human", name="a-colleague")
+        d = go(facts(threads=[thread(ruling="accepted")], reviews=[asked]), REVIEWED)
+        self.assertNotEqual(d["reason"], "resolve_due")
         # The act is no Run: the Run ceiling, spent, holds no resolution while a Run waits, as it holds no enqueue.
         spent = [run()] + [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i)
                            for i in range(LIMITS["max_runs_per_item"] - 1)]
