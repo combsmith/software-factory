@@ -861,6 +861,11 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(self.team({"pr-review": self.review(), "pr-review-two": twin}),
                                "security is owned by ['pr-review', 'pr-review-two']"))
 
+    def test_the_review_role_permits_its_check_run_now_its_app_is_granted_it(self):  # decision 0059, Muse on #364
+        manifest = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        review = next(i for i in manifest["intents"] if i["name"] == "review-change")
+        self.assertEqual(review["permitted_effects"], ["submit_review", "create_check_run"])
+
     def test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app(self):  # section 5.4, decision 0005
         wide = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=["submit_review",
                                                                                          "create_check_run"])])
@@ -4984,12 +4989,18 @@ if path == "repos/%s" % repo:
     answer(200, {"full_name": repo, "default_branch": "main"})
 if path.endswith("/git/ref/heads/main"):
     answer(200, {"object": {"sha": "a" * 40}})
-if path.endswith("/git/refs") or "/contents/" in path:
+if path.endswith("/git/refs"):
     answer(201, {"ok": True})
+if "/contents/" in path:
+    # The commit the push makes; GitHub then reads the pull request's head as the old one once, as it did in window 2.
+    state["pushed"] = True
+    answer(201, {"commit": {"sha": "b" * 40}})
 if path.endswith("/pulls") and method == "POST":
     answer(201, {"number": 7})
 if path.endswith("/pulls/7") and method == "GET":
-    answer(200, {"number": 7, "state": "open", "head": {"sha": "b" * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
+    stale = os.environ.get("STANDIN_STALE") == "always" or (state.get("pushed") and not state.get("moved"))
+    state["moved"] = bool(state.get("pushed"))
+    answer(200, {"number": 7, "state": "open", "head": {"sha": ("c" if stale else "b") * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
 if path.endswith("/pulls/7/reviews"):
     state["reviews"] += 1
     answer(200, {"id": state["reviews"]})
@@ -5037,9 +5048,36 @@ esac
                              capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
         return bin_, ran
 
+    def test_a_head_github_never_moves_is_read_five_times_and_said_so(self):
+        bin_, ran = self.run_threads(STANDIN_STALE="always")
+        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+        reads = [c for c in calls if any(a.endswith("/pulls/7") for a in c["argv"]) and "GET" in c["argv"]]
+        self.assertEqual(len(reads), 5)
+        self.assertIn("the push made " + "b" * 40 + ", and the pull request still read " + "c" * 40, ran.stderr)
+
+    def test_the_token_is_read_after_the_last_status_lines_headers(self):
+        # The mint's answer as curl -i prints it: through a proxy a block of its own comes first, and GitHub
+        # pretty-prints an empty list across a blank line, which once hid the window's token, unread and unrevoked.
+        token = "ghs_" + "Q" * 36
+        body = json.dumps({"token": token, "repositories": [], "permissions": {"contents": "write"}}, indent=2)
+        script = self.SCRIPT.read_text()
+        parse = re.search(r"/access_tokens\" \|\n    python3 -I -c '\n(.*?)' \"\$raw\"\)", script, re.S).group(1)
+        for answer in ("HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n" + body.replace("[]", "[\n\n  ]"),
+                       "HTTP/1.1 200 Connection established\r\n\r\nHTTP/2 201 \r\nx: y\r\n\r\n" + body):
+            kept = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "02.raw"
+            ran = subprocess.run([sys.executable, "-I", "-c", parse, str(kept)], input=answer, capture_output=True,
+                                 text=True, timeout=60)
+            self.assertEqual((ran.returncode, ran.stdout), (0, token), answer[:40])
+            self.assertNotIn(token, kept.read_text())
+            self.assertTrue(kept.read_text().startswith("HTTP/2 201"), kept.read_text()[:40])
+
     def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
         bin_, ran = self.run_threads()
         self.assertEqual(ran.returncode, 0, ran.stderr)
+        # The head it says is the commit its push made, read again until GitHub moved the pull request to it (window 2
+        # printed the head before the push).
+        self.assertIn("head " + "b" * 40, ran.stdout)
+        self.assertNotIn("still read", ran.stderr)
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
         calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
         curl_calls = [json.loads(line) for line in (bin_ / "curl-calls").read_text().splitlines()]
@@ -5875,6 +5913,8 @@ if method == "POST" and url.endswith("/access_tokens"):
     code = status("mint", 201)
     body = {"token": "''' + "ghs_" + "P" * 36 + r'''", "expires_at": "2026-10-22T19:00:00Z",
             "permissions": {"actions_variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"}
+    if (here / "status-notoken").exists():
+        body.pop("token")
     print(json.dumps(body) + "\n" + str(code), end="")
     sys.exit(0)
 if method == "DELETE":
@@ -5949,9 +5989,22 @@ esac
         folder = self.stand_in(mint=403)
         out, ran = self.run_script(folder)
         self.assertEqual(ran.returncode, 1)
-        self.assertIn("no token was minted", ran.stderr)
-        self.assertEqual(len(self.calls(folder)), 1)
+        self.assertIn("the mint was refused", ran.stderr)
+        # The stand-in's refusal carries a token all the same, and the trap revokes it before the script ends; nothing
+        # else is asked, and the token is said nowhere.
+        said = self.calls(folder)
+        self.assertEqual(len(said), 2, said)
+        self.assertIn("installation/token", json.dumps(said[1]))
+        self.assertIn("stopped with a token live", ran.stderr)
         self.assertFalse((out / "token.json").exists())
+        self.assertNotIn("ghs_", ran.stdout + ran.stderr)
+        for kept in ("token.json", "requests.json", "ran_at"):
+            self.assertFalse((out / kept).exists() and "ghs_" in (out / kept).read_text(), kept)
+        # A refusal that carries no token revokes nothing: one call, the mint.
+        folder = self.stand_in(mint=403, notoken=1)
+        out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual(len(self.calls(folder)), 1)
 
     def test_a_revocation_refused_stops_it_and_says_so(self):
         folder = self.stand_in(revoke=500)
@@ -6561,6 +6614,85 @@ class Mutants(unittest.TestCase):
             code = mutants.main(mutate("fails"), tree({"k.py": "rule\n"}), told({"rule": (0, 1, FAILS_A_TEST)}, calls))
         self.assertEqual((code, calls), (1, ["rule", "done rule"]))
         self.assertIn("the tests fail before anything is broken", said.getvalue())
+
+    def test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite(self):  # issue 396
+        # Before anything is broken, a run runs the tests its own mutants name, each once and method by method, dealt
+        # among its workers: a share of what they name, never one run of the whole suite, which outgrew a run's 600 s
+        # on a CI runner. The names are read in the tree the baseline runs in; a name read as no test is kept whole.
+        named = [("a", "k.py", "rule\n", "a\n", ("tests.test_x.T",)),
+                 ("b", "k.py", "rule\n", "b\n", ("tests.test_x.T", "tests.test_z.U.test_c")),
+                 ("c", "k.py", "rule\n", "c\n", ("tests.test_y",))]
+        self.assertEqual(mutants.named(named), ("tests.test_x.T", "tests.test_y", "tests.test_z.U.test_c"))
+        root = tree({"k.py": "rule\n"})
+        for workers, parts in ((2, [("tests.test_x.T", "tests.test_z.U.test_c"), ("tests.test_y",)]),
+                               (3, [("tests.test_x.T",), ("tests.test_y",), ("tests.test_z.U.test_c",)]),
+                               (5, [("tests.test_x.T",), ("tests.test_y",), ("tests.test_z.U.test_c",)])):
+            calls = []
+
+            def run(work, first=(), only=None):
+                calls.append((first, only))
+                return PASSES[1:]
+            self.assertEqual(mutants.baseline(named, root, run, workers), [PASSES[1:]] * len(parts))
+            self.assertEqual(sorted(calls), sorted(((), part) for part in parts), workers)
+        # A class or module named whole is read method by method, in the tree, so that its tests are shared among the
+        # parts and do not hold one of them; a test named twice is run once.
+        whole = mutants.cases(("tests.test_coverage",), ROOT)
+        self.assertGreater(len(whole), 2)
+        self.assertTrue(all(test.startswith("tests.test_coverage.") and test.count(".") == 3 for test in whole), whole)
+        self.assertEqual(mutants.cases(("tests.test_coverage", whole[0], "tests.test_gone.X"), ROOT),
+                         whole + ("tests.test_gone.X",))
+        calls = []
+
+        def run(work, first=(), only=None):
+            calls.append(only)
+            return PASSES[1:]
+        mutants.baseline([("w", "k.py", "rule\n", "w\n", ("tests.test_coverage",))], ROOT, run, 2)
+        self.assertEqual(sorted(calls), sorted([whole[0::2], whole[1::2]]))
+        two = suite_of("    def test_a(self):\n        pass\n\n    def test_b(self):\n        self.fail()\n")
+        self.assertEqual(mutants.cases(("tests.test_x.T",), two), ("tests.test_x.T.test_a", "tests.test_x.T.test_b"))
+        # An id that is no test under tests/, as one a test could make its own, is never run as an option of unittest;
+        # and where the tree cannot be read at all, each name is kept whole, once.
+        odd = suite_of("    def id(self):\n        return '-h'\n\n    def test_a(self):\n        pass\n")
+        self.assertEqual(mutants.cases(("tests.test_x.T",), odd), ("tests.test_x.T",))
+        try:
+            unread = mutants.cases(("tests.test_x.T", "tests.test_x.T"), root / "gone")
+        except OSError as err:
+            self.fail("a tree that cannot be read raised %r" % err)
+        self.assertEqual(unread, ("tests.test_x.T",))
+        # The tests a part names run together, and no other.
+        try:
+            alone = mutants.suite(two, only=("tests.test_x.T.test_a",))
+            both = mutants.suite(two, only=("tests.test_x.T.test_a", "tests.test_x.T.test_b"))
+        except TypeError as err:
+            self.fail("the tests a part names were not run together: %r" % err)
+        self.assertEqual((alone[0], alone[1].count("Ran 1 test")), (0, 1))
+        self.assertEqual(both[0], 1)
+        # A list of mutants that names no test, as a test's own list may be, runs the whole suite once.
+        calls = []
+        self.assertEqual(mutants.baseline(mutate("plain"), root, told({"rule": PASSES}, calls), 4), [PASSES[1:]])
+        self.assertEqual(calls, ["rule", "done rule"])
+
+    def test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard(self):  # issue 396
+        # A part of the baseline that ran out of time, with no test that ran failed, says so; one in which a test failed
+        # stops the run as before, whichever part it is, whatever else was slow, and though it then ran out of time.
+        # Either way no mutant is broken.
+        named = [(word, "k.py", "rule\n", word + "\n", ("tests.test_%s" % word,)) for word in ("a", "b")]
+        slow = "took longer than %d s before anything was broken, and none that ran failed" % mutants.TIMEOUT
+        for answers, said in (({"tests.test_a": (None, ""), "tests.test_b": PASSES[1:]}, slow),
+                              ({"tests.test_a": (None, ""), "tests.test_b": (1, FAILS_A_TEST)}, "the tests fail before"),
+                              ({"tests.test_a": PASSES[1:], "tests.test_b": (1, FAILS_A_TEST)}, "the tests fail before"),
+                              ({"tests.test_a": (None, FAILS_A_TEST), "tests.test_b": PASSES[1:]}, "the tests fail before")):
+            calls = []
+
+            def run(work, first=(), only=None):
+                calls.append(only)
+                return answers[only[0]] if only else (0, "OK\n")
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                code = mutants.main(named, tree({"k.py": "rule\n"}), run, 2)
+            self.assertEqual(code, 1, answers)
+            self.assertIn(said, printed.getvalue(), answers)
+            self.assertNotIn(slow if said != slow else "the tests fail before", printed.getvalue(), answers)
+            self.assertEqual(sorted(calls), [("tests.test_a",), ("tests.test_b",)], "no mutant was broken")
 
     def test_a_failure_the_mutant_causes_kills_it(self):
         code, lines, calls = self.check({"breaks": (0, 1, FAILS_A_TEST)}, ["breaks"])

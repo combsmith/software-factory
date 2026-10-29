@@ -2199,13 +2199,16 @@ class Threads(unittest.TestCase):
     def test_an_account_is_typed_by_the_permission_read_held_to_its_id(self):  # issue 331, decision 0067
         # The permission read answers the account, its id and type (trials/P-53.json): a type is taken only for the id
         # asked, never for a read that failed, another id, or a type GitHub does not give an account.
-        router = Router(github.Replay([]), {"don-petry": "admin", "gone": "missing"},
-                        users={"odd": (5, "Organization")})
+        router = Router(github.Replay([]), {"don-petry": "admin", "gone": "missing", "boolean": "admin", "float": "admin"},
+                        users={"odd": (5, "Organization"), "boolean": (True, "User"), "float": (1.0, "Bot")})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {})
         self.assertEqual([accounts.typed("don-petry", MAINTAINER), accounts.typed("combsmith-sf-trial-author[bot]", 344141469)],
                          ["User", "Bot"])
         for login, ident in (("gone", 1), ("don-petry", MAINTAINER + 1), ("odd", 5), (None, MAINTAINER),
-                             ("don-petry", True), ("don-petry", 0)):
+                             ("don-petry", True), ("don-petry", 0),
+                             # An answer of id True, or 1.0, is no account's, never the account of id 1, as True == 1
+                             # and 1.0 == 1 would.
+                             ("boolean", 1), ("float", 1)):
             self.assertIsNone(accounts.typed(login, ident), (login, ident))
 
     def test_a_resolver_is_read_once_a_login_whatever_it_resolved(self):  # issue 331: the cost
@@ -2889,6 +2892,10 @@ NOT_READ = {
     "a_label_event_names_its_actor": "shape",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
+    # The threads port reads a thread's resolver as `resolvedBy { login databaseId }`, and P-5 recorded it as
+    # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
+    # Role's write, which no port makes until an App holds contents: write (P-5).
+    "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
@@ -2908,6 +2915,9 @@ REFUSALS = {
     # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
     ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 19): None,
     ("P-2.least", 30): None,
+    # A thread another opened, refused an App without contents: write, which no port resolves until one holds it (P-5).
+    ("P-5", 9): None, ("P-5", 10): None, ("P-5", 11): None, ("P-5", 17): None, ("P-5", 18): None,
+    ("P-25", 0): None,                 # the canary holds no CodeRabbit configuration file, which no port reads
 }
 
 

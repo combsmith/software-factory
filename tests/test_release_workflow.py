@@ -103,6 +103,12 @@ class Shape(unittest.TestCase):
             # #379).
             "an empty with on a step that takes none": (LIVE + "        with:\n", "its step step has exactly env, run"),
             "a step of text after the last step": (LIVE + "      - justastring\n", "its steps are"),
+            # A checkout at another pin, and a release step that runs another command, are no step of the job's (Argon's
+            # read of #358).
+            "a checkout at another pin": (LIVE.replace(check_workflows.CHECKOUT[0], "actions/checkout@" + "0" * 40, 1),
+                                          "its steps are"),
+            "a step that runs another command": (LIVE.replace("run: " + check_workflows.RELEASE_STEP,
+                                                              "run: python3 -m release.cut", 1), "its steps are"),
         }
         # What each step is given under `with:` and `env:` is what its keys allow there, so one given neither is refused
         # for a key of its own.
