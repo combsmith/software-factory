@@ -7,7 +7,9 @@ name's spelling (decision 0005, L-57): `machine_user` is the User the caller nam
 is a Bot the caller names as a Lens's App, read as that Lens's name; any other Bot is `app`; any other User is `human`.
 An event a User made through an App, one that names `performed_via_github_app`, is the App's act, made with that
 person's token, and no person's: its label event or its dismissal is read as `app`, named by the User's login, and
-writes nothing (issue 368). A User's write access is read from the repository's collaborator permission, `admin`,
+writes nothing; but an approval it dismissed is read as dismissed by that person, so it ends, the reading that lets
+nothing through. What names the App is read strictly: null or absent is none, an App with its id is one, and
+anything else cannot be read (issue 368). A User's write access is read from the repository's collaborator permission, `admin`,
 `maintain` or `write`, never `triage`, once a login for the snapshot and never from an association (the Maintainer's
 ruling on #222); the machine user's too, since its approval stands only while it can write. An App's write access is
 never asked; the same read types a thread's resolver by its id where its comments cannot (decision 0067). A User whose
@@ -129,24 +131,45 @@ class Accounts:
             if (ident, kind) == self.queue:
                 return {"kind": "queue", "name": login, "can_write": False}
             return {"kind": "app", "name": login, "can_write": False}
-        if login.endswith("[bot]") or not LOGIN.match(login):
-            raise Unanswered("a User whose login is none GitHub gives: the read was wrong")
+        _user(login)
         if (ident, kind) == self.approver:
             return {"kind": "machine_user", "name": login, "can_write": self._can_write(login)}
         return {"kind": "human", "name": login, "can_write": self._can_write(login)}
 
     def acted(self, event: dict) -> dict:
         """Who made a timeline event, as `actor` reads its account. An App acting with a person's token, which the
-        event's `performed_via_github_app` names, is an App, never that person: it cannot write (issue 368)."""
-        actor = self.actor(event.get("actor"))
-        if actor["kind"] == "human" and event.get("performed_via_github_app"):
-            return {"kind": "app", "name": actor["name"], "can_write": False}
-        return actor
+        event's `performed_via_github_app` names, is an App, never that person: it cannot write, and its write access
+        is never asked (issue 368). The machine user, a Lens and any Bot are read as `actor` reads them."""
+        raw = event.get("actor")
+        if via_app(event):
+            login, ident, kind = self.account(raw)
+            if kind == "User" and (ident, kind) != self.approver:
+                return {"kind": "app", "name": _user(login), "can_write": False}
+        return self.actor(raw)
 
     def factory_made(self, raw_actor) -> bool:
         """Whether an act was the Factory's: the machine user's, or one of the Factory's Apps'."""
         _, ident, kind = self.account(raw_actor)
         return (ident, kind) == self.approver or (ident, kind) in self.factory
+
+
+def _user(login: str) -> str:
+    """A User's login, refused where it is none GitHub gives: the read was wrong."""
+    if login.endswith("[bot]") or not LOGIN.match(login):
+        raise Unanswered("a User whose login is none GitHub gives: the read was wrong")
+    return login
+
+
+def via_app(event: dict) -> bool:
+    """Whether a timeline event was made through an App, as its `performed_via_github_app` names one: null or absent
+    is not; an App, an object with its id, is; anything else cannot be read, so no event of it is read as a person's
+    for want of an App (issue 368)."""
+    app = event.get("performed_via_github_app")
+    if app is None:
+        return False
+    if isinstance(app, dict) and type(app.get("id")) is int and app["id"] > 0:
+        return True
+    raise Unanswered("an event names the App it was made through in a way that cannot be read")
 
 
 def _pages(transport, path: str) -> tuple:
@@ -252,7 +275,12 @@ def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head
             dismissal, before = dismissals[review["id"]]
             if before not in BEFORE:
                 raise Unanswered("a dismissed review whose state before cannot be read")
-            dismissed_by, dismissed_from = accounts.acted(dismissal), before
+            # A dismissal an App made with a person's token is the App's, so a request for changes it dismissed still
+            # stands; but an approval it dismissed is read as that person's, and ends: each reading lets nothing
+            # through that the other would hold (issue 368).
+            acted = accounts.acted(dismissal)
+            dismissed_by = accounts.actor(dismissal.get("actor")) if before == "approved" else acted
+            dismissed_from = before
         found.append({"by": accounts.actor(review.get("user")), "state": state, "commit": commit,
                       "content_id": contents[commit], "submitted_at": _time(review.get("submitted_at")),
                       "dismissed_by": dismissed_by, "dismissed_from": dismissed_from})
@@ -275,7 +303,7 @@ def since_writer(timeline: list, accounts: Accounts) -> dict:
         who = event.get("actor") or event.get("user")
         at = _time(event.get("created_at") or event.get("submitted_at"))
         actor = accounts.actor(who)
-        if actor["kind"] == "human" and actor["can_write"] and not event.get("performed_via_github_app"):
+        if actor["kind"] == "human" and actor["can_write"] and not via_app(event):
             last = at if last is None or at > last else last
             continue
         if not accounts.factory_made(who):

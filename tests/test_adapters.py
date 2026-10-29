@@ -1384,17 +1384,36 @@ class Timeline(unittest.TestCase):
         others = [dict(removed, actor=who, performed_via_github_app=app) for who in (bot, machine, lens)]
         self.assertEqual([e["by"]["kind"] for e in timeline.label_events(others, self.accounts(mixed, {(7, "Bot"): "x"}))],
                          ["app", "machine_user", "lens"])
-        # A dismissal is read the same way: P-7's Maintainer dismissed the App's approval himself; made through an App,
-        # the dismissal is the App's.
+        # An App's act is never asked the write access of the person whose token it used: no permission read is made.
+        silent = Router(github.Replay([]), {})
+        nobody = dict(removed, actor={"login": "nobody", "id": 11, "type": "User"}, performed_via_github_app=app)
+        self.assertEqual([e["by"] for e in timeline.label_events([nobody], self.accounts(silent))],
+                         [{"kind": "app", "name": "nobody", "can_write": False}])
+        self.assertEqual(silent.asked, [])
+        # What names the App is read strictly: null or absent is no App; anything but an App with its id cannot be read,
+        # never a person's act for want of an App.
+        for odd in ({}, "", 0, False, [], "some-app", {"id": True}, {"id": 0}, {"slug": "some-app"}):
+            with self.assertRaises(github.Unanswered, msg=odd):
+                timeline.label_events([placed, dict(removed, performed_via_github_app=odd)], self.accounts(router))
+        self.assertEqual([e["by"] for e in timeline.label_events(
+            [placed, {k: v for k, v in removed.items() if k != "performed_via_github_app"}], self.accounts(router))],
+            [person, person])
+        # A dismissal is read the same way, as P-7's timeline holds one: the Maintainer dismissed an approval himself.
+        # Made through an App, the dismissal of a request for changes is the App's, so the request stands; that of an
+        # approval is still read as the person's, so the approval ends: each reading lets nothing through.
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
         compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d", "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"}
         via = [dict(e, performed_via_github_app=app) if e.get("event") == "review_dismissed"
                and e["actor"]["login"] == "don-petry" else e for e in events]
-        for timeline_read, by in ((events, {"kind": "human", "name": "don-petry", "can_write": True}),
-                                  (via, {"kind": "app", "name": "don-petry", "can_write": False})):
+        asked = [dict(e, dismissed_review=dict(e["dismissed_review"], state="changes_requested"))
+                 if e.get("event") == "review_dismissed" and e["actor"]["login"] == "don-petry" else e for e in via]
+        maintainer = {"kind": "human", "name": "don-petry", "can_write": True}
+        for timeline_read, by, before in ((events, maintainer, "approved"), (via, maintainer, "approved"),
+                                          (asked, {"kind": "app", "name": "don-petry", "can_write": False},
+                                           "changes_requested")):
             router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
             got, _ = timeline.reviews(router, p7_pull(), timeline_read, self.accounts(router), BASE_HEAD)
-            self.assertEqual(got[0]["dismissed_by"], by)
+            self.assertEqual((got[0]["dismissed_by"], got[0]["dismissed_from"]), (by, before))
 
     def test_a_reopening_is_read_from_the_timeline(self):  # issue 378, trials/P-7.reopened.json
         # Canary pull request 61, closed and then approved by the machine user, was reopened with no push: the timeline
@@ -1968,7 +1987,7 @@ class Acceptance(unittest.TestCase):
                                         listed=False), (None, False), actor)
         # Placed by an App, the machine user, a reader, or an App with a person's token, it asks for nothing.
         for event in (label_event("labeled", APP), label_event("labeled", (APPROVER,) + MACHINE),
-                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"slug": "x"})):
+                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"id": 77, "slug": "x"})):
             self.assertEqual(self.asked([event]), (None, True), event)
         # Placed again by an App over a person's, the person's placement stands; after a person removed it, an App's
         # placement asks for nothing.
