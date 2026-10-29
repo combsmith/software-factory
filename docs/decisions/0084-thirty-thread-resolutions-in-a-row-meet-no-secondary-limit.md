@@ -1,4 +1,4 @@
-# 0083. Thirty thread resolutions in a row meet no secondary limit
+# 0084. Thirty thread resolutions in a row meet no secondary limit
 
 Status: accepted. The second machine-user window's P-23, under the orchestrator's rulings of 2026-10-28.
 

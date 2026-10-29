@@ -52,7 +52,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 out=$(cd "$(mktemp -d)" && pwd -P)
 case "$out/" in "$root"/*) echo "the scratch directory is inside the repo" >&2; exit 2 ;; esac
 
-jwt="" token="" n=0 id="" raw=""
+jwt="" token="" n=0 id="" raw="" pushed="" read_head=""
 
 # The value at a dotted path of the JSON body of a redacted capture.
 value() {
@@ -237,11 +237,14 @@ token=$(printf 'Authorization: Bearer %s\n' "$jwt" |
     curl -q -sS -i --fail-with-body -X POST -H @- -H "Accept: $ACCEPT" -H "X-GitHub-Api-Version: $VERSION" \
         "$API/app/installations/$installation/access_tokens" |
     python3 -I -c '
-import json, sys
+import json, re, sys
 text = sys.stdin.read().replace("\r\n", "\n")
-# The last blank line ends the headers: a proxy prints its own "Connection established" block before the one
-# from GitHub, and a JSON body holds no blank line.
-head, gap, body = text.rpartition("\n\n")
+# The headers are the block of the last status line: a proxy prints its own "Connection established" block before
+# the one from GitHub, and GitHub prints an empty list in its JSON across a blank line, so neither the first blank
+# line nor the last ends the headers.
+starts = [m.start(1) for m in re.finditer(r"(?:\A|\n\n)(HTTP/[0-9.]+ [0-9]{3})", text)]
+cut = text.find("\n\n", starts[-1]) if starts else -1
+head, body = (text[starts[-1]:cut], text[cut + 2:]) if cut >= 0 else (text, "")
 try:
     data = json.loads(body)
 except ValueError:
@@ -266,6 +269,7 @@ if [ "$action" = open ] || [ "$action" = threads ]; then
     as_installation POST "repos/$repo/git/refs" "$(object "ref=refs/heads/$branch" "sha=$sha")"
     as_installation PUT "repos/$repo/contents/$file" \
         "$(object "message=Trial: $file, added by the trial-author App" "content=$content" "branch=$branch")"
+    pushed=$(value "$out/$id.clean" commit.sha)
     as_installation POST "repos/$repo/pulls" "$(object "title=Trial: $branch, opened by the trial-author App" \
         "head=$branch" "base=$base" "body=A platform trial. It is approved by the machine user alone, and read.")"
     pr=$(value "$out/$id.clean" number)
@@ -277,9 +281,18 @@ else
     branch=$(value "$out/$id.clean" head.ref)
     as_installation PUT "repos/$repo/contents/$file" \
         "$(object "message=Trial: $file, pushed by the trial-author App" "content=$content" "branch=$branch")"
+    pushed=$(value "$out/$id.clean" commit.sha)
 fi
-as_installation GET "repos/$repo/pulls/$pr"
-echo "Pull request $pr, branch $branch, head $(value "$out/$id.clean" head.sha)"
+# GitHub moves a pull request's head after the push that moves it, so the head is read until it is the commit the
+# push made, a few times, and said as it was last read.
+for attempt in 1 2 3 4 5; do
+    as_installation GET "repos/$repo/pulls/$pr"
+    read_head=$(value "$out/$id.clean" head.sha)
+    [[ "$read_head" = "$pushed" ]] && break
+    if [[ "$attempt" -lt 5 ]]; then sleep 2; fi
+done
+echo "Pull request $pr, branch $branch, head $read_head"
+[[ "$read_head" = "$pushed" ]] || echo "trial_as_app: the push made $pushed, and the pull request still read $read_head" >&2
 
 if [ "$action" = threads ]; then
     # The first thread: the App opens it, resolves it, and reads it as itself.

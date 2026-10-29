@@ -60,9 +60,15 @@ def next_channel(rings):
     return tag if current.channel(tag) else None
 
 
+def _home(controller):
+    """The Controller's home, or None where there is no object to read it from."""
+    found = controller.get("home") if isinstance(controller, dict) else None
+    return found if isinstance(found, dict) else None
+
+
 def home(controller):
     """The repo the Factory's own Releases are tags of: the Controller's home."""
-    found = (controller.get("home") or {}).get("repo") if isinstance(controller, dict) else None
+    found = (_home(controller) or {}).get("repo")
     return found if isinstance(found, str) else None
 
 
@@ -75,10 +81,11 @@ def asked(environ: dict, channel) -> dict:
     return {"command": command, "channel": channel, "to": environ.get("RELEASE_TO") or None}
 
 
-def branch(controller) -> str:
-    """The branch a Release is cut from: the Controller's home branch."""
-    found = (controller.get("home") or {}).get("branch") if isinstance(controller, dict) else None
-    return found if isinstance(found, str) else "main"
+def branch(controller):
+    """The branch a Release is cut from: the Controller's home branch, or None where the home names none, which
+    `schemas/controller.schema.json` requires it to."""
+    found = (_home(controller) or {}).get("branch")
+    return found if isinstance(found, str) and found else None
 
 
 def _named(after, write, released) -> bool:
@@ -95,7 +102,9 @@ def run(environ: dict, connect, rings=READ, controller=READ) -> tuple:
     repo, channel = home(controller), next_channel(rings)
     token = environ.get("RELEASE_TOKEN")
     done = {"writes": [], "deployments": []}
-    if environ.get("RELEASE_COMMAND") not in COMMANDS or repo is None or channel is None:
+    # A home that is no object names no repo (`_home`), and one that names no branch names none: the step stops here,
+    # and never reads a default for either.
+    if environ.get("RELEASE_COMMAND") not in COMMANDS or repo is None or branch(controller) is None or channel is None:
         return done, cut.STEP_UNREADABLE
     if not isinstance(token, str) or not token:
         return done, "token_unreadable"
