@@ -1,0 +1,25 @@
+# 0093. A mutant shard's baseline is its share of what every mutant names, and the whole suite runs in dealt parts
+
+Status: accepted. The Factory Builder's ask of 2026-10-28 and ruling of 2026-10-29, which the Maintainer may overturn in review, on issue 398, "Mutant shards scale with their count: a disjoint share of the named tests for each baseline, and a survivor's whole-suite run kept under the limit". It extends `docs/decisions/0083-a-mutant-runs-baseline-runs-the-tests-its-own-mutants-name-method-by-method-among-its-workers-and-a-slow-one-is-not-a-red-one.md`. Two of 0083's rows no longer hold, and this record decides each anew: "What the baseline runs", for a shard, and "Accepted".
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| What a shard's baseline runs | A share of the tests every mutant names, not only its own mutants': read method by method in its tree, as 0083 reads them, each `count`-th from the shard's place. Across the shards each named test runs once, and a share may hold none. A run with no shard, filtered or at a desk, runs what its own mutants name, as before | Mutants name whole classes, and the shards share them, so each shard named 61 to 67 per cent of the suite's tests. A share shrinks as shards are added. Of the 1,128 tests the mutants name, each of eight shards now runs 141, where it ran 834 to 903 |
+| A red test | A test red on the unbroken code fails the one shard whose share holds it, as red, before any mutant is broken, whichever shard's mutants name it | Every named test is in one share, and the required check needs every shard |
+| A tree that cannot be read | A shard whose tree cannot be read runs what its own mutants name, whole, as 0083's fallback does, not a share | One shard's list cannot then be told to be another's, so a share might leave a test in none |
+| The whole suite | Where a mutant's named tests pass, its whole suite runs in parts. Its test methods, as read in its copy, are dealt in turn into as few parts as hold at most `PART_MOST`, 100, each, each part in the suite's order, the slow modules last. The parts run one after another in the mutant's copy, each one run held to `TIMEOUT`, 600 s, and the next only when the last passed. A module that cannot be read is a part's name of its own | No run of it grows with the suite: a part holds at most 100 tests, whatever the suite's size. Dealt, not cut in order, since slow tests stand together: `tests.test_tools.Trials` holds tests of 97, 72 and 31 s side by side. On a loaded desk, where the suite took 940 s in one run, parts of 50 in order reached 306 s, and dealt parts of 100 made 14 of 9 to 124 s. The parts run one at a time, since each worker is already running a mutant, so the whole takes about the time one run did |
+| What `confirm` runs | Unchanged: the test that failed, alone, on the mutant and on the unbroken code (0027) | One test, or one class where its setup failed, is not the suite |
+
+## Why
+
+0083 narrowed the baseline to what a shard's mutants name, and accepted two gaps. A shard's baseline still grew nearly as the suite does. A mutant whose named tests pass still ran the whole suite as one run held to 600 s, which took 523 s on a desk. On a slower runner that mutant would have become an ERROR for the run's length, not for any rule, and failed its shard.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A shard's baseline is its share of what every mutant names, method by method: the shares are disjoint and cover every named test, and one may be empty. No shard, no named test, or a tree that cannot be read runs what the run's own mutants name. A red test fails the shard that holds it, as red | `tests/test_tools.py::test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it`, `tests/test_tools.py::test_a_shard_is_read_from_the_matrix_or_the_run_stops` |
+| The whole suite's tests are dealt into as few parts as hold at most `PART_MOST`, each in the suite's order, each held to the run's limit, the next only when the last passed | `tests/test_tools.py::test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit` |
+| Each of these rules has a mutant that a test kills | `tools/mutants.py` |

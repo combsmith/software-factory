@@ -6476,10 +6476,11 @@ class Mutants(unittest.TestCase):
 
     def test_a_shard_is_read_from_the_matrix_or_the_run_stops(self):
         every = len(mutants.MUTANTS)
-        self.assertEqual(mutants.selected({}), (mutants.MUTANTS, "", None))
-        chosen, where, at_once = mutants.selected({"MUTANTS_SHARD": "2", "MUTANTS_SHARDS": "6"})
+        self.assertEqual(mutants.selected({}), (mutants.MUTANTS, "", None, None))
+        chosen, where, at_once, share = mutants.selected({"MUTANTS_SHARD": "2", "MUTANTS_SHARDS": "6"})
         self.assertEqual((chosen, where, at_once), (mutants.shard(mutants.MUTANTS, 2, 6), ", in shard 2 of 6 counted "
                                                                                           "from 0", None))
+        self.assertEqual(share, (mutants.MUTANTS, 2, 6), "a shard's baseline is its share of what every mutant names")
         for shard, count, said in (("1", None, "set both"), (None, "6", "set both"), ("", "6", "set both"),
                                    ("one", "6", "set both"), ("-1", "6", "set both"), ("1.0", "6", "set both"),
                                    ("6", "6", "below the count"), ("0", "0", "below the count"),
@@ -6548,8 +6549,8 @@ class Mutants(unittest.TestCase):
         # of the paths, at most FILTER_MOST of them, FILTER_WORKERS at a time, never a shard. With no path, as before.
         few = [("m%d" % n, "kernel/gate.py" if n % 2 else "kernel/brakes.py", "rule\n", "x\n",
                 ("tests.test_tools.Mutants",)) for n in range(50)]
-        chosen, where, at_once = mutants.selected({}, ["kernel/gate.py"], few)
-        self.assertEqual((len(chosen), where, at_once), (25, ", of kernel/gate.py", mutants.FILTER_WORKERS))
+        chosen, where, at_once, share = mutants.selected({}, ["kernel/gate.py"], few)
+        self.assertEqual((len(chosen), where, at_once, share), (25, ", of kernel/gate.py", mutants.FILTER_WORKERS, None))
         self.assertEqual(mutants.FILTER_WORKERS, 2)
         self.assertEqual(mutants.selected({}, ["./kernel/gate.py"], few)[0], chosen, "a path is read however spelt")
         self.assertEqual(mutants.selected({}, ["kernel//gate.py"], few)[0], chosen)
@@ -6557,7 +6558,7 @@ class Mutants(unittest.TestCase):
         self.assertEqual(mutants.selected({}, [".github/workflows/verify.yml"], dotted)[0], dotted, "a dot is kept")
         with self.assertRaises(ValueError):
             mutants.selected({}, ["../kernel/gate.py"], few)
-        self.assertEqual(mutants.selected({}, [], few), (few, "", None), "with no path, every mutant, as before")
+        self.assertEqual(mutants.selected({}, [], few), (few, "", None, None), "with no path, every mutant, as before")
         for environ, paths, said in (({}, ["kernel/gate.py", "kernel/brakes.py"], "a filtered run breaks at most 40"),
                                      ({}, ["kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
                                      ({}, ["kernel/gate.py", "kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
@@ -6660,6 +6661,92 @@ class Mutants(unittest.TestCase):
             self.assertIn(said, printed.getvalue(), answers)
             self.assertNotIn(slow if said != slow else "the tests fail before", printed.getvalue(), answers)
             self.assertEqual(sorted(calls), [("tests.test_a",), ("tests.test_b",)], "no mutant was broken")
+
+    def test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it(self):
+        # Issue 398: the shards' mutants name whole classes, and the same ones, so each shard's baseline was most of
+        # the suite. A shard runs its share of what every mutant names, method by method: across the shards each test
+        # runs once, whoever names it, and a share shrinks as shards are added.
+        methods = "abcdefg"
+        root = suite_of("".join("    def test_%s(self):\n        pass\n\n" % m for m in methods), {"k.py": "rule\n"})
+        every = [("n%d" % n, "k.py", "rule\n", "n%d\n" % n, (named,)) for n, named in
+                 enumerate(("tests.test_x.T", "tests.test_x.T.test_b", "tests.test_x.T.test_g", "tests.test_x.T"))]
+        tests = tuple("tests.test_x.T.test_" + m for m in methods)
+        for count in (1, 2, 3, 4, 9):
+            shares = [mutants.shared((every, index, count), root) for index in range(count)]
+            self.assertEqual(sorted(test for share in shares for test in share), sorted(tests), count)
+            self.assertTrue(all(len(share) <= -(-len(tests) // count) for share in shares), (count, shares))
+        self.assertEqual(mutants.shared((every, 1, 4), root), ("tests.test_x.T.test_b", "tests.test_x.T.test_f"),
+                         "the share is of what every mutant names, not of what the shard's own name")
+        self.assertIsNone(mutants.shared(None, root), "a run with no shard runs what its own mutants name")
+        self.assertIsNone(mutants.shared((mutate("plain"), 0, 2), root), "mutants that name no test share nothing")
+        self.assertIsNone(mutants.shared((every, 0, 2), root / "gone"), "a tree that cannot be read is not shared")
+        # A shard whose share holds no test runs none, and breaks its mutants; one whose tree cannot be read runs what
+        # its own mutants name, whole.
+        calls = []
+
+        def run(work, first=(), only=None):
+            calls.append(only)
+            return PASSES[1:]
+        self.assertEqual(mutants.baseline(every[:1], root, run, 2, (every, 8, 9)), [])
+        self.assertEqual(calls, [])
+        mutants.baseline(every[1:2], root / "gone", run, 2, (every, 0, 2))
+        self.assertEqual(calls, [("tests.test_x.T.test_b",)])
+        # A test red on the unbroken code fails the one shard that holds it, as red, whichever that is; every other
+        # shard goes on to its mutants.
+        for count in (1, 2, 3, 9):
+            held = []
+            for index in range(count):
+                calls = []
+
+                def run(work, first=(), only=None):
+                    if (work / "k.py").read_text() != "rule\n":
+                        return 1, FAILS_A_TEST
+                    calls.append(only)
+                    red = only and any(test.endswith("test_d") for test in ((only,) if isinstance(only, str) else only))
+                    return (1, FAILS_A_TEST) if red else PASSES[1:]
+                with contextlib.redirect_stdout(io.StringIO()) as printed:
+                    code = mutants.main(mutants.shard(every, index, count), root, run, 2, share=(every, index, count))
+                if "the tests fail before anything is broken" in printed.getvalue():
+                    held.append(index)
+                    self.assertEqual(code, 1)
+                else:
+                    self.assertEqual(code, 0, printed.getvalue())
+            self.assertEqual(held, [tests.index("tests.test_x.T.test_d") % count], count)
+
+    def test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit(self):
+        # Issue 398: a mutant whose named tests pass runs the whole suite, which outgrows a run's 600 s. Its tests are
+        # dealt in turn into as few parts as hold at most PART_MOST each, so that slow tests that stand together are
+        # spread among them, each part in the suite's order, the slow modules last; each part is one run held to the
+        # limit, and the next runs only when the last passed.
+        module = "import time\nimport unittest\n\n\nclass T(unittest.TestCase):\n"
+        files = {"tests/test_hooks.py": module + "    def test_a(self):\n        pass\n",
+                 "tests/test_new.py": module + "    def test_a(self):\n        pass\n\n    def test_b(self):\n        pass\n"}
+        where = suite_of("    def test_a(self):\n        pass\n\n    def test_b(self):\n        pass\n", files)
+        real, given = mutants._unittest, []
+
+        def recorded(cwd, timeout, args):
+            given.append((timeout, tuple(args[2:])))
+            return real(cwd, timeout, args)
+        with mock.patch.object(mutants, "PART_MOST", 2), mock.patch.object(mutants, "_unittest", recorded):
+            status, output = mutants.suite(where, 30)
+            self.assertEqual(status, 0, output)
+            dealt = [("tests.test_new.T.test_a", "tests.test_x.T.test_b"),
+                     ("tests.test_new.T.test_b", "tests.test_hooks.T.test_a"), ("tests.test_x.T.test_a",)]
+            self.assertEqual(given, [(30, part) for part in dealt])
+            # A part that fails, or runs out of time, ends the run there, as one run of the whole suite would have.
+            for test, ends in (("        self.fail()\n", 1), ("        time.sleep(60)\n", None)):
+                broken = suite_of("    def test_a(self):\n        pass\n\n    def test_b(self):\n" + test, files)
+                given.clear()
+                status, output = mutants.suite(broken, 5)
+                self.assertEqual((status, len(given)), (ends, 1), test)
+            # The tests a mutant names run first, alone, and the parts after them.
+            given.clear()
+            self.assertEqual(mutants.suite(where, 30, first=("tests.test_x.T.test_b",))[0], 0)
+            self.assertEqual([part for _, part in given], [("tests.test_x.T.test_b",)] + dealt)
+            self.assertEqual(mutants.whole_suite(tree({"k.py": "rule\n"})), [], "a tree with no test runs none")
+        self.assertEqual(mutants.whole_suite(where), [("tests.test_new.T.test_a", "tests.test_new.T.test_b",
+                                                       "tests.test_x.T.test_a", "tests.test_x.T.test_b",
+                                                       "tests.test_hooks.T.test_a")], "the suite's own parts")
 
     def test_a_failure_the_mutant_causes_kills_it(self):
         code, lines, calls = self.check({"breaks": (0, 1, FAILS_A_TEST)}, ["breaks"])
