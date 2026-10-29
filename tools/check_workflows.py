@@ -688,6 +688,14 @@ def lint(text: str) -> list:
         # An on: written as a list of events is never read as events here, so it is no on: section (the security
         # pass on #392).
         found.append(("form", "no on: section, or no job that can be read"))
+    elif _on_items(text, top["on"]):
+        # Any list item under on:, a bare event or a keyed one, is an on: these entries do not read whole: a bare
+        # pull_request_target beside keyed items would be no event here (Argon's read of #392).
+        found.append(("form", "line %d writes on: as a list; write each event as a key" % _on_items(text, top["on"])[0]))
+    elif any(_scalar_items(text, entries, job["key"], steps_only=True) for job in jobs):
+        # A step that is a bare text is one the reading by keys never sees (Argon's read of #392).
+        found.append(("form", "line %d is a step of bare text; write it as a uses: or a run: step"
+                      % next(n for job in jobs for n in _scalar_items(text, entries, job["key"], steps_only=True))))
 
     events = {e["key"] for e in under("on")}
     if top.get("on", {}).get("value"):
@@ -1224,13 +1232,31 @@ def release_problems(text: str) -> list:
     return problems
 
 
-def _scalar_items(text: str, entries: list, job: str) -> list:
+def _on_items(text: str, on: dict) -> list:
+    """The lines of the top-level on: section that are list items where its events stand, keyed or bare: an on:
+    written as a list, which `read` keeps only the keyed items of, as entries (Argon's read of #392). A list deeper in,
+    an event's `branches:`, is its own. The items may stand at the key's own indent, YAML's compact form."""
+    section = []
+    for number, raw in enumerate(text.split("\n")[on["line"]:], on["line"] + 1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        item = raw.lstrip(" ").startswith("- ")
+        lead = len(raw) - len(raw.lstrip(" "))
+        if lead < on["indent"] or (lead == on["indent"] and not item):
+            break       # the next key beside on:, at its own indent however far the root stands in (Muse's read)
+        section.append((lead, number, item))
+    events = min((lead for lead, _, _ in section), default=0)
+    return [number for lead, number, item in section if item and lead == events]
+
+
+def _scalar_items(text: str, entries: list, job: str, steps_only: bool = False) -> list:
     """The lines of `job`'s steps that are no mapping, a bare `- text` item, which `read` keeps no entry of (issue 197,
-    Muse's read of #358): such a step is one more step the reading by keys would not see."""
+    Muse's read of #358): such a step is one more step the reading by keys would not see. With `steps_only`, only a
+    line where the steps stand: a `- ` deeper in, a block's text, is no step (#416's review)."""
     above = [e for e in entries if e["key"] == "steps" and e["path"] == ["jobs", job]]
     if len(above) != 1:
         return []
-    found, indent = [], above[0]["indent"]
+    found, indent, items = [], above[0]["indent"], None
     for number, raw in enumerate(text.split("\n")[above[0]["line"]:], above[0]["line"] + 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
@@ -1238,7 +1264,9 @@ def _scalar_items(text: str, entries: list, job: str) -> list:
         # The items may sit at the key's own indent, YAML's compact form, which `read` takes too.
         if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):
             break
-        if ENTRY.match(raw.rstrip()) is None and ITEM.match(raw.rstrip()) is not None:
+        if items is None and raw.lstrip(" ").startswith("- "):
+            items = lead        # where the steps stand
+        if (lead == items or not steps_only) and ENTRY.match(raw.rstrip()) is None and ITEM.match(raw.rstrip()) is not None:
             found.append(number)
     return found
 
