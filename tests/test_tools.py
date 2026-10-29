@@ -6238,11 +6238,11 @@ class Redaction(unittest.TestCase):
         # A capture in any other shape is refused whole, never filtered for shapes alone: a head a blank line too many,
         # a cased or indented status line, or a redirect's text, hides; a head with a line that is no header, a folded
         # one among them; a JSON type on an earlier head; JSON cut short; a field named for a credential in a text line.
-        secret = '{"client_secret": "abc123xyz", "password": "hunter22"}'
+        fields = '{"client_secret": "abc123xyz", "password": "hunter22"}'
         for raw, why in (
-                ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 200\ncontent-type: application/json\n\n" + secret, "head"),
-                ("HTTP/1.1 100 Continue\n\n HTTP/2 200\ncontent-type: application/json\n\n" + secret, "head"),
-                ("HTTP/1.1 100 Continue\n\nhttp/2 200\ncontent-type: application/json\n\n" + secret, "head"),
+                ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/1.1 100 Continue\n\n HTTP/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/1.1 100 Continue\n\nhttp/2 200\ncontent-type: application/json\n\n" + fields, "head"),
                 ("HTTP/2 302\nlocation: x\n\nmoved\n\nHTTP/2 200\ncontent-type: text/plain\n\nfine\n", "head"),
                 ('HTTP/2 200\ncontent-type: application/json\n{ "client_secret": "abc123xyz" }', "header"),
                 ("HTTP/2 200\nx-api-key: part1\n\tsecretcontinuation\ncontent-type: text/plain\n\nfine\n", "header"),
@@ -6253,7 +6253,7 @@ class Redaction(unittest.TestCase):
                 ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n\ufeffHTTP/2 200\nX-Secret: hunter2\n", "head"),
                 ('"HTTP/1.1 200\\nauthorization: hunter2"', "string"),
                 ('HTTP/2 200\ncontent-type: application/json\n\n"hunter2 is the password"', "string"),
-                ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + secret + "\n", "JSON"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + fields + "\n", "JSON"),
                 ('{\n\n"password": "hunter2"\n', "JSON"),
                 ('HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 500 {"token": "opaque"}', "status"),
                 ('HTTP/1.1 200 {"token": "opaque"}', "status"),
@@ -6265,7 +6265,7 @@ class Redaction(unittest.TestCase):
                            "JSON": "should be JSON", "status": "holds more than a status", "field": "named for a credential",
                            "string": "is a JSON string"}[why], said.getvalue(), raw)
         # JSON behind a byte order mark is read as JSON once the mark is out, and its fields are redacted.
-        out, _ = self.redact("HTTP/2 200\ncontent-type: application/json\n\n\ufeff" + secret)
+        out, _ = self.redact("HTTP/2 200\ncontent-type: application/json\n\n\ufeff" + fields)
         self.assertNotIn("abc123xyz", out)
         self.assertNotIn("hunter22", out)
         # A run's log writes a byte order mark at the start of its lines: it is taken out, and the log is still text.
