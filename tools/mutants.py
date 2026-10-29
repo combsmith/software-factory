@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import importlib
+import json
 import os
 import pathlib
 import re
@@ -1931,20 +1932,44 @@ MUTANTS = ISSUE + [
     # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
     # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
     ('the baseline runs the whole suite', 'tools/mutants.py',
-     '    tests = cases(named(muta' 'nts))\n    if not tests:',
+     '    tests = cases(named(muta' 'nts), root)\n    if not tests:',
      '    tests = ()\n    if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('the baseline is split by the names its mutants give', 'tools/mutants.py',
-     '    tests = cases(named(muta' 'nts))\n',
+     '    tests = cases(na' 'med(mutants), root)\n',
      '    tests = named(mutants)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('the baseline runs in one part', 'tools/mutants.py',
      '    parts = [tests[at::workers] for a' 't in range(min(workers, len(tests)))]',
      '    parts = [tests]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
-    ('the baseline runs a test its named class holds again', 'tools/mutants.py',
-     ' if not any(test.startswith(ot' 'her + ".") for other in tests)',
-     '', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the baseline has parts that hold no test', 'tools/mutants.py',
+     'for at in range(min(w' 'orkers, len(tests)))]',
+     'for at in range(workers)]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a list naming no test runs nothing first', 'tools/mutants.py',
+     '        return [ru' 'n(root)]\n    parts',
+     '        return []\n    parts', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a test named twice runs twice', 'tools/mutants.py',
+     '    return tuple(di' 'ct.fromkeys(found))\n',
+     '    return tuple(found)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a name read as no test runs as what it was read as', 'tools/mutants.py',
+     '        found.extend(id' 's if whole else [name])\n',
+     '        found.extend(ids)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('an id that is no test under tests/ is run', 'tools/mutants.py',
+     'and i.startswith("te' 'sts.") for i in ids)',
+     'and not i.startswith("unittest.") for i in ids)', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the names are read here, not in the tree', 'tools/mutants.py',
+     'cwd=str(root), input=j' 'son.dumps(list(tests)),',
+     'cwd=str(ROOT), input=json.dumps(list(tests)),', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('a tree that cannot be read stops the run', 'tools/mutants.py',
+     '    except (OSError, ValueError, subproce' 'ss.SubprocessError):\n        said = None\n',
+     '    except ValueError:\n        said = None\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+    ('the tests named together run as one name', 'tools/mutants.py',
+     '*((only,) if isinstance' '(only, str) else only)]',
+     'only]', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('a slow baseline reads as a red one', 'tools/mutants.py',
-     '        if status is not Non' 'e and outcome != "SURVIVED":',
-     '        if outcome != "SURVIVED":', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+     'if (status is not None a' 'nd outcome != "SURVIVED")',
+     'if (outcome != "SURVIVED")', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    ('a part that failed and then ran out of time reads as slow', 'tools/mutants.py',
+     ' or (status is None and FA' 'ILURE_LINE.search(output)):',
+     ':', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
     ('a slow baseline breaks the mutants anyway', 'tools/mutants.py',
      '    if any(status is None' ' for status, _ in runs):\n',
      '    if False:\n', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
@@ -8702,8 +8727,9 @@ MUTANTS = ISSUE + [
 WORKERS = 4        # runs at once, at most, unless told: each is a whole run of the suite, in a copy of its own
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
 # The baseline, the run of the unbroken tests before anything is broken, runs the tests the run's own mutants name,
-# split among its workers, each part one run held to TIMEOUT: a shard's eighth of what the mutants name, a quarter of
-# it at a time, never the whole suite, which outgrew TIMEOUT on a CI runner (issue 396).
+# method by method, shared among its workers, each part one run held to TIMEOUT, never the whole suite, which outgrew
+# TIMEOUT on a CI runner (issue 396). A shard names most of the suite's tests, since its mutants name whole classes
+# that the other shards' do too: the room under TIMEOUT is the workers', not the shard's.
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
 # issue 217): it breaks at most FILTER_MOST mutants, FILTER_WORKERS at a time, and never a shard.
 FILTER_MOST = 40
@@ -9017,38 +9043,51 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
 
 
 def named(mutants: list) -> tuple:
-    """The tests `mutants` name, each once and in order, a test left out where a module or class that holds it is named
-    too: what the baseline runs (issue 396)."""
-    tests = {test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}
-    return tuple(sorted(test for test in tests if not any(test.startswith(other + ".") for other in tests)))
+    """The tests `mutants` name, each once, sorted: what the baseline runs (issue 396)."""
+    return tuple(sorted({test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}))
 
 
-def cases(tests: tuple) -> tuple:
-    """Each test method the dotted names in `tests` hold, as unittest's loader reads them here, in their order, each
-    once, so that a class or module named whole is shared among the baseline's parts and not run in one of them. A name
-    that cannot be read so is kept whole, for its own run to find (issue 396)."""
+# Read in a child, in the tree the baseline runs in, by unittest's own loader: the ids of the test methods each name
+# holds, an empty list for one it cannot read.
+LISTING = """import json, sys, unittest
+def flat(s):
+    return [c for i in s for c in flat(i)] if isinstance(s, unittest.TestSuite) else [s]
+said = []
+for name in json.loads(sys.stdin.read()):
+    try:
+        said.append([c.id() for c in flat(unittest.defaultTestLoader.loadTestsFromName(name))])
+    except Exception:
+        said.append([])
+print(json.dumps(said))
+"""
+
+
+def cases(tests: tuple, root: pathlib.Path) -> tuple:
+    """Each test method the dotted names in `tests` hold, as unittest's loader reads them in `root`, in their order,
+    each once, so that a class or module named whole is shared among the baseline's parts and does not hold one of
+    them. A name read as no test, or as any id that is not a test under tests/, is kept whole, for its own run to
+    find; and every name is, where the tree cannot be read at all (issue 396)."""
+    try:
+        listed = subprocess.run([sys.executable, "-c", LISTING], cwd=str(root), input=json.dumps(list(tests)),
+                                capture_output=True, text=True, timeout=TIMEOUT,
+                                env=dict(os.environ, SIM_SEEDS="40", MUTATING="1"))
+        said = json.loads(listed.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        said = None
+    if not isinstance(said, list) or len(said) != len(tests):
+        return tuple(dict.fromkeys(tests))
     found = []
-    for name in tests:
-        try:
-            ids = [case.id() for case in _flat(unittest.defaultTestLoader.loadTestsFromName(name))]
-        except Exception:      # a name that is no test here: its run says why
-            ids = []
-        found.extend(ids if ids and not any(i.startswith("unittest.") for i in ids) else [name])
+    for name, ids in zip(tests, said):
+        whole = isinstance(ids, list) and ids and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
+        found.extend(ids if whole else [name])
     return tuple(dict.fromkeys(found))
-
-
-def _flat(suite) -> list:
-    """The test cases in `suite`, a suite of suites, in order."""
-    if isinstance(suite, unittest.TestSuite):
-        return [case for inner in suite for case in _flat(inner)]
-    return [suite]
 
 
 def baseline(mutants: list, root: pathlib.Path, run, workers: int) -> list:
     """(exit status, output) of each run of the unbroken tests before anything is broken: the tests `mutants` name,
-    method by method, in `workers` parts run at once, so that it takes a share of what the run's own mutants name and
-    never the whole suite (issue 396). A list that names no test runs the whole suite, once."""
-    tests = cases(named(mutants))
+    method by method, in `workers` parts run at once, so that the baseline is shared among the run's workers and is
+    never one run of the whole suite (issue 396). A list that names no test runs the whole suite, once."""
+    tests = cases(named(mutants), root)
     if not tests:
         return [run(root)]
     parts = [tests[at::workers] for at in range(min(workers, len(tests)))]
@@ -9060,18 +9099,19 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
     mutants = MUTANTS if mutants is None else mutants
     workers = workers or min(os.cpu_count() or 1, WORKERS)
     runs = baseline(mutants, root, run, workers)
-    # A test that fails is told first, since it is a fault whatever else is slow; a part that only ran out of time
-    # failed no test, and says so, so that a slow baseline is never read as a red one.
+    # A test that fails is told first, since it is a fault whatever else is slow, a part that ran out of time after
+    # one failed among them; a part that only ran out of time failed no test that ran, and says so, so that a slow
+    # baseline is never read as a red one.
     for status, output in runs:
         outcome, why = verdict(status, output)
-        if status is not None and outcome != "SURVIVED":
+        if (status is not None and outcome != "SURVIVED") or (status is None and FAILURE_LINE.search(output)):
             print("the tests fail before anything is broken; a mutant cannot be told from that%s"
                   % (" (%s)" % why if why else ""))
             return 1
     if any(status is None for status, _ in runs):
-        print("the tests the mutants name took longer than %d s before anything was broken, and none failed; no mutant "
-              "can be run in that time: split the tests they name, or the shards, then run python3 -m tools.mutants "
-              "again" % TIMEOUT)
+        print("the tests the mutants name took longer than %d s before anything was broken, and none that ran failed; no "
+              "mutant can be run in that time: name narrower tests in the mutants, or run more workers, then run "
+              "python3 -m tools.mutants again" % TIMEOUT)
         return 1
     killed = 0
     # One run to a CPU, and no more than WORKERS: each holds a copy of the tree and runs the suite in it. map() hands
