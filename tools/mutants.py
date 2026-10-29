@@ -9098,6 +9098,23 @@ MUTANTS = ISSUE + [
      '        except ValueError:\n            evals = True\n', '        except ValueError:\n            evals = False\n', ("tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs",)),
     ("an argument named eval is read as one the shell runs", "tools/hooks/shell.py",
      '    if BUILTIN_WORD.search(stripped):\n', '    if True:\n', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
+    # Argon's read of #392: an on: written as a list, a step of bare text, and a run's comment.
+    ("an on: written as a list is read", "tools/check_workflows.py",
+     '    elif _on_items(text, top["on"]):\n', '    elif False:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("an on: list at the events' level only deeper is read", "tools/check_workflows.py",
+     '    return [number for lead, number, item in section if item and lead == events]',
+     '    return [number for lead, number, item in section if item and lead > events]', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("an on: list in YAML's compact form ends the section", "tools/check_workflows.py",
+     '        if lead < on["indent"] or (lead == on["indent"] and not item):\n', '        if lead <= on["indent"]:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("an on: section ends only at the margin", "tools/check_workflows.py",
+     '        if lead < on["indent"] or (lead == on["indent"] and not item):\n', '        if lead == 0 and not item:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("a step of bare text passes the lint", "tools/check_workflows.py",
+     '    elif any(_scalar_items(text, entries, job["key"], steps_only=True) for job in jobs):\n', '    elif False:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("a dash in a block's text is a step", "tools/check_workflows.py",
+     "if (lead == items or not steps_only) and ENTRY.match", "if True and ENTRY.match",
+     ("tests.test_tools.Workflows.test_a_dash_in_a_blocks_text_is_no_step",)),
+    ("a run keeps the comment after its quote", "tools/check_workflows.py",
+     'rest[end:].strip()[1:] if key != "run" else ""', 'rest[end:].strip()[1:]', ('tests.test_tools.Workflows.test_a_run_keeps_no_comment_of_its_own',)),
 ]
 
 
