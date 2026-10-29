@@ -102,7 +102,12 @@ class Shape(unittest.TestCase):
             # An empty `with:` on the step that takes none, and a step of text after the steps' keys (Argon's read of
             # #379).
             "an empty with on a step that takes none": (LIVE + "        with:\n", "its step step has exactly env, run"),
-            "a step of text after the last step": (LIVE + "      - justastring\n", "its steps are"),
+            # A bare item beside the steps' mappings is not the narrow form at all (issue 371): it stands under no key
+            # without a value, where a YAML reader could take it for more of the last step's command.
+            "a step of text after the last step": (LIVE + "      - justastring\n", "is not in the narrow form"),
+            # One that does stand under a key with no value, past the first step's keys, is still one more step.
+            "a step of text under a step's key": (LIVE.replace("        with:\n", "        with:\n          - justastring\n", 1),
+                                                  "its steps are"),
         }
         # What each step is given under `with:` and `env:` is what its keys allow there, so one given neither is refused
         # for a key of its own.
