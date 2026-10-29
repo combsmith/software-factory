@@ -1,0 +1,978 @@
+{
+  "schema": "trial/1",
+  "trial": "P-25",
+  "question": "Does resolving a reviewer's thread cause that reviewer to re-post it, reply, or approve?",
+  "pass": "Written 2026-10-22T18:07:40Z, before the window: CodeRabbit neither re-posts, replies, reopens nor approves in the 10 and 30 minutes after its thread is resolved, with no push between. Its thread on canary pull request 62 was resolved at 01:46:31-33Z by the trial-author App (trials/P-5.json). The reads at once, at +10 and at +30 minutes are the same: no re-post, no reply, the thread still resolved; but CodeRabbit's review 5676783315, APPROVED with no text, on the same commit, was submitted at 01:46:37Z, after its CHANGES_REQUESTED of 01:36:02Z. Failed: it approves (issue 366). The configuration section 4.2 asks for, the reviewer's own feature that approves once its threads are resolved switched off in its file in the repo, was not in place: the canary holds no .coderabbit.yaml (404), so this is the case section 4.2 foresees, and the trial is to run again with it switched off.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-28T01:47:11Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/.coderabbit.yaml, as the Maintainer, read 2026-10-28 after the window: whether the canary holds the reviewer's configuration file section 4.2 asks for",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-length": "127",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:18:15 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D68B:EABDD:DB508A7:2CE9282B:6AE274A6",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3615",
+          "x-ratelimit-reset": "1793226416",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1385"
+        },
+        "body": {
+          "message": "Not Found",
+          "documentation_url": "https://docs.github.com/rest/repos/contents#get-repository-content",
+          "status": "404"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/62/reviews?per_page=100, as the Maintainer, at once (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:47:12 GMT",
+          "etag": "W/\"6f0eea56e7e94b17ccd898de294fec2beff67bcd835c3805dc67f8e3961efe60\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E566:3E23CA:493F04D:F258571:6AE1541F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3456",
+          "x-ratelimit-reset": "1793153512",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1544"
+        },
+        "body": [
+          {
+            "id": 5676722498,
+            "node_id": "PRR_kwDOVFD6788AAAABUlvpQg",
+            "state": "CHANGES_REQUESTED",
+            "submitted_at": "2026-10-28T01:36:02Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "NONE",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 5676724761,
+            "node_id": "PRR_kwDOVFD6788AAAABUlvyGQ",
+            "state": "COMMENTED",
+            "submitted_at": "2026-10-28T01:36:24Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "MEMBER",
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "body": ""
+          },
+          {
+            "id": 5676746225,
+            "node_id": "PRR_kwDOVFD6788AAAABUlxF8Q",
+            "state": "COMMENTED",
+            "submitted_at": "2026-10-28T01:40:05Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "CONTRIBUTOR",
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 5676783315,
+            "node_id": "PRR_kwDOVFD6788AAAABUlzW0w",
+            "state": "APPROVED",
+            "submitted_at": "2026-10-28T01:46:37Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "NONE",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            },
+            "body": ""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/62/comments?per_page=100, as the Maintainer, at once (of the answer, each comment's id, author, times and review are kept; no text)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:47:13 GMT",
+          "etag": "W/\"3c3168863b859c28614bf918abb085696fbfa1cd5b02ade119738353ce4ad613\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E567:218A39:473AA8C:E94BB55:6AE15420",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3455",
+          "x-ratelimit-reset": "1793153512",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1545"
+        },
+        "body": [
+          {
+            "id": 4396053800,
+            "created_at": "2026-10-28T01:36:01Z",
+            "updated_at": "2026-10-28T01:36:02Z",
+            "pull_request_review_id": 5676722498,
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 4396055731,
+            "created_at": "2026-10-28T01:36:25Z",
+            "updated_at": "2026-10-28T01:36:25Z",
+            "pull_request_review_id": 5676724761,
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          },
+          {
+            "id": 4396073662,
+            "created_at": "2026-10-28T01:40:05Z",
+            "updated_at": "2026-10-28T01:40:05Z",
+            "pull_request_review_id": 5676746225,
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/62/comments?per_page=100, as the Maintainer, at once (of the answer, each comment's id, author, times and review are kept; no text)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:47:13 GMT",
+          "etag": "W/\"45e9586526f94198d5729ab6f9b925bf2d6cc7f6c98fc47733707fb429d94340\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E568:256A12:43B3F9F:DEF29B5:6AE15421",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3454",
+          "x-ratelimit-reset": "1793153512",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1546"
+        },
+        "body": [
+          {
+            "id": 6458283506,
+            "created_at": "2026-10-28T01:34:27Z",
+            "updated_at": "2026-10-28T01:35:23Z",
+            "user": {
+              "login": "chatgpt-codex-connector[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 6458283620,
+            "created_at": "2026-10-28T01:34:28Z",
+            "updated_at": "2026-10-28T01:36:06Z",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 62's review threads and who resolved each, as the Maintainer, at once",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:62){headRefOid reviewDecision reviewThreads(first:20){nodes{id isResolved resolvedBy{__typename login} comments(first:20){totalCount nodes{author{login} createdAt}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:47:14 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "E569:22A128:449CC6E:E18DA9D:6AE15422",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "1958",
+          "x-ratelimit-reset": "1793152695",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "3042"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "headRefOid": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+                "reviewDecision": "REVIEW_REQUIRED",
+                "reviewThreads": {
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786w86vx",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "__typename": "User",
+                        "login": "combsmith-sf-trial-author[bot]"
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "coderabbitai"
+                            },
+                            "createdAt": "2026-10-28T01:36:01Z"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786w87DK",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "__typename": "User",
+                        "login": "combsmith-sf-trial-author[bot]"
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "don-petry"
+                            },
+                            "createdAt": "2026-10-28T01:36:25Z"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786w89u6",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "combsmith-sf-trial-author"
+                            },
+                            "createdAt": "2026-10-28T01:40:05Z"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/62/reviews?per_page=100, as the Maintainer, 10 minutes after (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:56:15 GMT",
+          "etag": "W/\"6f0eea56e7e94b17ccd898de294fec2beff67bcd835c3805dc67f8e3961efe60\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E6B5:218A39:4805245:EBD98FA:6AE1563F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3228",
+          "x-ratelimit-reset": "1793153512",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1772"
+        },
+        "body": [
+          {
+            "id": 5676722498,
+            "node_id": "PRR_kwDOVFD6788AAAABUlvpQg",
+            "state": "CHANGES_REQUESTED",
+            "submitted_at": "2026-10-28T01:36:02Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "NONE",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 5676724761,
+            "node_id": "PRR_kwDOVFD6788AAAABUlvyGQ",
+            "state": "COMMENTED",
+            "submitted_at": "2026-10-28T01:36:24Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "MEMBER",
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "body": ""
+          },
+          {
+            "id": 5676746225,
+            "node_id": "PRR_kwDOVFD6788AAAABUlxF8Q",
+            "state": "COMMENTED",
+            "submitted_at": "2026-10-28T01:40:05Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "CONTRIBUTOR",
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 5676783315,
+            "node_id": "PRR_kwDOVFD6788AAAABUlzW0w",
+            "state": "APPROVED",
+            "submitted_at": "2026-10-28T01:46:37Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "NONE",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            },
+            "body": ""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/62/comments?per_page=100, as the Maintainer, 10 minutes after (of the answer, each comment's id, author, times and review are kept; no text)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:56:16 GMT",
+          "etag": "W/\"3c3168863b859c28614bf918abb085696fbfa1cd5b02ade119738353ce4ad613\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E6B6:107832:43D14FE:DF7936C:6AE1563F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3226",
+          "x-ratelimit-reset": "1793153512",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1774"
+        },
+        "body": [
+          {
+            "id": 4396053800,
+            "created_at": "2026-10-28T01:36:01Z",
+            "updated_at": "2026-10-28T01:36:02Z",
+            "pull_request_review_id": 5676722498,
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 4396055731,
+            "created_at": "2026-10-28T01:36:25Z",
+            "updated_at": "2026-10-28T01:36:25Z",
+            "pull_request_review_id": 5676724761,
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          },
+          {
+            "id": 4396073662,
+            "created_at": "2026-10-28T01:40:05Z",
+            "updated_at": "2026-10-28T01:40:05Z",
+            "pull_request_review_id": 5676746225,
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/62/comments?per_page=100, as the Maintainer, 10 minutes after (of the answer, each comment's id, author, times and review are kept; no text)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:56:17 GMT",
+          "etag": "W/\"45e9586526f94198d5729ab6f9b925bf2d6cc7f6c98fc47733707fb429d94340\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E6B7:15C490:4BCD587:F93F0F2:6AE15640",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3225",
+          "x-ratelimit-reset": "1793153512",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1775"
+        },
+        "body": [
+          {
+            "id": 6458283506,
+            "created_at": "2026-10-28T01:34:27Z",
+            "updated_at": "2026-10-28T01:35:23Z",
+            "user": {
+              "login": "chatgpt-codex-connector[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 6458283620,
+            "created_at": "2026-10-28T01:34:28Z",
+            "updated_at": "2026-10-28T01:36:06Z",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 62's review threads and who resolved each, as the Maintainer, 10 minutes after",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:62){headRefOid reviewDecision reviewThreads(first:20){nodes{id isResolved resolvedBy{__typename login} comments(first:20){totalCount nodes{author{login} createdAt}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:56:18 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "E6B9:107832:43D1D6F:DF7AE3D:6AE15641",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4260",
+          "x-ratelimit-reset": "1793154190",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "740"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "headRefOid": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+                "reviewDecision": "REVIEW_REQUIRED",
+                "reviewThreads": {
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786w86vx",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "__typename": "User",
+                        "login": "combsmith-sf-trial-author[bot]"
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "coderabbitai"
+                            },
+                            "createdAt": "2026-10-28T01:36:01Z"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786w87DK",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "__typename": "User",
+                        "login": "combsmith-sf-trial-author[bot]"
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "don-petry"
+                            },
+                            "createdAt": "2026-10-28T01:36:25Z"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786w89u6",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "combsmith-sf-trial-author"
+                            },
+                            "createdAt": "2026-10-28T01:40:05Z"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/62/reviews?per_page=100, as the Maintainer, 30 minutes after (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:16:19 GMT",
+          "etag": "W/\"6f0eea56e7e94b17ccd898de294fec2beff67bcd835c3805dc67f8e3961efe60\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E889:22F29E:45C6DB:E56262:6AE15AF2",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4952",
+          "x-ratelimit-reset": "1793157164",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "48"
+        },
+        "body": [
+          {
+            "id": 5676722498,
+            "node_id": "PRR_kwDOVFD6788AAAABUlvpQg",
+            "state": "CHANGES_REQUESTED",
+            "submitted_at": "2026-10-28T01:36:02Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "NONE",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 5676724761,
+            "node_id": "PRR_kwDOVFD6788AAAABUlvyGQ",
+            "state": "COMMENTED",
+            "submitted_at": "2026-10-28T01:36:24Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "MEMBER",
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "body": ""
+          },
+          {
+            "id": 5676746225,
+            "node_id": "PRR_kwDOVFD6788AAAABUlxF8Q",
+            "state": "COMMENTED",
+            "submitted_at": "2026-10-28T01:40:05Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "CONTRIBUTOR",
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 5676783315,
+            "node_id": "PRR_kwDOVFD6788AAAABUlzW0w",
+            "state": "APPROVED",
+            "submitted_at": "2026-10-28T01:46:37Z",
+            "commit_id": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+            "author_association": "NONE",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            },
+            "body": ""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/62/comments?per_page=100, as the Maintainer, 30 minutes after (of the answer, each comment's id, author, times and review are kept; no text)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:16:20 GMT",
+          "etag": "W/\"3c3168863b859c28614bf918abb085696fbfa1cd5b02ade119738353ce4ad613\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E88A:3EB1AE:46022E:E5E71C:6AE15AF4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4951",
+          "x-ratelimit-reset": "1793157164",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "49"
+        },
+        "body": [
+          {
+            "id": 4396053800,
+            "created_at": "2026-10-28T01:36:01Z",
+            "updated_at": "2026-10-28T01:36:02Z",
+            "pull_request_review_id": 5676722498,
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 4396055731,
+            "created_at": "2026-10-28T01:36:25Z",
+            "updated_at": "2026-10-28T01:36:25Z",
+            "pull_request_review_id": 5676724761,
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          },
+          {
+            "id": 4396073662,
+            "created_at": "2026-10-28T01:40:05Z",
+            "updated_at": "2026-10-28T01:40:05Z",
+            "pull_request_review_id": 5676746225,
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/62/comments?per_page=100, as the Maintainer, 30 minutes after (of the answer, each comment's id, author, times and review are kept; no text)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:16:21 GMT",
+          "etag": "W/\"45e9586526f94198d5729ab6f9b925bf2d6cc7f6c98fc47733707fb429d94340\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E88D:2FA080:428627:DAB536:6AE15AF4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4950",
+          "x-ratelimit-reset": "1793157164",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "50"
+        },
+        "body": [
+          {
+            "id": 6458283506,
+            "created_at": "2026-10-28T01:34:27Z",
+            "updated_at": "2026-10-28T01:35:23Z",
+            "user": {
+              "login": "chatgpt-codex-connector[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "id": 6458283620,
+            "created_at": "2026-10-28T01:34:28Z",
+            "updated_at": "2026-10-28T01:36:06Z",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 62's review threads and who resolved each, as the Maintainer, 30 minutes after",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:62){headRefOid reviewDecision reviewThreads(first:20){nodes{id isResolved resolvedBy{__typename login} comments(first:20){totalCount nodes{author{login} createdAt}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 02:16:21 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "E88E:228B58:48D504:EF97FE:6AE15AF5",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4629",
+          "x-ratelimit-reset": "1793156302",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "371"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "headRefOid": "4e5803fc3fddb168e6dfcc8f51a6e3aea1526332",
+                "reviewDecision": "REVIEW_REQUIRED",
+                "reviewThreads": {
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786w86vx",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "__typename": "User",
+                        "login": "combsmith-sf-trial-author[bot]"
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "coderabbitai"
+                            },
+                            "createdAt": "2026-10-28T01:36:01Z"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786w87DK",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "__typename": "User",
+                        "login": "combsmith-sf-trial-author[bot]"
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "don-petry"
+                            },
+                            "createdAt": "2026-10-28T01:36:25Z"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786w89u6",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "author": {
+                              "login": "combsmith-sf-trial-author"
+                            },
+                            "createdAt": "2026-10-28T01:40:05Z"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}
