@@ -107,8 +107,7 @@ class Identity(unittest.TestCase):
 
     def test_a_token_is_narrowed_to_the_permissions_its_effects_need(self):  # ruling 6
         review = APPS["apps"]["pr-review"]
-        self.assertEqual(identity.permissions(review, APPS["needs"], ["submit_review", "resolve_thread", "comment",
-                                                                      "submit_review"]),
+        self.assertEqual(identity.permissions(review, APPS["needs"], ["submit_review", "comment", "submit_review"]),
                          {"pull_requests": "write"})
         self.assertEqual(identity.permissions(review, APPS["needs"], []), {})
         # An Effect whose need waits or is not in the table, or that the App was not granted, is never minted for.
@@ -368,15 +367,13 @@ class Apply(unittest.TestCase):
                    support.thread("PRRT_kw9", kind="human", name="don-petry")]
         facts = support.facts(threads=threads)
         fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
-        task = the_task(permitted_effects=["submit_review", "create_check_run", "resolve_thread"],
+        task = the_task(permitted_effects=["submit_review", "create_check_run"],
                         findings=sorted([fid("PRRT_kw7"), fid("PRRT_kw8"), fid("PRRT_kw9", "don-petry")]))
         author = dict(ROLE, name="dev-lead", kind="author")
 
-        def asked(dispositions, resolve=(), role=ROLE):
-            effects = dict(result()["effects"], resolve_thread=[{"id": "e%d" % (5 + i), "thread": th}
-                                                                for i, th in enumerate(resolve)])
-            return refused(task=task, res=result(dispositions=dispositions, effects=effects), facts=facts, role=role)
-        self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], ["PRRT_kw7"]))
+        def asked(dispositions, role=ROLE):
+            return refused(task=task, res=result(dispositions=dispositions), facts=facts, role=role)
+        self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}]))
         self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "fixed"}}], role=author))
         for dispositions, role, code in (
                 ([{"finding": fid("PRRT_kw7")}], ROLE, "disposition_halves"),
@@ -398,31 +395,14 @@ class Apply(unittest.TestCase):
                 ([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], dict(ROLE, kind="reviewer"),
                  "disposition_not_yours")):
             self.assertEqual(asked(dispositions, role=role), ("item", code), (code, dispositions))
-        # A security Finding's thread is never resolved on a proposal of declined or deferred, whoever asks.
-        for outcome in ("declined", "deferred"):
-            self.assertEqual(asked([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": outcome}}], ["PRRT_kw8"],
-                                   role=author), ("item", "security_finding_declined"))
-        # A resolved thread is an accepted Disposition: only the owner of its category resolves it, and only on its
-        # own decision, in this Result, to accept it (section 3.8).
-        for dispositions, resolve, role, code in (
-                ([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": "fixed"}}], ["PRRT_kw8"], author,
-                 "resolve_not_yours"),
-                ([], ["PRRT_kw8"], author, "resolve_not_yours"),
-                ([{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "declined"}}], ["PRRT_kw7"], author,
-                 "resolve_not_yours"),
-                ([], ["PRRT_kw7"], ROLE, "resolve_not_accepted"),
-                ([{"finding": fid("PRRT_kw7"), "decision": {"result": "rejected"}}], ["PRRT_kw7"], ROLE,
-                 "resolve_not_accepted"),
-                ([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}], ["PRRT_kw7"], ROLE,
-                 "resolve_not_accepted"),
-                ([], ["PRRT_kw9"], ROLE, "resolve_not_yours"),
-                ([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], ["PRRT_kw7"],
-                 dict(ROLE, kind="reviewer"), "disposition_not_yours")):
-            self.assertEqual(asked(dispositions, resolve, role=role), ("item", code), (code, resolve))
         # The owner accepts a security Finding only on the author's proposal of fixed or not applicable, which is in a
-        # Run apply cannot read yet: a security thread is resolved by no Role (Muse's read).
-        self.assertEqual(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}], ["PRRT_kw8"]),
+        # Run apply cannot read yet: no accepted decision on a security thread is taken, so the Kernel resolves none
+        # (Muse's read, issue 389). A rejection is taken, and so is the author's proposal of any outcome.
+        self.assertEqual(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}]),
                          ("item", "security_proposal_unread"))
+        self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "rejected"}}]))
+        for outcome in ("declined", "deferred", "fixed"):
+            self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": outcome}}], role=author))
         # A Finding the Task lists whose thread is not on the item is no Finding of this item's.
         astray = the_task(permitted_effects=task["permitted_effects"], findings=["f_0000"])
         self.assertEqual(refused(task=astray, facts=facts, role=author, res=result(dispositions=[
@@ -432,17 +412,39 @@ class Apply(unittest.TestCase):
         self.assertEqual(refused(task=unlisted, facts=facts, res=result(dispositions=[
             {"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}])), ("item", "disposition_of_no_finding"))
         # An Effect on a thread is on one of this item's: a thread id is global.
-        for effects in ({"resolve_thread": [{"id": "e5", "thread": "PRRT_elsewhere"}]},
-                        {"comment": [{"id": "e5", "on": "PRRT_elsewhere", "body": "x"}]}):
-            wide = the_task(permitted_effects=["submit_review", "create_check_run", "resolve_thread", "comment"])
-            self.assertEqual(refused(task=wide, facts=facts, res=result(effects=dict(result()["effects"], **effects))),
-                             ("item", "thread_not_on_item"))
-        wide = the_task(permitted_effects=["submit_review", "create_check_run", "resolve_thread", "comment"],
-                        findings=[fid("PRRT_kw7")])
+        wide = the_task(permitted_effects=["submit_review", "create_check_run", "comment"])
+        self.assertEqual(refused(task=wide, facts=facts, res=result(effects=dict(
+            result()["effects"], comment=[{"id": "e5", "on": "PRRT_elsewhere", "body": "x"}]))),
+                         ("item", "thread_not_on_item"))
+        wide = the_task(permitted_effects=["submit_review", "create_check_run", "comment"], findings=[fid("PRRT_kw7")])
         self.assertIsNone(refused(task=wide, facts=facts, res=result(dispositions=[
             {"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], effects=dict(
-            result()["effects"], resolve_thread=[{"id": "e5", "thread": "PRRT_kw7"}],
-            comment=[{"id": "e6", "on": "PRRT_kw7", "body": "x"}, {"id": "e7", "on": "item", "body": "y"}]))))
+            result()["effects"], comment=[{"id": "e6", "on": "PRRT_kw7", "body": "x"},
+                                          {"id": "e7", "on": "item", "body": "y"}]))))
+
+    def test_the_owners_decisions_are_its_rulings_and_no_result_resolves_a_thread(self):  # issue 389
+        # No Role resolves a thread: a Result that asks to is no effect/1, and the Role's token is never minted for it.
+        # The owner's decisions are recorded in applied/1 as its rulings, each on the thread its Finding is on, which
+        # the Kernel resolves the thread on, through the queue App. A refused Result rules on nothing.
+        threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw6", severity="minor")]
+        facts = support.facts(threads=threads)
+        fid = lambda key: apply.finding_id("pr-review", {"type": "thread", "key": key})
+        res = result(dispositions=[{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}},
+                                   {"finding": fid("PRRT_kw6"), "decision": {"result": "rejected"}}])
+        ruled = apply.rulings(res, facts)
+        self.assertEqual(ruled, [{"finding": fid("PRRT_kw7"), "thread": "PRRT_kw7", "result": "accepted"},
+                                 {"finding": fid("PRRT_kw6"), "thread": "PRRT_kw6", "result": "rejected"}])
+        task = the_task()
+        record = apply.applied(task, res, read_back(task, res), ROLE, ruled=ruled)
+        self.assertEqual((shared.errors(record, "applied"), record["rulings"]), ([], ruled))
+        self.assertEqual(apply.applied(task, res, [], ROLE, refused="finding_gates", ruled=ruled)["rulings"], [])
+        # A proposal is no ruling.
+        self.assertEqual(apply.rulings(result(dispositions=[{"finding": fid("PRRT_kw7"),
+                                                             "proposal": {"outcome": "fixed"}}]), facts), [])
+        asked = dict(result()["effects"], resolve_thread=[{"id": "e5", "thread": "PRRT_kw7"}])
+        self.assertNotEqual(shared.errors(asked, "effect"), [])
+        self.assertNotIn("resolve_thread", apply.ORDER)
+        self.assertNotIn("effect:resolve_thread", APPS["apps"]["pr-review"]["permissions"]["pull_requests"]["needs"])
 
     def test_an_effect_is_claimed_only_from_what_was_read_back(self):  # ruling 7, L-41
         task, res = the_task(), result()
@@ -489,12 +491,6 @@ def threads_of(review_id, *threads, total=None) -> dict:
              for n, (th, rid) in enumerate(threads, 1)]
     return ok({"data": {"repository": {"pullRequest": {"reviewThreads": {
         "totalCount": len(nodes) if total is None else total, "nodes": nodes}}}}})
-
-
-def thread_node(resolved, number=None, repo=None) -> dict:
-    return ok({"data": {"node": {"id": "PRRT_kw7", "isResolved": resolved, "pullRequest": {
-        "number": ITEM["number"] if number is None else number,
-        "repository": {"nameWithOwner": repo or ITEM["repo"]}}}}})
 
 
 def review_request() -> dict:
@@ -580,23 +576,13 @@ class RoleWrites(unittest.TestCase):
             self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN),
                              {"state": "sent", "key": None, "surfaces": {}, "reason": None})
 
-    def test_a_thread_is_resolved_once_on_its_own_item_and_read_back_resolved(self):  # section 3.6
-        req = {"thread": "PRRT_kw7"}
-        resolved = ok({"data": {"resolveReviewThread": {"thread": {"id": "PRRT_kw7", "isResolved": True}}}})
-        cases = (((thread_node(False), resolved, thread_node(True)), ("applied", "PRRT_kw7", None)),
-                 ((thread_node(True),), ("already_applied", "PRRT_kw7", None)),
-                 ((thread_node(False, number=43),), ("refused", None, "thread_not_on_item")),
-                 ((thread_node(False, repo="combsmith/other"),), ("refused", None, "thread_not_on_item")),
-                 ((ok({"data": {"node": None}}),), ("failed", None, "thread_unreadable")),
-                 ((thread_node(False), ok({"errors": [{"type": "FORBIDDEN"}]})), ("failed", None, "write_refused")),
-                 ((thread_node(False), ok(None, 401)), ("refused", None, "token_refused")),
-                 ((thread_node(False), resolved, thread_node(False)), ("sent", None, None)))
-        for answers, want in cases:
-            hub = GitHub(*[(("POST", "/graphql"), a) for a in answers])
-            back = effects.role_write(hub, ITEM, "resolve_thread", req, LOGIN)
-            self.assertEqual((back["state"], back["key"], back["reason"]), want, answers)
-            self.assertEqual(len(hub.sent), len(answers))
-        self.assertEqual(hub.sent[1]["body"], {"query": effects.RESOLVE, "variables": {"id": "PRRT_kw7"}})
+    def test_no_role_write_resolves_a_thread(self):  # issue 389
+        # Resolving a thread is the Kernel's act, which the queue App carries out: a Role's write of it is none the
+        # port makes, and nothing is sent.
+        hub = GitHub()
+        back = effects.role_write(hub, ITEM, "resolve_thread", {"thread": "PRRT_kw7"}, LOGIN)
+        self.assertEqual((back["state"], back["key"], back["reason"], hub.sent), ("failed", None, "not_built", []))
+        self.assertNotIn("resolve_thread", effects.ROLE_WRITES)
 
     def test_a_comment_is_recovered_by_this_apps_comments_since_the_run_began_never_by_its_text(self):  # 3.6
         since = "2026-10-11T12:58:00Z"
@@ -719,7 +705,10 @@ class RoleWrites(unittest.TestCase):
                          {"checks": "write"})
 
     def test_a_role_token_sends_only_its_writes_on_its_one_item(self):  # ruling 6, I-35
-        permits, patterns = effects.role_permits(ITEM, HEAD, "factory / pr-review", ["PRRT_kw7"])
+        permits, patterns = effects.role_permits(ITEM, HEAD, "factory / pr-review")
+        # The mutation that resolves a thread, and the read of one, which no Role's token sends (issue 389).
+        resolve = "mutation AppliedResolve($id: ID!) {\n  resolveReviewThread(input: {threadId: $id}) { thread { id isResolved } }\n}"
+        thread = "query AppliedThread($id: ID!) { node(id: $id) { ... on PullRequestReviewThread { id isResolved } } }"
         hub = GitHub()
         allowed = effects.Allowed(hub, permits, patterns)
         owner, name = ITEM["repo"].split("/")
@@ -732,8 +721,6 @@ class RoleWrites(unittest.TestCase):
                 github.request("GET", ISSUE + "/comments?since=2026-10-11T12:58:00Z&per_page=100"),
                 github.request("POST", "/graphql", body={"query": effects.THREADS, "variables": {
                     "owner": owner, "name": name, "number": ITEM["number"]}}),
-                github.request("POST", "/graphql", body={"query": effects.RESOLVE, "variables": {"id": "PRRT_kw7"}}),
-                github.request("POST", "/graphql", body={"query": effects.THREAD, "variables": {"id": "PRRT_kw7"}}),
                 github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
                     "name": "factory / pr-review", "head_sha": HEAD, "external_id": "%s:e2" % RUN, "status": "completed",
                     "conclusion": "success", "output": {}}),
@@ -764,8 +751,10 @@ class RoleWrites(unittest.TestCase):
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
                        "name": "factory / pr-review", "head_sha": HEAD, "external_id": "anything",
                        "status": "completed", "conclusion": "success", "output": {}}),
-                   github.request("POST", "/graphql", body={"query": effects.RESOLVE,
-                                                            "variables": {"id": "PRRT_onAnotherPR"}}),
+                   github.request("POST", "/graphql", body={"query": resolve, "variables": {"id": "PRRT_kw7"}}),
+                   github.request("POST", "/graphql", body={"query": thread, "variables": {"id": "PRRT_kw7"}}),
+                   github.request("POST", "/graphql", body={"query": "mutation M { deleteRepository }", "variables": {
+                       "owner": owner, "name": name, "number": ITEM["number"]}}),
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
                        "name": "gates", "head_sha": HEAD, "external_id": "%s:e2" % RUN, "status": "completed",
                        "conclusion": "success", "output": {}}),
@@ -777,7 +766,6 @@ class RoleWrites(unittest.TestCase):
                    github.request("POST", ISSUE + "/comments", body={"body": "x", "extra": 1}),
                    github.request("POST", "/graphql", body={"query": effects.THREADS, "variables": {
                        "owner": owner, "name": name, "number": ITEM["number"] + 1}}),
-                   github.request("POST", "/graphql", body={"query": effects.RESOLVE, "variables": {"id": "PR_kw7"}}),
                    github.request("POST", "/graphql", body={"query": "mutation { mergePullRequest }", "variables": {}}),
                    github.request("POST", "/graphql", body={"query": "mutation M($id: ID!) { deleteNode(id: $id) }",
                                                             "variables": {"id": "PRRT_kw7"}})]
@@ -845,11 +833,12 @@ class Job(unittest.TestCase):
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
 
     def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None,
-           revoked=True, config=None):
+           revoked=True, config=None, facts=None):
         calls = {"mint": [], "revoke": 0, "written": []}
+        given = facts
 
         def read():
-            facts = support.facts(state="closed") if refusing else support.facts()
+            facts = support.facts(state="closed") if refusing else given or support.facts()
             return (facts, HEAD, runs() if records is None else records,
                     support.context(active_runs=1) if context is None else context)
 
@@ -872,6 +861,25 @@ class Job(unittest.TestCase):
         self.assertEqual(shared.errors(record, "applied"), [])
         self.assertEqual(shared.errors(ended, "outcome"), [])
         return record, ended, calls
+
+    def test_an_owners_ruling_is_recorded_whatever_its_result_writes(self):  # issue 389
+        # The owner's ruling Run on the author's answer: its decision is recorded in applied/1, as the ruling the Kernel
+        # resolves the thread on, whether it writes nothing or a comment beside it.
+        fid = apply.finding_id("pr-review", {"type": "thread", "key": "PRRT_kw7"})
+        facts = support.facts(threads=[support.thread("PRRT_kw7")])
+        records = [support.run(name="r_0REV1EW", at="2026-10-11T12:10:00Z"),
+                   support.run(role=support.CONFIG["author_role"], intent="fix-findings", name="r_0F1X01",
+                               at="2026-10-11T12:20:00Z"),
+                   support.run(intent="adjudicate-findings", name=RUN, status="in_progress", at="2026-10-11T12:58:00Z")]
+        task = the_task(intent="adjudicate-findings", findings=[fid], permitted_effects=["comment"])
+        ruled = [{"finding": fid, "thread": "PRRT_kw7", "result": "accepted"}]
+        for effects in ({}, {"comment": [{"id": "e1", "on": "PRRT_kw7", "body": "Fixed as proposed."}]}):
+            res = result(dispositions=[{"finding": fid, "decision": {"result": "accepted"}}], findings=[],
+                         effects=effects, coverage=[])
+            # An adjudication reviews nothing, so it is held to no rubric.
+            record, ended, calls = self.go(res, task=task, records=records, facts=facts,
+                                           config=dict(self.CONFIG, rubric=None))
+            self.assertEqual((record["rulings"], ended["outcome"]), (ruled, None), (effects, ended))
 
     def test_a_result_is_taken_by_the_digest_run_reported_and_held_to_its_schema(self):  # section 3.6
         data = json.dumps(result()).encode()

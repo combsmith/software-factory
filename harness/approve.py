@@ -81,7 +81,8 @@ def _records(run: str, release: str, state: str, key, why) -> tuple:
     """`(applied/1, outcome/1)`: the one Effect as it ended, and whose fault it was, or null on success."""
     fault, reason = why if why is not None else (None, None)
     done = {"schema": "applied/1", "run": run, "release": release,
-            "effects": [{"id": "e1", "type": "approve", "state": state, "key": key, "reason": reason}], "findings": []}
+            "effects": [{"id": "e1", "type": "approve", "state": state, "key": key, "reason": reason}], "findings": [],
+            "rulings": []}
     ended = {"schema": "outcome/1", "run": run, "release": release, "outcome": fault, "reason": reason}
     return done, ended
 

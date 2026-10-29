@@ -105,7 +105,8 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
 
 def accounts_of(controller: dict) -> tuple:
     """`(identities, approver, lenses, factory)`, each account by its id and type as `controller/1` holds it: the
-    class's accounts for `adapters/pull.own`, and who acted for `adapters/timeline.Accounts`."""
+    class's accounts for `adapters/pull.own`, and who acted for `adapters/timeline.Accounts`. The queue App's is
+    `queue_of`'s, and among the Factory's."""
     held = controller["accounts"]
     bots = lambda entries: {(a["id"], "Bot") for a in entries}
     maintainer = {(held["maintainer"]["id"], "User")} if held["maintainer"] else set()
@@ -113,7 +114,15 @@ def accounts_of(controller: dict) -> tuple:
     approver = (held["approver"]["id"], "User") if held["approver"] else (0, "User")
     lenses = {(a["id"], "Bot"): a["lens"] for a in held["lenses"]}
     factory = bots(held["agents"]) | set(lenses) | ({(held["controller"]["id"], "Bot")} if held["controller"] else set())
-    return identities, approver, lenses, factory
+    queue = queue_of(controller)
+    return identities, approver, lenses, factory | ({queue} if queue else set())
+
+
+def queue_of(controller: dict):
+    """The queue App's bot account, `(id, "Bot")`, as `controller/1` holds it, or None while it has none (issue 381):
+    the one account `adapters/timeline.Accounts` types queue (issue 389)."""
+    held = controller["accounts"].get("queue")
+    return (held["id"], "Bot") if isinstance(held, dict) else None
 
 
 def opener_of(controller: dict, kernel: dict, apps: dict):

@@ -110,8 +110,9 @@ def thread(node: dict, accounts: timeline.Accounts) -> dict:
         raise Unanswered("an open review thread that names who resolved it")
     resolved_by = _resolver(by, first[0].get("author"), accounts) if by is not None else None
     human = opened_by["kind"] == "human"
+    # A Lens's ruling is its own record's, joined by `adapters/applied.held`; GitHub holds none (issue 389).
     return {"id": ident, "resolved": resolved, "opened_by": opened_by, "category": "human" if human else None,
-            "severity": None, "resolved_by": resolved_by, "opened_at": opened_at}
+            "severity": None, "resolved_by": resolved_by, "opened_at": opened_at, "ruling": None}
 
 
 def read(transport, pull: dict, accounts: timeline.Accounts, kept=None) -> tuple:
