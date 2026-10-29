@@ -106,7 +106,7 @@ def placed(events: list, accounts: timeline.Accounts):
         if label["name"] != terms.LABEL_CONTRACT:
             continue
         by = accounts.actor(event.get("actor"))
-        person = gate.is_person(by) and not event.get("performed_via_github_app")
+        person = gate.is_person(by) and not timeline.via_app(event)
         found.append((timeline._time(event.get("created_at")), event["event"] == "labeled", person))
     # In the order they happened; of two in the same second, the removal first, so the label is read as placed.
     for _, labeled, person in sorted(found, key=lambda f: (f[0], f[1])):
