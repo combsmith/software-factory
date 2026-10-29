@@ -108,6 +108,12 @@ class Shape(unittest.TestCase):
             # One that does stand under a key with no value, past the first step's keys, is still one more step.
             "a step of text under a step's key": (LIVE.replace("        with:\n", "        with:\n          - justastring\n", 1),
                                                   "its steps are"),
+            # A checkout at another pin, and a release step that runs another command, are no step of the job's (Argon's
+            # read of #358).
+            "a checkout at another pin": (LIVE.replace(check_workflows.CHECKOUT[0], "actions/checkout@" + "0" * 40, 1),
+                                          "its steps are"),
+            "a step that runs another command": (LIVE.replace("run: " + check_workflows.RELEASE_STEP,
+                                                              "run: python3 -m release.cut", 1), "its steps are"),
         }
         # What each step is given under `with:` and `env:` is what its keys allow there, so one given neither is refused
         # for a key of its own.
