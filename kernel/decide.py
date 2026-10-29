@@ -65,13 +65,15 @@ def _wanted_run(state: str, reason: str, config: dict):
         if config["author_role"] is None:
             return None
         return (config["author_role"], "fix-findings")
-    if state == t.ADJUDICATING:
+    if state == t.ADJUDICATING and reason != "resolve_due":
         return (config["owner_role"], "adjudicate-findings")
     return None
 
 
 def _action(reason: str) -> str:
-    """The act that moves a converged item on."""
+    """The act that moves an item on: a converged one's, or the resolution of the threads a Lens accepted."""
+    if reason == "resolve_due":
+        return "resolve_thread"
     return "enqueue" if reason == "approved" else "issue_approval"
 
 
@@ -200,7 +202,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
             return held
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
 
-    if state == t.CONVERGED:
+    if state == t.CONVERGED or reason == "resolve_due":
         # A Hold the facts establish, such as an approver who is the author, was read above; then the brakes.
         return _act(facts, state, reason, evidence, mine, context, config, now)
 

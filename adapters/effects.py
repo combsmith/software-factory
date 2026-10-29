@@ -177,7 +177,8 @@ def scopes(writes: dict, config: dict) -> tuple:
 
 def controller_permits(config: dict, org: str, repos: list) -> tuple:
     """`(permits, patterns)`: the requests the Controller's token may send for the Pause and the tracking issue. Each
-    scope's `FACTORY_PAUSED`; the open issues its App opened, one page; an issue opened with the one title, a body and
+    repo's `FACTORY_PAUSED`, and the org's as the first repo's list of the org's variables, each page (issue 362); the
+    open issues its App opened, one page; an issue opened with the one title, a body and
     the Maintainer assigned; and an issue of the home repo edited, its body alone or with the Maintainer assigned
     again, or closed as completed."""
     home = config["home"]["repo"]
@@ -197,11 +198,17 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
                                            or set(body) == {"body", "assignees"} and isinstance(body["body"], str)
                                            and isinstance(maintainer, str) and body["assignees"] == [maintainer]
                                            or body == {"state": "closed", "state_reason": "completed"})
-    permits = {("GET", pause_.path(scope)): none for scope in [org] + list(repos)}
+    # The org's Pause is read from the first repo's list of the org's variables, page by page (issue 362).
+    permits = {("GET", pause_.path(repo)): none for repo in repos}
+    via = sorted(set(repos))[0] if repos else None
+    if via is not None:
+        permits[("GET", pause_.listed(via))] = none
     if account.get("login"):
         permits[("GET", listed(home, account))] = none
     permits[("POST", "/repos/%s/issues" % home)] = opened
-    return permits, (("PATCH", re.compile(re.escape("/repos/%s/issues/" % home) + r"[1-9][0-9]{0,9}"), edited),)
+    pages = (("GET", re.compile(re.escape(pause_.listed(via) + "&page=") + r"(?:[2-9]|[1-9][0-9]{1,3})"), none),) \
+        if via is not None else ()
+    return permits, (("PATCH", re.compile(re.escape("/repos/%s/issues/" % home) + r"[1-9][0-9]{0,9}"), edited),) + pages
 
 
 def listed(home: str, account: dict) -> str:
@@ -402,7 +409,8 @@ def refused_all(writes, record, reason: str) -> dict:
 
 # A Role's writes, `apply`'s: each on one item, through the Role App's own token, narrowed to them (issue 194, PR 2).
 # A check run is written once the Role App is granted `checks`; until then its need waits, and no token is minted for it.
-ROLE_WRITES = ("submit_review", "create_check_run", "resolve_thread", "comment")
+# No Role resolves a thread: the queue App does, as the Kernel's act (issue 389).
+ROLE_WRITES = ("submit_review", "create_check_run", "comment")
 # GitHub takes at most fifty annotations in one request: more would need a second write, which nothing sends yet.
 ANNOTATIONS = 50
 LEVEL = {"minor": "warning", "info": "notice"}
@@ -419,23 +427,14 @@ THREADS = """query AppliedThreads($owner: String!, $name: String!, $number: Int!
     }
   }
 }"""
-THREAD = """query AppliedThread($id: ID!) {
-  node(id: $id) {
-    ... on PullRequestReviewThread { id isResolved pullRequest { number repository { nameWithOwner } } }
-  }
-}"""
-RESOLVE = """mutation AppliedResolve($id: ID!) {
-  resolveReviewThread(input: {threadId: $id}) { thread { id isResolved } }
-}"""
 THREAD_ID = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 SINCE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
-def role_permits(item: dict, head: str, name: str, threads) -> tuple:
+def role_permits(item: dict, head: str, name: str) -> tuple:
     """`(permits, patterns)`: what a Role App's token may send on one item, for `Allowed`. A review on it, a comment
-    on it, its check run, named `name`, on its head, `head`, the resolution of one of its threads, `threads`, and the
-    reads that recover and read each back; nothing else, on no other item."""
-    threads = frozenset(threads)
+    on it, its check run, named `name`, on its head, `head`, and the reads that recover and read each back; nothing
+    else, on no other item. No Role resolves a thread (issue 389)."""
     repo, number = item["repo"], item["number"]
     pull, issue = "/repos/%s/pulls/%d" % (repo, number), "/repos/%s/issues/%d" % (repo, number)
     owner, repo_name = repo.split("/")
@@ -453,11 +452,7 @@ def role_permits(item: dict, head: str, name: str, threads) -> tuple:
     def graphql(body) -> bool:
         if not isinstance(body, dict) or set(body) != {"query", "variables"}:
             return False
-        if body["query"] == THREADS:
-            return body["variables"] == {"owner": owner, "name": repo_name, "number": number}
-        return (body["query"] in (THREAD, RESOLVE) and set(body["variables"]) == {"id"}
-                and isinstance(body["variables"]["id"], str) and THREAD_ID.fullmatch(body["variables"]["id"]) is not None
-                and body["variables"]["id"] in threads)
+        return body["query"] == THREADS and body["variables"] == {"owner": owner, "name": repo_name, "number": number}
     def check(body) -> bool:
         return (isinstance(body, dict) and set(body) == {"name", "head_sha", "external_id", "status", "conclusion",
                                                           "output"}
@@ -523,8 +518,6 @@ def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
             return _review(transport, item, req, login)
         if kind == "create_check_run":
             return _check(transport, item, req, login)
-        if kind == "resolve_thread":
-            return _resolve(transport, item, req)
         if kind == "comment" and req["on"] == "item":
             return _comment(transport, item, req, login)
     except _TokenRefused:
@@ -636,33 +629,6 @@ def _threads(transport, item: dict, review: int):
     return [th for _, th in sorted(opened)]
 
 
-def _thread(transport, item: dict, thread: str):
-    """A thread as read: True or False for whether it is resolved, `elsewhere` for one not on the item, None unread."""
-    data = _data(_sent(transport, request("POST", "/graphql", body={"query": THREAD, "variables": {"id": thread}})))
-    node = data.get("node") if isinstance(data, dict) else None
-    if not isinstance(node, dict) or node.get("id") != thread or not isinstance(node.get("isResolved"), bool):
-        return None
-    pr = node.get("pullRequest") if isinstance(node.get("pullRequest"), dict) else {}
-    if pr.get("number") != item["number"] or (pr.get("repository") or {}).get("nameWithOwner") != item["repo"]:
-        return "elsewhere"
-    return node["isResolved"]
-
-
-def _resolve(transport, item: dict, req: dict) -> dict:
-    """A thread's resolution: recovered by its resolved flag, else resolved, and read back resolved."""
-    before = _thread(transport, item, req["thread"])
-    if before is None:
-        return _back("failed", None, reason="thread_unreadable")
-    if before == "elsewhere":
-        return _back("refused", None, reason="thread_not_on_item")
-    if before is True:
-        return _back("already_applied", req["thread"])
-    answer = _sent(transport, request("POST", "/graphql", body={"query": RESOLVE, "variables": {"id": req["thread"]}}))
-    if _data(answer) is None:
-        return _fault(answer if answer is None or answer.get("status") != 200 else dict(answer, status=422))
-    return _back("applied", req["thread"]) if _thread(transport, item, req["thread"]) is True else _back("sent", None)
-
-
 def _comment(transport, item: dict, req: dict, login: str) -> dict:
     """A comment on the item. A comment has no key (section 3.6): the Result is its intent record, and one already
     made is recovered by listing this App's comments since the Run began, never by its text, the `index`-th of them
@@ -698,7 +664,8 @@ GONE = 404             # with 401 and 403, a token GitHub will not take for this
 
 class Approving:
     """The approver's transport, narrowed to what one step may send, and anything else refused before it leaves. With
-    no item, it may ask only who the token is; with an item, also read that item's repo, the org's Pause and the facts
+    no item, it may ask only who the token is; with an item, also read that item's repo, the org's Pause among it as the
+    repo's list of the org's variables (issue 362), and the facts
     port's own GraphQL reads of that pull request; with the head the act just read as well, also write one review, the
     approval of that commit and nothing else in it. No path may climb out of the item's repo."""
 
@@ -706,13 +673,12 @@ class Approving:
         self._transport, self._item, self._head = transport, dict(item) if item else None, head
         if item:
             self._repo = "/repos/%s/" % item["repo"]
-            self._pause = "/orgs/%s/actions/variables/FACTORY_PAUSED" % item["repo"].split("/")[0]
             self._reviews = "/repos/%s/pulls/%d/reviews" % (item["repo"], item["number"])
 
     def _read(self, path) -> bool:
         if not isinstance(path, str) or ".." in path or "%2e" in path.lower() or "//" in path:
             return False
-        return path == "/user" or (self._item is not None and (path == self._pause or path.startswith(self._repo)))
+        return path == "/user" or (self._item is not None and path.startswith(self._repo))
 
     def _query(self, body) -> bool:
         """One of the facts port's own reads of this pull request, its variables this item's and a page's cursor."""

@@ -576,12 +576,12 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
     calls, always, inline = [], [], []
     blind = _redefined(text)        # a git the command may redefine is one the hook cannot read (decision 0024)
-    if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):
+    if shell.aliased(_quoted(shell.without_heredocs(text, raw=True)), REDEFINABLE):
         always.append(("command_unreadable", "the command defines an alias whose value runs git, gh or what runs them "
                                              "(decision 0030)"))
     table = {}
     try:
-        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)
+        table = shell.alias_values(_quoted(shell.without_heredocs(text, raw=True)), spend)
         commands = _unaliased(commands, table, spend=spend)
     except (Unreadable, ValueError) as err:
         always.append(("command_unreadable", "the command's aliases cannot be read (%s)" % err))
@@ -595,7 +595,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     loops = _loops([c[:2] for c in commands if c[0] is not None], values)
     # Read only where the text names it, plainly or through quotes: one more reading of a long command costs seconds.
     cdpath = bool(re.search(r"(?i)cdpath", re.sub(r"[\\'\"]", "", text))) and shell.sets(CDPATH, _quoted(
-        shell.without_heredocs(text)))
+        shell.without_heredocs(text, raw=True)))
     previous, depth = None, 0   # where the command stood before its last placed cd, for cd -; compounds opened
     for index, (raw, redirections, marked) in enumerate(commands):
         spend()
@@ -734,7 +734,7 @@ def _redefined(text: str) -> list:
     """Why git or gh, as the command runs it, may not be the program on the hook's PATH (decision 0024): the command
     defines a function or an alias (or hashes a path) for git, gh or a word that runs them, in its text or in a script
     it runs; or it sets PATH, anywhere, or for git alone. Each is a reason; none is an empty list."""
-    reasons, quoted = [], _quoted(shell.without_heredocs(text))
+    reasons, quoted = [], _quoted(shell.without_heredocs(text, raw=True))
     if shell.defined(quoted) & REDEFINABLE:
         reasons.append("the command defines a function or an alias for git, gh or what runs them")
     if shell.sets("PATH", quoted) or shell.sets("path", quoted):
@@ -1785,7 +1785,7 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
                            command)
     started, spend = time.monotonic(), _budget(min(READ_SECONDS, seconds))
     try:
-        commands = shell.commands(_quoted(shell.without_heredocs(read)), spend, scopes=True, marked=True)
+        commands = shell.commands(_quoted(shell.without_heredocs(read, raw=True)), spend, scopes=True, marked=True)
         calls, problems, inline = _calls(commands, payload.get("cwd"), read, env, spend)
     except ValueError as err:
         # The command cannot be split into words, so whatever it names, git may be among it under a spelling the hook

@@ -22,17 +22,11 @@
       ]
     }
   ],
-  "resolve_thread": [
-    {
-      "id": "e3",
-      "thread": "the thread about parse()"
-    }
-  ],
   "comment": [
     {
       "id": "e4",
-      "on": "item",
-      "body": "Reviewed at sha256:5d0c; one thread opened."
+      "on": "the thread about parse()",
+      "body": "Answered in the new commit."
     }
   ]
 }

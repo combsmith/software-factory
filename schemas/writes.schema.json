@@ -46,6 +46,7 @@
               "dispatch_successor",
               "status_on_item",
               "dequeue",
+              "resolve_thread",
               "tracking_issue",
               "not_built"
             ]

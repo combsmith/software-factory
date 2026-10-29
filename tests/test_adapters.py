@@ -1357,6 +1357,67 @@ class Timeline(unittest.TestCase):
             odd = Router(github.Replay([]), {"x": level})
             with self.assertRaises(github.Unanswered, msg=level):
                 self.accounts(odd).actor({"login": "x", "id": 1, "type": "User"})
+        from kernel import derive
+        # Issue 368, L-02: an event an App made with a person's token is the App's. GitHub names a User as the actor of
+        # what an App did with that User's token, and the App in the event's performed_via_github_app. No fixture yet
+        # holds such a label event or dismissal: events in the timeline's shape. The writer's own removal of a Hold
+        # ends it; the same removal made through an App is the App's, which ends no Hold, hands-off or admission
+        # (kernel/derive.py's standing_labels), and dismisses no request for changes.
+        at, later = "2026-10-19T18:00:00Z", "2026-10-19T19:00:00Z"
+        writer = {"login": "don-petry", "id": 9, "type": "User"}
+        app = {"id": 77, "slug": "some-app"}
+        placed = {"event": "labeled", "label": {"name": "factory:hold"}, "created_at": at, "actor": writer,
+                  "performed_via_github_app": None}
+        removed = dict(placed, event="unlabeled", created_at=later)
+        router = Router(github.Replay([]), {"don-petry": "admin"})
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        self.assertEqual([e["by"] for e in timeline.label_events([placed, removed], self.accounts(router))],
+                         [person, person])
+        got = timeline.label_events([placed, dict(removed, performed_via_github_app=app)], self.accounts(router))
+        self.assertEqual([e["by"] for e in got], [person, {"kind": "app", "name": "don-petry", "can_write": False}])
+        self.assertEqual(derive.standing_labels({"label_events": got}), {"factory:hold": got[0]})
+        # A label an App placed with a person's token is the App's too, so an admission it places admits nothing.
+        admitted = dict(placed, label={"name": "factory:admit"}, performed_via_github_app=app)
+        self.assertEqual([e["by"] for e in timeline.label_events([admitted], self.accounts(router))],
+                         [{"kind": "app", "name": "don-petry", "can_write": False}])
+        # An App's own Bot, the machine user, and a Lens are read as they always are, whatever names the App.
+        bot = {"login": "coderabbitai[bot]", "id": 8, "type": "Bot"}
+        machine = {"login": APPROVER, "id": MACHINE[0], "type": "User"}
+        lens = {"login": "combsmith-sf-pr-review[bot]", "id": 7, "type": "Bot"}
+        mixed = Router(github.Replay([]), {APPROVER: "write"})
+        others = [dict(removed, actor=who, performed_via_github_app=app) for who in (bot, machine, lens)]
+        self.assertEqual([e["by"]["kind"] for e in timeline.label_events(others, self.accounts(mixed, {(7, "Bot"): "x"}))],
+                         ["app", "machine_user", "lens"])
+        # An App's act is never asked the write access of the person whose token it used: no permission read is made.
+        silent = Router(github.Replay([]), {})
+        nobody = dict(removed, actor={"login": "nobody", "id": 11, "type": "User"}, performed_via_github_app=app)
+        self.assertEqual([e["by"] for e in timeline.label_events([nobody], self.accounts(silent))],
+                         [{"kind": "app", "name": "nobody", "can_write": False}])
+        self.assertEqual(silent.asked, [])
+        # What names the App is read strictly: null or absent is no App; anything but an App with its id cannot be read,
+        # never a person's act for want of an App.
+        for odd in ({}, "", 0, False, [], "some-app", {"id": True}, {"id": 0}, {"slug": "some-app"}):
+            with self.assertRaises(github.Unanswered, msg=odd):
+                timeline.label_events([placed, dict(removed, performed_via_github_app=odd)], self.accounts(router))
+        self.assertEqual([e["by"] for e in timeline.label_events(
+            [placed, {k: v for k, v in removed.items() if k != "performed_via_github_app"}], self.accounts(router))],
+            [person, person])
+        # A dismissal is read the same way, as P-7's timeline holds one: the Maintainer dismissed an approval himself.
+        # Made through an App, the dismissal of a request for changes is the App's, so the request stands; that of an
+        # approval is still read as the person's, so the approval ends: each reading lets nothing through.
+        events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d", "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"}
+        via = [dict(e, performed_via_github_app=app) if e.get("event") == "review_dismissed"
+               and e["actor"]["login"] == "don-petry" else e for e in events]
+        asked = [dict(e, dismissed_review=dict(e["dismissed_review"], state="changes_requested"))
+                 if e.get("event") == "review_dismissed" and e["actor"]["login"] == "don-petry" else e for e in via]
+        maintainer = {"kind": "human", "name": "don-petry", "can_write": True}
+        for timeline_read, by, before in ((events, maintainer, "approved"), (via, maintainer, "approved"),
+                                          (asked, {"kind": "app", "name": "don-petry", "can_write": False},
+                                           "changes_requested")):
+            router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
+            got, _ = timeline.reviews(router, p7_pull(), timeline_read, self.accounts(router), BASE_HEAD)
+            self.assertEqual((got[0]["dismissed_by"], got[0]["dismissed_from"]), (by, before))
 
     def test_a_reopening_is_read_from_the_timeline(self):  # issue 378, trials/P-7.reopened.json
         # Canary pull request 61, closed and then approved by the machine user, was reopened with no push: the timeline
@@ -1930,7 +1991,7 @@ class Acceptance(unittest.TestCase):
                                         listed=False), (None, False), actor)
         # Placed by an App, the machine user, a reader, or an App with a person's token, it asks for nothing.
         for event in (label_event("labeled", APP), label_event("labeled", (APPROVER,) + MACHINE),
-                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"slug": "x"})):
+                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"id": 77, "slug": "x"})):
             self.assertEqual(self.asked([event]), (None, True), event)
         # Placed again by an App over a person's, the person's placement stands; after a person removed it, an App's
         # placement asks for nothing.
@@ -2064,7 +2125,7 @@ class Threads(unittest.TestCase):
                          (["PRRT_1", "PRRT_2", "PRRT_3", "PRRT_4", "PRRT_5"], True))
         self.assertEqual(got[0], {"id": "PRRT_1", "resolved": False, "category": "human", "severity": None,
                                   "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
-                                  "resolved_by": None, "opened_at": "2026-10-21T16:18:57Z"})
+                                  "resolved_by": None, "opened_at": "2026-10-21T16:18:57Z", "ruling": None})
         # A Lens's thread has no category or severity as the port reads it: they are joined from its Finding record
         # (adapters/applied.py, decision 0038).
         self.assertEqual((got[1]["opened_by"], got[1]["category"], got[1]["severity"]),
@@ -2149,11 +2210,11 @@ class Threads(unittest.TestCase):
         self.assertEqual((got[0]["resolved"], got[0]["resolved_by"]), (True, got[0]["opened_by"]))
         self.assertEqual(got[0]["resolved_by"]["kind"], "app")
 
-    def resolved(self, by: tuple, opened=LENS, users=None, permissions=None) -> dict:
+    def resolved(self, by: tuple, opened=LENS, users=None, permissions=None, queue=None) -> dict:
         """One Lens thread resolved by `by`, `(login, id)` as resolvedBy gives it, read through the port."""
         router = Router(github.Replay([threads_answer("o/r", 26, [thread_node("PRRT_1", opened, resolved_by=by)])]),
                         permissions or {"don-petry": "admin"}, users=users)
-        accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "coderabbit"})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "coderabbit"}, queue=queue)
         got, whole = threads.read(router, Threads.PULL, accounts)
         self.assertTrue(whole)
         return got[0], router
@@ -2168,10 +2229,20 @@ class Threads(unittest.TestCase):
         self.assertEqual(th["resolved_by"], {"kind": "human", "name": "don-petry", "can_write": True})
         self.assertTrue(gate.closed(th))
         self.assertFalse(derive.unreadable_thread(th, ["coderabbit"], facts_, config))
-        # The Lens's own App resolving its own thread, by the id its comment carries: closed, by the Lens.
+        # The Lens's own App resolving its own thread, by the id its comment carries: told as the Lens, and open, since
+        # only a person, or the queue App on the Lens's accepted ruling, closes a Lens's thread (issue 389).
         th, router = self.resolved(("coderabbitai[bot]", LENS[1]))
-        self.assertEqual((th["resolved_by"], router.asked), (th["opened_by"], []))
-        self.assertTrue(gate.closed(th))
+        self.assertEqual((th["resolved_by"], router.asked, th["ruling"]), (th["opened_by"], [], None))
+        self.assertFalse(gate.closed(th))
+        # The queue App, told by the account the configuration holds for it: it closes the thread on the Lens's accepted
+        # ruling alone, which `adapters/applied.held` joins. With no account held for it (until issue 381), it is an App.
+        queue = ("combsmith-sf-queue[bot]", 5000009)
+        th, _ = self.resolved(queue, users={queue[0]: (queue[1], "Bot")}, queue=(queue[1], "Bot"))
+        self.assertEqual(th["resolved_by"], {"kind": "queue", "name": queue[0], "can_write": False})
+        self.assertEqual([gate.closed(dict(th, ruling=r)) for r in (None, "rejected", "accepted")], [False, False, True])
+        th, _ = self.resolved(queue, users={queue[0]: (queue[1], "Bot")})
+        self.assertEqual(th["resolved_by"]["kind"], "app")
+        self.assertFalse(gate.closed(dict(th, ruling="accepted")))
         # Another App, a Bot that is no Lens: neither a person nor the thread's Lens, so the thread stays open; it is
         # read whole, and so is not unreadable.
         th, _ = self.resolved(("github-actions[bot]", APP[1]), users={"github-actions[bot]": (APP[1], "Bot")})
@@ -2210,6 +2281,16 @@ class Threads(unittest.TestCase):
                              # and 1.0 == 1 would.
                              ("boolean", 1), ("float", 1)):
             self.assertIsNone(accounts.typed(login, ident), (login, ident))
+
+    def test_the_queue_apps_account_is_the_one_the_configuration_holds(self):  # issue 389
+        # The queue App is typed by the account controller/1 holds for it, and is the Factory's; with none held, until
+        # issue 381 registers it, no account is the queue App's.
+        from adapters import facts as facts_
+        controller = json.loads((ROOT / "config" / "controller.json").read_text())
+        queue = {"id": 5000009, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
+        held = dict(controller, accounts=dict(controller["accounts"], queue=queue))
+        self.assertEqual((facts_.queue_of(controller), facts_.queue_of(held)), (None, (5000009, "Bot")))
+        self.assertEqual(facts_.accounts_of(held)[3] - facts_.accounts_of(controller)[3], {(5000009, "Bot")})
 
     def test_a_resolver_is_read_once_a_login_whatever_it_resolved(self):  # issue 331: the cost
         nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
@@ -2281,8 +2362,9 @@ class Recorded(unittest.TestCase):
     RUN = "r_01JA6Z"
 
     def recorded(self, runs, *exchanges_, numbers=(26,)):
-        """What the Lenses recorded, as the join reads it: each thread's Lens, category and severity, and whether whole."""
-        return {n: ({k: {f: v for f, v in t.items() if f != "runs"} for k, t in got[0].items()}, got[1])
+        """What the Lenses recorded, as the join reads it: each thread's Lens, category and severity, and whether whole.
+        Its ruling is `test_a_lens_thread_takes_its_latest_ruling_from_its_own_record`'s."""
+        return {n: ({k: {f: v for f, v in t.items() if f not in ("runs", "ruling")} for k, t in got[0].items()}, got[1])
                 for n, got in self.full(runs, *exchanges_, numbers=numbers).items()}
 
     def full(self, runs, *exchanges_, numbers=(26,)):
@@ -2369,7 +2451,59 @@ class Recorded(unittest.TestCase):
                                                  "r_01JA7R", finding_on("PRRT_7", lens="qa-lead")))),
                                "o/r", listed_runs(lens_run(self.RUN), other), [26], {"pr-review", "qa-lead"}, AUTHORITY)
         self.assertEqual(got[26][0]["PRRT_7"], {"lens": None, "category": None, "severity": None,
-                                                "runs": [self.RUN, "r_01JA7R"]})
+                                                "runs": [self.RUN, "r_01JA7R"], "ruling": None})
+
+    def test_a_lens_thread_takes_its_latest_ruling_from_its_own_record(self):  # issue 389
+        # The owner's decision on a thread's Finding, recorded in applied/1, is the Lens's ruling: its latest Run's that
+        # ruled on the thread, by when the Run started. The queue App's resolution closes the thread on it alone.
+        def ruled(run, *rulings, findings=(finding_on("PRRT_7"),)):
+            return dict(lens_applied(run, *findings), rulings=[{"finding": "f_9c1e", "thread": key, "result": result}
+                                                               for key, result in rulings])
+
+        def ruling(*records, lens="pr-review", starts=("2026-10-21T16:00:00Z", "2026-10-21T17:00:00Z")):
+            runs = [dict(lens_run(r["run"]), started_at=at, role=lens if i else "pr-review")
+                    for i, (r, at) in enumerate(zip(records, starts))]
+            exchanges = [x for i, r in enumerate(records) for x in applied_stored("o/r", 39100000000 + i, r)]
+            got = applied.recorded(github.Replay(exchanges), "o/r", listed_runs(*runs), [26], {"pr-review", "qa-lead"},
+                                   AUTHORITY)[26]
+            self.assertTrue(got[1])
+            return got[0]["PRRT_7"]["ruling"]
+        later = "r_01JA9B"
+        # A ruling Run records no Finding of its own: the thread's Finding is the review's.
+        self.assertEqual(ruling(ruled(self.RUN, ("PRRT_7", "accepted"))), "accepted")
+        self.assertEqual(ruling(ruled(self.RUN, ("PRRT_7", "rejected")),
+                                ruled(later, ("PRRT_7", "accepted"), findings=())), "accepted")
+        self.assertEqual(ruling(ruled(self.RUN, ("PRRT_7", "accepted")),
+                                ruled(later, ("PRRT_7", "rejected"), findings=())), "rejected")
+        # The other side: no ruling on the thread, two in its latest Run, a start that cannot be read, a ruling by
+        # another Lens than the one that recorded it, or a category that Lens does not own, give none.
+        self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_8", "accepted"))))
+        # A ruling on another Finding than the one the thread holds is none of the thread's.
+        other = ruled(self.RUN, ("PRRT_7", "accepted"))
+        other["rulings"][0]["finding"] = "f_0000"
+        self.assertIsNone(ruling(other))
+        # A record of a Release before rulings has none: it is read whole, and closes nothing.
+        old = ruled(self.RUN)
+        del old["rulings"]
+        self.assertIsNone(ruling(old))
+        self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted"), ("PRRT_7", "accepted"))))
+        self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted")),
+                                 ruled(later, ("PRRT_7", "accepted"), findings=()),
+                                 starts=("2026-10-21T16:00:00Z", "yesterday")))
+        self.assertEqual(ruling(ruled(self.RUN), ruled(later, ("PRRT_7", "accepted"), findings=()), lens="qa-lead"),
+                         None)
+        self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted"),
+                                       findings=(finding_on("PRRT_7", "mechanical"),))))
+        # Nor does a security Finding's thread: `apply` takes no accepted decision on one, and were one recorded, the
+        # queue App would close it on no ruling.
+        self.assertIsNone(ruling(ruled(self.RUN, ("PRRT_7", "accepted"), findings=(finding_on("PRRT_7", "security"),))))
+        # Held to the threads read: the ruling is joined to the thread its Lens opened, and to no other.
+        recorded_ = ({"PRRT_7": {"lens": "pr-review", "category": "functional", "severity": "major", "runs": [self.RUN],
+                                 "ruling": "accepted"}}, True, [])
+        found, whole = self.held([thread_node("PRRT_7", LENS), thread_node("PRRT_8", LENS)], recorded_)
+        self.assertEqual(([th["ruling"] for th in found], whole), (["accepted", None], True))
+        found, _ = self.held([thread_node("PRRT_7", APP)], recorded_)
+        self.assertEqual(found[0]["ruling"], None)
 
     def held(self, nodes: list, recorded_: tuple, lenses=None, content_id=None) -> tuple:
         router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "admin", "pr-review": "read"})
@@ -2896,6 +3030,8 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
+    # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
+    "the_queue_can_eject": "shape",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
@@ -2912,13 +3048,15 @@ REFUSALS = {
     ("P-4", 2): None, ("P-4", 3): None, ("P-4", 9): None,   # a trial's own writes and reads of a file
     ("P-43", 3): None,                 # a review written by the trial, which no port writes yet
     ("P-44", 3): "runs",               # a list of runs GitHub did not find
-    ("P-52", 2): "pause",              # the org's own variable, refused the Controller's token: the Pause unreadable
+    ("P-52", 2): None,                 # the org's own variable, refused the Controller's token: no port asks it (issue 362)
     # The queue's writes refused an App without contents: write, which no port makes until it is granted (P-2).
     ("P-2.least", 3): None, ("P-2.least", 8): None, ("P-2.least", 13): None, ("P-2.least", 19): None,
     ("P-2.least", 30): None,
     # A thread another opened, refused an App without contents: write, which no port resolves until one holds it (P-5).
     ("P-5", 9): None, ("P-5", 10): None, ("P-5", 11): None, ("P-5", 17): None, ("P-5", 18): None,
     ("P-25", 0): None,                 # the canary holds no CodeRabbit configuration file, which no port reads
+    # A push to a queued pull request's branch, and a draft's enqueue and merge, refused; no port makes them (P-2).
+    ("P-2.queue", 20): None, ("P-2.queue", 26): None, ("P-2.queue", 27): None,
 }
 
 
@@ -3024,11 +3162,11 @@ class Contract(unittest.TestCase):
                 pull.last_pusher(replay("P-7", 11), body("P-7", 7)) == "combsmith-sf-trial-author[bot]"),
             # The App pushed the head last, read after the approval too, and the machine user's approval of that head
             # stands: approved, on that commit, dismissed by no one.
-            # The repo's Pause is read with the Controller's token, and the org's own endpoint refuses it, read as a
-            # Pause unreadable; the repo's list of the org's variables, which also names it, the port reads from issue 362.
+            # The repo's Pause is read with the Controller's token, and the org's from the repo's list of the org's
+            # variables, since the org's own endpoint refuses it (issue 362).
             "the_pause_is_read_with_the_controllers_token": ({"P-52"},
-                pause.read(replay("P-52", 2, 1), "combsmith", [canary()])
-                == {"org": pause.UNREADABLE, "repos": {canary(): "false"}}),
+                pause.read(replay("P-52", 3, 1), "combsmith", [canary()])
+                == {"org": "false", "repos": {canary(): "false"}}),
             "the_machine_users_approval_counts": ({"P-7"},
                 pull.last_pusher(replay("P-7", 24), body("P-7", 20)) == "combsmith-sf-trial-author[bot]"
                 and [(r["state"], r["dismissed_by"] is None) for r in reviewed if r["by"]["kind"] == "machine_user"]
@@ -3062,9 +3200,7 @@ class Contract(unittest.TestCase):
                  and (e["response"]["status"] >= 400
                       or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
         self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "pause", "runs"])
-        # The org's variable GitHub refused the Controller's token, as P-52 recorded its 403, is a Pause unreadable.
-        self.assertIs(pause.read(replay("P-52", 2), "combsmith", [])["org"], pause.UNREADABLE)
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "runs"])
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]

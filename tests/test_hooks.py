@@ -40,6 +40,15 @@ STAND_INS = {
             'echo "make $* in $(pwd -P)"\nexit "${FAKE_MAKE_EXIT:-0}"',
 }
 PATHS = {}     # made once: a new program's first run is slow on some systems
+# A substitution in double quotes inside another, to each depth, every level with quotes of its own (issue 376).
+NESTED = {1: '$(printf "%s" "hello (world)")'}
+for _depth in (2, 3):
+    NESTED[_depth] = '$(printf "%%s" "%s")' % NESTED[_depth - 1]
+# Twenty-two levels of echo "$(...)" in a here-document's body: escaped again at each level, 16 MB unbounded.
+DEEP = "x"
+for _depth in range(22):
+    DEEP = 'echo "$(%s)"' % DEEP
+DEEP = "cat <<EOF\n%s\nEOF" % DEEP
 
 
 def folder() -> pathlib.Path:
@@ -1171,6 +1180,48 @@ class Identity(unittest.TestCase):
         for command in ('echo "a `git commit -m x` b"', "sh -c 'echo \"$(git commit -m x)\"'",
                         "eval 'echo $(git commit -m x)'", "gi\\\nt commit -m x"):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+
+    def test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read(self):
+        # Issue 376: a redirection's operand is expanded as a word is, and a here-document whose word no quote holds runs
+        # the substitutions in its body, so each is read as one in a word is, where the command stands.
+        for command in ('cat < "$(git commit -m x)"', 'echo x > "$(git commit -m x)"', 'cat <<< "`git commit -m x`"',
+                        "cat <<EOF\n$(git commit -m x)\nEOF", "cat <<-EOF\n\tit is `git commit -m x`\n\tEOF",
+                        "cat <<EOF | tee /tmp/x\nfirst\n$(git commit\n -m x)\nEOF",
+                        'echo "$(cat <<EOF\n$(git commit -m y)\nEOF\n)"'):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        self.assertIn("git_directory_written", self.refused("cd .git; cat <<EOF\n$(cp /tmp/x config)\nEOF\ncd ..; "
+                                                            "git -C %s push" % self.here))
+        # A word a quote or a backslash holds keeps the body data, and a backslash holds a substitution in it.
+        for command in ("cat <<'EOF'\n$(git commit -m x)\nEOF", 'cat <<"EOF"\n`git commit -m x`\nEOF',
+                        "cat <<\\EOF\n$(git commit -m x)\nEOF", "cat <<EOF\n\\$(git commit -m x) and \\`git push\\`\nEOF",
+                        "cat <<EOF\nIt's (done); then git push later, ${x:-y}\nEOF"):
+            self.assertEqual(self.codes(command, self.bad), "", command)
+        # The review of pull request 395: a commit message or a body sent by a bare here-document, whose backticks hold
+        # prose the reader cannot read, passes as on main.
+        for command in ("git commit -F - <<EOF\nHooks: don't read `it's` twice\nEOF",
+                        "gh pr create --body-file - <<EOF\n```\nIt's green\n```\nEOF",
+                        "gh issue create --body \"$(cat <<EOF\n```python\nprint('ok')\n```\nEOF\n)\""):
+            self.assertEqual(self.codes(command), "", command)
+        # A body's script keeps its own quotes, so what they hold stays data.
+        for command in ('cat <<EOF\n$(printf "%s" "hello (world)")\nEOF',
+                        'cat <<EOF\n$(printf "%s" "a;git commit -m x;")\nEOF', "cat <<EOF\n%s\nEOF" % NESTED[2],
+                        "cat <<EOF\n%s\nEOF" % NESTED[3]):
+            self.assertEqual(self.codes(command, self.bad), "", command)
+        for command in ('cat <<EOF\n$(printf "%s" "a (b)"; git commit -m x)\nEOF',
+                        "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git commit -m x'),
+                        'cat <<EOF\n$(echo "`echo \\"a (b)\\"; git commit -m x`")\nEOF'):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        # The review's third round: a quote anywhere in the word, an empty one too, keeps the body literal; nesting past
+        # the room the hook reads is a command it cannot read.
+        for command in ('cat <<EOF""\n$(git commit -m x)\nEOF', "cat <<EOF''\n$(git commit -m x)\nEOF"):
+            self.assertEqual(self.codes(command, self.bad), "", command)
+        self.assertIn("command_unreadable", self.codes(DEEP, seconds=2))
+        # A redirection is made before its command runs: what its operand writes is where the shell stood before a cd.
+        for command in ('cd .git < "$(touch config; echo /dev/null)"; cd ..; git commit -m x',
+                        'cd .git 2> "$(touch config; echo /dev/null)" && cd .. && git commit -m x'):
+            self.assertEqual(self.codes(command), "", command)
+        self.assertIn("git_directory_written",
+                      self.refused('cd .git; cat < "$(touch config; echo /dev/null)"; cd ..; git commit -m x'))
 
     def test_a_comment_begins_only_where_the_shell_begins_one(self):
         # Issue 174's fix round: a # in a ${...}, after a carriage return, or after < or >, begins no comment, so what
@@ -2437,6 +2488,38 @@ class MergesAndSettings(Asks):
                         "gh api graphql -f query=\"$Q\""):
             self.asked(self.run_(command), "command_unreadable", command)
 
+    def test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks(self):
+        # Issue 376: what a redirection's operand or an expanded here-document's body runs is read as a word's is.
+        for command in ('cat < "$(git push origin main)"', 'cat <<< "$(git push origin main)"',
+                        "cat <<EOF\n$(git push origin main)\nEOF", "cat <<-EOF\n\t`gh pr merge --admin 5`\n\tEOF"):
+            self.asked(self.run_(command), "merge", command)
+        for command in ("git commit -F - <<EOF\nHooks: don't read `it's` twice\nEOF",
+                        "gh pr create --body-file - <<EOF\n```\nIt's green\n```\nEOF",
+                        "cat <<'EOF'\n$(git push origin main)\nEOF", 'cat <<"EOF"\n$(git push origin main)\nEOF',
+                        "cat <<\\EOF\n`git push origin main`\nEOF", "cat <<EOF\n\\$(git push origin main)\nEOF",
+                        'cat < "$(echo docs/notes.md)"',
+                        # The review of pull request 395: a body's script keeps its own quotes.
+                        'cat <<EOF\n$(printf "%s" "hello (world)")\nEOF',
+                        'cat <<EOF\n$(printf "%s" "a;git push origin main;")\nEOF',
+                        # At any depth (the review's second round).
+                        "cat <<EOF\n%s\nEOF" % NESTED[2], "cat <<EOF\n%s\nEOF" % NESTED[3]):
+            self.assertEqual(self.run_(command), "", command)
+        for command in ('cat <<EOF\n$(printf "%s" "a (b)"; git push origin main)\nEOF',
+                        "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git push origin main')):
+            self.asked(self.run_(command), "merge", command)
+        # The review's third round. A cd in what a redirection's operand runs is its own: the command stays where it was.
+        for command in ('cd lifecycle; cat < "$(cd /tmp; echo /dev/null)"; touch x.json',
+                        "cd lifecycle; cat <<EOF\n$(cd /tmp)\nEOF\ntouch x.json"):
+            self.asked(self.run_(command), "protected_path", command)
+        # A quote anywhere in the word, an empty one too, keeps the body literal.
+        for command in ('cat <<EOF""\n$(git push origin main)\nEOF', "cat <<EOF''\n$(git push origin main)\nEOF",
+                        "cat <<- EOF''\n\t$(git push origin main)\n\tEOF"):
+            self.assertEqual(self.run_(command), "", command)
+        # Nesting past the room the hook reads is a command it cannot read, asked about and read fast, and deep nesting
+        # with room to spare is asked about too.
+        for command in (DEEP, "echo %s\ncat <<EOF\n%s\nEOF" % ("a" * 20000, "$(" * 70 + "x" + ")" * 70)):
+            self.asked(self.run_(command, seconds=2), "command_unreadable", command[:40])
+
     def test_what_does_not_merge_is_not_asked_about(self):
         for command in ("gh pr view 5", "gh pr create --fill", "gh pr checks 5", "gh pr view 5 --json mergeable",
                         "gh api graphql -f query='query { viewer { login } }'", "gh api repos/o/r/pulls/5/merge",
@@ -3163,10 +3246,26 @@ class Settings(unittest.TestCase):
 class ShellReading(unittest.TestCase):
     """shell.py reads the command's structure: here-documents, top-level assignments, and plain values."""
 
+    def test_a_here_documents_nesting_past_its_room_is_unreadable(self):  # the review of pull request 395
+        # The room the reader spells a body's substitutions in is bounded, whatever the clock: past it, ValueError.
+        with self.assertRaisesRegex(ValueError, "nest deeper than the hook reads"):
+            shell.without_heredocs(DEEP)
+
+    def test_a_body_script_the_reader_cannot_split_stays_data(self):  # the review of pull request 395
+        # Prose between backticks with an apostrophe, or a ( in a word, is no script the reader splits: it stays data, as
+        # on main, and a script it can split is still kept.
+        self.assertEqual(shell.without_heredocs("cat <<EOF\n`it's`\nEOF"), "cat <<EOF\nEOF")
+        self.assertNotIn("print", shell.without_heredocs("cat <<EOF\n```python\nprint('ok')\n```\nEOF"))
+        self.assertIn('<"$(', shell.without_heredocs("cat <<EOF\n`echo hi`\nEOF"))
+
     def test_a_here_document_body_is_not_read_as_commands(self):
         kept = shell.without_heredocs("git commit -F - <<'EOF'\nthen git push\nEOF\nls")
         self.assertNotIn("then git push", shell.without_heredocs(kept))
         self.assertIn("ls", kept)
+        # What an expanded body runs is kept before its operator, read again the same, and the rest is left out.
+        kept = shell.without_heredocs("cat <<EOF | tee x\nthen $(git\npush) `ls` \\$(rm)\nEOF")
+        self.assertEqual(kept, 'cat <"$(git\npush)" <"$(ls)" <<EOF | tee x\nEOF')
+        self.assertEqual(shell.without_heredocs(kept), kept)
         with self.assertRaises(ValueError):
             shell.without_heredocs("cat <<EOF\nnever ended")
 

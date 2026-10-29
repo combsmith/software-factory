@@ -22,7 +22,7 @@ def item(transport, config: dict, number: int, now: str, clock) -> tuple:
     listed = records.runs(transport, home, branch, [controller["workflows"]["run"], controller["workflows"]["approval"]],
                           facts_.dispatcher_of(controller))
     identities, approver, lenses, factory = facts_.accounts_of(controller)
-    who = timeline.Accounts(transport, home, approver, lenses, factory)
+    who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
     found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
                              config["authority"])
     facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
