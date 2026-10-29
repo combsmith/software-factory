@@ -1,4 +1,4 @@
-# 0085. A mutant run's baseline runs the tests its own mutants name, method by method among its workers, and a slow one is not a red one
+# 0083. A mutant run's baseline runs the tests its own mutants name, method by method among its workers, and a slow one is not a red one
 
 Status: accepted. The Factory Builder's ruling of 2026-10-28, which the Maintainer may overturn in review, on issue 396, "A mutant shard's baseline runs what its own mutants name, so it no longer outgrows the 600 s a run is given". It extends `docs/decisions/0027-a-mutant-is-killed-by-a-test-that-fails-on-it-twice-and-passes-without-it.md`.
 
