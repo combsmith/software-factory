@@ -7522,6 +7522,8 @@ class Rulesets(unittest.TestCase):
         # push; a required reviewer's.
         for key, value in (("required_approving_review_count", 2), ("require_code_owner_review", False),
                            ("require_last_push_approval", False), ("dismiss_stale_reviews_on_push", False),
+                           # One more approval where no person made the change, which an App's then meets.
+                           ("require_extra_approval_for_unattributed_changes", True),
                            ("required_reviewers", [{"minimum_approvals": 1, "file_patterns": ["*"],
                                                     "reviewer": {"id": 1, "type": "Team"}}])):
             with self.subTest(key=key):

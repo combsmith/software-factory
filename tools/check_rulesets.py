@@ -9,10 +9,11 @@ still say this is `tools/rulesets_drift.sh`'s, run by hand: nothing here reads G
 
 No external Lens's approval counts toward the merge (issue 366): CodeRabbit approves once its threads are resolved, by
 whoever resolves them (trials/P-25.json). A `main` ruleset counts an approval when it asks for any number of them, a
-code owner's, a required reviewer's, or one of the last push. One that does asks for exactly one, a code owner's, of the last push, with a
-stale one dismissed on a push and no required reviewer, and `.github/CODEOWNERS` names on every line, a catch-all among
-them, only the team through which the machine user is a code owner (issue 198's ruling 2). An App is never a code
-owner. Whether GitHub reads each line as written (a team it cannot see makes a line no owner's) is no file's to say.
+code owner's, a required reviewer's, or one of the last push. One that does asks for exactly one, a code owner's, of the
+last push, with a stale one dismissed on a push, no required reviewer and no extra one for a change no person made, and
+`.github/CODEOWNERS` names on every line, a catch-all among them, only the team through which the machine user is a code
+owner (issue 198's ruling 2). An App is never a code owner. Whether GitHub reads each line as written (a team it cannot
+see makes a line no owner's) is no file's to say.
 """
 from __future__ import annotations
 
@@ -72,6 +73,7 @@ def _agree(root: pathlib.Path) -> list:
             or review.get("required_reviewers") or review.get("require_last_push_approval") is True:
         if review.get("required_approving_review_count") != 1 or review.get("require_code_owner_review") is not True \
                 or review.get("require_last_push_approval") is not True \
+                or review.get("require_extra_approval_for_unattributed_changes") is not False \
                 or review.get("dismiss_stale_reviews_on_push") is not True or review.get("required_reviewers"):
             problems.append("config/rulesets.json: the %s ruleset counts an approval otherwise than as one, a code "
                             "owner's, of the last push, a stale one dismissed, with no required reviewer, so an "
