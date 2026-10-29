@@ -5222,6 +5222,10 @@ MUTANTS = ISSUE + [
      '    return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"\n',
      '    return ""\n', NAMING_TESTS),
     # Issue 204: every commit a pull request carries is the Maintainer's, checked outside the shell.
+    # Decision 0087: what the check says is what it holds.
+    ('the check says the commits are the Maintainer\'s', 'tools/commits_are_the_maintainers.py',
+     'names the Maintainer as its author, and as its committer where GitHub did not "',
+     'is the Maintainer\'s as its author, and as its committer where GitHub did not "', ('tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers',)),
     ("an author that is not the Maintainer passes", "tools/commits_are_the_maintainers.py",
      "        if (author_name, author_email) != who:\n", "        if False:\n", COMMITS_TESTS),
     ("a committer that is not the Maintainer passes", "tools/commits_are_the_maintainers.py",
