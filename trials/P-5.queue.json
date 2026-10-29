@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-5",
   "question": "Can one App resolve a review thread opened by another App or by a third-party reviewer?",
-  "pass": "Written 2026-10-29, before window 3 ran (runbook-window-3, issue 389): the queue App, its permissions narrowed to contents: write and metadata: read alone, resolves a thread CodeRabbit opened, a person's and the trial-author App's, each reading back resolved, its resolvedBy typed with login, databaseId and __typename. On canary pull request 70, a person's: a person's thread and two of the trial-author App's (its comment step ran twice, by mistake). The queue App, narrowed as written, resolved all three, each answered with no error, each read back resolved by combsmith-sf-queue[bot], a User by __typename, databaseId 349593770. CodeRabbit's thread was not had: its free reviews were rate limited for the window, so its case stays with P-5's first run (trials/P-5.json), where an App resolved another App's thread with contents: write. Passed for the queue App on every thread it had.",
+  "pass": "Written 2026-10-29, before window 3 ran (runbook-window-3, issue 389): the queue App, its permissions narrowed to contents: write and metadata: read alone, resolves a thread CodeRabbit opened, a person's and the trial-author App's, each reading back resolved, its resolvedBy typed with login, databaseId and __typename. On canary pull request 70, a person's: a person's thread and two of the trial-author App's (its comment step ran twice, by mistake). The queue App, narrowed as written, resolved all three, each answered with no error, each read back resolved by combsmith-sf-queue[bot], a User by __typename, databaseId 349593770. CodeRabbit's thread was not had in the window, its free reviews rate limited, so it was run after, on canary pull request 74, a person's: CodeRabbit opened three threads and Codex two, and the queue App, narrowed as written, resolved all five, each read back resolved by it, typed as before. Passed.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-10-29T01:37:58Z",
   "exchanges": [
@@ -1341,6 +1341,945 @@
           }
         }
       }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 74's review threads, who opened and who resolved each, typed, at 2026-10-29T19:32:10Z, before the queue App resolves them, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:74){number headRefOid reviewThreads(first:20){totalCount nodes{id isResolved resolvedBy{login databaseId __typename} comments(first:1){nodes{databaseId author{login __typename}}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 19:32:10 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F685:323815:58C1F38:124C9C1F:6AE39F3A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4711",
+          "x-ratelimit-reset": "1793304214",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "289"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 74,
+                "headRefOid": "616380b0042546551a0b653bebe3d184ced796e2",
+                "reviewThreads": {
+                  "totalCount": 5,
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUj",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975729,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUq",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975737,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQb",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988885,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQi",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988895,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQs",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988909,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Thu, 29 Oct 2026 20:01:35 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1877",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"a18879cca96a2422fa815b7536968122d3e808b571df74f6456b2129162961d1\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "FCD4:AB7C0:5B70084:12D59C95:6AE3A61F"
+        },
+        "body": {
+          "id": 176376387,
+          "app_id": 5519382,
+          "app_slug": "combsmith-sf-queue",
+          "target_type": "Organization",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/176376387/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ],
+          "permissions": {
+            "contents": "write",
+            "metadata": "read"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Thu, 29 Oct 2026 20:01:36 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "7147",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"e3e386f4163870bd51ebc07159f8ff151c96f23808c8eb2b496159530fcaae88\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCD5:1AD97:60D402E:14085ECF:6AE3A620",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-29T21:01:36Z",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the review threads of combsmith/software-factory-canary's pull request 74 (of the answer, every field but each comment's text is kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) { reviewThreads(first: 100) { totalCount pageInfo { hasNextPage } nodes { id isResolved resolvedBy { login databaseId __typename } comments(first: 1) { nodes { databaseId author { login __typename } body } } } } } } }",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "pr": 74
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:01:37 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCD6:381E50:62FE277:145CF840:6AE3A620",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1793307697",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "reviewThreads": {
+                  "totalCount": 5,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUj",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975729,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUq",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975737,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQb",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988885,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQi",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988895,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQs",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988909,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): resolveReviewThread, the App's write, on a thread of combsmith/software-factory-canary's pull request 74",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved resolvedBy { login databaseId __typename } } } }",
+          "variables": {
+            "id": "PRRT_kwDOVFD6786xuHUj"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:01:38 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCD9:12BC4F:5EF652F:13966042:6AE3A621",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793307697",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "2"
+        },
+        "body": {
+          "data": {
+            "resolveReviewThread": {
+              "thread": {
+                "id": "PRRT_kwDOVFD6786xuHUj",
+                "isResolved": true,
+                "resolvedBy": {
+                  "login": "combsmith-sf-queue[bot]",
+                  "databaseId": 349593770,
+                  "__typename": "User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): resolveReviewThread, the App's write, on a thread of combsmith/software-factory-canary's pull request 74",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved resolvedBy { login databaseId __typename } } } }",
+          "variables": {
+            "id": "PRRT_kwDOVFD6786xuHUq"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:01:39 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCDA:39EF6B:5D23538:13299A77:6AE3A622",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793307697",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "3"
+        },
+        "body": {
+          "data": {
+            "resolveReviewThread": {
+              "thread": {
+                "id": "PRRT_kwDOVFD6786xuHUq",
+                "isResolved": true,
+                "resolvedBy": {
+                  "login": "combsmith-sf-queue[bot]",
+                  "databaseId": 349593770,
+                  "__typename": "User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): resolveReviewThread, the App's write, on a thread of combsmith/software-factory-canary's pull request 74",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved resolvedBy { login databaseId __typename } } } }",
+          "variables": {
+            "id": "PRRT_kwDOVFD6786xuJQb"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:01:39 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCDB:6F862:6384162:1467D78F:6AE3A623",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1793307697",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "4"
+        },
+        "body": {
+          "data": {
+            "resolveReviewThread": {
+              "thread": {
+                "id": "PRRT_kwDOVFD6786xuJQb",
+                "isResolved": true,
+                "resolvedBy": {
+                  "login": "combsmith-sf-queue[bot]",
+                  "databaseId": 349593770,
+                  "__typename": "User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): resolveReviewThread, the App's write, on a thread of combsmith/software-factory-canary's pull request 74",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved resolvedBy { login databaseId __typename } } } }",
+          "variables": {
+            "id": "PRRT_kwDOVFD6786xuJQi"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:01:40 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCDC:E8453:5C543B7:1301A9D9:6AE3A624",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4995",
+          "x-ratelimit-reset": "1793307697",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "5"
+        },
+        "body": {
+          "data": {
+            "resolveReviewThread": {
+              "thread": {
+                "id": "PRRT_kwDOVFD6786xuJQi",
+                "isResolved": true,
+                "resolvedBy": {
+                  "login": "combsmith-sf-queue[bot]",
+                  "databaseId": 349593770,
+                  "__typename": "User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): resolveReviewThread, the App's write, on a thread of combsmith/software-factory-canary's pull request 74",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved resolvedBy { login databaseId __typename } } } }",
+          "variables": {
+            "id": "PRRT_kwDOVFD6786xuJQs"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:01:41 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCDD:3887D7:5A25EDD:128F44F4:6AE3A625",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4994",
+          "x-ratelimit-reset": "1793307697",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "6"
+        },
+        "body": {
+          "data": {
+            "resolveReviewThread": {
+              "thread": {
+                "id": "PRRT_kwDOVFD6786xuJQs",
+                "isResolved": true,
+                "resolvedBy": {
+                  "login": "combsmith-sf-queue[bot]",
+                  "databaseId": 349593770,
+                  "__typename": "User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the review threads of combsmith/software-factory-canary's pull request 74 (of the answer, every field but each comment's text is kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) { reviewThreads(first: 100) { totalCount pageInfo { hasNextPage } nodes { id isResolved resolvedBy { login databaseId __typename } comments(first: 1) { nodes { databaseId author { login __typename } body } } } } } } }",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "pr": 74
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:01:42 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCDE:11B237:5FA5849:13D72E29:6AE3A626",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4993",
+          "x-ratelimit-reset": "1793307697",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "7"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "reviewThreads": {
+                  "totalCount": 5,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUj",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975729,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUq",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975737,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQb",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988885,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQi",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988895,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQs",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988909,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-queue[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Thu, 29 Oct 2026 20:01:43 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCDF:362B6:5FEFBDA:13BD36EA:6AE3A626",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "5000",
+          "x-ratelimit-reset": "1793307703",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "0"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 74's review threads, who opened and who resolved each, typed, at 2026-10-29T20:04:08Z, after, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:74){number headRefOid reviewThreads(first:20){totalCount nodes{id isResolved resolvedBy{login databaseId __typename} comments(first:1){nodes{databaseId author{login __typename}}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 20:04:09 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FD9F:21E48:443C45:E0E381:6AE3A6B8",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4980",
+          "x-ratelimit-reset": "1793307817",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "20"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 74,
+                "headRefOid": "616380b0042546551a0b653bebe3d184ced796e2",
+                "reviewThreads": {
+                  "totalCount": 5,
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUj",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975729,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuHUq",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416975737,
+                            "author": {
+                              "login": "chatgpt-codex-connector",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQb",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988885,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQi",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988895,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786xuJQs",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-queue[bot]",
+                        "databaseId": 349593770,
+                        "__typename": "User"
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "databaseId": 4416988909,
+                            "author": {
+                              "login": "coderabbitai",
+                              "__typename": "Bot"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "removed": [
@@ -1364,7 +2303,19 @@
     "exchanges[17].request.headers.authorization",
     "exchanges[18].request.headers.authorization",
     "exchanges[19].request.headers.authorization",
-    "exchanges[20].request.headers.authorization"
+    "exchanges[20].request.headers.authorization",
+    "exchanges[21].request.headers.authorization",
+    "exchanges[22].request.headers.authorization",
+    "exchanges[23].request.headers.authorization",
+    "exchanges[24].request.headers.authorization",
+    "exchanges[25].request.headers.authorization",
+    "exchanges[26].request.headers.authorization",
+    "exchanges[27].request.headers.authorization",
+    "exchanges[28].request.headers.authorization",
+    "exchanges[29].request.headers.authorization",
+    "exchanges[30].request.headers.authorization",
+    "exchanges[31].request.headers.authorization",
+    "exchanges[32].request.headers.authorization"
   ],
   "verdict": "pass"
 }
