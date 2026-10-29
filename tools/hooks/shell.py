@@ -30,6 +30,11 @@ WRAPPERS = {"env", "sudo", "doas", "xargs", "parallel", "timeout", "gtimeout", "
             "systemd-run", "fakeroot", "strace", "ltrace", "dtruss", "gtime"}
 HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 # The whole word after a here-document's <<, or <<-, to where the shell ends a word: its quotes are all read.
+# A here-document word that is kept as its terminator: the characters the << pattern reads, and nothing else.
+PLAIN_WORD = re.compile(r"[A-Za-z_][\w.-]*")
+# What a word may hold before its quotes and backslashes are taken out: no other character, a carriage return
+# above all, which shlex would read as space and the shell keeps (Codex on #417).
+RAW_WORD = re.compile(r"[\w.'\"\\-]+")
 DELIMITER = re.compile(r"-?[ \t]*[^ \t;&|()<>]*")
 # How much text the substitutions of every expanded here-document in a command may be spelt as, against the command's
 # length: each level of a nested one escapes the level below again, which doubles its backslashes (issue 376).
@@ -108,7 +113,8 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                     # literal, as the shell keeps it.
                     literal = re.search(r"[\\'\"]", DELIMITER.match(line, i + 2).group())
                     expands = None if literal else (len(out) - 1, i)
-                    waiting.append((found.group(1) == "-", found.group(3), expands, []))
+                    waiting.append((found.group(1) == "-", _terminator(DELIMITER.match(line, i + 2).group(), found.group(3)),
+                                    expands, []))
                     i = found.end()
                     continue
             i += 1
@@ -183,6 +189,21 @@ def _nested(script: str, room: list) -> str:
     return "".join(out)
 
 
+def _terminator(word: str, first: str) -> str:
+    """The line that ends a here-document: its whole word after the <<, as the shell reads it once its quotes and
+    backslashes are taken out, E\\OF as EOF (#410). Only a plain word, as the << pattern spells one, is taken: the line is
+    kept in the text, and any other character in it (a quote, a $, a backslash) could change how the lines after it
+    are read, so `first`, the word up to its first quote or backslash, main's reading, is kept for it (#417's reviews)."""
+    word = word.lstrip("-").strip(" \t")
+    if not RAW_WORD.fullmatch(word):
+        return first        # a character shlex would drop or read apart from the shell, a carriage return among them
+    try:
+        words = shlex.split(word)
+    except ValueError:
+        return first
+    return words[0] if len(words) == 1 and PLAIN_WORD.fullmatch(words[0]) else first
+
+
 def _readable(script: str) -> bool:
     """Whether the reader splits `script` into simple commands at all: no quote left open, no ( in a word."""
     try:
@@ -194,8 +215,9 @@ def _readable(script: str) -> bool:
 
 def expanded(body: str) -> list:
     """The script of each substitution the shell runs in a here-document's body that it expands: a $(...) or `...`, but
-    not one a backslash holds. The rest of the body is data, whatever it holds (issue 376)."""
-    scripts, i = [], 0
+    not one a backslash holds. The rest of the body is data, whatever it holds (issue 376). A backslash before a newline
+    joins the lines first, as the shell joins them in a body it expands: $\\ then a newline, then (, is a $( (#410)."""
+    body, scripts, i = re.sub(r"(?<!\\)\\\n", "", body), [], 0
     while i < len(body):
         if body[i] == "\\":
             i += 2

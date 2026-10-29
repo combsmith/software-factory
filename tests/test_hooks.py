@@ -1196,6 +1196,16 @@ class Identity(unittest.TestCase):
                         "cat <<\\EOF\n$(git commit -m x)\nEOF", "cat <<EOF\n\\$(git commit -m x) and \\`git push\\`\nEOF",
                         "cat <<EOF\nIt's (done); then git push later, ${x:-y}\nEOF"):
             self.assertEqual(self.codes(command, self.bad), "", command)
+        # Issue 410: a here-document ends at its whole word, quotes and backslashes taken out (E\\OF ends at EOF), and a
+        # backslash before a newline in an expanded body joins the lines, so $\\ then ( is a substitution.
+        for command in ("cat <<E\\OF\nhello\nEOF\ngit commit -m x\nE", "cat <<EOF\n$\\\n(git commit -m x)\nEOF",
+                        # Codex and the Claude review of #417: in a plain ( ) or an unquoted $( ), a body is read as
+                        # anywhere; only a double quote's sends it back to main's reading.
+                        "(cat <<EOF\n$(git commit -m x)\nEOF\n)", "x=$(cat <<EOF\n$(git commit -m x)\nEOF\n)"):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        # A word that ends in a backslash, or holds one in double quotes, which shlex and the shell take out apart, keeps
+        # main's reading, the word up to its first quote or backslash (Codex, Muse and Argon on #417).
+        self.assertIn("command_unreadable", self.codes("cat <<EOF\\\\\nhi\nEOF\\\ngit commit -m x"))
         # The review of pull request 395: a commit message or a body sent by a bare here-document, whose backticks hold
         # prose the reader cannot read, passes as on main.
         for command in ("git commit -F - <<EOF\nHooks: don't read `it's` twice\nEOF",
@@ -2521,8 +2531,27 @@ class MergesAndSettings(Asks):
         for command in ('cat <<EOF\n$(printf "%s" "a (b)"; git push origin main)\nEOF',
                         "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git push origin main')):
             self.asked(self.run_(command), "merge", command)
+        # Issue 410: a here-document ends at its whole word, and a backslash-newline in an expanded body joins its lines.
+        for command in ("cat <<E\\OF\nhello\nEOF\ngit push origin main\nE", "cat <<EOF\n$\\\n(git push origin main)\nEOF",
+                        # The same through <<-, whose lines lose their leading tabs (Argon on #417).
+                        "cat <<-E\\OF\n\thello\n\tEOF\ngit push origin main\nE",
+                        "(cat <<EOF\n$(git push origin main)\nEOF\n)"):
+            self.asked(self.run_(command), "merge", command)
+        # A word with a backslash in quotes, which shlex and the shell take out apart, keeps main's reading: a body that
+        # never ends, so the push after the shell's own terminator is asked about (Muse on #417).
+        self.asked(self.run_('cat <<E"\\$OF"\nhi\nE$OF\ngit push origin main\nE\\$OF'), "command_unreadable", "a quoted backslash")
+        # A backslash before a backtick in double quotes, which the shell takes out and shlex keeps: main's reading.
+        self.asked(self.run_('cat <<E"\\`OF"\nhi\nE`OF\ngit push origin main\nE\\`OF'), "command_unreadable", "a quoted backslash before a backtick")
+        # A quote left in the kept terminator, which would open a quote in what follows: main's reading (Codex on #417).
+        self.asked(self.run_("cat <<E\\'OF\nhi\nE'OF\ngit push origin main\n# '"), "command_unreadable", "a quote in the kept word")
+        # A carriage return at the word's end, which the shell keeps and shlex reads as space: main's reading too.
+        self.asked(self.run_("cat <<E\\OF\r\nhello\nEOF\r\ngit push origin main\nEOF"), "command_unreadable", "a carriage return in the word")
+        # ANSI-C quoting in the word, which shlex reads as text: main's reading too (Codex on #417).
+        self.asked(self.run_("cat <<E$'OF'\nhello\nEOF\ngit push origin main\nE$OF"), "command_unreadable", "ANSI-C quoting")
         # The review's third round. A cd in what a redirection's operand runs is its own: the command stays where it was.
         for command in ('cd lifecycle; cat < "$(cd /tmp; echo /dev/null)"; touch x.json',
+                        # Issue 410: an eval's script reads its redirections' places as the command's own do.
+                        'cd lifecycle; eval \'cat < "$(cd /tmp; echo /dev/null)"\'; touch x.json',
                         "cd lifecycle; cat <<EOF\n$(cd /tmp)\nEOF\ntouch x.json"):
             self.asked(self.run_(command), "protected_path", command)
         # A quote anywhere in the word, an empty one too, keeps the body literal.
