@@ -2639,6 +2639,8 @@ class Workflows(unittest.TestCase):
             "a mapping on one line": (GOOD.replace(STEP, "      - {uses: evil/action@main, continue-on-error: true}\n"), "form"),
             "two spaces after the dash": (GOOD.replace(STEP, "      -  uses: actions/checkout@v7\n"), "form"),
             "a quoted key": (GOOD.replace("    runs-on:", '    "runs-on":'), "form"),
+            # An on: with no event under it at all, which no list item stands in (#416's mutant run).
+            "an on: with nothing under it": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n"), "form"),
             "a colon set apart": (GOOD.replace(STEP, "      - uses : evil/action@main\n"), "form"),
             "an escaped event name": (GOOD.replace("  merge_group:\n", '  merge_group:\n  "pull_request\\x5ftarget":\n'), "form"),
             "a list on one line": (GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule: [{cron: '0 * * * *'}]\n"), "form"),
@@ -2775,6 +2777,22 @@ class Workflows(unittest.TestCase):
             self.assertEqual(check_workflows.run_jobs_problems(together, moved), [])
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
+
+    def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
+        # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
+        text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
+        self.assertEqual(check_workflows.lint(text), [])
+        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1))],
+                         ["form"])
+
+    def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392
+        # A run's value is its command; a # after a quoted command is no comment of the entry's, as it is for uses: the
+        # comment a pin is read by.
+        entries, bad = check_workflows.read('on:\n  pull_request:\njobs:\n  x:\n    steps:\n'
+                                            '      - run: "make verify" # a note\n      - uses: "a/b@c" # v1\n')
+        self.assertEqual(bad, [])
+        self.assertEqual([(e["key"], e["value"], e["comment"]) for e in entries if e["key"] in ("run", "uses")],
+                         [("run", "make verify", ""), ("uses", "a/b@c", "# v1")])
 
     def test_the_commit_a_later_job_checks_out_is_the_releases_own(self):  # decision 0066
         # A job output is as trusted as the step that writes it. `commit` is written by one step alone, `commit`, right

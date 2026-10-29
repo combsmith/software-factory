@@ -1,0 +1,21 @@
+# Must be rejected. The same on: written as a list, in a workflow whose root stands two spaces in, as YAML reads it
+# too: the section ends at the next key beside on:, not at the margin (Muse's read of #416).
+  name: factory
+  on:
+    - pull_request_target
+    - pull_request:
+    - merge_group:
+  permissions: {}
+  jobs:
+    verify:
+      name: verify
+      runs-on: ubuntu-24.04
+      timeout-minutes: 15
+      permissions:
+        contents: read
+      steps:
+        - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          with:
+            persist-credentials: false
+        - run: make verify
+        - run: python3 -m tools.mutants

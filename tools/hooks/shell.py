@@ -894,6 +894,13 @@ def assigned_elsewhere(text: str) -> set:
     return names
 
 
+# The word as the shell may run it, after a space or a mark that ends a word (issue 414).
+BUILTIN_WORD = re.compile(r"(?:^|[\s;&|(){}`])eval(?:[\s;&|]|$)")
+# A quoted string that runs nothing: single-quoted, or double-quoted with no $ or backtick in it. What is left of the
+# text when each is taken out still holds every eval the shell may run (issue 414).
+PROSE = re.compile(r"'[^']*'|\"(?:[^\"\\$`]|\\.)*\"")
+
+
 def touched(text: str) -> set:
     """Variable names the command changes in a way that leaves their value beyond reading: assigned more than
     once anywhere (in any context, quoted or not), unset anywhere, used as a for/select/getopts variable, touched by
@@ -931,8 +938,21 @@ def touched(text: str) -> set:
     bad |= set(re.findall(r"\bprintf\b[^\n;&|]*?-v\s+(%s)" % NAME, stripped))
     bad |= set(re.findall(r"\b(?:declare|typeset|local)\b[^\n;&|]*?-\w*n\w*\s+(%s)" % NAME, stripped))
     bad |= assigned_elsewhere(text)     # the raw text: an unquoted here-document's body is expanded too
-    if re.search(r"(?:^|[\s;&|(){}`])eval(?:[\s;&|]|$)", stripped):
-        return set(counts) | bad | {"*"}
+    # eval only where main's search finds the word, and only where it may run: outside every quoted string that runs
+    # nothing (a title, a message, a grep pattern), as a word of a command a script runs (bash -c 'x; eval y', or the
+    # script of a trap, which the shell runs later in this shell). Never the word in prose (issue 414). Text the reader
+    # cannot split is read as main read it.
+    if BUILTIN_WORD.search(stripped):
+        try:
+            ran = commands(stripped)
+            evals = BUILTIN_WORD.search(PROSE.sub("''", stripped)) is not None \
+                or any(os.path.basename(word) == "eval" for words, _ in ran for word in words) \
+                or any(_leading(_commands_of(words))[1] == "trap" and BUILTIN_WORD.search(word)
+                       for words, _ in ran for word in words)
+        except ValueError:
+            evals = True
+        if evals:
+            return set(counts) | bad | {"*"}
     return bad
 
 
