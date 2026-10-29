@@ -29,6 +29,11 @@ WRAPPERS = {"env", "sudo", "doas", "xargs", "parallel", "timeout", "gtimeout", "
             "nsenter", "runuser", "chpst", "unbuffer", "chronic", "script", "arch", "xcrun", "sandbox-exec",
             "systemd-run", "fakeroot", "strace", "ltrace", "dtruss", "gtime"}
 HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
+# The whole word after a here-document's <<, or <<-, to where the shell ends a word: its quotes are all read.
+DELIMITER = re.compile(r"-?[ \t]*[^ \t;&|()<>]*")
+# How much text the substitutions of every expanded here-document in a command may be spelt as, against the command's
+# length: each level of a nested one escapes the level below again, which doubles its backslashes (issue 376).
+KEPT_TIMES, KEPT_MORE = 8, 4096
 
 
 def without_heredocs(text: str, raw: bool = False) -> str:
@@ -45,6 +50,7 @@ def without_heredocs(text: str, raw: bool = False) -> str:
     hook's _quoted does, which would otherwise escape it twice.
     """
     out, waiting, stack, kept = [], [], ["code"], []
+    room = [KEPT_TIMES * len(text) + KEPT_MORE]     # what is left of it, spent as each level is spelt
     for line in text.split("\n"):
         if waiting:
             strip, word, expands, body = waiting[0]
@@ -52,8 +58,8 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                 waiting.pop(0)
                 scripts = expanded("\n".join(body)) if expands else []
                 if scripts:
-                    nested = [_nested(script) for script in scripts]     # each level's quotes its own
-                    kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(script))
+                    nested = [_nested(script, room) for script in scripts]     # each level's quotes its own
+                    kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(_spent(script, room)))
                                                   for script in nested)))
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
@@ -95,7 +101,10 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                 found = HEREDOC.match(line, i)
                 if found:
                     # Where it expands, the place its substitutions are written: this line, before the operator.
-                    expands = (len(out) - 1, i) if not found.group(2) and "\\" not in found.group(0) else None
+                    # A quote or a backslash anywhere in the word, an empty quote too (EOF""), keeps the body
+                    # literal, as the shell keeps it.
+                    literal = re.search(r"[\\'\"]", DELIMITER.match(line, i + 2).group())
+                    expands = None if literal else (len(out) - 1, i)
                     waiting.append((found.group(1) == "-", found.group(3), expands, []))
                     i = found.end()
                     continue
@@ -113,7 +122,16 @@ def _escaped(script: str) -> str:
     return script.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _nested(script: str) -> str:
+def _spent(script: str, room: list) -> str:
+    """`script`, once what escaping it may spell, twice its length, is taken from `room` before it is spelt. Raises
+    ValueError when no room is left: a reading the hook would cut short is one it cannot read (issue 376)."""
+    room[0] -= 2 * len(script) + 8
+    if room[0] < 0:
+        raise ValueError("a here-document's substitutions nest deeper than the hook reads")
+    return script
+
+
+def _nested(script: str, room: list) -> str:
     """`script` with each substitution in it, at any depth, spelt as `requoted` spells one, "$(...)" with its own script
     escaped, so that the hook reads each level's quotes as that level's own (issue 376, the review of pull request
     395). A backtick is made a $( ), its \\`, \\$ and \\\\ taken out, and in double quotes its \\" too, as the shell takes
@@ -138,7 +156,7 @@ def _nested(script: str) -> str:
             else:
                 end = _balanced(script, i + 2, ")")
                 inner = script[i + 2:end - 1] if script[end - 1:end] == ")" else script[i + 2:]
-            word = "$(%s)" % _escaped(_nested(inner))
+            word = "$(%s)" % _escaped(_spent(_nested(inner, room), room))
             out.append(word if quote == '"' else '"%s"' % word)
             i = end
             continue
@@ -239,7 +257,8 @@ class Lexer(shlex.shlex):
         return str(word) if isinstance(word, _Token) else word
 
 
-def commands(text: str, spend=None, texts: list = None, scopes: bool = False, marked: bool = False) -> list:
+def commands(text: str, spend=None, texts: list = None, scopes: bool = False, marked: bool = False,
+             places: bool = False) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
     An operator holding '>' writes its target; one holding only '<' reads it. `spend`, if given, is called
@@ -249,6 +268,9 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
     no command can spell: they run in a subshell, so a cd among them is theirs alone (decision 0032).
     A substitution is read only where the shell runs one: a single quote or a backslash holds it as text
     (issue 174). With `marked`, each word keeps the LIVE marks of the substitutions the shell runs in it.
+    With `places`, what a redirection's operand runs comes between SCOPE's marks though `scopes` is not
+    given, for a reader that keeps where the command stands and reads no other mark: the protected hook.
+    A cd among them is theirs alone, as the shell runs them in a subshell (issue 376).
     """
     if spend:
         spend()
@@ -317,7 +339,7 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
             continue
         if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands
             for script in _substituted(targets[0], spend):
-                read = commands(script, spend, texts, scopes, marked)
+                read = commands(script, spend, texts, scopes, marked, places)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
             continue
         # A redirection's operand is expanded as a word is, `< "$(...)"` too, and without_heredocs writes what an
@@ -326,15 +348,15 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
         made = []
         for _, target in targets:
             for script in _substituted(target, spend):
-                read = commands(script, spend, texts, scopes, marked)
-                made += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
+                read = commands(script, spend, texts, scopes, marked, places)
+                made += [SCOPE[0]] + read + [SCOPE[1]] if scopes or places else read
         plain = [unmarked(word) for word in words]
         out += made
         out.append((words, targets) if marked else (plain, [(op, unmarked(target)) for op, target in targets]))
-        out += _inner(plain, spend, texts, marked, scopes)
+        out += _inner(plain, spend, texts, marked, scopes, places)
         for word in words:
             for script in _substituted(word, spend):
-                read = commands(script, spend, texts, scopes, marked)
+                read = commands(script, spend, texts, scopes, marked, places)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read     # a substitution runs in a subshell
     return [(words, targets) for words, targets in out if words or targets]
 
@@ -545,7 +567,8 @@ def _held(text: str) -> str:
     return "".join(out)
 
 
-def _inner(words: list, spend=None, texts: list = None, marked: bool = False, scopes: bool = False) -> list:
+def _inner(words: list, spend=None, texts: list = None, marked: bool = False, scopes: bool = False,
+           places: bool = False) -> list:
     """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo; and
     the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`. `words` are as the shell gives
     them, with no LIVE mark: the script is read again as text. With `scopes`, a shell's or a program's script, which
@@ -554,7 +577,7 @@ def _inner(words: list, spend=None, texts: list = None, marked: bool = False, sc
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
-            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked)
+            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked, places)
         if name == "env":       # -S's string is split into the words of the command env runs, before the rest
             for i in range(at + 1, len(words)):
                 if not words[i].startswith("-") and "=" not in words[i] and words[i - 1] not in ENV_VALUED:
@@ -562,12 +585,13 @@ def _inner(words: list, spend=None, texts: list = None, marked: bool = False, sc
                 script, taken = _value(words, i, "S", ("--split-string",), True)
                 if script is not None:
                     rest = words[i + 1 + taken:]
-                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts, scopes, marked)
+                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts, scopes, marked,
+                                    places)
         if name in SHELLS or name in STRINGS:
             script = script_of(words, at)
             if script is None:
                 return []
-            read = commands(script, spend, texts, scopes, marked)
+            read = commands(script, spend, texts, scopes, marked, places)
             return [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
     return []
 

@@ -44,6 +44,11 @@ PATHS = {}     # made once: a new program's first run is slow on some systems
 NESTED = {1: '$(printf "%s" "hello (world)")'}
 for _depth in (2, 3):
     NESTED[_depth] = '$(printf "%%s" "%s")' % NESTED[_depth - 1]
+# Twenty-two levels of echo "$(...)" in a here-document's body: escaped again at each level, 16 MB unbounded.
+DEEP = "x"
+for _depth in range(22):
+    DEEP = 'echo "$(%s)"' % DEEP
+DEEP = "cat <<EOF\n%s\nEOF" % DEEP
 
 
 def folder() -> pathlib.Path:
@@ -1200,6 +1205,11 @@ class Identity(unittest.TestCase):
                         "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git commit -m x'),
                         'cat <<EOF\n$(echo "`echo \\"a (b)\\"; git commit -m x`")\nEOF'):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        # The review's third round: a quote anywhere in the word, an empty one too, keeps the body literal; nesting past
+        # the room the hook reads is a command it cannot read.
+        for command in ('cat <<EOF""\n$(git commit -m x)\nEOF', "cat <<EOF''\n$(git commit -m x)\nEOF"):
+            self.assertEqual(self.codes(command, self.bad), "", command)
+        self.assertIn("command_unreadable", self.codes(DEEP, seconds=2))
         # A redirection is made before its command runs: what its operand writes is where the shell stood before a cd.
         for command in ('cd .git < "$(touch config; echo /dev/null)"; cd ..; git commit -m x',
                         'cd .git 2> "$(touch config; echo /dev/null)" && cd .. && git commit -m x'):
@@ -2489,6 +2499,18 @@ class MergesAndSettings(Asks):
         for command in ('cat <<EOF\n$(printf "%s" "a (b)"; git push origin main)\nEOF',
                         "cat <<EOF\n%s\nEOF" % NESTED[3].replace('"hello (world)"', '"a (b)"; git push origin main')):
             self.asked(self.run_(command), "merge", command)
+        # The review's third round. A cd in what a redirection's operand runs is its own: the command stays where it was.
+        for command in ('cd lifecycle; cat < "$(cd /tmp; echo /dev/null)"; touch x.json',
+                        "cd lifecycle; cat <<EOF\n$(cd /tmp)\nEOF\ntouch x.json"):
+            self.asked(self.run_(command), "protected_path", command)
+        # A quote anywhere in the word, an empty one too, keeps the body literal.
+        for command in ('cat <<EOF""\n$(git push origin main)\nEOF', "cat <<EOF''\n$(git push origin main)\nEOF",
+                        "cat <<- EOF''\n\t$(git push origin main)\n\tEOF"):
+            self.assertEqual(self.run_(command), "", command)
+        # Nesting past the room the hook reads is a command it cannot read, asked about and read fast, and deep nesting
+        # with room to spare is asked about too.
+        for command in (DEEP, "echo %s\ncat <<EOF\n%s\nEOF" % ("a" * 20000, "$(" * 70 + "x" + ")" * 70)):
+            self.asked(self.run_(command, seconds=2), "command_unreadable", command[:40])
 
     def test_what_does_not_merge_is_not_asked_about(self):
         for command in ("gh pr view 5", "gh pr create --fill", "gh pr checks 5", "gh pr view 5 --json mergeable",
