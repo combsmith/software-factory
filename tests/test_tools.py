@@ -2619,6 +2619,16 @@ class Workflows(unittest.TestCase):
             # #392): it is a mapping no entry would hold.
             "a colon set apart under a key with no value": (
                 GOOD.replace("      - checks\n", "      - uses : evil/action@main\n      - checks\n"), "form"),
+            # A YAML reader reads each of these otherwise than the lines do, so a command or a key it runs is one no
+            # entry holds (the security pass on #392): a line led by a space of another kind, which is no comment to it;
+            # a line break of another kind inside a comment; a quoted value not closed on its line, or with text after
+            # its close; and an on: written as a list, never read as events.
+            "a comment led by another space": (GOOD.replace(STEP, STEP + "          \u00a0# || true\n"), "form"),
+            "a line break inside a comment": (GOOD.replace(STEP, STEP + "        # c\u0085        shell: bash\n"), "form"),
+            "a quote not closed on its line": (GOOD.replace(STEP, STEP + '        name: "0\n        id: x # "\n'), "form"),
+            "text after a quote's close": (GOOD.replace(STEP, STEP + '        name: "a" b\n'), "form"),
+            "on: as a list": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  - pull_request_target\n"),
+                              "form"),
         }
         for name, (text, rule) in ways.items():
             self.assertNotEqual(text, GOOD, name)
@@ -2635,6 +2645,8 @@ class Workflows(unittest.TestCase):
             "a list under its key's own indent": GOOD.replace("      - checks\n      - commits\n      - mutants\n",
                                                               "    - checks\n    - commits\n    - mutants\n"),
             "a comment between a list's items": GOOD.replace("      - checks\n", "      - checks\n      # and\n"),
+            # A quoted value closed on its line, whatever it holds, with its comment after it.
+            "quoted values": GOOD.replace(STEP, STEP + '        name: "a # b \\"c\\"" # d\n        id: \'it\'\'s\'\n'),
         }
         for name, text in fine.items():
             self.assertEqual(rules(text), [], name)

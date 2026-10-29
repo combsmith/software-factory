@@ -572,6 +572,28 @@ JUDGED = {"pull_request", "merge_group"}
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
 
 
+# A space or a line break of any kind but the plain space and the newline: YAML reads none of them as Python's strip()
+# does, so a line led by one is no comment, and one may end a line where no line ends here (the security pass on #392).
+ODD_SPACE = re.compile(r"[^\S \n]")      # Python's \s holds NEL, U+2028 and U+2029, YAML 1.1's line breaks
+
+
+def _closed(rest: str):
+    """Where the quoted value `rest` opens with ends, past its closing quote, or None where it does not close on its
+    line: YAML would read the lines after it as more of the value, which these entries do not hold."""
+    quote, at = rest[0], 1
+    while at < len(rest):
+        if quote == '"' and rest[at] == "\\":
+            at += 2
+            continue
+        if rest[at] == quote:
+            if quote == "'" and rest[at + 1:at + 2] == "'":
+                at += 2
+                continue
+            return at + 1
+        at += 1
+    return None
+
+
 def _unquote(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
         return value[1:-1]
@@ -590,7 +612,7 @@ def read(text: str) -> tuple:
     entries, bad, stack, step, block, seen = [], [], [], 0, None, [set()]
     items = None        # where a bare list item may stand: (the least indent, the indent of the items before it)
     for number, raw in enumerate(text.split("\n"), 1):
-        if "\t" in raw or "\r" in raw:
+        if "\t" in raw or "\r" in raw or ODD_SPACE.search(raw):
             bad.append(number)
             continue
         if block is not None:
@@ -613,7 +635,18 @@ def read(text: str) -> tuple:
             continue
         indent = len(found.group(1)) + (2 if found.group(2) else 0)
         key, rest = found.group(3), (found.group(4) or "").strip()
-        value, _, comment = (rest, "", "") if key == "run" else rest.partition(" #")
+        quoted = rest.startswith(("'", '"'))
+        end = _closed(rest) if quoted else None
+        # A quote not closed on its line, or text after the one that closes it: YAML reads it otherwise.
+        if quoted and end is None:
+            bad.append(number)
+            end = len(rest)
+        elif quoted and rest[end:].strip()[:1] not in ("", "#"):
+            bad.append(number)
+        if end is not None:
+            value, comment = rest[:end], rest[end:].strip()[1:] if key != "run" else ""
+        else:
+            value, _, comment = (rest, "", "") if key == "run" else rest.partition(" #")
         value = value.strip()
         while stack and stack[-1][0] >= indent:
             stack.pop()
@@ -649,7 +682,9 @@ def lint(text: str) -> list:
     jobs = under("jobs")
     if bad:
         found.append(("form", "line %d is not in the narrow form" % bad[0]))
-    elif "on" not in top or not jobs:
+    elif "on" not in top or not jobs or not (top["on"]["value"] or under("on")):
+        # An on: written as a list of events is never read as events here, so it is no on: section (the security
+        # pass on #392).
         found.append(("form", "no on: section, or no job that can be read"))
 
     events = {e["key"] for e in under("on")}

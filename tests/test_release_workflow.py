@@ -105,7 +105,9 @@ class Shape(unittest.TestCase):
             # A bare item beside the steps' mappings is not the narrow form at all (issue 371): it stands under no key
             # without a value, where a YAML reader could take it for more of the last step's command.
             "a step of text after the last step": (LIVE + "      - justastring\n", "is not in the narrow form"),
-            # One that does stand under a key with no value, past the first step's keys, is still one more step.
+            # One under a key with no value but keys after it is no YAML at all, which no reader would run; the reading
+            # of the steps still counts it, past the first step's keys. Any YAML that puts a text past a step's keys is
+            # refused as form before that reading, so only this holds it (the Claude review of #392).
             "a step of text under a step's key": (LIVE.replace("        with:\n", "        with:\n          - justastring\n", 1),
                                                   "its steps are"),
             # A checkout at another pin, and a release step that runs another command, are no step of the job's (Argon's
