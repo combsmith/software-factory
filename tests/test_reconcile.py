@@ -36,7 +36,7 @@ def seen(*writes, merged=(), whole=True) -> dict:
 
 
 def applied(*effects) -> dict:
-    return {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [],
+    return {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [], "rulings": [],
             "effects": [{"id": "e%d" % (i + 1), "type": t, "state": state, "key": k, "reason": None}
                         for i, (t, k, state) in enumerate(effects)]}
 
@@ -89,23 +89,32 @@ class Matching(unittest.TestCase):
             # A write whose key cannot be read is matched to nothing, whatever was recorded on its item.
             self.assertEqual(kinds(check(seen(dict(write, key=None)), recorded([done]))), [(write["by"], write["kind"])])
 
-    def test_a_resolution_is_matched_to_the_role_whose_run_recorded_it(self):  # decision 0067
-        # A thread's id outlives its reopening, so a resolution is matched only to an Effect a Run of the resolver's own
-        # Role recorded, by the run records: another Role's, or one whose Run is not among them, covers nothing.
-        done = applied(("resolve_thread", "PRRT_t", "applied"))
-        mine = run(name=done["run"], role="pr-review")
-        # Role matching alone: with no pass job's token, the Run is no dispatch to reconcile.
-        accounts = dict(KNOWN, workflow_token=None, roles=dict(KNOWN["roles"], **{
-            "dev-lead": {"id": 5000004, "type": "Bot", "login": "combsmith-sf-dev-lead[bot]"}}))
-        self.assertEqual(check(seen(wrote("pr-review", "resolution", "PRRT_t")), recorded([done]), records(mine),
+    def test_a_resolution_is_the_queue_apps_matched_to_the_act_the_pass_recorded(self):  # issue 389
+        # No Role resolves a thread: the queue App does, as the Kernel's act, which the pass records as a write. Its
+        # resolution is matched to that write by the thread's id; one the pass did not record, recorded on another
+        # thread or as not landed, alarms, and so does any Role's, whatever it recorded.
+        accounts = dict(KNOWN, queue={"id": 5000009, "type": "Bot", "login": "combsmith-sf-queue[bot]"})
+        act = written(("resolve_thread", ITEM, None, "PRRT_t", "applied"))
+        self.assertEqual(check(seen(wrote("queue", "resolution", "PRRT_t")), recorded(written_=[act]),
                                accounts=accounts)["unmatched"], [])
-        for by, runs in (("dev-lead", records(mine)), ("pr-review", records()),
-                         ("pr-review", records(dict(mine, role="dev-lead")))):
-            found = check(seen(wrote(by, "resolution", "PRRT_t")), recorded([done]), runs, accounts=accounts)
-            self.assertEqual(kinds(found), [(by, "resolution")], (by, runs))
-        # Run records not read whole bind no resolution to its Role: reconciliation is short, and calls none unmatched.
-        found = check(seen(wrote("pr-review", "resolution", "PRRT_t")), recorded([done]), None, accounts=accounts)
-        self.assertEqual((found["unmatched"], found["short"]), ([], True))
+        for other in (recorded(), recorded(written_=[written(("resolve_thread", ITEM, None, "PRRT_u", "applied"))]),
+                      recorded(written_=[written(("resolve_thread", ITEM, None, "PRRT_t", "failed"))]),
+                      recorded(written_=[written(("not_built", ITEM, None, None, "refused"))])):
+            found = check(seen(wrote("queue", "resolution", "PRRT_t")), other, accounts=accounts)
+            self.assertEqual(kinds(found), [("queue", "resolution")], other)
+        found = check(seen(wrote("pr-review", "resolution", "PRRT_t")), recorded(written_=[act]), accounts=accounts)
+        self.assertEqual(kinds(found), [("pr-review", "resolution")])
+        # Until the queue App's account is set (issue 381) it is no identity, and leaves nothing short; once set, what
+        # was seen tells its account as the queue App.
+        told = dict(seen_.identities(KNOWN)[0])
+        told[(5000009, "Bot")] = "queue"
+        self.assertEqual(seen_.identities(accounts), (told, seen_.identities(KNOWN)[1]))
+        # A queue account that is another identity's too cannot be told from it: neither is known.
+        twice = dict(accounts, queue=dict(accounts["queue"], id=KNOWN["roles"]["pr-review"]["id"]))
+        found, known = seen_.identities(twice)
+        self.assertEqual(((5000002, "Bot") in found, known), (False, False))
+        self.assertEqual(reconcile._identities(KNOWN)[0].get("queue"), None)
+        self.assertEqual(reconcile._identities(accounts), (dict(reconcile._identities(KNOWN)[0], queue="queue"), True))
 
     def test_the_controllers_writes_are_matched_to_what_the_pass_recorded(self):  # decision 0051
         status = written(("status_on_item", ITEM, None, "CR_s", "applied"))
@@ -143,7 +152,8 @@ class Matching(unittest.TestCase):
         # The machine user only approves: a push, a review that is not an approval, a comment or a resolution alarms,
         # and so does a Role's act on the timeline, or a resolution GitHub names a Role for.
         everything = recorded([applied(("approve", "K", "applied"), ("submit_review", "K", "applied"),
-                                       ("comment", "K", "applied"), ("resolve_thread", "K", "applied"))])
+                                       ("comment", "K", "applied"))],
+                              [written(("resolve_thread", ITEM, None, "K", "applied"))])
         for write in (wrote("approver", "push", "K"), wrote("approver", "review", "K"), wrote("approver", "comment", "K"),
                       wrote("approver", "resolution", "K"), wrote("pr-review", "label"), wrote("pr-review", "merge"),
                       wrote("pr-review", "approval", "K"),

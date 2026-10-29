@@ -211,23 +211,30 @@ def context(**over) -> dict:
 
 # Said for a thread's category to mean the one its kind of opener gives, so that None stays None.
 BY_KIND = "by kind"
-# Said for who resolved a thread to mean whoever opened it.
+# Said for who resolved a thread to mean whoever closes it: a person's, that person; a Lens's, the queue App.
 BY_OPENER = "by opener"
+# Said for a thread's ruling to mean the one its resolution needs: accepted on a Lens's the queue App resolved.
+BY_RESOLUTION = "by resolution"
+# The App that carries out the Kernel's acts on the merge queue and on a Lens's threads (decision 0081, issue 389).
+QUEUE_APP = {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False}
 
 
 def thread(tid="T1", kind="lens", name="pr-review", can_write=True, severity="major", resolved=False,
-           at="2026-10-11T12:15:00Z", category=BY_KIND, resolved_by=BY_OPENER) -> dict:
+           at="2026-10-11T12:15:00Z", category=BY_KIND, resolved_by=BY_OPENER, ruling=BY_RESOLUTION) -> dict:
     """A thread as GitHub holds it. A person's is a `human` Finding; by default a Lens's is a `functional` one.
 
-    A resolved thread says who resolved it, by default whoever opened it; an open one says nobody.
+    A resolved thread says who resolved it, by default whoever closes it: a person's, that person, and a Lens's, the
+    queue App on that Lens's accepted ruling. An open one says nobody, and a Lens's has no ruling.
     """
     if category == BY_KIND:
         category = "human" if kind == "human" else "functional"
     opener = {"kind": kind, "name": name, "can_write": can_write}
     if resolved_by == BY_OPENER:
-        resolved_by = dict(opener) if resolved else None
+        resolved_by = (dict(QUEUE_APP) if kind == "lens" else dict(opener)) if resolved else None
+    if ruling == BY_RESOLUTION:
+        ruling = "accepted" if kind == "lens" and resolved_by == QUEUE_APP else None
     return {"id": tid, "resolved": resolved, "opened_by": opener, "category": category, "severity": severity,
-            "resolved_by": resolved_by, "opened_at": at}
+            "resolved_by": resolved_by, "opened_at": at, "ruling": ruling}
 
 
 def labelled(label: str, by=None, at="2026-10-11T12:01:00Z", action="labeled") -> dict:

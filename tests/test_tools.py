@@ -539,7 +539,7 @@ class Examples(unittest.TestCase):
             self.assertEqual("close" in row["choices"], not mended, row["reason"])
 
     def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038
-        # With no oneOf, one list for each type is the only shape in which "a resolve_thread with no thread" is refused.
+        # With no oneOf, one list for each type is the only shape in which "a comment with no place" is refused.
         effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
         self.assertEqual(sorted(effect["$defs"]["type"]["enum"]), sorted(effect["properties"]))
         self.assertEqual(effect["required"] if "required" in effect else [], [])
@@ -548,7 +548,7 @@ class Examples(unittest.TestCase):
             self.assertIs(listed["items"]["additionalProperties"], False, name)
             self.assertIn("id", listed["items"]["required"], name)
         # The Controller's acts are never a Result's Effects, and a review carries no event: approval is the act Run's.
-        for act in ("add_label", "remove_label", "assign", "enqueue_merge", "dequeue_merge"):
+        for act in ("add_label", "remove_label", "assign", "enqueue_merge", "dequeue_merge", "resolve_thread"):
             self.assertNotIn(act, effect["properties"])
         self.assertNotIn("event", effect["properties"]["submit_review"]["items"]["properties"])
 
@@ -2080,11 +2080,16 @@ class Workflows(unittest.TestCase):
         (local / "config" / "hooks.json").write_text("{}")
         self.assertTrue(caught(said(second), "cannot be read"))
         (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
                                                                "EVENT": "pull_request"}, local), 0)
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
                                                                "EVENT": "pull_request"}, local), 1)
+        # What it says is what it holds: that the commits name the Maintainer, never that they are theirs (decision
+        # 0087), and the committer only where GitHub did not commit it.
+        self.assertIn("names the Maintainer as its author, and as its committer where GitHub did not commit it",
+                      printed.getvalue())
+        self.assertNotIn("is the Maintainer's", printed.getvalue())
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.

@@ -1,0 +1,1800 @@
+{
+  "schema": "trial/1",
+  "trial": "P-2",
+  "question": "Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? Does a push take a queued pull request out, can the queue eject one without merging it, its approval staying, is a draft ever merged by a person or the queue, and does the queue run the required checks on the merge group? Is each enqueue and dequeue on the pull request's timeline, naming its actor?",
+  "pass": "Written 2026-10-22T18:07:40Z, before the window: yes to the three asks: the pr-review App enqueues or enables auto-merge on an approved pull request, the controller's read sees it queued before the queue merges it, and the App dequeues it, unmerged. The rest is recorded: a push out, an eject, a draft, the check on the merge group. This fixture holds the rest, on the canary's main, which gained merge_queue and p2-queue-check as a required check (kept after the window, for P-37): A, queued by a person, merged by the queue, its merge group's check run on the group's own commit; C, holding p2/eject, ejected by the queue on its failed check, unmerged, its approval standing; D, queued, refused an App's push (409, the branch locked), then merged unchanged; E, made a draft, refused the queue and a person's merge. Auto-merge was not asked, by the Maintainer's choice. Failed as written, since the pr-review App cannot use the queue (trials/P-2.least.json); each of the rest is recorded.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-27T22:51:00Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026: main's ruleset before the window's two rules, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 22:55:53 GMT",
+          "etag": "W/\"a635641dc728d91dd0821185edd205f1286e9a74dacd3c6b07c833dcb06b6df1\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CBEC:3E1B8:3E597E6:CFC9E96:6AE12BF9",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4729",
+          "x-ratelimit-reset": "1793142695",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "271"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-10-21T16:59:08.277-05:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026: main's ruleset after merge_queue and required_status_checks (p2-queue-check) were added, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:06:27 GMT",
+          "etag": "W/\"b875dd81f8e4371b849d74f07111645240e709ec3abbae2765aad2d8fbd60dd5\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CDBB:6FBD2:395F21A:BC736EB:6AE12E73",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4287",
+          "x-ratelimit-reset": "1793142695",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "713"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-10-27T18:06:17.870-05:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 57's queue entry and review decision, and main's merge queue, as the Maintainer, after his enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:57){state merged isInMergeQueue mergeQueueEntry{state position enqueuedAt headCommit{oid}} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:52:09 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D6C4:286585:3C40770:C63EA10:6AE13928",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3849",
+          "x-ratelimit-reset": "1793145485",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1151"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "OPEN",
+                "merged": false,
+                "isInMergeQueue": true,
+                "mergeQueueEntry": {
+                  "state": "QUEUED",
+                  "position": 1,
+                  "enqueuedAt": "2026-10-27T23:52:00Z",
+                  "headCommit": null
+                },
+                "reviewDecision": "APPROVED",
+                "headRefOid": "29fdd2e00a36ee41451a84c523b848525d40f145"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "state": "QUEUED",
+                      "position": 1,
+                      "pullRequest": {
+                        "number": 57
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 57's queue entry and review decision, and main's merge queue, as the Maintainer, while the merge group's check ran",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:57){state merged isInMergeQueue mergeQueueEntry{state position enqueuedAt headCommit{oid}} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:52:25 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D6D7:224FB:3D2ADDD:C90B3C0:6AE13938",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4815",
+          "x-ratelimit-reset": "1793146971",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "185"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "OPEN",
+                "merged": false,
+                "isInMergeQueue": true,
+                "mergeQueueEntry": {
+                  "state": "AWAITING_CHECKS",
+                  "position": 1,
+                  "enqueuedAt": "2026-10-27T23:52:00Z",
+                  "headCommit": {
+                    "oid": "f98335a864e63bb2d50f9e1d10051131f192e6c1"
+                  }
+                },
+                "reviewDecision": "APPROVED",
+                "headRefOid": "29fdd2e00a36ee41451a84c523b848525d40f145"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "state": "AWAITING_CHECKS",
+                      "position": 1,
+                      "pullRequest": {
+                        "number": 57
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 57's queue entry and review decision, and main's merge queue, as the Maintainer, after the merge",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:57){state merged isInMergeQueue mergeQueueEntry{state position enqueuedAt headCommit{oid}} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:56:59 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D7DF:107832:39A83F5:BDD2A34:6AE13A4A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3793",
+          "x-ratelimit-reset": "1793145485",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1207"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "MERGED",
+                "merged": true,
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": "APPROVED",
+                "headRefOid": "29fdd2e00a36ee41451a84c523b848525d40f145"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 0,
+                  "nodes": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/57, as the Maintainer (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "19593",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:57:15 GMT",
+          "etag": "\"18f4a33e4116ec2d341ce757cd0241d4f7c895476f0d1d5e806bc4253a46b148\"",
+          "last-modified": "Tue, 27 Oct 2026 23:56:58 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D7ED:10A418:40129CB:D1FE4F9:6AE13A5B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4270",
+          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "730"
+        },
+        "body": {
+          "number": 57,
+          "node_id": "PR_kwDOVFD6788AAAABLI32PA",
+          "state": "closed",
+          "draft": false,
+          "merged": true,
+          "merged_at": "2026-10-27T23:56:57Z",
+          "merge_commit_sha": "f98335a864e63bb2d50f9e1d10051131f192e6c1",
+          "mergeable_state": "unknown",
+          "merged_by": {
+            "login": "don-petry",
+            "type": "User"
+          },
+          "head": {
+            "ref": "trial/p-2a",
+            "sha": "29fdd2e00a36ee41451a84c523b848525d40f145"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/f98335a864e63bb2d50f9e1d10051131f192e6c1/check-runs: the merge's check runs, as the Maintainer (of the answer, each check run's id, name, commit, state, conclusion, times, App and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:57:16 GMT",
+          "etag": "W/\"23c6faf9792b2b015b7d77112a3595de57e4ca4353e0d1874c2b1734f779b46a\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D7EF:2DF541:3F076F6:CEE09D8:6AE13A5C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4269",
+          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "731"
+        },
+        "body": {
+          "total_count": 3,
+          "check_runs": [
+            {
+              "id": 122544031552,
+              "name": "Analyze (actions)",
+              "head_sha": "f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-27T23:57:02Z",
+              "completed_at": null,
+              "external_id": "d62481a6-8533-5ced-b03a-e8df10b59b0d",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110061933227
+              }
+            },
+            {
+              "id": 122542345388,
+              "name": "CodeRabbit",
+              "head_sha": "f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-27T23:52:20Z",
+              "completed_at": "2026-10-27T23:52:20Z",
+              "external_id": "",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 110060578888
+              }
+            },
+            {
+              "id": 122542330392,
+              "name": "p2-queue-check",
+              "head_sha": "f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-27T23:52:20Z",
+              "completed_at": "2026-10-27T23:56:23Z",
+              "external_id": "49924b13-6d7b-5886-9e4c-ef42c1a935f0",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110060580760
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?event=merge_group&per_page=3, as the Maintainer (of the answer, each run's id, workflow, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:57:17 GMT",
+          "etag": "W/\"c75d83f7de0133b870ed5b2d899a06e2380f545596821610dde80247e1e79839\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D7F0:77139:3BB49C2:C416B56:6AE13A5C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4268",
+          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "732"
+        },
+        "body": {
+          "total_count": 1,
+          "workflow_runs": [
+            {
+              "id": 40605044615,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "gh-readonly-queue/main/pr-57-99f13cc23d41f4062295a94fdd74809ae6800e4f",
+              "head_sha": "f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "run_attempt": 1,
+              "created_at": "2026-10-27T23:52:17Z",
+              "updated_at": "2026-10-27T23:56:24Z",
+              "actor": {
+                "login": "don-petry",
+                "type": "User"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 58's queue entry and review decision, and main's merge queue, as the Maintainer, after his enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:58){state merged isInMergeQueue mergeQueueEntry{state position} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:59:09 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D827:2BFBBF:3BCA999:C53EE0B:6AE13ACC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4788",
+          "x-ratelimit-reset": "1793146971",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "212"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "OPEN",
+                "merged": false,
+                "isInMergeQueue": true,
+                "mergeQueueEntry": {
+                  "state": "QUEUED",
+                  "position": 1
+                },
+                "reviewDecision": "APPROVED",
+                "headRefOid": "5c80f632b276af83de6601f835c7d6ed19f848f5"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "state": "QUEUED",
+                      "position": 1,
+                      "pullRequest": {
+                        "number": 58
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 58's queue entry and review decision, and main's merge queue, as the Maintainer, while the merge group's check ran",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:58){state merged isInMergeQueue mergeQueueEntry{state position} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 23:59:24 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D833:1D6626:3E17526:CCBE8F1:6AE13ADC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4973",
+          "x-ratelimit-reset": "1793149090",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "27"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "OPEN",
+                "merged": false,
+                "isInMergeQueue": true,
+                "mergeQueueEntry": {
+                  "state": "AWAITING_CHECKS",
+                  "position": 1
+                },
+                "reviewDecision": "APPROVED",
+                "headRefOid": "5c80f632b276af83de6601f835c7d6ed19f848f5"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "state": "AWAITING_CHECKS",
+                      "position": 1,
+                      "pullRequest": {
+                        "number": 58
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 58's queue entry and review decision, and main's merge queue, as the Maintainer, after the merge group's check failed",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:58){state merged isInMergeQueue mergeQueueEntry{state position} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:04:10 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E3:181A42:3F4AE:D0E06:6AE13BF9",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4851",
+          "x-ratelimit-reset": "1793149090",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "149"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "OPEN",
+                "merged": false,
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": "APPROVED",
+                "headRefOid": "5c80f632b276af83de6601f835c7d6ed19f848f5"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 0,
+                  "nodes": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/58, as the Maintainer (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18614",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:04:25 GMT",
+          "etag": "\"b1a4987ba37f94dd479c3207811f74c9cbcfe43bd2ee563da19b86e7e1309ecc\"",
+          "last-modified": "Tue, 27 Oct 2026 23:58:50 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D8ED:27EC53:40AD3:D6031:6AE13C09",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4220",
+          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "780"
+        },
+        "body": {
+          "number": 58,
+          "node_id": "PR_kwDOVFD6788AAAABLJTrFg",
+          "state": "open",
+          "draft": false,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "ef192e00ec251fe56cdc9ecb5abbefced9c214c4",
+          "mergeable_state": "clean",
+          "head": {
+            "ref": "trial/p-2c",
+            "sha": "5c80f632b276af83de6601f835c7d6ed19f848f5"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/58/reviews, as the Maintainer (of the answer, each review's id, node, state, time, commit and author are kept, and its text only where it was empty)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:04:26 GMT",
+          "etag": "W/\"1ffc4134b2b2940c95fd58f337045e7b578e104389402e876f22d988e6629676\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D8EE:27DAFF:4DEDE:10219D:6AE13C09",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4219",
+          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "781"
+        },
+        "body": [
+          {
+            "id": 5676072968,
+            "node_id": "PRR_kwDOVFD6788AAAABUlIACA",
+            "state": "APPROVED",
+            "submitted_at": "2026-10-27T23:58:50Z",
+            "commit_id": "5c80f632b276af83de6601f835c7d6ed19f848f5",
+            "author_association": "MEMBER",
+            "user": {
+              "login": "donpetry-bot",
+              "type": "User"
+            },
+            "body": ""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?event=merge_group&per_page=3, as the Maintainer (of the answer, each run's id, workflow, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:04:26 GMT",
+          "etag": "W/\"440f6431ed9b1c4041fd3057fa5cfee2a4bcc8ed5e28e934dcb7ad0a403f022b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D8EF:168C37:4FC38:108FD4:6AE13C0A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4218",
+          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "782"
+        },
+        "body": {
+          "total_count": 2,
+          "workflow_runs": [
+            {
+              "id": 40605800882,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "failure",
+              "head_branch": "gh-readonly-queue/main/pr-58-f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "head_sha": "f22dd5d1852d0c584cbcd48310cb9cc7ab22f76c",
+              "run_attempt": 1,
+              "created_at": "2026-10-27T23:59:20Z",
+              "updated_at": "2026-10-28T00:03:27Z",
+              "actor": {
+                "login": "don-petry",
+                "type": "User"
+              }
+            },
+            {
+              "id": 40605044615,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "gh-readonly-queue/main/pr-57-99f13cc23d41f4062295a94fdd74809ae6800e4f",
+              "head_sha": "f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "run_attempt": 1,
+              "created_at": "2026-10-27T23:52:17Z",
+              "updated_at": "2026-10-27T23:56:24Z",
+              "actor": {
+                "login": "don-petry",
+                "type": "User"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/58/timeline?per_page=100, as the Maintainer (of the answer, each event's kind, id, times, state, commit and actor are kept; no text)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:04:27 GMT",
+          "etag": "W/\"3076ac5cc0556e284f2866e42cbf096c09d29a5c399109d2a1023496074689ca\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D8F2:35F636:5687A:11F0DE:6AE13C0B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4217",
+          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "783"
+        },
+        "body": [
+          {
+            "event": "committed",
+            "node_id": "C_kwDOVFD679oAKDVjODBmNjMyYjI3NmFmODNkZTY2MDFmODM1YzdkNmVkMTlmODQ4ZjU",
+            "sha": "5c80f632b276af83de6601f835c7d6ed19f848f5",
+            "actor": {
+              "login": null,
+              "type": null
+            }
+          },
+          {
+            "event": "review_requested",
+            "id": 34424491426,
+            "node_id": "RRE_lADOVFD6788AAAABacqt2M8AAAAIA9wNog",
+            "created_at": "2026-10-27T23:57:22Z",
+            "commit_id": null,
+            "actor": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "event": "commented",
+            "id": 6456642488,
+            "node_id": "IC_kwDOVFD6788AAAABgNiLuA",
+            "created_at": "2026-10-27T23:57:28Z",
+            "actor": {
+              "login": "coderabbitai[bot]",
+              "type": "Bot"
+            }
+          },
+          {
+            "event": "reviewed",
+            "id": 5676072968,
+            "node_id": "PRR_kwDOVFD6788AAAABUlIACA",
+            "submitted_at": "2026-10-27T23:58:50Z",
+            "state": "approved",
+            "commit_id": "5c80f632b276af83de6601f835c7d6ed19f848f5",
+            "actor": {
+              "login": "donpetry-bot",
+              "type": "User"
+            }
+          },
+          {
+            "event": "added_to_merge_queue",
+            "id": 34424588677,
+            "node_id": "ATMQE_lADOVFD6788AAAABacqt2M8AAAAIA92JhQ",
+            "created_at": "2026-10-27T23:59:02Z",
+            "commit_id": null,
+            "actor": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          },
+          {
+            "event": "removed_from_merge_queue",
+            "id": 34424883279,
+            "node_id": "RFMQE_lADOVFD6788AAAABacqt2M8AAAAIA-IITw",
+            "created_at": "2026-10-28T00:03:58Z",
+            "commit_id": null,
+            "actor": {
+              "login": "github-merge-queue[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 59's queue entry and review decision, and main's merge queue, as the Maintainer, after his enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:59){state merged isInMergeQueue mergeQueueEntry{state position} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:18:43 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "DB51:EABDD:40FF8FB:D5DCC17:6AE13F63",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4535",
+          "x-ratelimit-reset": "1793149090",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "465"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "OPEN",
+                "merged": false,
+                "isInMergeQueue": true,
+                "mergeQueueEntry": {
+                  "state": "QUEUED",
+                  "position": 1
+                },
+                "reviewDecision": "APPROVED",
+                "headRefOid": "ccd01096163ab96f5a8def4fcf037861a767e724"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "state": "QUEUED",
+                      "position": 1,
+                      "pullRequest": {
+                        "number": 59
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation (of the answer, the installation's id, App, permissions, events and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 00:19:39 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1914",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"0917129f493a10c77bee17714ad7022272fab05a9b9643ba075a930824c6d526\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "DB75:1CEC51:345B133:AD70159:6AE13F9B"
+        },
+        "body": {
+          "id": 172549542,
+          "app_id": 5363178,
+          "app_slug": "combsmith-sf-trial-author",
+          "target_type": "Organization",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "events": [],
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172549542/access_tokens (of the answer, the token's expiry, permissions and selection are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 00:19:40 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "581",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"89be084d5b2f6228a33de6b82aca328d803a9df3524e8e186df3cc3ac9db52b8\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DB76:B5C44:32E4E4D:A86A7CC:6AE13F9C",
+          "server": "github.com"
+        },
+        "body": {
+          "expires_at": "2026-10-28T01:19:40Z",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "repository_selection": "selected"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /installation/repositories (of the answer, the count, selection and each repo's full name are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:19:41 GMT",
+          "etag": "W/\"ee22eb50f3fed47adc80591a7cbcf33e4cab3cb08b8d9fd408941f874dcf9bd5\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DB77:3B8947:3329CF0:A92BDC7:6AE13F9C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1793150380",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1"
+        },
+        "body": {
+          "total_count": 1,
+          "repository_selection": "selected",
+          "repositories": [
+            {
+              "full_name": "combsmith/software-factory-canary"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/59 (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:19:42 GMT",
+          "etag": "W/\"15db14a069c491cc2cb295075f5d53cfbc5bccbb9f0c8f0d1e2d622cd5ef70bc\"",
+          "last-modified": "Wed, 28 Oct 2026 00:18:23 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "pull_requests=read; contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DB78:2FDDD4:33B09DE:AACF878:6AE13F9D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793150380",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "2"
+        },
+        "body": {
+          "number": 59,
+          "node_id": "PR_kwDOVFD6788AAAABLJXz4w",
+          "state": "open",
+          "draft": false,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "1c69036b01da30481c9d238b9e6d4c77fede49f3",
+          "mergeable_state": "clean",
+          "head": {
+            "ref": "trial/p-2d",
+            "sha": "ccd01096163ab96f5a8def4fcf037861a767e724"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/p2/d2.md",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial: p2/d2.md, pushed by the trial-author App",
+          "content": "QSBwbGF0Zm9ybSB0cmlhbDogdGhpcyBmaWxlIHdhcyBhZGRlZCBieSB0aGUgdHJpYWwtYXV0aG9yIEFwcCwgdGhyb3VnaCBwdXNoLgo=",
+          "branch": "trial/p-2d"
+        }
+      },
+      "response": {
+        "status": 409,
+        "headers": {
+          "content-length": "315",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:19:44 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=write; contents=write,workflows=write",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DB79:35029E:31ED4F4:A50EA26:6AE13F9F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793150380",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "3"
+        },
+        "body": {
+          "message": "Could not create file: A pull request for this branch has been added to a merge queue. Branches that\nare queued for merging cannot be updated. To modify this branch, dequeue the\nassociated pull request.\n",
+          "documentation_url": "https://docs.github.com/articles/about-protected-branches",
+          "status": "409"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by an installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Wed, 28 Oct 2026 00:19:44 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "allows_permissionless_access=true",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DB7C:B5C44:32E6289:A86EB9E:6AE13FA0",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793150380",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "3"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 59's queue entry and review decision, and main's merge queue, as the Maintainer, after the queue merged it, the push refused",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:59){state merged isInMergeQueue mergeQueueEntry{state position} reviewDecision headRefOid} mergeQueue(branch:\"main\"){entries(first:5){totalCount nodes{state position pullRequest{number}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 00:23:39 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "DC1F:16ADF2:3833A:B8D9D:6AE1408A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4396",
+          "x-ratelimit-reset": "1793149090",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "604"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "MERGED",
+                "merged": true,
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": "APPROVED",
+                "headRefOid": "ccd01096163ab96f5a8def4fcf037861a767e724"
+              },
+              "mergeQueue": {
+                "entries": {
+                  "totalCount": 0,
+                  "nodes": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/59, read at 22:44Z, as the Maintainer (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "19593",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:44:53 GMT",
+          "etag": "\"39e3548bfe6c833432424291021c0e764ab5cf6f52e77cdbf987d00ef6c69d3e\"",
+          "last-modified": "Wed, 28 Oct 2026 11:30:21 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DBFE:CA16F:36AD341:B39254E:6AE27AE5",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4163",
+          "x-ratelimit-reset": "1793230113",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "837"
+        },
+        "body": {
+          "number": 59,
+          "node_id": "PR_kwDOVFD6788AAAABLJXz4w",
+          "state": "closed",
+          "draft": false,
+          "merged": true,
+          "merged_at": "2026-10-28T00:23:34Z",
+          "merge_commit_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+          "mergeable_state": "unknown",
+          "merged_by": {
+            "login": "don-petry",
+            "type": "User"
+          },
+          "head": {
+            "ref": "trial/p-2d",
+            "sha": "ccd01096163ab96f5a8def4fcf037861a767e724"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?event=merge_group&per_page=5: the merge groups, D's among them, read at 22:44Z, as the Maintainer (of the answer, each run's id, workflow, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 22:44:53 GMT",
+          "etag": "W/\"945ff3f6a16855e6546883977784dc7b14c536971da99125a6fa0d65edb31811\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DBFD:3B5046:38A49EB:BA184AB:6AE27AE5",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4166",
+          "x-ratelimit-reset": "1793230113",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "834"
+        },
+        "body": {
+          "total_count": 3,
+          "workflow_runs": [
+            {
+              "id": 40607968371,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "gh-readonly-queue/main/pr-59-f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "head_sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+              "run_attempt": 1,
+              "created_at": "2026-10-28T00:18:56Z",
+              "updated_at": "2026-10-28T00:23:03Z",
+              "actor": {
+                "login": "don-petry",
+                "type": "User"
+              }
+            },
+            {
+              "id": 40605800882,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "failure",
+              "head_branch": "gh-readonly-queue/main/pr-58-f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "head_sha": "f22dd5d1852d0c584cbcd48310cb9cc7ab22f76c",
+              "run_attempt": 1,
+              "created_at": "2026-10-27T23:59:20Z",
+              "updated_at": "2026-10-28T00:03:27Z",
+              "actor": {
+                "login": "don-petry",
+                "type": "User"
+              }
+            },
+            {
+              "id": 40605044615,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "gh-readonly-queue/main/pr-57-99f13cc23d41f4062295a94fdd74809ae6800e4f",
+              "head_sha": "f98335a864e63bb2d50f9e1d10051131f192e6c1",
+              "run_attempt": 1,
+              "created_at": "2026-10-27T23:52:17Z",
+              "updated_at": "2026-10-27T23:56:24Z",
+              "actor": {
+                "login": "don-petry",
+                "type": "User"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): convertPullRequestToDraft on pull request 60, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { number isDraft } } }",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABLJ4BIA"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:10:25 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "E12D:3B8947:36DF36C:B582DC2:6AE14B80",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4808",
+          "x-ratelimit-reset": "1793152695",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "192"
+        },
+        "body": {
+          "data": {
+            "convertPullRequestToDraft": {
+              "pullRequest": {
+                "number": 60,
+                "isDraft": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest on the draft, pull request 60, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { state position } } }",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABLJ4BIA"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:10:27 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "E12F:3F6F71:36AF2AB:B4FBDE1:6AE14B83",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4807",
+          "x-ratelimit-reset": "1793152695",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "193"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": null
+          },
+          "errors": [
+            {
+              "type": "UNPROCESSABLE",
+              "path": [
+                "enqueuePullRequest"
+              ],
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 22
+                }
+              ],
+              "message": "Pull request is in draft"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/pulls/60/merge: the draft merged by a person, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "merge_method": "squash"
+        }
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "content-length": "142",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:10:29 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E130:3E387A:374DB8E:B6BB268:6AE14B85",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4899",
+          "x-ratelimit-reset": "1793150177",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "101"
+        },
+        "body": {
+          "message": "Pull Request is still a draft",
+          "documentation_url": "https://docs.github.com/rest/pulls/pulls#merge-a-pull-request",
+          "status": "405"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/60, as the Maintainer (of the answer, its number, node id, state, draft and merged flags, merge and its merger, mergeable state, head and author are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18613",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 01:10:36 GMT",
+          "etag": "\"4560c877a09bf0681269065e0e386c570e1498ca439cda0bfdef42eacf63d7a4\"",
+          "last-modified": "Wed, 28 Oct 2026 01:10:25 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E136:21FC5C:3825BB4:B9A4235:6AE14B8C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4161",
+          "x-ratelimit-reset": "1793149911",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "839"
+        },
+        "body": {
+          "number": 60,
+          "node_id": "PR_kwDOVFD6788AAAABLJ4BIA",
+          "state": "open",
+          "draft": true,
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "00c0545c076cb62a28cc7cfeb8419e77ee8db3b5",
+          "mergeable_state": "clean",
+          "head": {
+            "ref": "trial/p-2e",
+            "sha": "fc5b22aa5ab12b7dbce75e0c048f6dc46451e142"
+          },
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "type": "Bot"
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[14].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization",
+    "exchanges[18].request.headers.authorization",
+    "exchanges[19].request.headers.authorization",
+    "exchanges[20].request.headers.authorization",
+    "exchanges[21].request.headers.authorization",
+    "exchanges[22].request.headers.authorization",
+    "exchanges[23].request.headers.authorization",
+    "exchanges[24].request.headers.authorization",
+    "exchanges[25].request.headers.authorization",
+    "exchanges[26].request.headers.authorization",
+    "exchanges[27].request.headers.authorization",
+    "exchanges[28].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}

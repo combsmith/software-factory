@@ -24,9 +24,11 @@ def is_person(actor) -> bool:
 def closed(th: dict) -> bool:
     """Whether a thread was resolved by someone who may close it (L-17).
 
-    A person's thread is closed only by that person. A Lens's is closed only by that Lens's own App or by a person: no
-    Role decides a Finding about its own work, so the author agent resolving the threads that hold it closes none.
-    Resolved by anyone else, a thread stays open. A thread that gates nothing is closed by whoever resolves it.
+    A person's thread is closed only by that person. A Lens's is closed only by a person, or by the queue App on that
+    Lens's accepted ruling (issue 389): the Lens judges, and resolving the thread is the Kernel's act, which the queue
+    App carries out. So no Role decides a Finding about its own work, the author agent resolving the threads that hold
+    it closes none, and nor does the Lens's own App. Resolved by anyone else, a thread stays open. A thread that gates
+    nothing is closed by whoever resolves it.
     """
     if not th["resolved"]:
         return False
@@ -34,7 +36,7 @@ def closed(th: dict) -> bool:
     if is_person(opener):
         return is_person(by) and by["name"] == opener["name"]
     if opener["kind"] == "lens":
-        return is_person(by) or (by["kind"] == "lens" and by["name"] == opener["name"])
+        return is_person(by) or (by["kind"] == "queue" and th["ruling"] == "accepted")
     return True
 
 
