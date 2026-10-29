@@ -2542,6 +2542,8 @@ class MergesAndSettings(Asks):
         self.asked(self.run_('cat <<E"\\$OF"\nhi\nE$OF\ngit push origin main\nE\\$OF'), "command_unreadable", "a quoted backslash")
         # A backslash before a backtick in double quotes, which the shell takes out and shlex keeps: main's reading.
         self.asked(self.run_('cat <<E"\\`OF"\nhi\nE`OF\ngit push origin main\nE\\`OF'), "command_unreadable", "a quoted backslash before a backtick")
+        # A quote left in the kept terminator, which would open a quote in what follows: main's reading (Codex on #417).
+        self.asked(self.run_("cat <<E\\'OF\nhi\nE'OF\ngit push origin main\n# '"), "command_unreadable", "a quote in the kept word")
         # ANSI-C quoting in the word, which shlex reads as text: main's reading too (Codex on #417).
         self.asked(self.run_("cat <<E$'OF'\nhello\nEOF\ngit push origin main\nE$OF"), "command_unreadable", "ANSI-C quoting")
         # The review's third round. A cd in what a redirection's operand runs is its own: the command stays where it was.

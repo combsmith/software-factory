@@ -30,6 +30,8 @@ WRAPPERS = {"env", "sudo", "doas", "xargs", "parallel", "timeout", "gtimeout", "
             "systemd-run", "fakeroot", "strace", "ltrace", "dtruss", "gtime"}
 HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 # The whole word after a here-document's <<, or <<-, to where the shell ends a word: its quotes are all read.
+# A here-document word that is kept as its terminator: the characters the << pattern reads, and nothing else.
+PLAIN_WORD = re.compile(r"[A-Za-z_][\w.-]*")
 DELIMITER = re.compile(r"-?[ \t]*[^ \t;&|()<>]*")
 # How much text the substitutions of every expanded here-document in a command may be spelt as, against the command's
 # length: each level of a nested one escapes the level below again, which doubles its backslashes (issue 376).
@@ -186,18 +188,14 @@ def _nested(script: str, room: list) -> str:
 
 def _terminator(word: str, first: str) -> str:
     """The line that ends a here-document: its whole word after the <<, as the shell reads it once its quotes and
-    backslashes are taken out, E\\OF as EOF (#410); `first`, the word up to its first quote, where it cannot be read."""
-    if "$" in word:
-        return first        # ANSI-C or locale quoting, $'..' or $"..", which shlex does not take out: main's reading
-    if "\\" in word and '"' in word:
-        return first        # a backslash in double quotes: shlex and the shell take it out apart, so main's reading
+    backslashes are taken out, E\\OF as EOF (#410). Only a plain word, as the << pattern spells one, is taken: the line is
+    kept in the text, and any other character in it (a quote, a $, a backslash) could change how the lines after it
+    are read, so `first`, the word up to its first quote or backslash, main's reading, is kept for it (#417's reviews)."""
     try:
         words = shlex.split(word.lstrip("-").strip())
     except ValueError:
         return first
-    # A word that ends in a backslash ends at a line that would join the next to it when kept: main's reading, a body
-    # that never ends, is kept for it (Codex on #417).
-    return words[0] if len(words) == 1 and not words[0].endswith("\\") else first
+    return words[0] if len(words) == 1 and PLAIN_WORD.fullmatch(words[0]) else first
 
 
 def _readable(script: str) -> bool:
