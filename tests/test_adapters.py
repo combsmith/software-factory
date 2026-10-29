@@ -2907,6 +2907,9 @@ WHY = {"controller", "kernel", "issues_port", "shape"}
 REFUSALS = {
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
+    # The queue App's enqueues refused for a pull request's state, and a dequeue of one not queued; no port makes them
+    # until the queue App's acts are built (P-2.queue-app, issue 381).
+    ("P-2.queue-app", 9): None, ("P-2.queue-app", 14): None, ("P-2.queue-app", 36): None, ("P-2.queue-app", 41): None,
     ("P-27", 15): "dispatch",          # a dispatch GitHub refused: the effects port reads it as a write that failed
     ("P-8", 1): "graphql",             # a GraphQL read over the resource limits, answered 200 with errors
     ("P-27", 21): None,                # an org membership read, which no port asks
