@@ -2,7 +2,8 @@
 
 Each rule shows its example first, then says what holds it. Every rule has workflows that break
 it, and only it, under `examples/workflows/invalid/`. A workflow is written in a narrow form the
-check can read: block style, bare keys, one key to a line, none written twice. Any other spelling is refused.
+check can read: block style, bare keys, one key to a line, none twice, a list item only under a key with no value,
+a quoted value closed on its line, no odd space or line break, and `on:` keyed by event. Any other spelling is refused.
 An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
 
 ## The whole of a good workflow
