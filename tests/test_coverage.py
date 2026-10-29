@@ -8,6 +8,7 @@ import copy
 import json
 import unittest
 
+from kernel import terms as t
 from kernel.coverage import covered
 from tests.support import ROOT, changed
 
@@ -16,6 +17,8 @@ RUBRIC = json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())
 # for the documents, does not apply.
 KERNEL = [changed("kernel/derive.py")]
 APPLYING = ["PR-1", "PR-2", "PR-3", "PR-4"]
+# The severity a Finding that cites each criterion has: the rubric's (section 3.14).
+SEVERITY = {c["id"]: c["severity_if_violated"] for c in RUBRIC["criteria"]}
 
 
 def entry(criterion: str, verdict: str = "met", reason=None) -> dict:
@@ -29,9 +32,9 @@ def every(*over) -> list:
     return [given.get(c, entry(c)) for c in APPLYING] + [e for c, e in given.items() if c not in APPLYING]
 
 
-def finding(criterion) -> dict:
-    """A Finding of the Result, citing `criterion`, or none."""
-    return {"criterion": criterion}
+def finding(criterion, severity=None) -> dict:
+    """A Finding of the Result, citing `criterion`, or none, at `severity`, or else the one the rubric gives it."""
+    return {"criterion": criterion, "severity": severity or SEVERITY.get(criterion, "minor")}
 
 
 def rubric_with(criterion: str, **over) -> dict:
@@ -112,8 +115,10 @@ class Coverage(unittest.TestCase):
             said = every(entry(c, "finding"))
             self.assertEqual(covered(RUBRIC, said, [finding(c)], KERNEL), ("covered", []), c)
             # With no Finding that cites it, or only one that cites another criterion or none, it is uncovered.
-            for found in ([], [finding("PR-5")], [finding(None)], [finding("PR-9")], ["%s" % c]):
+            for found in ([], [finding("PR-5")], [finding(None)], ["%s" % c]):
                 self.assertEqual(covered(RUBRIC, said, found, KERNEL), ("uncovered", [c]), (c, found))
+            # One that cites an id the rubric does not have is uncovered as well.
+            self.assertEqual(covered(RUBRIC, said, [finding("PR-9")], KERNEL), ("uncovered", [c, "PR-9"]), c)
             # A Finding that cites a criterion said to be `met`, or not to apply, contradicts it.
             for verdict, reason in (("met", None), ("not_applicable", "no_linked_issue")):
                 self.assertEqual(covered(RUBRIC, every(entry(c, verdict, reason)), [finding(c)], KERNEL),
@@ -121,12 +126,52 @@ class Coverage(unittest.TestCase):
         # A Finding off the rubric, or citing a criterion that does not apply, contradicts nothing.
         self.assertEqual(covered(RUBRIC, every(), [finding(None), finding("PR-5")], KERNEL), ("covered", []))
 
+    def test_a_finding_that_cites_a_criterion_has_the_rubrics_severity(self):  # section 3.14, issue 373
+        # A model that grades a cited Finding below the rubric would post it as an annotation, off the gate; one that
+        # grades it above has still not taken the rubric's. Either leaves the criterion uncovered, and so does no
+        # severity at all, whether the criterion applies or not.
+        for c in SEVERITY:
+            said = every(entry(c, "finding")) if c in APPLYING else every()
+            self.assertEqual(covered(RUBRIC, said, [finding(c)], KERNEL), ("covered", []), c)
+            for other in [s for s in t.SEVERITIES if s != SEVERITY[c]] + ["Major", "", None, 2]:
+                given = dict(finding(c), severity=other)
+                self.assertEqual(covered(RUBRIC, said, [given], KERNEL), ("uncovered", [c]), (c, other))
+            self.assertEqual(covered(RUBRIC, said, [{"criterion": c}], KERNEL), ("uncovered", [c]), c)
+            # Named once, however many Findings cite it.
+            twice = [finding(c, "info"), finding(c, "info"), finding(c)]
+            self.assertEqual(covered(RUBRIC, said, twice, KERNEL), ("uncovered", [c]), c)
+        # Beside the rest of what is uncovered.
+        self.assertEqual(covered(RUBRIC, every(entry("PR-2", "finding"), entry("PR-9")), [finding("PR-2", "info")],
+                                 KERNEL), ("uncovered", ["PR-2", "PR-9"]))
+        # Each Finding is read, a wrong one after one that is right too (Muse's read of #405).
+        first, second = sorted(SEVERITY)[:2]
+        said = every(*(entry(c, "finding") for c in (first, second) if c in APPLYING))
+        wrong = next(s for s in t.SEVERITIES if s != SEVERITY[second])
+        self.assertEqual(covered(RUBRIC, said, [finding(first), finding(second, wrong)], KERNEL), ("uncovered", [second]))
+        astray = next(s for s in t.SEVERITIES if s != SEVERITY[first])
+        self.assertEqual(covered(RUBRIC, said, [finding(first, astray), finding(second, wrong)], KERNEL),
+                         ("uncovered", [first, second]))
+        # A Finding that cites an id the rubric does not have is uncovered, as an entry for one is: shown as that id, or
+        # as unreadable when it is none (the Claude review and the security pass on #405).
+        self.assertEqual(covered(RUBRIC, every(), [finding("PR-9", "minor")], KERNEL), ("uncovered", ["PR-9"]))
+        self.assertEqual(covered(RUBRIC, every(), [finding("pr-3", "minor")], KERNEL), ("uncovered", ["unreadable"]))
+        self.assertEqual(covered(RUBRIC, every(entry("PR-9")), [finding("PR-9", "minor")], KERNEL), ("uncovered", ["PR-9"]))
+        # The other side: a Finding off the rubric, citing none, has the severity the model gives it.
+        for severity in t.SEVERITIES:
+            self.assertEqual(covered(RUBRIC, every(), [finding(None, severity)], KERNEL), ("covered", []), severity)
+
     def test_an_unreadable_rubric_is_unreadable_never_covered(self):  # I-13
         # The Factory's fault, never the item's: whatever the Result says, nothing is read as covered.
+        # Each criterion with an id at fault gives a severity, so that its id alone is what cannot be read.
+        major = {"severity_if_violated": "major"}
         broken = [None, [], {}, {"criteria": []}, {"criteria": "PR-1"}, {"criteria": [None]},
-                  {"criteria": [{"statement": "no id"}]}, {"criteria": [{"id": "pr-1"}]}, {"criteria": [{"id": 1}]},
-                  {"criteria": [{"id": "PR-1"}, {"id": "PR-1"}]}, {"criteria": [{"id": "-1"}]},
-                  {"criteria": [{"id": "PR-x"}]}]
+                  {"criteria": [dict(major, statement="no id")]}, {"criteria": [dict(major, id="pr-1")]},
+                  {"criteria": [dict(major, id=1)]}, {"criteria": [dict(major, id="PR-1"), dict(major, id="PR-1")]},
+                  {"criteria": [dict(major, id="-1")]}, {"criteria": [dict(major, id="PR-x")]},
+                  # A criterion with no severity that a Finding citing it could be given.
+                  {"criteria": [{"id": "PR-1"}]}, {"criteria": [{"id": "PR-1", "severity_if_violated": "Major"}]},
+                  {"criteria": [{"id": "PR-1", "severity_if_violated": None}]},
+                  rubric_with("PR-2", severity_if_violated=None), rubric_with("PR-5", severity_if_violated="high")]
         for rubric in broken:
             for said in (every(), []):
                 self.assertEqual(covered(rubric, said, [], KERNEL), ("unreadable", []), (rubric, len(said)))
@@ -136,9 +181,11 @@ class Coverage(unittest.TestCase):
                       None, "kernel/derive.py", [None], [{"path": "kernel/derive.py"}], [changed(None)]):
             self.assertEqual(covered(RUBRIC, every(), [], paths), ("unreadable", []), paths)
         # The other side: a rubric of one criterion that applies to everything, and no paths at all, are read.
-        one = {"criteria": [{"id": "X-1"}]}
+        one = {"criteria": [{"id": "X-1", "severity_if_violated": "info"}]}
         self.assertEqual(covered(one, [entry("X-1")], [], []), ("covered", []))
         self.assertEqual(covered(one, [], [], []), ("uncovered", ["X-1"]))
+        two = {"criteria": [dict(major, id="PR-1"), dict(major, id="PR-2")]}
+        self.assertEqual(covered(two, [entry("PR-1"), entry("PR-2")], [], []), ("covered", []))
         self.assertEqual(covered(rubric_with("PR-3", applies_when=None), [], [], [changed("docs/a.md")]),
                          ("uncovered", ["PR-1", "PR-2", "PR-3", "PR-5"]))
 
