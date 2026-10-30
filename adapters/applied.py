@@ -117,8 +117,7 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
                 (record["role"], record["run"], record.get("started_at"), ruling["result"], ruling["finding"]))
         read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
                              "started_at": record.get("started_at"),
-                             "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"
-                             and done is not None})
+                             "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"})
     owners = authority.get("categories", {}) if isinstance(authority, dict) else {}
     for number, by_key in found.items():
         if not out[number][1]:
