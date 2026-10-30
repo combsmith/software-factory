@@ -2481,8 +2481,8 @@ class Recorded(unittest.TestCase):
                          {"named": {26: [(self.RUN, 36)]}, "unreadable": set(), "whole": True})
         # One that opened none, or whose open Effect did not land, names none.
         for done in (record(self.RUN), record(self.RUN, "26", state="failed")):
-            self.assertEqual(read(listed_runs(opening(self.RUN)), *applied_stored("o/r", 39100000000, done))["named"],
-                             {})
+            self.assertEqual(read(listed_runs(opening(self.RUN)), *applied_stored("o/r", 39100000000, done)),
+                             {"named": {}, "unreadable": set(), "whole": True})
         # The other side, its issue unreadable: two pull requests named, a number that is none, a record that cannot be
         # read or is another Run's, a successful Run that lists no record (deleted), a read never answered, a Run named
         # by two GitHub runs though one of them answers, or a Run not yet finished.
