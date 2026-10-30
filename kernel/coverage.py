@@ -26,13 +26,14 @@ def is_code(value) -> bool:
 
 def readable_rubric(rubric) -> bool:
     """Whether a rubric's criteria can be read: at least one, each an object with an id in its form, given once, and
-    the severity a Finding that cites it has (design section 3.14)."""
+    the severity and the category a Finding that cites it has (design section 3.14, issue 407)."""
     criteria = rubric.get("criteria") if isinstance(rubric, dict) else None
     if not (isinstance(criteria, list) and criteria and all(isinstance(c, dict) for c in criteria)):
         return False
     ids = [c.get("id") for c in criteria]
     return (all(is_criterion_id(i) for i in ids) and len(set(ids)) == len(ids)
-            and all(c.get("severity_if_violated") in t.SEVERITIES for c in criteria))
+            and all(c.get("severity_if_violated") in t.SEVERITIES for c in criteria)
+            and all(c.get("category") in t.CATEGORIES for c in criteria))
 
 
 def readable_changes(changed) -> bool:
@@ -87,9 +88,11 @@ def covered(rubric, coverage, findings, changed) -> tuple:
     entry for an id the rubric does not have, shown as that id, or as `unreadable` when it is none. An entry for a
     criterion that does not apply is passed over. A Finding that cites a criterion of the rubric has the severity the
     rubric gives it, never the model's: one at another severity leaves that criterion uncovered, whether it applies or
-    not, so its severity cannot move it off the gate (issue 373). A Finding that cites an id the rubric does not have
+    not, so its severity cannot move it off the gate (issue 373). So does one of another category than the rubric
+    gives it, so its category cannot move it from the guards it is held to, and it is never rewritten from the rubric
+    (issue 407). A Finding that cites an id the rubric does not have
     is uncovered as a coverage entry for one is, shown as that id, or as `unreadable` when it is none; one that cites
-    none keeps the model's severity. Its category is not read here (issue 407). A rubric, or paths, that cannot be read
+    none keeps the model's severity and category. A rubric, or paths, that cannot be read
     are unreadable, never covered: the Factory's fault, not the item's.
     """
     if not (readable_rubric(rubric) and readable_changes(changed)):
@@ -105,10 +108,10 @@ def covered(rubric, coverage, findings, changed) -> tuple:
         mine = [e for e in coverage if isinstance(e, dict) and e.get("criterion") == c]
         if len(mine) != 1 or not reported(mine[0], c in cites):
             out.append(c)
-    severity = {c["id"]: c["severity_if_violated"] for c in rubric["criteria"]}
+    given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}
     for f in findings:
         said = f.get("criterion") if isinstance(f, dict) else None
-        if said in ids and f.get("severity") != severity[said] and said not in out:
+        if said in ids and (f.get("severity"), f.get("category")) != given[said] and said not in out:
             out.append(said)
         elif said is not None and said not in ids:
             _off(said, out)
