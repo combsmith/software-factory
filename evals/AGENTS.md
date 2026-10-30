@@ -3,6 +3,9 @@
 What this repo holds of each held-out eval set: one manifest a directory, `<role>/cases.json`, with the Role, the Intent,
 the count of cases and each case's id and sha256. The cases themselves live in a private repo under a different owner
 (design §3.13), read only by the eval job (§4.9), and never here, in a pull request, an issue or a note.
+No count of a kind is written here or anywhere public (decision 0094). The review set's split was public on a pull request for a
+time and cannot be fully erased, so its current ids are treated as having a known split: the next change to the set re-ids
+every case in the home, the Maintainer's act when it comes.
 `tools/eval_result.py` scores one `result/1` against one case, at run time, where the case is. `context/task.json` is the
 context's test (issue 8, "The context's test: a fresh agent adds a rule to the Kernel without being told how"): one task
 sentence, the sha256 of its held-out answer, and each run of a fresh agent on it, made by `tools/context_eval.sh` at the
@@ -19,6 +22,7 @@ Maintainer's terminal and recorded by `tools/context_eval.py` with no text of th
 | A case expects a Finding in the Finding's own categories and severities | `tests/test_evals.py::test_a_cases_categories_are_the_findings` |
 | The eval job ends a set of no case before anything is minted, and reads the Release and commit it judges | `tests/test_evals.py::test_a_set_of_no_case_ends_the_run_before_anything_is_read` |
 | Each case is fetched into a scratch outside the workspace and scored; only the report, of hashes and codes, reaches it | `tests/test_evals.py::test_each_case_is_fetched_into_the_scratch_and_scored_and_only_the_report_reaches_the_workspace` |
+| A set short of 20 of a kind fails the run and closes the gate; its log and report hold no count of a kind | `tests/test_evals.py::test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count` |
 | A case not read whole or failed fails the run, its report written all the same, for the upload | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
 | A case of another set, or no case, is unreadable and asks nothing | `tests/test_evals.py::test_a_case_that_is_no_case_of_this_set_is_unreadable` |
 | The gate passes only this set's report on this commit for this Release, every case passed | `tests/test_evals.py::test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release` |
