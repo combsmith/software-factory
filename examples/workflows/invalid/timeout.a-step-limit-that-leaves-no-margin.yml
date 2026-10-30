@@ -1,5 +1,5 @@
-# Must be rejected. A step whose limit reaches its job's is stopped with the job, as cancelled, not as a failure of
-# its own (issue 388).
+# Must be rejected. A step limit that leaves its job less than two minutes for its checkout can be cut short by the
+# job's own timeout, as cancelled, not as a failure of its own (issue 388).
 name: factory
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions: {}
 jobs:
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 28
     permissions:
       contents: read
     steps:
@@ -17,7 +17,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: make verify
-        timeout-minutes: 25
+        timeout-minutes: 27
   mutants:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

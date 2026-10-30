@@ -10,7 +10,7 @@ Any other spelling is refused. An org standard is cited from combsmith/.github a
 
 ```yaml
 # The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
-# `checks` runs `make verify`, its simulators on 300 seeds. On 2026-10-21 the runs that finished took 11 to 14.5 minutes, and six runs in three pull requests were cut at its 15-minute timeout with the tests still running, so its timeout is 25 minutes. Raise it again before a run nears its timeout.
+# `checks` runs `make verify`, its simulators on 300 seeds. On 2026-10-21 the runs that finished took 11 to 14.5 minutes, and six runs in three pull requests were cut at its 15-minute timeout with the tests still running, so its timeout was raised to 25 minutes; by 2026-10-29 a run took up to 23, so the job has 28 and its step 26, two kept for the checkout. Raise both before a run nears the step's.
 # About 1,000 mutants, in eight shards of about 126, each kill confirmed by two runs of one test. With six shards of 168 the legs ran 14 to 25 minutes against a 25-minute timeout, and legs were cut at 25:00 in three pull requests, once 22 ms after the last kill had printed. Every mutant names the tests that kill it, which run first; the whole suite, its slow modules last, runs only when they pass ("Mutation run: every mutant names its tests, the slow suites run last, and a builder may break a few", issue 217). Add a shard before a leg nears its timeout.
 # `verify` checks out the base, never the head, and runs the base's tools/needs_passed.py, so a change cannot make its own verdict pass: decision 0023.
 # `commits` checks out the base too and runs the base's tools/commits_are_the_maintainers.py, which reads every commit the pull request carries and refuses unless each names the Maintainer ("Identity: every commit a pull request carries is the Maintainer's, checked outside the shell", issue 204).
@@ -22,7 +22,7 @@ permissions: {}
 jobs:
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 28
     permissions:
       contents: read
     steps:
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: make verify
-        timeout-minutes: 22
+        timeout-minutes: 26
   mutants:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -201,9 +201,9 @@ Held by: `examples/workflows/invalid/queue.a-required-check-that-never-reports.y
 ## A failure is seen, and a hang ends
 
 ```yaml
-timeout-minutes: 15        # on every job with steps, and on each run: step, fewer together than its job's (P-42)
+timeout-minutes: 15        # on every job with steps, and on each run: step: 2 fewer together (uses: steps took 8 s; P-42)
 continue-on-error: true    # never
 ```
 
 Org standard: none for the time limit. Refusing continue-on-error departs from ci-standards.md, "3. SonarCloud Analysis (sonarcloud.yml)": decision 0014.
-Held by: `examples/workflows/invalid/timeout.a-hung-step-runs-six-hours.yml`, `examples/workflows/invalid/timeout.a-run-step-with-no-limit-of-its-own.yml`, `examples/workflows/invalid/timeout.a-step-limit-that-reaches-its-jobs.yml`, `examples/workflows/invalid/soft.a-failure-nobody-sees.yml`
+Held by: `examples/workflows/invalid/timeout.a-hung-step-runs-six-hours.yml`, `examples/workflows/invalid/timeout.a-run-step-with-no-limit-of-its-own.yml`, `examples/workflows/invalid/timeout.a-step-limit-that-leaves-no-margin.yml`, `examples/workflows/invalid/soft.a-failure-nobody-sees.yml`

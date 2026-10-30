@@ -1758,7 +1758,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(len(problems), len(check_workflows.RULES))
 
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
-        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 25\n", "")
+        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 28\n", "")
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
                       "examples/workflows/invalid/soft.no-fault.yml": GOOD})
         problems = check_workflows.run(root)
@@ -1771,7 +1771,7 @@ class Workflows(unittest.TestCase):
         # (trials/P-42.step-timeout.json). So each run: step sets its own timeout-minutes, and a job's run: steps are
         # given fewer minutes together than the job is, so that a step past its limit fails the job before GitHub stops it.
         # Each run: step of the example, its own limit and its job's.
-        limits = {"make verify": (22, 25), "python3 -m tools.mutants": (27, 30),
+        limits = {"make verify": (26, 28), "python3 -m tools.mutants": (27, 30),
                   "python3 -m tools.commits_are_the_maintainers": (7, 10), "python3 -m tools.needs_passed": (5, 10)}
         unlimited = GOOD
         for command, (minutes, _) in limits.items():
@@ -1782,7 +1782,9 @@ class Workflows(unittest.TestCase):
         for command, (minutes, job) in limits.items():
             step = "      - run: %s\n        timeout-minutes: %d\n" % (command, minutes)
             self.assertIn(step, GOOD, command)
-            for given, broken in ((None, True), (job - 1, False), (job, True), (600, True), ("five", True)):
+            # The job keeps MARGIN, two minutes, for its other steps: its checkout and set-up, which took 8 s at most.
+            for given, broken in ((None, True), (job - 2, False), (job - 1, True), (job, True), (600, True),
+                                  ("five", True)):
                 text = GOOD.replace(step, "      - run: %s\n" % command + (
                     "" if given is None else "        timeout-minutes: %s\n" % given))
                 with self.subTest(command=command, given=given):
@@ -1790,26 +1792,27 @@ class Workflows(unittest.TestCase):
         problems = check_workflows.lint(unlimited)
         self.assertIn(("timeout", "a run: step of job checks has no timeout-minutes of its own"), problems)
         # A uses: step needs none, and a run: step's limit is read wherever among its keys it stands.
-        moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 22\n",
-                             "      - timeout-minutes: 22\n        run: make verify\n")
+        moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
+                             "      - timeout-minutes: 26\n        run: make verify\n")
         self.assertEqual(rules(moved), [])
-        # A job's run: steps are counted together: two of 13 under a job of 25 are 26 minutes, not fewer.
-        two = GOOD.replace("      - run: make verify\n        timeout-minutes: 22\n",
+        # A job's run: steps are counted together: two of 13 under a job of 28 are 26 minutes, and leave it its two.
+        two = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
                            "      - run: make verify\n        timeout-minutes: 13\n      - run: make fast\n"
                            "        timeout-minutes: 13\n")
-        self.assertEqual(rules(two), ["timeout"])
-        self.assertIn(("timeout", "the run: steps of job checks are given 26 minutes together, not fewer than its 25"),
-                      check_workflows.lint(two))
-        self.assertEqual(rules(two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 11\n"
-                                           "      - run: make fast")), [])
+        self.assertEqual(rules(two), [])
+        more = two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 14\n      - run: make fast")
+        self.assertEqual(rules(more), ["timeout"])
+        self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
+                                  "2 its other steps keep"), check_workflows.lint(more))
+        self.assertEqual(check_workflows.MARGIN, 2)
 
     def test_an_example_in_the_standard_that_has_drifted_is_caught(self):
         root = tree({"examples/workflows/verify.yml": GOOD,
-                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 25", "minutes: 90") + "```\n"})
+                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 28", "minutes: 90") + "```\n"})
         self.assertTrue(caught(check_workflows.run(root), "word for word"))
 
     def test_the_required_check_that_has_drifted_from_its_example_is_caught(self):
-        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 25", "minutes: 45")})
+        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 28", "minutes: 45")})
         self.assertTrue(caught(check_workflows.run(root), "change both together"))
         bumped = GOOD.replace("3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "a" * 40 + " # v8.0.0")
         root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": bumped})
@@ -2398,7 +2401,7 @@ class Workflows(unittest.TestCase):
                      GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
-        outputs = GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    outputs:\n"
+        outputs = GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
@@ -2697,9 +2700,9 @@ class Workflows(unittest.TestCase):
             "a branch filter": (GOOD.replace("  pull_request:\n", "  pull_request:\n    branches:\n      - release\n"), "queue"),
             "an expression in a script": (GOOD.replace(STEP, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n        with:\n          script: ${{ github.event.comment.body }}\n"), "expression"),
             "a checkout in quotes": (GOOD.replace("actions/checkout@", '"actions/checkout@').replace(" # v7.0.1\n        with:\n          persist-credentials: false", '" # v7.0.1'), "credentials"),
-            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 25\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
+            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 28\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
             "windows line ends": (GOOD.replace("\n", "\r\n"), "form"),
-            "a key written twice": (GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    timeout-minutes: 600\n"), "form"),
+            "a key written twice": (GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    timeout-minutes: 600\n"), "form"),
             "a step's key written twice": (GOOD.replace(STEP, "      - run: make verify\n        run: make evil\n"), "form"),
             "nothing at all": ("", "form"),
             # Issue 371: a YAML reader reads each as more of the command, `make verify - ; exit 0`, and runs it whole.
@@ -6439,7 +6442,7 @@ FAILS = {
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
     "check_repo": lambda: check_repo.run(clone({"requirements.txt": "requests\n"})),
-    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 25", "minutes: 45")})),
+    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 28", "minutes: 45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),

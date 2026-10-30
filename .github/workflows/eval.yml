@@ -47,7 +47,7 @@ jobs:
           chmod 0755 /tmp/claude
           sudo mv /tmp/claude /usr/local/bin/claude
       - run: python3 -m harness.eval.run
-        timeout-minutes: 111
+        timeout-minutes: 110
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CLI: /usr/local/bin/claude

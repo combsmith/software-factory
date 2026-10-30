@@ -57,7 +57,7 @@ RULES = {
     "queue": "a workflow that runs on pull_request also runs on merge_group, and filters neither",
     "cron": "no schedule fires at minute 0, alone or among other minutes",
     "timeout": "every job that has steps sets timeout-minutes, on the job, and each of its run: steps a limit of its "
-               "own, the run: steps' together fewer minutes than the job's",
+               "own, the run: steps' together leaving the job two minutes for its other steps",
     "runner": "the runner and any container image are named by version, never latest",
     "credentials": "every checkout sets persist-credentials: false",
     "soft": "no step or job continues on error",
@@ -410,6 +410,9 @@ EXEMPT = {
     "ci.yml": (("install",), "f6eac470f6f955e02f86fb889d311e428298a4ef239ead0fad86509af86a5ded"),    # the org's secret scan downloads gitleaks
 }
 MAX_RUN_LINES = 10
+# The minutes a job keeps beyond its run: steps' limits, for its other steps, which have none: its set-up, each uses: step
+# and each post step. In 116 jobs of the required checks' runs to 2026-10-29 they took at most 8 s together (issue 388).
+MARGIN = 2
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
 ITEM = re.compile(r"^( *)- (\S.*)$")
 COMMAND = re.compile(r"^(make [\w.-]+|python3 -m [\w.]+)$")
@@ -769,16 +772,18 @@ def lint(text: str) -> list:
             found.append(("timeout", "job %s has no timeout-minutes" % job["key"]))
         # A job GitHub stops at its own timeout concludes cancelled, as its check run does, which no required check or
         # Run reads as a failure; a step stopped at its own fails, and its job with it (trials/P-42.step-timeout.json).
-        # So each run: step has a limit of its own, and the run: steps together fewer minutes than their job (issue 388).
+        # So each run: step has a limit of its own, and the run: steps together leave their job MARGIN minutes for its
+        # other steps, which have none (issue 388).
         steps = under("jobs", job["key"], "steps")
         given = [next((e["value"] for e in steps if e["step"] == s["step"] and e["key"] == "timeout-minutes"), "")
                  for s in steps if s["key"] == "run"]
         if not all(minutes.isdigit() for minutes in given):
             found.append(("timeout", "a run: step of job %s has no timeout-minutes of its own" % job["key"]))
         elif given and inside.get("timeout-minutes", {}).get("value", "").isdigit() and \
-                sum(map(int, given)) >= int(inside["timeout-minutes"]["value"]):
-            found.append(("timeout", "the run: steps of job %s are given %d minutes together, not fewer than its %s"
-                          % (job["key"], sum(map(int, given)), inside["timeout-minutes"]["value"])))
+                sum(map(int, given)) + MARGIN > int(inside["timeout-minutes"]["value"]):
+            found.append(("timeout", "the run: steps of job %s are given %d minutes together, more than its %s less the %d "
+                          "its other steps keep" % (job["key"], sum(map(int, given)), inside["timeout-minutes"]["value"],
+                                                    MARGIN)))
         if "environment" in inside and events != {"workflow_call"}:
             found.append(("shim", "job %s names an environment in a workflow that is not called alone" % job["key"]))
     if events & SHIM_EVENTS:
