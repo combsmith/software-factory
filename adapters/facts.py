@@ -89,6 +89,9 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
         "checks": read["checks"],
         "queue": read["queue"],
         "acts_since_writer": writer["acts_since_writer"],
+        # A Lens Run whose applied/1 is past retention: its review is asked for again (issue 346).
+        "expired_reviews": sorted(r["run"] for r in (recorded[2] if len(recorded) > 2 else ())
+                                  if r.get("expired") is True),
         "acceptance": contract,
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],
