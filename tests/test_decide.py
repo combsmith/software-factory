@@ -920,6 +920,37 @@ class OnlyAPersonEnds(unittest.TestCase):
         d = go(facts(queue=True, reviews=APPROVED, threads=[minor]), REVIEWED)
         self.assertEqual((d["state"], d["outcome"]), ("queued", "nothing"))
 
+    def test_a_lens_review_past_retention_is_asked_for_again(self):  # issue 346, decision 0069
+        # A Lens Run whose applied/1 is past the artifact retention recorded what can no longer be read, so its threads
+        # cannot be joined to their Findings. Its Lens's review of the current content is asked for again, after it,
+        # and the expired record is never read as a whole one.
+        old = run(name="r_0OLD01", at=at(10))
+        expired = facts(expired_reviews=["r_0OLD01"])
+        d = go(expired, [old])
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["admit"]["intent"]),
+                         ("verifying", "awaiting_review", ["pr-review"], "admit", "review-change"))
+        # A review of the current content that succeeded after it answers it; with no record expired, the expired
+        # Run's own review stands as before.
+        fresh = run(name="r_0NEW01", at=at(20))
+        self.assertEqual(go(expired, [old, fresh])["action"], "issue_approval")
+        self.assertEqual(go(facts(), [old])["action"], "issue_approval")
+        # Another Lens's Run past retention asks that Lens's review again, never this one's.
+        other = run(name="r_0OTH01", role="security-review", at=at(15))
+        self.assertEqual(go(facts(expired_reviews=["r_0OTH01"]), [old, other])["action"], "issue_approval")
+        # The other side: a later review that failed, or of other content, or one that started before the expired Run,
+        # answers nothing; nor does another Lens's.
+        for later in (dict(fresh, conclusion="failure", outcome="environment"), dict(fresh, content_id="sha256:bbbb"),
+                      dict(fresh, started_at=at(5)), dict(fresh, role="security-review")):
+            d = go(expired, [old, later])
+            self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"), later)
+        # A fact that cannot be read is no list of runs: nothing converges on it.
+        for odd in (None, "r_0OLD01", [7], [None]):
+            d = go(dict(expired, expired_reviews=odd), [old, fresh])
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["expired_reviews"]),
+                             odd)
+        missing = {k: v for k, v in expired.items() if k != "expired_reviews"}
+        self.assertEqual(go(missing, [old, fresh])["reason"], "facts_incomplete")
+
     def test_a_thread_whose_resolution_cannot_be_read_defers(self):  # I-13
         # A thread says whether it is resolved, exactly, and a resolved one says who resolved it: without them, a
         # person's thread could be read as closed. One that is not resolved names nobody.

@@ -95,6 +95,12 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
         if not read_whole:
             out[number] = ({}, False, [])
             continue
+        if done == artifacts.EXPIRED:
+            # Past its retention: its Run recorded what can no longer be read, so it reviewed nothing that can be
+            # held, and its Lens's review is asked for again (issue 346).
+            read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
+                                 "started_at": record.get("started_at"), "reviewed": False, "expired": True})
+            continue
         for posted in (done or {}).get("findings", ()):
             if posted["source"]["lens"] != record["role"]:
                 # A Run that records another Lens's Finding, on any surface, contradicts itself: none of it is read.
