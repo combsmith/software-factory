@@ -93,11 +93,13 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
     # What each Lens recorded on each open pull request, in its Runs' applied/1, which the threads are held to.
     found = applied.recorded(transport, home, runs, numbers, set(config["kernel"]["required_lenses"]["model"]),
                              config["authority"])
+    # What each opening Run recorded of the pull request it opened, which binds it to its issue (issue 342).
+    made = applied.opened(transport, home, runs, facts_.opener_role(config["kernel"]))
     pulls = []
     for number in numbers:
         try:
             facts, title = facts_.snapshot(transport, home, number, identities, who, runs_whole, lambda: utc(clock),
-                                           opener=opens, recorded=found[number])
+                                           opener=opens, recorded=found[number], opened=made)
             pulls.append({"facts": facts, "title": title})
         except Unanswered:
             pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None})

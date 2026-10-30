@@ -27,7 +27,9 @@ def item(transport, config: dict, number: int, now: str, clock) -> tuple:
                              config["authority"])
     facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
                                      with_head=True, opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
-                                     recorded=found[number])
+                                     recorded=found[number],
+                                     opened=applied.opened(transport, home, listed,
+                                                           facts_.opener_role(config["kernel"])))
     paused = pause_.read(transport, home.split("/")[0], [home])
     rules = reads_.configured(controller)
     listed_, _, runs, _, _, _, context = pass_.context_of(listed, paused, [home], rules, now)
