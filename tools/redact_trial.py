@@ -33,15 +33,22 @@ ANY_STATUS = re.compile(r"\s*HTTP/[0-9.]+\s+[0-9]{3}\b", re.I)
 # A status line and nothing else: the version, the code and a reason phrase of words alone, as HTTP writes one.
 STATUS_LINE = re.compile(r"HTTP/[0-9.]+ [0-9]{3}(?: [A-Za-z][A-Za-z '-]*)?\s*")
 # A quoted name and a colon, as a field of JSON is written inside text: one named for a credential is never kept.
-QUOTED_FIELD = re.compile(r'\\?["\']([^"\'\\]{1,64})\\?["\']\s*:')     # in single quotes, or escaped once, too
+QUOTED_FIELD = re.compile(r'\\?"([^"\\]{1,64})\\?"\s*:')     # its quotes escaped once, too
+# The same in single quotes, each kind read on its own, so the other quote inside a name is part of it.
+SINGLE_FIELD = re.compile(r"'([^'\\]{1,64})'\s*:")
 # A header line of a head: a name of no space, a colon, a value. A line folded onto the one before begins with a space.
 HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+:")
+
+
+def _named(line: str) -> list:
+    """Each name written as a field of JSON, or of a dict in single quotes, inside `line`."""
+    return QUOTED_FIELD.findall(line) + SINGLE_FIELD.findall(line)
 
 
 def _held(text: str) -> bool:
     """Whether a string of JSON holds a credential: by its shape, or as a text line would be refused for one, by a status
     line (a head and its headers written inside it) or a field named for a credential written inside it."""
-    return shaped(text) or any(ANY_STATUS.match(line) or any(refused_key(name) for name in QUOTED_FIELD.findall(line))
+    return shaped(text) or any(ANY_STATUS.match(line) or any(refused_key(name) for name in _named(line))
                                for line in text.splitlines())
 
 
@@ -177,7 +184,7 @@ def redact_text(raw: str, said: list) -> str:
                 raise Unreadable("the body should be JSON and cannot be read as JSON")
             if ANY_STATUS.match(line):
                 raise Unreadable("the body holds a head it was not read as")
-            if any(refused_key(name) for name in QUOTED_FIELD.findall(line)):
+            if any(refused_key(name) for name in _named(line)):
                 raise Unreadable("the body holds a field named for a credential, written as text")
             if shaped(line):
                 said.append("removed: line %d" % n)
