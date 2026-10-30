@@ -1257,7 +1257,9 @@ def _on_items(text: str, on: dict) -> list:
     found, key = [], None
     for lead, number, item, line in section:
         if lead == events and not item:
-            key = line.split(":", 1)[0].strip()
+            name, _, rest = line.partition(":")
+            # A key with a value of its own on its line is never one whose list follows (Codex on #428).
+            key = name.strip() if re.fullmatch(r"(\s+#.*)?\s*", rest) else line
         elif lead == events and (key != COMPACT_EVENT or not COMPACT_ITEM.match(line)):
             found.append(number)
     return found

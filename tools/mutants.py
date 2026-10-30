@@ -9316,7 +9316,9 @@ MUTANTS = ISSUE + [
     ('a cron with no space after its colon is a cron', 'tools/check_workflows.py',
      'COMPACT_ITEM = re.compile(r"- cron:( |$)")', 'COMPACT_ITEM = re.compile(r"- cron:")', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ('a key is read with its colon and comment', 'tools/check_workflows.py',
-     '            key = line.split(":", 1)[0].strip()\n', '            key = line\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+     'key = name.strip() if re.fullmatch(r"(\\s+#.*)?\\s*", rest) else line', 'key = line', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ('a schedule: with a value takes a compact list', 'tools/check_workflows.py',
+     'key = name.strip() if re.fullmatch(r"(\\s+#.*)?\\s*", rest) else line', 'key = name.strip()', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("only the first key at the events' level is read", 'tools/check_workflows.py',
      '        if lead == events and not item:\n', '        if lead == events and not item and key is None:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
 ]
