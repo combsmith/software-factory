@@ -1232,12 +1232,18 @@ def release_problems(text: str) -> list:
     return problems
 
 
+COMPACT_EVENT = "schedule"       # the one event whose value is a list, which may stand at its own key's indent,
+COMPACT_ITEM = "- cron:"         # each item of it a cron
+
+
 def _on_items(text: str, on: dict) -> list:
     """The lines of the top-level on: section that are list items where its events stand, keyed or bare: an on:
     written as a list, which `read` keeps only the keyed items of, as entries (Argon's read of #392). A list deeper in,
-    an event's `branches:`, is its own. The items may stand at the key's own indent, YAML's compact form. The events'
-    level is a list only where its first line is an item: one that follows an event's key at that level is the
-    compact form of that event's value, a `schedule:` list's `- cron:`, and is the event's (Muse's read of #416)."""
+    an event's `branches:`, is its own. The items may stand at the key's own indent, YAML's compact form. An item at
+    the events' level that follows `schedule:`, the one event whose value is a list, is the compact form of that list,
+    `- cron:`, and is the event's (Muse's read of #416). Any other item there stays an on: written as a list, after
+    another key or under schedule: as anything but a cron: the check allows what it names and refuses what it does not
+    read (the Claude review of #428)."""
     section = []
     for number, raw in enumerate(text.split("\n")[on["line"]:], on["line"] + 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
@@ -1246,10 +1252,15 @@ def _on_items(text: str, on: dict) -> list:
         lead = len(raw) - len(raw.lstrip(" "))
         if lead < on["indent"] or (lead == on["indent"] and not item):
             break       # the next key beside on:, at its own indent however far the root stands in (Muse's read)
-        section.append((lead, number, item))
-    events = min((lead for lead, _, _ in section), default=0)
-    level = [(number, item) for lead, number, item in section if lead == events]
-    return [number for number, item in level if item] if level and level[0][1] else []
+        section.append((lead, number, item, raw.strip()))
+    events = min((lead for lead, _, _, _ in section), default=0)
+    found, key = [], None
+    for lead, number, item, line in section:
+        if lead == events and not item:
+            key = line.split(":", 1)[0].strip()
+        elif lead == events and (key != COMPACT_EVENT or not line.startswith(COMPACT_ITEM)):
+            found.append(number)
+    return found
 
 
 def _scalar_items(text: str, entries: list, job: str, steps_only: bool = False) -> list:

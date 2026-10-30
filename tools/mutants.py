@@ -9217,8 +9217,8 @@ MUTANTS = ISSUE + [
     ("an on: written as a list is read", "tools/check_workflows.py",
      '    elif _on_items(text, top["on"]):\n', '    elif False:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("an on: list at the events' level only deeper is read", "tools/check_workflows.py",
-     '    level = [(number, item) for lead, number, item in section if lead == events]',
-     '    level = [(number, item) for lead, number, item in section if lead > events]', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+     '    events = min((lead for lead, _, _, _ in section), default=0)\n',
+     '    events = min((lead for lead, _, _, _ in section), default=0) + 1\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("an on: list in YAML's compact form ends the section", "tools/check_workflows.py",
      '        if lead < on["indent"] or (lead == on["indent"] and not item):\n', '        if lead <= on["indent"]:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("an on: section ends only at the margin", "tools/check_workflows.py",
@@ -9258,8 +9258,14 @@ MUTANTS = ISSUE + [
      'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip() or raw.lstrip().startswith("#"):', 'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if raw.lstrip().startswith("#"):', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ('a comment ends the on: section', 'tools/check_workflows.py',
      'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip() or raw.lstrip().startswith("#"):', 'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip():', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
-    ("an item after an event's key is an on: written as a list", 'tools/check_workflows.py',
-     'if level and level[0][1] else []', 'if level else []', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ('a compact list under any event is its value', 'tools/check_workflows.py',
+     'elif lead == events and (key != COMPACT_EVENT or not line.startswith(COMPACT_ITEM)):', 'elif lead == events and key is None:', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ('any item under schedule: is a cron', 'tools/check_workflows.py',
+     '(key != COMPACT_EVENT or not line.startswith(COMPACT_ITEM))', '(key != COMPACT_EVENT)', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ('a key is read with its colon and comment', 'tools/check_workflows.py',
+     '            key = line.split(":", 1)[0].strip()\n', '            key = line\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("only the first key at the events' level is read", 'tools/check_workflows.py',
+     '        if lead == events and not item:\n', '        if lead == events and not item and key is None:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
 ]
 
 
