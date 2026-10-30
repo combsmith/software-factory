@@ -851,7 +851,7 @@ class Entry(unittest.TestCase):
 
         whos = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded):
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded, opened):
             handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener,
                            recorded))
             whos.append(who)

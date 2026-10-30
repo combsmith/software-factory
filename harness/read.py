@@ -128,7 +128,9 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
                              config["authority"])
     facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True,
                                      opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
-                                     recorded=found[number])
+                                     recorded=found[number],
+                                     opened=applied.opened(transport, home, listed,
+                                                           facts_.opener_role(config["kernel"])))
     first = pull.read(transport, home, number)
     if str(first["head"]["sha"]) != head:
         raise Stop("head_moved")

@@ -191,3 +191,48 @@ def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
             th = dict(th, category=finding["category"], severity=finding["severity"], ruling=finding.get("ruling"))
         joined.append(th)
     return joined, whole
+
+
+OPENS = "open-pull-request"       # the Intent whose Run opens a pull request for an issue
+OPENED = "open_pull_request"      # the Effect that records the pull request it opened
+
+
+def opened(transport, repo: str, runs, role) -> dict:
+    """What the opening Runs recorded of the pull requests they opened (issue 342): `{"named": {number: [(run,
+    issue)]}, "unreadable": {issue}, "whole"}`. A Run counts when the records port names it completed, of `role`, the
+    Role that opens pull requests, its Intent `open-pull-request` and its item an issue of `repo`. Its `applied/1`
+    names the pull request it opened in a landed `open_pull_request` Effect, keyed by its number. An issue whose
+    opening Run cannot be read, is named by more than one GitHub run, or names more than one pull request, or a number
+    that is none, is unreadable; the list is whole only when the run list was read whole. With no Role named, nothing
+    is read: no Role opens one in slice 1, and the writer, `apply`'s open Effect, lands in slice 2 with push."""
+    listed_whole = isinstance(runs, dict) and runs.get("complete") is True
+    github_ids = runs.get("github_ids") if listed_whole else None
+    out = {"named": {}, "unreadable": set(), "whole": listed_whole and isinstance(github_ids, dict)}
+    if role is None or not out["whole"]:
+        return out
+    for record in runs["runs"]:
+        item = record["item"]
+        if record["role"] != role or record["status"] != "completed" or record.get("intent") != OPENS \
+                or item["type"] != "issue" or item["repo"] != repo:
+            continue
+        github = github_ids.get(record["run"])
+        if not isinstance(github, list) or len(github) != 1:
+            out["unreadable"].add(item["number"])
+            continue
+        try:
+            kept, kept_whole = artifacts.applied(transport, repo, github[0], record["run"],
+                                                 required=record.get("conclusion") == "success")
+        except Unanswered:
+            kept, kept_whole = None, False
+        if not kept_whole or not isinstance(kept, (dict, type(None))):
+            out["unreadable"].add(item["number"])
+            continue
+        keys = [e["key"] for e in (kept or {}).get("effects", ())
+                if e["type"] == OPENED and e["state"] in ("applied", "already_applied")]
+        if len(keys) > 1 or any(not isinstance(k, str) or not k.isdigit() or k.startswith("0") for k in keys):
+            out["unreadable"].add(item["number"])
+            continue
+        for key in keys:
+            out["named"].setdefault(int(key), []).append((record["run"], item["number"]))
+    return out
+

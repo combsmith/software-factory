@@ -722,7 +722,7 @@ class Reread(unittest.TestCase):
         whole = []
 
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, with_head=False, opener=None, *,
-                     recorded):
+                     recorded, opened):
             whole.append((runs_whole, recorded))
             return facts, "t", HEAD
         from controller import configuration

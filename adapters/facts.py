@@ -44,11 +44,12 @@ def _utc() -> str:
 
 
 def snapshot(transport, repo: str, number: int, identities: dict, accounts: timeline.Accounts, runs_whole: bool,
-             clock=_utc, kept=None, with_head: bool = False, opener=None, *, recorded: tuple) -> tuple:
+             clock=_utc, kept=None, with_head: bool = False, opener=None, *, recorded: tuple, opened: dict) -> tuple:
     """`(facts/1, title)` for one pull request, or `(facts/1, title, head)` `with_head`: the head commit its first read
     gave, which the snapshot is held to, beside the facts and never in them (#193's ruling 10). `identities` gives the class's accounts (`adapters/pull.own`),
     `accounts` who acted, `runs_whole` whether the pass read the run records whole, `recorded` what the pull request's
-    Lenses recorded (`adapters/applied.recorded`), and `clock` the time after the last
+    Lenses recorded (`adapters/applied.recorded`), `opened` what the opening Runs recorded of the pull requests they
+    opened (`adapters/applied.opened`, issue 342), and `clock` the time after the last
     read. `kept`, where given, is filled with what GitHub gave the timeline, reviews, threads and check runs reads,
     each with whether it was whole, once the snapshot is whole: reconciliation reads them, so no read is made twice
     (`adapters/seen.py`, decision 0061)."""
@@ -65,7 +66,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     writer = timeline.since_writer(events, accounts)
     labels = timeline.label_events(events, accounts)
     read = checks.read(transport, first, raw)
-    contract, contract_whole = acceptance.read(transport, first, accounts, opener)
+    contract, contract_whole = acceptance.read(transport, first, accounts, opener, opened)
     found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded, content["content_id"])
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
@@ -123,6 +124,12 @@ def queue_of(controller: dict):
     the one account `adapters/timeline.Accounts` types queue (issue 389)."""
     held = controller["accounts"].get("queue")
     return (held["id"], "Bot") if isinstance(held, dict) else None
+
+
+def opener_role(kernel: dict):
+    """The Role the configuration names for `open-pull-request`, or None where no Role opens pull requests (slice 1)."""
+    intent = kernel["issues"]["intents"]["open-pull-request"]
+    return intent["role"] if isinstance(intent, dict) else None
 
 
 def opener_of(controller: dict, kernel: dict, apps: dict):
