@@ -2092,7 +2092,7 @@ MUTANTS = ISSUE + [
      '        return tuple(dict.fromk' 'eys(tests)), False\n', '        return tuple(dict.fromkeys(tests)), True\n',
      (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
     ('a name kept whole is read as read', 'tools/mutants.py',
-     '        read = read and bo' 'ol(whole)\n', '',
+     '        read = read and wh' 'ole\n', '',
      (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
     ('the front door gives no share', 'tools/mutants.py',
      'workers=at_once, where=where, sh' 'are=share)', 'workers=at_once, where=where)',
@@ -2125,6 +2125,10 @@ MUTANTS = ISSUE + [
     ('the whole suite is one part again', 'tools/mutants.py',
      'PART_MOST = 1' '00    #', 'PART_MOST = 100000    #',
      (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a module that holds no test is run alone', 'tools/mutants.py',
+     'whole = isinstance(ids, list) and al' 'l(isinstance(i, str)', 'whole = isinstance(ids, list) and ids and all(isinstance(i, str)', (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a test that is no method is run by its id', 'tools/mutants.py',
+     ' if all(method(c) for c in fo' 'und) else None', '', (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
     ('the whole suite runs on past a part that failed', 'tools/mutants.py',
      '        if status != 0:\n            br' 'eak\n', '        if False:\n            break\n',
      (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
@@ -9712,16 +9716,22 @@ def named(mutants: list) -> tuple:
 
 
 # Read in a child, in the tree the baseline runs in, by unittest's own loader: the ids of the test methods each name
-# holds, an empty list for one it cannot read.
+# holds, an empty list for one that holds none, and null for one it cannot read, or one that holds a test that is not
+# a method of a TestCase by its own id, as a doctest a load_tests adds is: such a name runs only whole (issue 398).
 LISTING = """import json, sys, unittest
 def flat(s):
     return [c for i in s for c in flat(i)] if isinstance(s, unittest.TestSuite) else [s]
+def method(c):
+    kind = type(c)
+    return isinstance(c, unittest.TestCase) and c.id() == "%s.%s.%s" % (kind.__module__, kind.__qualname__,
+                                                                      getattr(c, "_testMethodName", ""))
 said = []
 for name in json.loads(sys.stdin.read()):
     try:
-        said.append([c.id() for c in flat(unittest.defaultTestLoader.loadTestsFromName(name))])
+        found = flat(unittest.defaultTestLoader.loadTestsFromName(name))
+        said.append([c.id() for c in found] if all(method(c) for c in found) else None)
     except Exception:
-        said.append([])
+        said.append(None)
 print(json.dumps(said))
 """
 
@@ -9747,9 +9757,10 @@ def read_cases(tests: tuple, root: pathlib.Path) -> tuple:
         return tuple(dict.fromkeys(tests)), False
     found, read = [], True
     for name, ids in zip(tests, said):
-        whole = isinstance(ids, list) and ids and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
+        # A module that holds no test, as one of shared helpers, is read as none: nothing of it runs, alone or whole.
+        whole = isinstance(ids, list) and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
         found.extend(ids if whole else [name])
-        read = read and bool(whole)
+        read = read and whole
     return tuple(dict.fromkeys(found)), read
 
 

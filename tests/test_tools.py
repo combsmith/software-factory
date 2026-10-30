@@ -6901,6 +6901,12 @@ class Mutants(unittest.TestCase):
         # and where the tree cannot be read at all, each name is kept whole, once.
         odd = suite_of("    def id(self):\n        return '-h'\n\n    def test_a(self):\n        pass\n")
         self.assertEqual(mutants.cases(("tests.test_x.T",), odd), ("tests.test_x.T",))
+        # And a test a module under tests/ takes from elsewhere is run by its own module's name, never by an id outside.
+        borrowed = tree({"tests/__init__.py": "", "elsewhere/__init__.py": "",
+                         "elsewhere/base.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_a(self):\n"
+                                              "        pass\n",
+                         "tests/test_x.py": "from elsewhere.base import T\n"})
+        self.assertEqual(mutants.cases(("tests.test_x.T",), borrowed), ("tests.test_x.T",))
         try:
             unread = mutants.cases(("tests.test_x.T", "tests.test_x.T"), root / "gone")
         except OSError as err:
@@ -7040,6 +7046,15 @@ class Mutants(unittest.TestCase):
             self.assertEqual(mutants.suite(where, 30, first=("tests.test_x.T.test_b",))[0], 0)
             self.assertEqual([part for _, part in given], [("tests.test_x.T.test_b",)] + dealt)
             self.assertEqual(mutants.whole_suite(tree({"k.py": "rule\n"})), [], "a tree with no test runs none")
+            # A module that holds no test runs nothing, alone or whole: unittest run on it alone would say no test ran,
+            # which 3.12 exits 5 for. One whose test is no method by its own id, as a doctest load_tests adds, runs whole.
+            helpers = suite_of("    def test_a(self):\n        pass\n", {
+                "tests/test_helpers.py": "import unittest\n\n\nclass Base(unittest.TestCase):\n    pass\n",
+                "tests/test_doc.py": "import doctest\n\n\ndef f():\n    \"\"\"\n    >>> 1 + 1\n    2\n    \"\"\"\n\n\n"
+                                     "def load_tests(loader, tests, ignore):\n"
+                                     "    tests.addTests(doctest.DocTestSuite(__name__))\n    return tests\n"})
+            self.assertEqual(mutants.whole_suite(helpers), [("tests.test_x.T.test_a",), ("tests.test_doc",)])
+            self.assertEqual(mutants.suite(helpers, 30)[0], 0, "the doctest ran whole, and passed")
             # A module that cannot be read method by method is a part of its own, after the dealt ones.
             unread = suite_of("    def test_a(self):\n        pass\n", dict(files, **{
                 "tests/test_bad.py": "import a_module_left_out\n", "tests/test_worse.py": "import another_left_out\n"}))
