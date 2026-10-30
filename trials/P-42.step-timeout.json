@@ -1,0 +1,533 @@
+{
+  "schema": "trial/1",
+  "trial": "P-42",
+  "question": "On a pull request's head: after a push, is every required check pending again; does a required check conclude `timed_out`, `neutral`, `skipped`, `cancelled` or `stale` and keep that conclusion until the content changes or a person runs it again; is every check run read with its exact name and its App's id, two workflow runs on one commit both staying, since `filter=latest` is per check suite; and can any App with `checks: write`, or any Actions job, post a check run under a required Lens's check name, or a result for any criterion of a contract, one the contract does not name among them, which then stays on that head?",
+  "pass": "Written 2026-10-29T17:47:22Z, before the run (issue 388's condition): a step held to a timeout-minutes shorter than its job's runs past it. Recorded for each of three jobs on one canary pull request: the step's conclusion, the job's, its check run's and the run's, and whether a later step with if: always() runs. (a) no continue-on-error; (b) continue-on-error: true on the step; (c) continue-on-error: true on the job. Issue 388 builds rule (a) only if (a)'s job concludes failure; if cancelled, rule (b). Either is an answer; nothing fails but a run that cannot be read. Run on 2026-10-29: the Maintainer's login pushed the workflow to a canary branch and opened pull request 73 (writes not recorded here). A step stopped at its own timeout-minutes concludes failure, GitHub's annotation saying it timed out; with no continue-on-error the job, its check run and the run conclude failure, and an if: always() step after it runs. With continue-on-error on the step, the step, the job and its check run read success. With continue-on-error on the job, the job and its check run read failure: it changes only how the run's conclusion counts the job, which this run cannot show apart, its other job failing. So a step's own timeout is a failure the Kernel already reads, and issue 388's rule (a) holds.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-29T17:49:17Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40924713563: the run of p42-step-timeout on canary pull request 73, as the Maintainer, at 2026-10-29T17:49:17Z (of the answer, the run's id, workflow, title, event, state, branch, commit, attempt, times and actor are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 17:49:17 GMT",
+          "etag": "W/\"f10c9629c77267ed567d2d5625dc95e9c7f7219329131690b884f6de8c638ee4\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E358:6F862:527A1BB:10EA09FE:6AE3871D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4951",
+          "x-ratelimit-reset": "1793296594",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "49"
+        },
+        "body": {
+          "id": 40924713563,
+          "name": "p42-step-timeout",
+          "path": ".github/workflows/p42-step-timeout.yml",
+          "event": "pull_request",
+          "status": "completed",
+          "conclusion": "failure",
+          "head_branch": "trial/p-42s",
+          "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+          "run_attempt": 1,
+          "display_title": "Trial P-42, step-timeout case: how a step's own timeout concludes",
+          "created_at": "2026-10-29T17:47:44Z",
+          "updated_at": "2026-10-29T17:49:06Z",
+          "actor": {
+            "login": "don-petry",
+            "type": "User"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/40924713563/jobs?per_page=20: its three jobs and their steps, as the Maintainer, at 2026-10-29T17:49:17Z (of the answer, each job's id, name, state, conclusion, times and steps are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 17:49:18 GMT",
+          "etag": "W/\"466c2250b8879756256d811e5e40d40d32044a157c58e8ede9d1d20042924707\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E35A:41111:4CDC5CF:FDAD3CE:6AE3871E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4811",
+          "x-ratelimit-reset": "1793299319",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "189"
+        },
+        "body": {
+          "total_count": 3,
+          "jobs": [
+            {
+              "id": 123627020540,
+              "name": "p42s / step-timeout, continue-on-error on the job",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-29T17:47:47Z",
+              "completed_at": "2026-10-29T17:49:02Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Sleep past the step's limit",
+                  "status": "completed",
+                  "conclusion": "failure",
+                  "number": 2
+                },
+                {
+                  "name": "After, always",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4
+                }
+              ]
+            },
+            {
+              "id": 123627020798,
+              "name": "p42s / step-timeout, continue-on-error on the step",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-29T17:47:50Z",
+              "completed_at": "2026-10-29T17:49:05Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Sleep past the step's limit",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2
+                },
+                {
+                  "name": "After, always",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4
+                }
+              ]
+            },
+            {
+              "id": 123627021057,
+              "name": "p42s / step-timeout",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-29T17:47:51Z",
+              "completed_at": "2026-10-29T17:49:06Z",
+              "run_attempt": 1,
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1
+                },
+                {
+                  "name": "Sleep past the step's limit",
+                  "status": "completed",
+                  "conclusion": "failure",
+                  "number": 2
+                },
+                {
+                  "name": "After, always",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/bb560af56f77f2e8594992d45d43d18a2acfdd33/check-runs?filter=all&per_page=100: the head's check runs, as the Maintainer, at 2026-10-29T17:49:17Z (of the answer, each check run's id, name, commit, state, conclusion, times, App and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 17:49:19 GMT",
+          "etag": "W/\"0085bd17249a0ecb39a8d7a3bc7df9344d372050b0fd7c489715e1aad3af2744\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E35B:89FCB:4B08450:F6FA776:6AE3871E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4810",
+          "x-ratelimit-reset": "1793299319",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "190"
+        },
+        "body": {
+          "total_count": 9,
+          "check_runs": [
+            {
+              "id": 123627421261,
+              "name": "CodeQL",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-29T17:48:28Z",
+              "completed_at": "2026-10-29T17:48:31Z",
+              "external_id": "",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 110936800730
+              }
+            },
+            {
+              "id": 123627150065,
+              "name": "CodeRabbit",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-29T17:47:58Z",
+              "completed_at": null,
+              "external_id": "coderabbit-review-progress-v1:988c4d9bb41ccedf2dd6c319d41bd1100ad43e4a5f476c6bb88fbe40372e1b10",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 110936635567
+              }
+            },
+            {
+              "id": 123627136055,
+              "name": "SonarCloud",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-29T17:47:57Z",
+              "completed_at": "2026-10-29T17:47:59Z",
+              "external_id": "",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 110936800730
+              }
+            },
+            {
+              "id": 123627133887,
+              "name": "SonarCloud Code Analysis",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-29T17:47:48Z",
+              "completed_at": "2026-10-29T17:47:55Z",
+              "external_id": "",
+              "app": {
+                "id": 12526,
+                "slug": "sonarqubecloud"
+              },
+              "check_suite": {
+                "id": 110936638259
+              }
+            },
+            {
+              "id": 123627021057,
+              "name": "p42s / step-timeout",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-29T17:47:51Z",
+              "completed_at": "2026-10-29T17:49:06Z",
+              "external_id": "f405b313-1117-5f76-ba97-bc1bd938788c",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110936705963
+              }
+            },
+            {
+              "id": 123627020798,
+              "name": "p42s / step-timeout, continue-on-error on the step",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-29T17:47:50Z",
+              "completed_at": "2026-10-29T17:49:05Z",
+              "external_id": "df1bbc87-53ce-53ac-aae0-58728c313bf1",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110936705963
+              }
+            },
+            {
+              "id": 123627020540,
+              "name": "p42s / step-timeout, continue-on-error on the job",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-29T17:47:47Z",
+              "completed_at": "2026-10-29T17:49:02Z",
+              "external_id": "d2f4437a-a85a-550b-8179-c50990d7c009",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110936705963
+              }
+            },
+            {
+              "id": 123627020105,
+              "name": "p2-queue-check",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-29T17:47:47Z",
+              "completed_at": "2026-10-29T17:47:51Z",
+              "external_id": "6694c89a-93ab-5205-8c57-d2079ce602eb",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110936705179
+              }
+            },
+            {
+              "id": 123627016576,
+              "name": "Analyze (actions)",
+              "head_sha": "bb560af56f77f2e8594992d45d43d18a2acfdd33",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-29T17:47:46Z",
+              "completed_at": "2026-10-29T17:48:39Z",
+              "external_id": "a0aee03e-4014-538c-a4c3-b94bb8975fea",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 110936695312
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/123627021057/annotations: p42s / step-timeout's annotations, as the Maintainer, at 2026-10-29T17:49:17Z (of the answer, each annotation's level and GitHub's message are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 17:49:29 GMT",
+          "etag": "W/\"d51755daa46b76b7882958701fefef56c049dbf31d157cee91a58424251d3008\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E35E:255A85:15AD79F:46C5BC4:6AE38728",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4950",
+          "x-ratelimit-reset": "1793296594",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "50"
+        },
+        "body": [
+          {
+            "annotation_level": "failure",
+            "message": "The action 'Sleep past the step's limit' has timed out after 1 minutes."
+          },
+          {
+            "annotation_level": "notice",
+            "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/123627020798/annotations: p42s / step-timeout, continue-on-error on the step's annotations, as the Maintainer, at 2026-10-29T17:49:17Z (of the answer, each annotation's level and GitHub's message are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 17:49:29 GMT",
+          "etag": "W/\"d51755daa46b76b7882958701fefef56c049dbf31d157cee91a58424251d3008\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E35F:E6D8:1651DF5:491D6E1:6AE38729",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4949",
+          "x-ratelimit-reset": "1793296594",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "51"
+        },
+        "body": [
+          {
+            "annotation_level": "failure",
+            "message": "The action 'Sleep past the step's limit' has timed out after 1 minutes."
+          },
+          {
+            "annotation_level": "notice",
+            "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/123627020540/annotations: p42s / step-timeout, continue-on-error on the job's annotations, as the Maintainer, at 2026-10-29T17:49:17Z (of the answer, each annotation's level and GitHub's message are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 17:49:30 GMT",
+          "etag": "W/\"d51755daa46b76b7882958701fefef56c049dbf31d157cee91a58424251d3008\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E360:C24E9:16E6171:4AA27DA:6AE3872A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4948",
+          "x-ratelimit-reset": "1793296594",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "52"
+        },
+        "body": [
+          {
+            "annotation_level": "failure",
+            "message": "The action 'Sleep past the step's limit' has timed out after 1 minutes."
+          },
+          {
+            "annotation_level": "notice",
+            "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+          }
+        ]
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
