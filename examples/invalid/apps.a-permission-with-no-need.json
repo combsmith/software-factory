@@ -37,6 +37,10 @@
     "write:tracking_issue": {
       "waits_on": "the Controller's notification story"
     },
+    "write:issue_label": {
+      "permission": "issues",
+      "level": "write"
+    },
     "write:write_view": {
       "waits_on": "the view App, combsmith-sf-view, registered with the feed story (Maintainer, 2026-10-14)"
     },
@@ -318,6 +322,33 @@
             "read:facts.last_writer_action_at",
             "read:facts.reviews",
             "read:facts.threads"
+          ]
+        }
+      }
+    },
+    "queue": {
+      "name": "combsmith-sf-queue",
+      "app_id": 5519382,
+      "key": {
+        "environment": "factory-queue",
+        "secret": "QUEUE_APP_KEY"
+      },
+      "installed_on": [
+        "combsmith/software-factory",
+        "combsmith/software-factory-canary"
+      ],
+      "permissions": {
+        "contents": {
+          "level": "write",
+          "needs": [
+            "effect:enqueue_merge",
+            "effect:dequeue_merge"
+          ]
+        },
+        "metadata": {
+          "level": "read",
+          "needs": [
+            "read:facts.queue"
           ]
         }
       }
