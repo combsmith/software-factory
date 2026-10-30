@@ -119,6 +119,22 @@ class Scoring(unittest.TestCase):
         self.assertEqual(eval_result.score(unknown, result)["reasons"], ["criterion_unknown"])
         nobody = dict(copy.deepcopy(case), role="no-such-role")
         self.assertFalse(eval_result.off_rubric(nobody))
+        # A rubric read, but whose criterion gives no severity or category, holds no case to it: the case is off it, and
+        # is never asked of the model. One that cannot be read at all is the scorer's, as above.
+        import tempfile
+        with tempfile.TemporaryDirectory() as made:
+            place = pathlib.Path(made)
+            (place / "config").mkdir()
+            given = place / "config" / "rubric-pr-review.json"
+            for field in ("category", "severity_if_violated"):
+                broken = copy.deepcopy(rubric)
+                del broken["criteria"][-1][field]
+                given.write_text(json.dumps(broken))
+                self.assertTrue(eval_result.off_rubric(case, place), field)
+            given.write_text(json.dumps(dict(rubric, criteria=[None])))
+            self.assertTrue(eval_result.off_rubric(case, place))
+            given.write_text("not json")
+            self.assertFalse(eval_result.off_rubric(case, place))
         # The cases the repo gives as examples are on it.
         for path in sorted((ROOT / "examples").glob("eval-case*.json")):
             self.assertFalse(eval_result.off_rubric(json.loads(path.read_text())), path.name)

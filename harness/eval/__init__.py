@@ -178,8 +178,9 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
 
 def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
-    one that is no `eval-case/1` of this set's Role and Intent is `unreadable`, `not_this_set`; every other is given to
-    `review`, which returns its `result/1`, and scored against the case by `tools/eval_result.py`."""
+    one that is no `eval-case/1` of this set's Role and Intent is `unreadable`, `not_this_set`; one whose expected Finding
+    is off its rubric is `unreadable`, `answer_off_rubric`; every other is given to `review`, which returns its `result/1`,
+    and scored against the case by `tools/eval_result.py`."""
     assessed, interrupted = {}, False
     for entry in found["cases"]:
         code = why.get(entry["id"], "not_found") if isinstance(why, dict) else "not_found"
