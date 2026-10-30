@@ -133,6 +133,16 @@ class Scoring(unittest.TestCase):
                 self.assertTrue(eval_result.off_rubric(case, place), field)
             given.write_text(json.dumps(dict(rubric, criteria=[None])))
             self.assertTrue(eval_result.off_rubric(case, place))
+            # Nor is the case on a rubric coverage refuses wholesale, though the criterion it cites reads as it expects
+            # (Muse's read of #421): another criterion's severity or category out of the Factory's, or one given twice.
+            cited = next(c for c in rubric["criteria"] if c["id"] == case["expected"]["criterion"])
+            other = next(c for c in rubric["criteria"] if c["id"] != cited["id"])
+            for at_fault in ([dict(other, severity_if_violated="high"), cited], [dict(other, category=None), cited],
+                             [cited, dict(cited)]):
+                given.write_text(json.dumps(dict(rubric, criteria=at_fault)))
+                self.assertTrue(eval_result.off_rubric(case, place), at_fault)
+            given.write_text(json.dumps(dict(rubric, criteria=[other, cited])))
+            self.assertFalse(eval_result.off_rubric(case, place))
             given.write_text("not json")
             self.assertFalse(eval_result.off_rubric(case, place))
         # The cases the repo gives as examples are on it.

@@ -8,6 +8,7 @@ import os
 import pathlib
 import sys
 
+from kernel.coverage import readable_rubric
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -58,18 +59,18 @@ def off_rubric(case: dict, root: pathlib.Path = ROOT) -> bool:
     """Whether a case's expected Finding is of another severity or category than the rubric gives the criterion it asks
     about: a case that expects one would reward a Result `apply` refuses (decisions 0088 and 0095, issue 421). One that
     expects no Finding, or whose rubric lacks the criterion or cannot be read at all, is not: that is the scorer's
-    `criterion_unknown`. A rubric read whose criterion gives no severity or category holds no case to it, so the case is
-    off it: it fails closed, never asked of the model."""
+    `criterion_unknown`. A rubric read that `kernel/coverage.py` cannot read, as coverage refuses it wholesale, holds no
+    case to it, so the case is off it: it fails closed, never asked of the model."""
     want = case["expected"]
     if want["finding"] is None:
         return False
     try:
         rubric = json.loads((root / "config" / ("rubric-%s.json" % case["role"])).read_text())
-        given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}
     except (OSError, ValueError):
         return False
-    except (KeyError, TypeError):
+    if not readable_rubric(rubric):
         return True
+    given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}
     return want["criterion"] in given and (want["finding"]["severity"], want["finding"]["category"]) != given[want["criterion"]]
 
 
