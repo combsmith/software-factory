@@ -4753,9 +4753,12 @@ class OutputMadeAlone(unittest.TestCase):
 
     READER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
               if r != "combsmith/software-factory"][0]
+    CONTROLLER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
+                  if r != "combsmith/software-factory"][0]
     SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY", "KEY"),
                "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
-               "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry")}
+               "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
+               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42")}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -8113,6 +8116,93 @@ esac
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
         # The exit trap tried once more to revoke the live token.
         self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
+
+
+class IssueLookupTrial(unittest.TestCase):
+    """`tools/trial_p54_issue_lookup.sh`, run against a stand-in curl and openssl and never GitHub (issue 342): each
+    refusal before anything is minted, two tokens for the Controller's installation each narrowed to one permission on
+    the canary alone, the bound issue read with each and kept with its status, and no token anywhere in OUT."""
+
+    SCRIPT = ROOT / "tools" / "trial_p54_issue_lookup.sh"
+    CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    # The reader trial's stand-in GitHub, which also answers an issue: to a token narrowed to issues, and to any token
+    # where the repo is public, as a file beside it says.
+    CURL = ReaderTrialScript.CURL.replace('elif "/activity" in url:', '''elif "/issues/" in url:
+    if grant == "issues" or os.path.exists(os.path.join(here, "public")):
+        status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}
+    else:
+        status, answer = 403, {"message": "Resource not accessible by integration"}
+elif "/activity" in url:''', 1)
+
+    def setUp(self):
+        self.stand_in = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, text in (("curl", self.CURL), ("openssl", ReaderTrialScript.OPENSSL)):
+            (self.stand_in / name).write_text(text)
+            (self.stand_in / name).chmod(0o755)
+        (self.stand_in / "mint.status").write_text("201\n")
+        (self.stand_in / "revoke.status").write_text("204\n")
+        (self.stand_in / "roles").write_text("{}")
+        self.key = self.stand_in / "controller.pem"
+        self.key.write_text("not a key\n")
+        self.out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+
+    def run_script(self, *given) -> subprocess.CompletedProcess:
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "TMPDIR": str(self.stand_in)}
+        return subprocess.run(["sh", str(self.SCRIPT), str(self.out), str(self.key), *(given or (self.CANARY, "42"))],
+                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
+
+    def calls(self) -> list:
+        log = self.stand_in / "log"
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_the_issue_is_read_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        for public, metadata in ((False, 403), (True, 200)):
+            with self.subTest(public=public):
+                self.setUp()
+                if public:
+                    (self.stand_in / "public").write_text("")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+                calls = self.calls()
+                mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+                self.assertEqual([m["url"].split("/app/")[1] for m in mints],
+                                 ["installations/%d/access_tokens" % installation] * 2)
+                self.assertEqual([json.loads(m["body"]) for m in mints],
+                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {"issues": "read"}},
+                                  {"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}}])
+                self.assertEqual([c["url"].split("/repos/")[1] for c in calls if c["method"] == "GET"],
+                                 ["%s/issues/42" % self.CANARY] * 2)
+                self.assertEqual(len([c for c in calls if c["method"] == "DELETE"]), 2)
+                self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+                texts = {p.name: p.read_text() for p in self.out.iterdir()}
+                self.assertEqual(sorted(texts), ["clean-1", "clean-2", "ran_at", "redacted-1", "redacted-2", "requests.json"])
+                asked = json.loads(texts["requests.json"])
+                self.assertEqual([(a["narrowed_to"], a["call"], a["status"]) for a in asked if "call" in a],
+                                 [("issues: read", "GET /repos/%s/issues/42" % self.CANARY, 200),
+                                  ("metadata: read", "GET /repos/%s/issues/42" % self.CANARY, metadata)])
+                self.assertEqual([a for a in asked if "revoked" in a],
+                                 [{"revoked": "issues: read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
+                self.assertIn('"number": 42', texts["clean-1"])
+                self.assertIn('"name": "question"', texts["clean-1"])
+                everything = "".join(texts.values()) + ran.stdout + ran.stderr
+                self.assertNotIn("gh" + "s_", everything)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        for given in (("combsmith/software-factory", "42"), ("combsmith/elsewhere", "42"), (self.CANARY, "0"),
+                      (self.CANARY, "12a"), (self.CANARY, "-1"), (self.CANARY, "1/../2"), (self.CANARY, ""),
+                      (self.CANARY,), (self.CANARY, "42", "43")):
+            with self.subTest(given=given):
+                self.setUp()
+                ran = self.run_script(*given)
+                self.assertNotEqual(ran.returncode, 0, given)
+                self.assertEqual(self.calls(), [], given)
+                self.assertFalse(self.out.exists(), given)
 
 
 class Rulesets(unittest.TestCase):
