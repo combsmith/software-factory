@@ -9340,6 +9340,16 @@ MUTANTS = ISSUE + [
      '    if live:\n        problems += credential_problems(root, live)\n', '', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
     ('rows that are not rows are read', 'tools/check_workflows.py',
      '        return ["config/credential-ages.json: its credentials are not rows each naming a secret and its workflows"]', '        return []', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("a period past the calendar's end stops the pass", 'controller/credentials.py',
+     '        try:\n            ends.append(last + datetime.timedelta(days=every))\n        except OverflowError:', '        if True:\n            ends.append(last + datetime.timedelta(days=every))\n        else:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a nearness past the calendar's end stops the pass", 'controller/credentials.py',
+     '    try:\n        within = datetime.timedelta(days=table["due_within_days"])\n    except OverflowError:', '    if True:\n        within = datetime.timedelta(days=table["due_within_days"])\n    else:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a rotation at the start of the pass's day is after it", 'controller/credentials.py',
+     'if not _count(every) or last is None or last > at:', 'if not _count(every) or last is None or last >= at:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a day not written in full is read', 'controller/credentials.py',
+     '    if not isinstance(value, str) or not DAY.fullmatch(value):\n', '    if not isinstance(value, str):\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('any row with no dates is skipped', 'controller/credentials.py',
+     '        if readable and row.get("kind") == COORDINATE and row.get("expires") is False \\\n', '        if readable and row.get("expires") is False \\\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
 ]
 
 

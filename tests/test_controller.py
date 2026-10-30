@@ -557,6 +557,8 @@ class Feed(unittest.TestCase):
         self.assertEqual(due(table(row(rotated="2026-09-25", every=30)), "2026-10-11T00:00:00Z"), (True, ["APPROVER_TOKEN"]))
         self.assertEqual(due(table(row(rotated="2026-09-25", every=30)), "2026-10-10T23:59:59Z"), (False, []))
         self.assertEqual(due(table(row(rotated="2026-09-25", every=30), within=13), "2026-10-11T00:00:00Z"), (False, []))
+        # A rotation at the very start of the day the pass reads is no rotation after it (the Claude review on #427).
+        self.assertEqual(due(table(row(rotated="2026-10-11", every=90)), "2026-10-11T00:00:00Z"), (False, []))
         # The earlier limit governs, whichever it is.
         self.assertEqual(due(table(row(rotated="2026-10-01", expires="2026-10-20", every=90)), NOW), (True, ["APPROVER_TOKEN"]))
         self.assertEqual(due(table(row(rotated="2026-07-20", expires="2027-10-20", every=90)), NOW), (True, ["APPROVER_TOKEN"]))
@@ -575,15 +577,22 @@ class Feed(unittest.TestCase):
                              ("expires", True), ("expires", None)):
             self.assertEqual(due(table(dict(coordinate, **{field: value})), NOW), (True, ["HELDOUT_OWNER"]), field)
         self.assertEqual(due(table({k: v for k, v in coordinate.items() if k != "expires_on"}), NOW), (True, ["HELDOUT_OWNER"]))
+        for kind in ("admin", None):     # a row with no dates is skipped only as a coordinate (the Claude review on #427)
+            self.assertEqual(due(table(dict(coordinate, kind=kind)), NOW), (True, ["HELDOUT_OWNER"]), kind)
         # A row that cannot be read is due, by its name where it has one.
         # One that expires and whose expiry is not given is such a row: it is due until the Maintainer gives the day.
         for bad in (row(rotated=None), row(rotated="2026-10-12"), row(rotated="2026-02-30"), row(rotated="1 October 2026"),
                     row(expires="2027-13-01"), row(expires=20271001), row(every=0), row(every=True), row(every=90.0),
                     row(every="90"), row(kind="admin"), row(kind=None), row(expiring=True), row(expiring=True, every=None),
                     row(expires="2027-10-20", expiring=False), row(expiring=None), row(expiring="yes"),
+                    row(expires="2027-1-5"), row(rotated="2026-1-5"),
                     {k: v for k, v in row().items() if k != "expires"}):
             self.assertEqual(due(table(bad, row("CONTROLLER_APP_KEY")), NOW), (True, ["APPROVER_TOKEN"]), bad)
         self.assertEqual(due(table(row(), row()), NOW), (True, ["APPROVER_TOKEN"]))
+        # A period or a nearness past the calendar's end is unreadable, never a fault that stops the pass (the security
+        # pass on #427).
+        self.assertEqual(due(table(row(every=3000000), row("CONTROLLER_APP_KEY")), NOW), (True, ["APPROVER_TOKEN"]))
+        self.assertEqual(due(table(row(), within=1000000000), NOW), (True, []))
         for nameless in (row(secret=None), row(secret="approver_token"), row(secret="APPROVER TOKEN"), "APPROVER_TOKEN", None):
             self.assertEqual(due(table(nameless, row("CONTROLLER_APP_KEY")), NOW), (True, []), nameless)
         # A table that cannot be read is due whole; so is a moment that is none.

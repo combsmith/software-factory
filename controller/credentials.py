@@ -60,7 +60,10 @@ def limit(row: dict, at: datetime.datetime):
         last = _day(rotated)
         if not _count(every) or last is None or last > at:
             return None
-        ends.append(last + datetime.timedelta(days=every))
+        try:
+            ends.append(last + datetime.timedelta(days=every))
+        except OverflowError:       # a period past the calendar's end is no period this reads
+            return None
     return min(ends) if ends else NEVER
 
 
@@ -71,7 +74,10 @@ def due(table, now: str) -> tuple:
             or not _count(table.get("due_within_days")) or not isinstance(table.get("credentials"), list) \
             or not table["credentials"]:
         return True, []
-    within = datetime.timedelta(days=table["due_within_days"])
+    try:
+        within = datetime.timedelta(days=table["due_within_days"])
+    except OverflowError:
+        return True, []
     rows = table["credentials"]
     names = [row.get("secret") if isinstance(row, dict) else None for row in rows]
     raised, found = False, set()
