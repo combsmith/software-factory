@@ -62,7 +62,9 @@ command -v python3 >/dev/null || refuse "python3 is needed"
 case "$2" in as-is | userns) phase=$2; order="plain scrubbed" ;; userns-reversed) phase=$2; order="scrubbed plain" ;;
     *) refuse "PHASE is as-is, userns or userns-reversed" ;; esac
 [[ ! -e "$1" ]] || refuse "$1 exists; name a new directory"
-mkdir -p "$1"
+# OUT is made here, by this script alone: one made since it was found absent is refused, never written into.
+mkdir -p -- "$(dirname -- "$1")"
+mkdir -m 700 -- "$1" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
 out=$(cd "$1" && pwd -P)
 [[ -f "$3" && -x "$3" ]] || refuse "no CLI at '$3'"
 cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")

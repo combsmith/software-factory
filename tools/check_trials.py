@@ -126,11 +126,16 @@ SHAPES = re.compile("|".join((
     r"gh[opsur]_[a-z0-9]",                          # a token GitHub issues, wherever it starts
     r"github_pat_", r"ghsat[0-9a-z]", r"sk-ant-",
     r"\b(token|basic|bearer)\s+\S{8,}", r"\bbearer\s+\S",
-    r"eyJ[a-z0-9_-]*\.",                            # a signed token
+    # A signed token, eyJ and on to a dot. A run that holds eyJ is read once, from its start: trying each eyJ in it
+    # again to the run's end took time in the square of a run of them with no dot (issue 370).
+    r"(?<![a-z0-9_-])(?=[a-z0-9_-]*?eyJ)[a-z0-9_-]*\.",
     r"//[^/\s:@]+:[^/\s@]+@",                       # a user and password in a URL
     r"[?&](sig|token|access_token|x-amz-signature|x-amz-credential)=",
     r"\b(set-cookie|cookie|authorization|proxy-authorization)\s*:",
-    r"(token|auth[a-z]*|bearer|secret|password)\W{0,3}[0-9a-f]{40}",
+    r"(token|bearer|secret|password)\W{0,3}[0-9a-f]{40}",
+    # auth and any letters after it, then a hex secret. Only the first auth of a run of letters is tried, and is not
+    # tried again, since a later one finds less; trying each took time in the square of the run (issue 370).
+    r"(?<![a-z])(?=(?P<auth>[a-z]*?auth))(?P=auth)[a-z]*\W{0,3}[0-9a-f]{40}",
     r"encoded_jit_config", r"-----BEGIN [a-z ]*PRIVATE KEY",
     r"\bMII[a-z0-9+/]{20,}", r"b3BlbnNzaC1rZXktdjE",  # the body of a private key
 )), re.I)
