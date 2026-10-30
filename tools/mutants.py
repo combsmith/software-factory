@@ -77,6 +77,7 @@ COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_ca
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
+LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
 P50 = "tools/trial_p50_linux_sandbox.sh"
@@ -1998,7 +1999,7 @@ MUTANTS = ISSUE + [
      '              and {e["key"] for e in entries if e["path"] == []} <= SCAN_TOP\n', "",
      ("tests.test_tools.Workflows",)),
     ("the secret scan's step may run in another directory", "tools/check_workflows.py",
-     '              and set(steps[3]) <= {"name", "run"})\n', ")\n", ("tests.test_tools.Workflows",)),
+     '              and set(steps[3]) <= {"name", "run", "timeout-minutes"})\n', ")\n", ("tests.test_tools.Workflows",)),
     ("the secret scan's install may be given any environment", "tools/check_workflows.py",
      'given == ({*SCAN_ENV} if "env" in install else set())', "True", ("tests.test_tools.Workflows",)),
     ("a workflow is read with its carriage returns turned into line ends", "tools/check_workflows.py",
@@ -2020,6 +2021,17 @@ MUTANTS = ISSUE + [
      ("tests.test_tools.Context",)),
     ("a yaml block on any standard is not counted toward its page", "tools/check_context.py",
      'COPIED.search(text) if name == "workflows" else None', "COPIED.search(text)", ("tests.test_tools.Context",)),
+    # Issue 388: each run: step stops under a limit of its own, the steps together below their job's.
+    ("a run: step needs no limit of its own", "tools/check_workflows.py",
+     "        if not all(minutes.isdigit() for minutes in given):\n", "        if False:\n", LIMITED),
+    ("run: steps may be given as long as their job", "tools/check_workflows.py",
+     'sum(map(int, given)) >= int(inside["timeout-minutes"]["value"])',
+     'sum(map(int, given)) > int(inside["timeout-minutes"]["value"])', LIMITED),
+    ("a job's run: steps are not counted together", "tools/check_workflows.py",
+     'sum(map(int, given)) >= int(', 'max(map(int, given)) >= int(', LIMITED),
+    ("a uses: step must have a limit of its own", "tools/check_workflows.py",
+     '                 for s in steps if s["key"] == "run"]', '                 for s in steps if s["key"] in ("run", "uses")]',
+     LIMITED),
     ("a needed job that did not pass passes the required check", "tools/needs_passed.py",
      '        if result != "success":\n', '        if result in ("failure", None):\n', ("tests.test_tools.Workflows",)),
     ("needs that name no job pass the required check", "tools/needs_passed.py",
@@ -5348,7 +5360,7 @@ MUTANTS = ISSUE + [
     ("the commits job may be told anything", "tools/check_workflows.py",
      '    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:\n', "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job's steps may carry an env:, an if: or another step", "tools/check_workflows.py",
-     '    if keys != [{"uses", "with"}, {"run"}]:\n', "    if False:\n", COMMITS_JOB_TESTS),
+     '    if keys != [{"uses", "with"}, {"run", "timeout-minutes"}]:\n', "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job may check out the head", "tools/check_workflows.py",
      "    if [_with(entries, c) for c in checkouts] != [wanted]:\n", "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job may run another tool", "tools/check_workflows.py",
@@ -5363,7 +5375,8 @@ MUTANTS = ISSUE + [
      '    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:\n'
      '        whys.append("it is granted', '    if False:\n        whys.append("it is granted', JUDGING_SHAPE_TESTS),
     ("the judging step may carry a working-directory, a shell or an env", "tools/check_workflows.py",
-     '    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run"}]:\n', "    if False:\n",
+     '    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run", "timeout-minutes"}]:\n',
+     "    if False:\n",
      JUDGING_SHAPE_TESTS),
     ("a shard may be told its index by a number", "tools/check_workflows.py",
      '        if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "env"]} != {"MUTANTS_SHARD": INDEX,\n',
@@ -9059,7 +9072,7 @@ MUTANTS = ISSUE + [
     ("an empty current content supersedes", 'adapters/applied.py',
      'if not isinstance(content_id, str) or not content_id:', 'if not isinstance(content_id, str):', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
     ("the step step takes a with", 'tools/check_workflows.py',
-     '"step": {"run", "env"}}', '"step": {"run", "env", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+     '"step": {"run", "env", "timeout-minutes"}}', '"step": {"run", "env", "timeout-minutes", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     ("a step of text after a step's keys is not read", 'tools/check_workflows.py',
      'if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):', 'if lead < indent or not raw.lstrip(" ").startswith("- "):', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     # Muse's read of #383: the one reader of the list refuses a pattern no path may hold.

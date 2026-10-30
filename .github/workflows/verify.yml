@@ -20,6 +20,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: make verify
+        timeout-minutes: 22
   mutants:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -46,6 +47,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: python3 -m tools.mutants
+        timeout-minutes: 27
   commits:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -62,6 +64,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       - run: python3 -m tools.commits_are_the_maintainers
+        timeout-minutes: 7
   verify:
     name: verify
     needs:
@@ -81,3 +84,4 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       - run: python3 -m tools.needs_passed
+        timeout-minutes: 5

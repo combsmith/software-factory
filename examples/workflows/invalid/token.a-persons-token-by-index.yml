@@ -16,6 +16,8 @@ jobs:
         with:
           persist-credentials: false
       - run: make verify
+        timeout-minutes: 1
         env:
           GH_TOKEN: ${{ secrets['gh_pat_owner'] }}
       - run: python3 -m tools.mutants
+        timeout-minutes: 1

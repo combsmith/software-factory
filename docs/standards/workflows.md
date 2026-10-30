@@ -31,6 +31,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: make verify
+        timeout-minutes: 22
   mutants:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -57,6 +58,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: python3 -m tools.mutants
+        timeout-minutes: 27
   commits:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -73,6 +75,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       - run: python3 -m tools.commits_are_the_maintainers
+        timeout-minutes: 7
   verify:
     name: verify
     needs:
@@ -92,6 +95,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       - run: python3 -m tools.needs_passed
+        timeout-minutes: 5
 ```
 
 This is `examples/workflows/verify.yml`, word for word. The check name people see is the workflow's
@@ -197,9 +201,9 @@ Held by: `examples/workflows/invalid/queue.a-required-check-that-never-reports.y
 ## A failure is seen, and a hang ends
 
 ```yaml
-timeout-minutes: 15        # on every job with steps
+timeout-minutes: 15        # on every job with steps, and on each run: step, fewer together than its job's (P-42)
 continue-on-error: true    # never
 ```
 
 Org standard: none for the time limit. Refusing continue-on-error departs from ci-standards.md, "3. SonarCloud Analysis (sonarcloud.yml)": decision 0014.
-Held by: `examples/workflows/invalid/timeout.a-hung-step-runs-six-hours.yml`, `examples/workflows/invalid/soft.a-failure-nobody-sees.yml`
+Held by: `examples/workflows/invalid/timeout.a-hung-step-runs-six-hours.yml`, `examples/workflows/invalid/timeout.a-run-step-with-no-limit-of-its-own.yml`, `examples/workflows/invalid/timeout.a-step-limit-that-reaches-its-jobs.yml`, `examples/workflows/invalid/soft.a-failure-nobody-sees.yml`
