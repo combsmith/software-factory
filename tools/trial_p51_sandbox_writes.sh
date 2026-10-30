@@ -59,10 +59,25 @@ case "$2" in forward) order="unset plain scrubbed" ;; reversed) order="scrubbed 
 cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 [[ -f "$4" ]] || refuse "no stub at '$4'"
 stub=$(cd "$(dirname "$4")" && pwd -P)/$(basename "$4")
+case "$(basename -- "$1")" in .|..) refuse "$1 names no new directory, since it ends in . or ..; name the directory itself" ;; esac
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into.
 mkdir -p -- "$(dirname -- "$1")"
-mkdir -m 700 -- "$1" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
-out=$(cd "$1" && pwd -P)
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
+# that fails says nothing, and is refused as such. OUT is made where the check read, never through the path as given.
+above=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)
+target=$above/$(basename -- "$1")
+uid=$(id -u)
+while :; do
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    [[ -z "$found" ]] || refuse "$above is another user's, or can be written by other users and is not sticky; name a" \
+        "directory under one only you can write to"
+    [[ "$above" != / ]] || break
+    above=$(dirname -- "$above")
+done
+mkdir -m 700 -- "$target" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
+out=$(cd "$target" && pwd -P)
 
 # The scratch directory, and so each work directory's parent, is under the runner's own temporary directory, where a
 # Run's work would be, and not under /tmp, which is a target of its own.

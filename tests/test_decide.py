@@ -952,6 +952,29 @@ class OnlyAPersonEnds(unittest.TestCase):
         # The other side: the machine user's approval of this content stands.
         self.assertEqual(go(facts(reviews=[review(**MACHINE)]), REVIEWED)["action"], "enqueue")
 
+    def test_an_external_lenss_approval_never_counts(self):  # issue 366
+        # CodeRabbit approves once its threads are resolved, by whoever resolves them (P-25). Its approval, or that of
+        # any App that is no Role's, with write access and of this content, neither stands, nor judges a change to a
+        # model Lens's input, nor answers a person's request for changes.
+        externals = (dict(ADVISORY, can_write=True), {"kind": "app", "name": "coderabbitai[bot]", "can_write": True},
+                     {"kind": "lens", "name": "cubic", "can_write": True})
+        own = changing(**AGENT, changed_paths=["roles/pr-review.json"])
+        asked = review(state="changes_requested", **MAINTAINER)
+        for who in externals:
+            with self.subTest(who=who):
+                self.assertIsNone(derive.standing_approval(facts(reviews=[review(**who)]), CONFIG))
+                d = go(facts(reviews=[review(**who)]), REVIEWED)
+                self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
+                self.assertFalse(derive.judged_by_a_person(dict(own, reviews=[review(**who)])))
+                d = go(facts(**AGENT, reviews=[asked, review(**who, at=at(30))]), ANSWERED)
+                self.assertEqual((d["reason"], d["evidence"]), ("awaiting_human", ["don-petry"]))
+        # The other side: the machine user's approval stands, a person's judges, and that person's answers their own
+        # request.
+        self.assertIsNotNone(derive.standing_approval(facts(reviews=[review(**MACHINE)]), CONFIG))
+        self.assertTrue(derive.judged_by_a_person(dict(own, reviews=[review(kind="human", name="a-colleague")])))
+        d = go(facts(**AGENT, reviews=[asked, review(**MAINTAINER, at=at(30))]), ANSWERED)
+        self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
+
     def test_only_a_person_ends_a_request_for_changes(self):  # L-17
         asked = review(state="changes_requested", **MAINTAINER)
         for who in NOT_PEOPLE:

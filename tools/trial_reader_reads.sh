@@ -25,6 +25,7 @@
 # non-zero exit; a refused mint shows its status and GitHub's answer, redacted, and a token that may be live is told
 # to the Maintainer.
 set -eu
+set +x
 
 if [ "$#" -lt 5 ]; then
     echo "usage: tools/trial_reader_reads.sh OUT READER_KEY REPO BRANCH LOGIN..." >&2
@@ -36,7 +37,7 @@ if [ -e "$1" ] || [ -L "$1" ]; then
     exit 2
 fi
 # OUT is read as the file system resolves it, every link and .. followed, before it is held to be outside the repo.
-if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
+if ! parent=$(CDPATH= cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
     echo "trial_reader_reads: the directory that would hold $1 does not exist; make it first" >&2
     exit 2
 fi
@@ -45,6 +46,22 @@ case "$out/" in "$root"/*)
     echo "trial_reader_reads: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
+# that fails says nothing, and is refused as such.
+uid=$(id -u)
+above=$parent
+while :; do
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    if [ -n "$found" ]; then
+        echo "trial_reader_reads: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+            "under one only you can write to" >&2
+        exit 2
+    fi
+    [ "$above" = / ] && break
+    above=$(dirname -- "$above")
+done
 key=$2
 if [ ! -r "$key" ]; then
     echo "trial_reader_reads: cannot read the key file $key" >&2
@@ -199,21 +216,30 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             echo "trial_reader_reads: $slug: GitHub minted a token narrowed to $1 and its answer was cut short; the" \
                 "token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
         fi
+        echo "trial_reader_reads: $slug: nothing read, and nothing of the answer kept." >&2
         exit 1
     fi
-    if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
-        # No token was minted, so the answer is GitHub's error; it is still redacted before it is shown.
-        token=""
-        printf '%s\n' "$minted" | sed '$d' > "$scratch/mint"
+    if [ "$minted_status" != 201 ] && [ -z "$token" ]; then
+        token=$(token_in "$minted")    # a refusal cut short may hold one all the same; the trap revokes it
+    fi
+    if [ "$minted_status" != 201 ] && [ -n "$token" ]; then
+        # A token the refusal carried all the same is left set, for the exit trap to revoke; its answer is not shown.
         minted=""
+        echo "trial_reader_reads: $slug: the mint answered ${minted_status:-none} and held a token all the same;" \
+            "nothing read, and the token is revoked as the script stops." >&2
+        exit 1
+    fi
+    if [ "$minted_status" != 201 ]; then
+        # No token was minted, so the answer is GitHub's error: it is redacted before it is shown, and never written
+        # to a file.
         echo "trial_reader_reads: $slug: no token narrowed to $1 was minted (status ${minted_status:-none});" \
             "GitHub answered, redacted:" >&2
-        if (cd "$root" && python3 -m tools.redact_trial < "$scratch/mint" > "$scratch/mint.clean") 2>/dev/null; then
-            cat "$scratch/mint.clean" >&2
+        if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
+            printf '%s\n' "$shown" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2
         fi
-        rm -f "$scratch/mint" "$scratch/mint.clean"
+        minted=""
         exit 1
     fi
     minted=""

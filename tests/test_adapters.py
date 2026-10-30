@@ -1261,6 +1261,10 @@ class Artifacts(unittest.TestCase):
 
 
 APPROVER = "donpetry-bot"        # the machine user, as config/defaults.json names the approver
+# The actors P-41 met, as the timeline port reads them.
+P41_REVIEWER = {"kind": "app", "name": "combsmith-sf-pr-review[bot]", "can_write": False}
+P41_CONTROLLER = {"kind": "app", "name": "combsmith-sf-controller[bot]", "can_write": False}
+P41_WRITER = {"kind": "human", "name": "don-petry", "can_write": True}
 MACHINE = (281750570, "User")     # its account, as trials/P-7.json records it
 
 
@@ -3030,6 +3034,8 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
+    # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs.
+    "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
     # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
     "the_queue_can_eject": "shape",
 }
@@ -3037,6 +3043,8 @@ WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
+    ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
+    ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
     # The queue App's enqueues refused for a pull request's state, and a dequeue of one not queued; no port makes them
     # until the queue App's acts are built (P-2.queue-app, issue 381).
     ("P-2.queue-app", 9): None, ("P-2.queue-app", 14): None, ("P-2.queue-app", 36): None, ("P-2.queue-app", 41): None,
@@ -3104,10 +3112,35 @@ class Contract(unittest.TestCase):
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
         reviewed, _ = timeline.reviews(router, p7_pull(), events, timeline.Accounts(router, canary(), MACHINE, {}),
                                        BASE_HEAD)
+        # P-41: pull request 64's request, push and two dismissals, and 66's labels, each read as the port asks.
+        p41_pull = {"number": 64, "base": {"repo": {"full_name": canary()}}}
+        p41_events, _ = timeline.events(replay("P-41", 50), p41_pull)
+        p41_router = Router(replay("P-41", 51), {"don-petry": "admin", APPROVER: "write"},
+                            {"99aa98a4b50b73eb09b7f31323df44988346611c": "diff --git a/x b/x\n",
+                             "706cb893291b1dc51761d73e523bd96350a57b06": "diff --git a/y b/y\n"})
+        p41_accounts = timeline.Accounts(p41_router, canary(), MACHINE, {})
+        p41_reviews, _ = timeline.reviews(p41_router, p41_pull, p41_events, p41_accounts, BASE_HEAD)
+        p41_head = body("P-41", 49)["head"]["sha"]
+        p41_labels = timeline.label_events(timeline.events(replay("P-41", 54), dict(p41_pull, number=66))[0],
+                                           timeline.Accounts(Router(github.Replay([])), canary(), MACHINE, {}))
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
         return {
+            # A request made before the App's push stood until the pr-review App dismissed it: not the push.
+            "a_request_for_changes_survives_a_push": ({"P-41"}, any(
+                r["by"]["kind"] == "human" and r["commit"] != p41_head and r["dismissed_from"] == "changes_requested"
+                and r["dismissed_by"] == P41_REVIEWER for r in p41_reviews)),
+            "an_app_can_dismiss_a_review": ({"P-41"}, any(
+                r["by"]["kind"] == "human" and r["state"] == "dismissed" and r["dismissed_from"] == "changes_requested"
+                and r["dismissed_by"]["kind"] == "app" for r in p41_reviews)),
+            "a_writer_can_dismiss_an_approval": ({"P-41"}, any(
+                r["by"]["kind"] == "machine_user" and r["dismissed_from"] == "approved"
+                and r["dismissed_by"] == P41_WRITER for r in p41_reviews)),
+            "an_app_can_label": ({"P-41"}, len(p41_labels) == 8
+                                 and {e["action"] for e in p41_labels} == {"labeled", "unlabeled"}
+                                 and all(e["by"] == P41_CONTROLLER and e["label"] == "factory:hold"
+                                         for e in p41_labels)),
             # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
             "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
