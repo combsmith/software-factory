@@ -468,9 +468,9 @@ class IssueWorld:
         run["status"] = "completed"
         if self.faults and self.rng.random() < 0.12 and run["run"] != self.removal_in_flight:
             # GitHub: a_run_past_its_limit_fails
-            # A Run past a step's own limit fails, its job with it, and its last step may or may not leave an outcome:
-            # with none, it is an attempt (issue 286). One GitHub stops at its job's own timeout is cancelled, with no
-            # outcome, and is no attempt (P-42, issue 388).
+            # A Run past a step's own limit fails, its job with it, and apply leaves its outcome, environment: bounded by
+            # the pause and the ceiling, no attempt (issue 433). Its Run may leave another, or none where apply is killed
+            # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
                 run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
             else:

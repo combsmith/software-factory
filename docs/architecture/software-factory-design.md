@@ -919,9 +919,11 @@ outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as 
 whatever other Runs are failing as (decision 0049, issue 286): the facts give no window to judge an
 outage by, and the automatic pause stops admission on the Runs that did write `environment`. A job
 GitHub stops at its own `timeout-minutes` concludes `cancelled`, not `timed_out` (P-42), so the
-Run's jobs stop their own work under a step limit, the steps' together below the job's: a step
-stopped at its limit concludes `failure`, and its job with it, and a later `if: always()` step still
-runs (`trials/P-42.step-timeout.json`), so a Run that runs too long is an attempt. A Run `cancelled`
+Run's jobs stop their own work under a step limit, the steps' together two minutes below the job's:
+a step stopped at its limit concludes `failure`, and its job with it, and a later `if: always()` step
+still runs (`trials/P-42.step-timeout.json`). A Run past its limit is no attempt: `apply` still runs,
+and leaves the outcome `environment`, `run_failed`, for any run job that did not succeed, so the
+automatic pause and the Run ceiling bound it, not the attempts (issue 433). A Run `cancelled`
 with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which
 the records port reads as `cancelled`. Its concurrency group cancels a Run that waits behind another
 as a newer one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
