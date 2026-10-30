@@ -33,7 +33,7 @@ ANY_STATUS = re.compile(r"\s*HTTP/[0-9.]+\s+[0-9]{3}\b", re.I)
 # A status line and nothing else: the version, the code and a reason phrase of words alone, as HTTP writes one.
 STATUS_LINE = re.compile(r"HTTP/[0-9.]+ [0-9]{3}(?: [A-Za-z][A-Za-z '-]*)?\s*")
 # A quoted name and a colon, as a field of JSON is written inside text: one named for a credential is never kept.
-QUOTED_FIELD = re.compile(r'\\?"([^"\\]{1,64})\\?"\s*:')     # its quotes escaped once, too
+QUOTED_FIELD = re.compile(r'\\?["\']([^"\'\\]{1,64})\\?["\']\s*:')     # in single quotes, or escaped once, too
 # A header line of a head: a name of no space, a colon, a value. A line folded onto the one before begins with a space.
 HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+:")
 

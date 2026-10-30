@@ -5495,14 +5495,18 @@ esac
         head = "HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n"
         for answer, found in ((head + '{"token": "%s", "expires_at": "2026-10' % token, token), (head + '{"expires_at": "2026-10', ""),
                               (head + "<html>gateway</html>", ""), ('{"token": "%s"}' % token, token),
-                              ('{"token": "%s", "expires_at": "2026-10' % token, token)):
+                              ('{"token": "%s", "expires_at": "2026-10' % token, token),
+                              # No blank line after the head, JSON that is not an object, a token that is not a string.
+                              (head.replace("\r\n\r\n", "\r\n") + '{"token": "%s"}' % token, token),
+                              (head + '[{"token": "%s"}]' % token, token), (head + '{"token": null}', "")):
             kept = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "02.raw"
             ran = subprocess.run([sys.executable, "-I", "-c", parse, str(kept)], capture_output=True, text=True, timeout=60,
                                  input=answer)
             self.assertEqual((ran.returncode, ran.stdout), (3, found), answer)
             # With no status line, nothing of what came back is kept, not even as a head.
-            self.assertEqual(kept.read_text(), ("HTTP/2 201 \ncontent-type: application/json" if answer.startswith("HTTP")
-                                                else "(no status line)") + "\n\n(an answer that is not JSON, not kept)")
+            self.assertEqual(kept.read_text(), ("(no status line)" if not answer.startswith("HTTP") else "HTTP/2 201 "
+                                                if "\r\n\r\n" not in answer else "HTTP/2 201 \ncontent-type: application/json")
+                             + "\n\n(an answer that is not JSON, not kept)", answer)
             self.assertIn("revoked as the script stops" if found else "it was not revoked", ran.stderr)
 
     def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
@@ -6661,6 +6665,7 @@ class Redaction(unittest.TestCase):
         # as JSON inside a string is written, are read as quotes.
         out, said = self.redact(json.dumps({unshaped[0]: 1, unshaped[1]: 2, "a": 3}))
         self.assertEqual((json.loads(out), "hunter2" in said, "7Qp" in said), ({"a": 3}, False, False))
+        self.assertEqual(said.splitlines()[:2], ["removed: " + check_trials.KEY_SHAPED] * 2)
         escaped = 'see {\\"password\\": \\"hunter2\\"}'
         out, said = self.redact(json.dumps({"note": escaped, "a": 1}))
         self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: note"))
@@ -6668,6 +6673,8 @@ class Redaction(unittest.TestCase):
         self.assertEqual(redact_trial.main([], stdin=io.BytesIO(("HTTP/2 200\ncontent-type: text/plain\n\n" + escaped + "\n")
                                                                 .encode()), stdout=io.StringIO(), stderr=refused), 1)
         self.assertIn("named for a credential", refused.getvalue())
+        out, said = self.redact(json.dumps({"note": "{'password': 'hunter2'}", "a": 1}))     # a field in single quotes
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: note"))
         # NaN and Infinity are not JSON; a status line after a head with no blank line after it is a body, not a head; and
         # a status line shaped like a credential is never deleted alone, leaving headers with no status line above them.
         for raw, why in (("HTTP/1.1 200 OK\nContent-Type: application/json\n\nNaN\n", "holds NaN"),

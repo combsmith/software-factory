@@ -248,12 +248,17 @@ head, body = (text[starts[-1]:cut], text[cut + 2:]) if cut >= 0 else (text, "")
 data = None
 if not starts:
     head = "(no status line)"   # what came back cannot be told from a head, so none of it is kept as one
+elif cut < 0:
+    head = text[starts[-1]:].split("\n", 1)[0]     # no blank line ends the head: its status line alone is kept
 else:
     try:
         data = json.loads(body)
     except ValueError:
         pass
-token = data.pop("token", "") if isinstance(data, dict) else ""
+# Only an object whose token is a string is read as the answer GitHub gives; anything else is kept as nothing.
+if not isinstance(data, dict) or not isinstance(data.get("token", ""), str):
+    data = None
+token = data.pop("token", "") if data is not None else ""
 if data is None:
     # An answer that is not JSON, one cut short or with no status line among them, is never written, since a token
     # may be in it. A token is found by its field alone and handed on, so the exit trap revokes it; the run stops.
@@ -263,7 +268,7 @@ with open(sys.argv[1], "w") as kept:
     kept.write(head + "\n\n" + (json.dumps(data) if data is not None else "(an answer that is not JSON, not kept)"))
 sys.stdout.write(token)
 if data is None:
-    sys.stderr.write("trial_as_app: the mint was answered with what is not JSON; " + (
+    sys.stderr.write("trial_as_app: the mint was answered with what is not its JSON; " + (
         "the token found in it is revoked as the script stops\n" if token else
         "if a token was minted it was not revoked, and expires within an hour\n"))
     sys.exit(3)' "$raw")
