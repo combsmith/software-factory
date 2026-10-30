@@ -31,6 +31,7 @@ from __future__ import annotations
 import copy
 import datetime
 
+from controller import credentials as credentials_
 from controller import feed as feed_
 from controller import health as health_
 from controller import reads as reads_
@@ -274,12 +275,16 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # The first pass after six hours with none raises the not-run alert, and the next pass clears it (decision 0043).
     raised = bool(before) and gap(now, before[-1]["now"])
     cleared = len(before) >= 2 and gap(before[-1]["now"], before[-2]["now"]) and not raised
+    # A stored credential near its limit, or whose row cannot be read, is one alert, each by its secret's name alone
+    # (L-37, issue 305).
+    due, secrets = credentials_.due(config.get("credentials"), now)
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, automatic is not None,
-                            bool(left_out), raised, unnamed, reconcile_.alerts(found))
+                            bool(left_out), raised, unnamed, reconcile_.alerts(found), due)
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
     feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"], record["reconciliation"])
+    record["credentials_due"] = secrets
     feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not
     # one the pass before made too, which did not take. A Run's end starts the next pass itself, and a pass deferred by

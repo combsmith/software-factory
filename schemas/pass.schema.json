@@ -154,8 +154,18 @@
           "facts_unreadable",
           "not_run",
           "write_unmatched",
-          "reconciliation_unreadable"
+          "reconciliation_unreadable",
+          "credential_due"
         ]
+      }
+    },
+    "credentials_due": {
+      "description": "The stored credentials near their limits, or whose rows cannot be read, by their secrets' names alone, sorted: the evidence of `credential_due` (issue 305). Absent in a record written before it",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
       }
     },
     "reconciliation": {

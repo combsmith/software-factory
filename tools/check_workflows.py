@@ -1450,6 +1450,66 @@ def lens_workflows(root: pathlib.Path) -> list:
     return problems
 
 
+# The one token GitHub mints for each run: never stored, so it has no row in config/credential-ages.json.
+MINTED = {"GITHUB_TOKEN"}
+MODEL_KIND = "model"
+
+
+def credential_problems(root: pathlib.Path, live: list) -> list:
+    """Every secret a workflow names has a row in `config/credential-ages.json`, and each row's secret is named by exactly
+    the workflow files its row lists: one, but the model's credential, which two name (decision 0053), and none for a
+    key whose workflow is not built yet (L-37, issue 305). An App's key is kept where `config/apps.json` says alone
+    (decision 0009), and is a write credential if its App writes anything. GitHub reads a secret's name in any case."""
+    try:
+        rows = json.loads((root / "config" / "credential-ages.json").read_text())["credentials"]
+        apps = json.loads((root / "config" / "apps.json").read_text())["apps"]
+        keys = {app["key"]["secret"].upper(): app for app in apps.values()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as err:
+        return ["config/credential-ages.json or config/apps.json cannot be read, so no workflow's secrets can be checked "
+                "against them: %r" % err]
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and isinstance(r.get("secret"), str)
+                                             and isinstance(r.get("workflows"), list) for r in rows):
+        return ["config/credential-ages.json: its credentials are not rows each naming a secret and its workflows"]
+    named = {}
+    for path in live:
+        for found in SECRET.finditer(raw(path)):
+            name = (found.group(2) or found.group(3) or "").upper()
+            if name and name not in MINTED:
+                named.setdefault(name, set()).add(path.name)
+    problems, held = [], {}
+    for row in rows:
+        held.setdefault(row["secret"].upper(), []).append(row)
+    for name in sorted(set(named) - set(held)):
+        problems.append("%s names the secret %s, which config/credential-ages.json has no row for"
+                        % (", ".join(sorted(named[name])), name))
+    for name, found in sorted(held.items()):
+        where = "config/credential-ages.json: %s" % name
+        if len(found) > 1:
+            problems.append("%s has %d rows; give it one" % (where, len(found)))
+        row = found[0]
+        if set(row["workflows"]) != named.get(name, set()):
+            problems.append("%s lists the workflows %s, and is named by %s" % (where, sorted(row["workflows"]) or "none",
+                                                                             sorted(named.get(name, ())) or "none"))
+        if len(row["workflows"]) > 1 and row.get("kind") != MODEL_KIND:
+            problems.append("%s is named by %d workflows; a secret is named by one, but the model's credential "
+                            "(decision 0053)" % (where, len(row["workflows"])))
+        app = keys.get(name)
+        if app is not None:
+            writes = any(isinstance(g, dict) and g.get("level") == "write" for g in app.get("permissions", {}).values())
+            if row.get("stored") != "environment" or row.get("environment") is not None:
+                problems.append("%s is an App's key: it is stored in an environment that config/apps.json alone names, "
+                                "so its environment here is null" % where)
+            if (row.get("kind") == "write") != writes:
+                problems.append("%s is the key of %s, which %s, so its kind is %s"
+                                % (where, app.get("name"), "writes" if writes else "writes nothing",
+                                   "write" if writes else "read"))
+        elif (row.get("stored") == "environment") != isinstance(row.get("environment"), str):
+            problems.append("%s names its environment if and only if it is stored in one" % where)
+    for name in sorted(set(keys) - set(held)):
+        problems.append("config/apps.json keeps the key %s, which config/credential-ages.json has no row for" % name)
+    return problems
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = lens_workflows(root)
     live = sorted((root / ".github" / "workflows").glob("*.y*ml"))
@@ -1499,6 +1559,8 @@ def run(root: pathlib.Path = ROOT) -> list:
                 if RELEASE_ONLY.search(line):
                     problems.append("%s: line %d names the release job's environment, its key, its token or its step, "
                                     "which are release.yml's alone" % (path.relative_to(root), number))
+    if live:
+        problems += credential_problems(root, live)
     for folder in sorted((root / ".github").glob("actions*")):
         problems.append("%s: a local action is not read by this check; write a reusable workflow"
                         % folder.relative_to(root))
