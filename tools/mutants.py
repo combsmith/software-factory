@@ -4193,7 +4193,6 @@ MUTANTS = ISSUE + [
      '(f.get("severity") in t.SEVERITIES, f.get("category")) != (True, given[said][1])',
      (COVERAGE + "test_a_finding_that_cites_a_criterion_has_the_rubrics_severity",
       "tests.test_apply.Apply.test_an_uncovered_result_writes_nothing")),
-    # The reads of #405: every Finding is read, and one that cites an id the rubric lacks is uncovered.
     # Issue 407: a Finding that cites a criterion is of the category the rubric gives it.
     ('a cited Finding keeps any category the model gives it', 'kernel/coverage.py',
      '(f.get("severity"), f.get("category")) != given[said]',
@@ -4204,6 +4203,7 @@ MUTANTS = ISSUE + [
     ("a cited Finding is held to another criterion's category", 'kernel/coverage.py',
      'given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}',
      'given = {c["id"]: (c["severity_if_violated"], rubric["criteria"][0]["category"]) for c in rubric["criteria"]}', (COVERAGE + "test_a_finding_that_cites_a_criterion_has_the_rubrics_category", "tests.test_apply.Apply.test_an_uncovered_result_writes_nothing")),
+    # The reads of #405: every Finding is read, and one that cites an id the rubric lacks is uncovered.
     ('a Finding after the first is not read', 'kernel/coverage.py',
      '    for f in findings:\n        said = f.get("criterion") if isinstance(f, dict) else None\n',
      '    for f in findings[:1]:\n        said = f.get("criterion") if isinstance(f, dict) else None\n', (COVERAGE + "test_a_finding_that_cites_a_criterion_has_the_rubrics_severity",)),

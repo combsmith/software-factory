@@ -199,9 +199,11 @@ class Coverage(unittest.TestCase):
                   {"criteria": [dict(major, statement="no id")]}, {"criteria": [dict(major, id="pr-1")]},
                   {"criteria": [dict(major, id=1)]}, {"criteria": [dict(major, id="PR-1"), dict(major, id="PR-1")]},
                   {"criteria": [dict(major, id="-1")]}, {"criteria": [dict(major, id="PR-x")]},
-                  # A criterion with no severity that a Finding citing it could be given.
-                  {"criteria": [{"id": "PR-1"}]}, {"criteria": [{"id": "PR-1", "severity_if_violated": "Major"}]},
-                  {"criteria": [{"id": "PR-1", "severity_if_violated": None}]},
+                  # A criterion with no severity that a Finding citing it could be given, each with a category, so that
+                  # its severity alone is what cannot be read.
+                  {"criteria": [{"id": "PR-1", "category": "functional"}]},
+                  {"criteria": [{"id": "PR-1", "severity_if_violated": "Major", "category": "functional"}]},
+                  {"criteria": [{"id": "PR-1", "severity_if_violated": None, "category": "functional"}]},
                   rubric_with("PR-2", severity_if_violated=None), rubric_with("PR-5", severity_if_violated="high"),
                   # Nor one with no category among the Factory's (issue 407).
                   {"criteria": [{"id": "PR-1", "severity_if_violated": "major"}]},
