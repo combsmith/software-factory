@@ -1808,6 +1808,17 @@ class Workflows(unittest.TestCase):
         reader = dict(app, permissions={"checks": {"level": "read"}})
         self.assertTrue(caught(problems(apps={"controller": reader}), "which writes nothing, so its kind is read"))
         self.assertEqual(problems(rows=[dict(rows[0], kind="read")] + rows[1:], apps={"controller": reader}), [])
+        self.assertTrue(caught(problems(rows=[dict(rows[0], kind="model")] + rows[1:], apps={"controller": reader}),
+                               "which writes nothing, so its kind is read"))      # Argon's read of #427
+        # The model's credential is named only where decision 0053 lets it be (Argon's read of #427).
+        three = dict(flows, **{"other.yml": "  M: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"})
+        model = [dict(r, workflows=["eval.yml", "other.yml", "run-jobs.yml"]) if r["name"] == "CLAUDE_CODE_OAUTH_TOKEN" else r
+                 for r in rows]
+        self.assertTrue(caught(problems(rows=model, flows=three), "CLAUDE_CODE_OAUTH_TOKEN is a model credential, which only"))
+        # A comment names no secret, whole or trailing (Muse's read of #427).
+        for comment in ("# removed: ${{ secrets.SONAR_TOKEN }}\n", "  S: none  # was ${{ secrets.SONAR_TOKEN }}\n"):
+            self.assertTrue(caught(problems(flows=dict(flows, **{"sonarcloud.yml": comment})),
+                                   "SONAR_TOKEN lists the workflows ['sonarcloud.yml'], and is named by none"), comment)
         queue = dict(app, key={"environment": "factory-queue", "secret": "QUEUE_APP_KEY"})
         self.assertTrue(caught(problems(apps={"controller": app, "queue": queue}),
                                "config/apps.json keeps the key QUEUE_APP_KEY, which config/credential-ages.json has no row for"))
@@ -1817,7 +1828,8 @@ class Workflows(unittest.TestCase):
                                    "%s names its environment if and only if it is stored in one" % bad["name"]), bad)
         # Rows or Apps that cannot be read check nothing, and say so.
         for broken in ({"credentials": "x"}, {"credentials": [{"name": 1, "workflows": []}]},
-                       {"credentials": [{"name": "X"}]}):
+                       {"credentials": [{"name": "X"}]}, {"credentials": [{"name": "X", "workflows": [["pass.yml"]]}]},
+                       {"credentials": [{"name": "X", "workflows": [1, "pass.yml"]}]}):
             files = {".github/workflows/pass.yml": flows["pass.yml"], "config/credential-ages.json": json.dumps(broken),
                      "config/apps.json": json.dumps({"apps": {}})}
             root = tree(files)
@@ -1826,10 +1838,12 @@ class Workflows(unittest.TestCase):
         root = tree({".github/workflows/pass.yml": flows["pass.yml"]})
         self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
                                "cannot be read, so no workflow's secrets can be checked"))
-        root = tree({".github/workflows/pass.yml": flows["pass.yml"], "config/credential-ages.json": json.dumps({"credentials": []}),
-                     "config/apps.json": json.dumps({"apps": {"x": {"key": None}}})})
-        self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
-                               "cannot be read, so no workflow's secrets can be checked"))
+        for app_ in ({"key": None}, dict(app, permissions=[])):      # Muse's read of #427: say so, never crash
+            root = tree({".github/workflows/pass.yml": flows["pass.yml"],
+                         "config/credential-ages.json": json.dumps({"credentials": []}),
+                         "config/apps.json": json.dumps({"apps": {"x": app_}})})
+            self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
+                                   "cannot be read, so no workflow's secrets can be checked"), app_)
         # The rule is run with the workflows, on the live tree alone.
         root = tree({".github/workflows/pass.yml": flows["pass.yml"], "examples/workflows/verify.yml": GOOD})
         self.assertTrue(caught(check_workflows.run(root), "cannot be read, so no workflow's secrets can be checked"))
