@@ -24,5 +24,6 @@
       ]
     }
   ],
-  "passed": 1
+  "passed": 1,
+  "split_ok": true
 }
