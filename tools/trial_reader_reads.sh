@@ -133,7 +133,12 @@ print(app["name"], app["app_id"], found[app["app_id"]], sys.argv[1].split("/")[1
 set -- $ids
 slug=$1 app_id=$2 installation=$3 name=$4
 
-mkdir -p "$out"
+# OUT is made here, by this script alone and for its user alone: one made since it was found absent is refused,
+# never written into, since what is in it may be a link to a file this run would overwrite.
+if ! mkdir -m 700 "$out"; then
+    echo "trial_reader_reads: $out could not be made new by this run (made since, or refused); name a new directory" >&2
+    exit 2
+fi
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 asked=""
 n=0

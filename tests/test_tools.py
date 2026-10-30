@@ -3000,6 +3000,20 @@ class Context(unittest.TestCase):
         for text in ('See "docs: factory MVP" (pull request 2225).', "See \u201cdocs: factory MVP\u201d (issue 12)."):
             self.assertEqual(found(text), [], text)
 
+    def test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before(self):
+        # Issue 369: every opening quote was tried, each to the line's end, so a line of them took time in its square.
+        self.assertTrue(check_context.TITLE.search("x" * 10 + "\u201c" * 40000 + "\u201d") is not None)
+        self.assertIsNone(check_context.TITLE.search("See issue 12 " + "\u201ca" * 20000))
+        read_in_linear_cpu(self, check_context.TITLE.search, "\u201ca", 12000)
+        # Only the first opening quote of a run is tried; it is a title wherever a later one in the run would be.
+        for text, titled in (("\u201cdocs: \u201cfactory\u201d MVP\u201d", True), ('"docs: \u201cfactory MVP"', True),
+                             ("\u201cshort \u201cdocs: factory MVP\u201d", True), ('"ab" \u201cdocs: factory\u201d', True),
+                             ("\u201cab\u201d \u201cdocs: factory\u201d", True), ("\u201cdocs: factory\nMVP\u201d", False),
+                             ("\u201cab \u201cdocs: f\u201d", True), ("a\u201cb\u201cdocs\u201d", False),
+                             ('\u201cdocs: factory MVP', False), ('x" docs: factory MVP"', True),
+                             ("ab\n\u201cdocs: factory\u201d", True)):
+            self.assertEqual(check_context.TITLE.search(text) is not None, titled, text)
+
     def test_a_root_file_too_long_to_read_in_full_is_caught(self):
         root = tree({"AGENTS.md": "line\n" * (check_context.ROOT_LINES + 1), "kernel/AGENTS.md": "x " * 200 + "\n"})
         problems = check_context._agents_files(root)
@@ -3443,6 +3457,20 @@ PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", 
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
 
+def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
+    """Fail `test` unless `read(unit * n)` spends CPU time linearly in n, and under half a second at `size`. CPU time is
+    what a busy machine does not stretch, and no clock is judged, so a pattern read in time in its square is a mutant
+    this kills (issues 369 and 370); where it was so, the reading at `size` took a second or more of CPU."""
+    read(unit * (size // 4))    # once, untimed, so what the first reading warms is not counted to it
+    spent = []
+    for n in support.sizes(size):
+        with support.Spent() as one:
+            read(unit * n)
+        spent.append(one)
+    test.assertEqual(support.faster_than_linear(*spent), "", unit)
+    test.assertLess(spent[-1].cpu, 0.5, unit)
+
+
 class Trials(unittest.TestCase):
     def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
         root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
@@ -3453,6 +3481,20 @@ class Trials(unittest.TestCase):
                       "trials/P-98.json: trials/ holds fixtures only"):
             self.assertTrue(caught(problems, words), words)
         self.assertEqual(check_trials.run(clone({"trials/P-12.json": fixture(), "trials/P-12.retry.json": fixture()})), [])
+
+    def test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen(self):
+        # Issue 370: each auth in a run of letters, and each eyJ in a run with no dot, was tried again to the run's end.
+        self.assertFalse(check_trials.shaped("auth" * 10000) or check_trials.shaped("eyJ" * 40000))
+        read_in_linear_cpu(self, check_trials.SHAPES.search, "auth", 4800)
+        read_in_linear_cpu(self, check_trials.SHAPES.search, "eyJ", 12000)
+        hexed = "0123456789abcdef" * 2 + "deadbeef"
+        for text, found in (("auth" * 50 + hexed, True), ("xauthorization: " + hexed, True), ("authorization" + hexed, True),
+                            ("Authorizationdeadbeef" + hexed, True), ("authx" * 30 + "=" + hexed, True),
+                            ("aéauth " + hexed, True), ("authé" + hexed, False), ("auth" + hexed[:39], False),
+                            ("auth" * 9 + ": : " + hexed, False), ("noeyJ" * 30 + ".x", True), ("x-eyJ_0.", True),
+                            ("ey" * 40 + "J.", True), ("eyJ" * 40 + "/.", False), ("ey-J" * 30 + ".", False),
+                            ("eyJ" * 20 + " ." + "eyJ" * 20, False)):
+            self.assertEqual(check_trials.shaped(text), found, text)
 
     def test_a_credential_in_a_fixture_is_caught(self):
         for name, value in sorted(SHAPED.items()):
@@ -4650,6 +4692,69 @@ exit 0
         self.assertEqual(done.returncode, 0, done.stderr)
         asked = json.loads((folder / "out" / "requests.json").read_text())
         self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
+
+
+class OutputMadeAlone(unittest.TestCase):
+    """Each trial the Maintainer runs with a key finds OUT absent, then makes it itself (issue 367). A directory made in
+    between, by another, may hold a link where the run will write; it is refused, and nothing is written through it."""
+
+    READER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY"),
+               "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
+               "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry")}
+
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        for script, args in self.SCRIPTS.items():
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                out, victim = folder / "out", folder / "victim"
+                victim.write_text("kept\n")
+                # mktemp runs after the check and before OUT is made: here it plants OUT, with a link inside it.
+                (folder / "bin" / "mktemp").write_text(
+                    '#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/mktemp "$@"\n'
+                    % (out, out, victim, out))
+                (folder / "bin" / "curl").write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
+                for name in ("mktemp", "curl"):
+                    (folder / "bin" / name).chmod(0o755)
+                (folder / "key.pem").write_text("not a key\n")
+                argv = [str(folder / "key.pem") if a == "KEY" else a for a in args]
+                done = subprocess.run(["sh", str(ROOT / "tools" / script), str(out), *argv], capture_output=True, text=True,
+                                      env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
+                                           "LANG": "C", "TMPDIR": str(folder)},
+                                      cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("could not be made new by this run", done.stderr)
+                self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+                self.assertFalse((folder / "calls").exists(), "a call was made")
+
+
+    def test_the_sandbox_trials_make_their_output_alone_too(self):
+        # P-50's and P-51's runners hold no key, but they write into OUT too: one made between the check and their own
+        # mkdir, here by the dirname they call first, is refused, and nothing is written through a link in it.
+        for script, phase in (("trial_p50_linux_sandbox.sh", "as-is"), ("trial_p51_sandbox_writes.sh", "forward")):
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                out, victim = folder / "out", folder / "victim"
+                victim.write_text("kept\n")
+                (folder / "bin" / "dirname").write_text(
+                    '#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/dirname "$@"\n'
+                    % (out, out, victim, out))
+                (folder / "bin" / "dirname").chmod(0o755)
+                (folder / "cli").write_text("#!/bin/sh\nexit 0\n")
+                (folder / "cli").chmod(0o755)
+                (folder / "stub.py").write_text("")
+                done = subprocess.run(["bash", str(ROOT / "tools" / script), str(out), phase, str(folder / "cli"),
+                                       str(folder / "stub.py")], capture_output=True, text=True,
+                                      env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
+                                           "LANG": "C", "TMPDIR": str(folder)},
+                                      cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("could not be made new by this run", done.stderr)
+                self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+
 
 class TrialScript(unittest.TestCase):
     """`tools/trial_p13_cli.sh`, run against a stand-in CLI and never the real one (issue 178): the environment the CLI is
@@ -6157,6 +6262,74 @@ class Redaction(unittest.TestCase):
         out, said = self.redact("kept line\none line, " + SHAPED["jwt"] + " and done\n")
         self.assertEqual((out, said.splitlines()[0]), ("kept line\n", "removed: line 2"))
 
+    def test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused(self):
+        # Issue 372: a second head, after an interim answer or a proxy's, was read as the body, and a field that holds a
+        # credential no shape finds was kept because the body was no longer JSON.
+        body = '{"login": "don", "client_secret": "opaque-7Qp", "password": "hunter2"}'
+        for first in ("HTTP/1.1 100 Continue\r\n\r\n", "HTTP/1.1 200 Connection established\r\nVia: proxy\r\n\r\n",
+                      "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 100 Continue\r\n\r\n"):
+            out, said = self.redact(first + "HTTP/2 200\r\nX-Foo: bar\r\nContent-Type: application/json\r\n\r\n" + body)
+            heads, _, kept = out.rpartition("\n\n")
+            self.assertEqual(json.loads(kept), {"login": "don"}, first)
+            self.assertEqual(heads.splitlines()[-2:], ["HTTP/2 200", "Content-Type: application/json"], first)
+            self.assertNotIn("X-Foo", out)
+            self.assertNotIn("Via", out)
+        # A head with no body after it is a head, and its headers are read as headers.
+        self.assertEqual(self.redact("HTTP/2 204\nX-Foo: bar\nDate: x\n")[0], "HTTP/2 204\nDate: x\n\n")
+        # A body that should be JSON, by its type or its first character, and cannot be read as JSON is refused whole.
+        for raw in ('HTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n',
+                    'HTTP/2 200\nContent-Type: text/plain\n\n{"password": "hunter2"\n',
+                    'HTTP/1.1 100 Continue\n\nHTTP/2 200\n\n[{"password": "hunter2"}\n', '{"password": "hunter2"\n'):
+            out, said = io.StringIO(), io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
+            self.assertEqual(out.getvalue(), "", raw)
+            self.assertIn("refused: the body should be JSON", said.getvalue())
+        # A capture in any other shape is refused whole, never filtered for shapes alone: a head a blank line too many,
+        # a cased or indented status line, or a redirect's text, hides; a head with a line that is no header, a folded
+        # one among them; a JSON type on an earlier head; JSON cut short; a field named for a credential in a text line.
+        fields = '{"client_secret": "abc123xyz", "password": "hunter22"}'
+        for raw, why in (
+                ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/1.1 100 Continue\n\n HTTP/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/1.1 100 Continue\n\nhttp/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/2 302\nlocation: x\n\nmoved\n\nHTTP/2 200\ncontent-type: text/plain\n\nfine\n", "head"),
+                ('HTTP/2 200\ncontent-type: application/json\n{ "client_secret": "abc123xyz" }', "header"),
+                ("HTTP/2 200\nx-api-key: part1\n\tsecretcontinuation\ncontent-type: text/plain\n\nfine\n", "header"),
+                ("HTTP/1.1 100 Continue\ncontent-type: application/json\n\nHTTP/2 200\n\nnot json\n", "JSON"),
+                ('HTTP/1.1 100 Continue\n\nHTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n', "JSON"),
+                ('HTTP/2 200\ncontent-type: text/event-stream\n\ndata: {"password": "hunter2"}\n', "field"),
+                ("\ufeffHTTP/2 200\nX-Secret: hunter2\ncontent-type: application/json\n\nnot json\n", "JSON"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n\ufeffHTTP/2 200\nX-Secret: hunter2\n", "head"),
+                ('"HTTP/1.1 200\\nauthorization: hunter2"', "string"),
+                ('HTTP/2 200\ncontent-type: application/json\n\n"hunter2 is the password"', "string"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + fields + "\n", "JSON"),
+                ('{\n\n"password": "hunter2"\n', "JSON"),
+                ('HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 500 {"token": "opaque"}', "status"),
+                ('HTTP/1.1 200 {"token": "opaque"}', "status"),
+                ('HTTP/1.1 200 OK\n\nHTTP/1.1 502 Bad Gateway\ncontent-type: {"token": "opaque"}', "header")):
+            out, said = io.StringIO(), io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
+            self.assertEqual(out.getvalue(), "", raw)
+            self.assertIn({"head": "a head it was not read as", "header": "a line that is no header",
+                           "JSON": "should be JSON", "status": "holds more than a status", "field": "named for a credential",
+                           "string": "is a JSON string"}[why], said.getvalue(), raw)
+        # JSON behind a byte order mark is read as JSON once the mark is out, and its fields are redacted.
+        out, _ = self.redact("HTTP/2 200\ncontent-type: application/json\n\n\ufeff" + fields)
+        self.assertNotIn("abc123xyz", out)
+        self.assertNotIn("hunter22", out)
+        # A run's log writes a byte order mark at the start of its lines: it is taken out, and the log is still text.
+        self.assertEqual(self.redact("\ufeffapprove\tApprove\t2026-10-28T02:00:00Z a\n")[0],
+                         "approve\tApprove\t2026-10-28T02:00:00Z a\n")
+        # Text with no status line is text, its blank lines and all, as a run's log is.
+        log = ("approve\tApprove\t2026-10-28T02:00:00Z a\napprove\tApprove\t2026-10-28T02:00:00Z a2\n\n"
+               "approve\tApprove\t2026-10-28T02:00:01Z b\n")
+        self.assertEqual(self.redact(log)[0], log)
+        # Text is still text, and an empty body under a JSON type has nothing to refuse.
+        self.assertEqual(self.redact("HTTP/2 200\nContent-Type: text/plain\n\nfine\n")[0],
+                         "HTTP/2 200\nContent-Type: text/plain\n\nfine\n")
+        self.assertEqual(self.redact("HTTP/2 204\nContent-Type: application/json\n\n")[0],
+                         "HTTP/2 204\nContent-Type: application/json\n\n")
+
 
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {
@@ -7008,6 +7181,62 @@ class ContextEval(unittest.TestCase):
         self.assertEqual(unknown["cost"], {"turns": None, "duration_ms": None, "usd": None, "input_tokens": None, "output_tokens": None})
         put_back = context_eval.record(self.transcript(work), pristine, work, self.PASSED, dict(self.META, restored=["Makefile"]))
         self.assertEqual(put_back["restored"], ["Makefile"])
+
+    def test_a_link_the_agent_left_is_never_followed(self):
+        # Issue 375: a link in the export the agent left, to a file outside it, was read, and the names of the tests in
+        # that file reached the record. A link is held as a link and is never read, nor is a file reached through one.
+        pristine, work = self.export(changed=False)
+        outside = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (outside / "test_held.py").write_text("def test_a_private_name(self):\n    pass\n")
+        (outside / "kernel.py").write_text('x = "empty_diff"\n')
+        (outside / "mutants.py").write_text('MUTANTS = [\n    ("a private mutant", "kernel/derive.py", "a", "b", ("t",)),\n]\n')
+        (work / "tests" / "test_x.py").symlink_to(outside / "test_held.py")
+        (work / "tests" / "more").symlink_to(outside, target_is_directory=True)
+        (work / "kernel" / "derive.py").unlink()
+        (work / "kernel" / "derive.py").symlink_to(outside / "kernel.py")
+        (work / "tools" / "mutants.py").unlink()
+        (work / "tools" / "mutants.py").symlink_to(outside / "mutants.py")
+        run = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertEqual(run["added"], {"test": None, "mutant": None, "reason": None})
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        self.assertEqual(context_eval.new_mutants(pristine, work), [])
+        self.assertNotIn("private", json.dumps(run))
+        self.assertIn({"path": "tests/test_x.py", "added": 1, "removed": 0}, run["changed"])
+        self.assertEqual(run["verdicts"]["mutant"], "survived")      # the mutants the export held are gone with the link
+        # A whole tests/ that is a link is not read either.
+        pristine, work = self.export(changed=False)
+        shutil.rmtree(work / "tests")
+        (work / "tests").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        # Nor a tests/ linked to a folder inside the export, nor a test file that is a hard link of one elsewhere.
+        pristine, work = self.export(changed=False)
+        (work / "other").mkdir()
+        (work / "other" / "test_planted.py").write_text("def test_planted(self):\n    pass\n")
+        shutil.rmtree(work / "tests")
+        (work / "tests").symlink_to(work / "other", target_is_directory=True)
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        pristine, work = self.export(changed=False)
+        os.link(outside / "test_held.py", work / "tests" / "test_hard.py")
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        self.assertIn({"path": "tests/test_hard.py", "added": 1, "removed": 0},
+                      context_eval.changes(pristine, work))
+        # Nor the mutants of a tools/ that is a link to a folder elsewhere.
+        pristine, work = self.export(changed=False)
+        shutil.rmtree(work / "tools")
+        (work / "tools").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(context_eval.new_mutants(pristine, work), [])
+        pristine, work = self.export(changed=False)
+        os.link(outside / "test_held.py", work / "tests" / "test_hard.py")
+        # Nor a path that steps out of the export, though no link is on its way.
+        (outside / "secret.txt").write_text("held\n")
+        self.assertEqual(context_eval._read(work, work / ".." / outside.name / "secret.txt"), "")
+        self.assertFalse(context_eval._own(work, work / "kernel" / ".." / ".." / outside.name / "secret.txt"))
+        # What _own let past is still opened without following a link, and held to one name once open.
+        with unittest.mock.patch.object(context_eval, "_own", lambda folder, path: True):
+            self.assertEqual(context_eval._read(work, work / "tests" / "test_hard.py"), "")
+            (outside / "test_alone.py").write_text("def test_a_private_name(self):\n    pass\n")
+            (work / "tests" / "test_soft.py").symlink_to(outside / "test_alone.py")
+            self.assertEqual(context_eval._read(work, work / "tests" / "test_soft.py"), "")
 
     def test_what_cannot_be_read_makes_no_record(self):
         pristine, work = self.export()

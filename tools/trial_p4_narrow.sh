@@ -108,7 +108,12 @@ first = fixture["exchanges"][0]
 assert first["request"]["call"].endswith("/installation"), first["request"]["call"]
 print(first["response"]["body"]["app_id"])')
 
-mkdir -p "$out"
+# OUT is made here, by this script alone and for its user alone: one made since it was found absent is refused,
+# never written into, since what is in it may be a link to a file this run would overwrite.
+if ! mkdir -m 700 "$out"; then
+    echo "trial_p4_narrow: $out could not be made new by this run (made since, or refused); name a new directory" >&2
+    exit 2
+fi
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 n=0
 asked=""
