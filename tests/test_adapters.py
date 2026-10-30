@@ -1933,6 +1933,21 @@ class Acceptance(unittest.TestCase):
         # A person's pull request is read by its closing references, whatever the opening Runs recorded.
         self.assertEqual(self.read(closing_answer("o/r", 26, []), opened=made([("r_01JA7Q", 37)])), (None, True))
 
+    def test_the_bound_issues_lookup_is_read_under_the_controllers_grant(self):
+        # P-54: the token narrowed to issues: read reads the lookup, GitHub names that permission as what it accepts, and
+        # labelled() reads the answer. The canary is public, so the metadata: read token is answered too; a private repo
+        # stays open until a private Consumer repo exists (slice 3).
+        found = exchanges("P-54")
+        minted, read = found[0], found[1]
+        self.assertEqual(minted["request"]["body"]["permissions"], {"issues": "read"})
+        self.assertEqual(read["response"]["status"], 200)
+        self.assertEqual(read["response"]["headers"]["x-accepted-github-permissions"], "issues=read")
+        self.assertEqual(found[3]["request"]["body"]["permissions"], {"metadata": "read"})
+        repo = read["request"]["call"].split("/repos/")[1].split("/issues/")[0]
+        for at in (1, 4):
+            self.assertIs(acceptance.labelled(replay("P-54", at), repo, 42), False)
+        self.assertEqual([n["name"] for n in read["response"]["body"]["labels"]], ["question"])
+
     def test_a_pull_request_the_factory_opens_is_bound_to_the_issue_its_branch_names(self):  # issue 295
         asks = [label_event("labeled")]
         # Its closing references may leave the bound issue out: the ask is read from the issue its branch names.
@@ -2422,6 +2437,16 @@ class Recorded(unittest.TestCase):
                          "functional")
         self.assertEqual(self.recorded(listed_runs(lens_run(self.RUN)),
                                        *applied_stored("o/r", 39100000000, done, expired=True)[:1]), {26: ({}, True)})
+        # A record past retention is told from one never uploaded: its Run is named expired, whole, and reviewed
+        # nothing that can be held, so its Lens's review is asked for again (issue 346). One never uploaded is not.
+        got = self.full(listed_runs(lens_run(self.RUN)), *applied_stored("o/r", 39100000000, done, expired=True)[:1])
+        self.assertEqual(([r["run"] for r in got[26][2] if r.get("expired") is True], got[26][2][0]["reviewed"]),
+                         ([self.RUN], False))
+        self.assertEqual(artifacts.applied(github.Replay(applied_stored("o/r", 39100000000, done, expired=True)[:1]),
+                                           "o/r", 39100000000, self.RUN), (artifacts.EXPIRED, True))
+        got = self.full(listed_runs(lens_run(self.RUN, conclusion="failure")),
+                        *applied_stored("o/r", 39100000000, None))
+        self.assertEqual([r for r in got[26][2] if r.get("expired")], [])
         # A Run of no model Lens, one not completed, one on a pull request not open or of another repo, is not read:
         # the replay holds no answer, so a read would fail.
         issue = dict(lens_run(self.RUN), item={"repo": "o/r", "type": "issue", "number": 26})
@@ -2483,6 +2508,10 @@ class Recorded(unittest.TestCase):
         for done in (record(self.RUN), record(self.RUN, "26", state="failed")):
             self.assertEqual(read(listed_runs(opening(self.RUN)), *applied_stored("o/r", 39100000000, done)),
                              {"named": {}, "unreadable": set(), "whole": True})
+        # Nor does one whose record is past retention, which is read as recording nothing and blocks no binding.
+        self.assertEqual(read(listed_runs(opening(self.RUN)),
+                              *applied_stored("o/r", 39100000000, record(self.RUN, "26"), expired=True)[:1]),
+                         {"named": {}, "unreadable": set(), "whole": True})
         # The other side, its issue unreadable: two pull requests named, a number that is none, a record that cannot be
         # read or is another Run's, a successful Run that lists no record (deleted), a read never answered, a Run named
         # by two GitHub runs though one of them answers, or a Run not yet finished.
@@ -2862,6 +2891,20 @@ class Snapshot(unittest.TestCase):
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual(got["last_reopened_at"], reopening["created_at"])
+
+    def test_a_snapshot_names_each_lens_run_whose_record_is_past_retention(self):  # issue 346
+        # What the Lenses recorded names each Run whose applied/1 is past retention; the snapshot holds them, by run id,
+        # and none where none is, so the Kernel asks those Lenses' reviews again.
+        got, _ = self.read(1)
+        self.assertEqual(got["expired_reviews"], [])
+        gone = [{"lens": "pr-review", "run": "r_01JA9B", "content_id": "sha256:5d0c",
+                 "started_at": "2026-10-21T16:00:00Z", "reviewed": False, "expired": True},
+                {"lens": "pr-review", "run": "r_01JA6Z", "content_id": "sha256:5d0c",
+                 "started_at": "2026-10-21T15:00:00Z", "reviewed": True}]
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, opened=NOT_OPENED, recorded=({}, True, gone))
+        self.assertEqual(got["expired_reviews"], ["r_01JA9B"])
 
     def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
         seq = self.sequence(1)

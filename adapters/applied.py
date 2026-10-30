@@ -6,8 +6,9 @@ open pull request of the home repo; its `applied/1` is read through `adapters/ar
 since a write may have landed before a later one failed. A Finding it posted on a thread is kept by that thread's id,
 its surface key. The list of a pull request's Findings is whole only when the run list was read whole, each counted
 Run is named by one GitHub run, and each `applied/1` was read whole and holds no Finding of another Lens than its
-Run's. An `applied/1` past the artifact retention is read as none, whole, as an expired outcome is (decision 0049):
-the accepted miss decision 0069 names. A Run that succeeded uploaded one whatever it wrote, so one it lists none of was
+Run's. An `applied/1` past the artifact retention is read as recording nothing, whole, as an expired outcome is
+(decision 0049): the accepted miss decision 0069 names; its Run is named expired, so that its Lens's review is asked for
+again (decision 0096). A Run that succeeded uploaded one whatever it wrote, so one it lists none of was
 deleted, and is not whole; a Run that did not succeed may have uploaded none. What else cannot be read is not whole,
 never none.
 
@@ -67,7 +68,8 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
     Lens alone names it and the authority table gives the Lens that category, `lens` null when two Lenses recorded it,
     `runs` the Runs that recorded it, and `ruling` the Lens's latest (the module's rules); `read` is each Lens Run
     whose `applied/1` was read whole, `{lens, run, content_id, started_at, reviewed}`, `reviewed` whether it is a
-    review that succeeded, which `held` reads for a later review. `runs` is the records port's list, `lenses` the model Lenses' names, `authority`
+    review that succeeded, which `held` reads for a later review, and `expired` true on one whose record is past the
+    artifact retention, which the snapshot names so that its Lens's review is asked for again (issue 346). `runs` is the records port's list, `lenses` the model Lenses' names, `authority`
     `config/authority.json`."""
     whole = isinstance(runs, dict) and runs.get("complete") is True
     ids = runs.get("github_ids") if whole else None
@@ -95,6 +97,12 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
         if not read_whole:
             out[number] = ({}, False, [])
             continue
+        if done is artifacts.EXPIRED:
+            # Past its retention: its Run recorded what can no longer be read, so it reviewed nothing that can be
+            # held, and its Lens's review is asked for again (issue 346).
+            read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
+                                 "started_at": record.get("started_at"), "reviewed": False, "expired": True})
+            continue
         for posted in (done or {}).get("findings", ()):
             if posted["source"]["lens"] != record["role"]:
                 # A Run that records another Lens's Finding, on any surface, contradicts itself: none of it is read.
@@ -109,8 +117,7 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
                 (record["role"], record["run"], record.get("started_at"), ruling["result"], ruling["finding"]))
         read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
                              "started_at": record.get("started_at"),
-                             "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"
-                             and done is not None})
+                             "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"})
     owners = authority.get("categories", {}) if isinstance(authority, dict) else {}
     for number, by_key in found.items():
         if not out[number][1]:
@@ -235,7 +242,10 @@ def opened(transport, repo: str, runs, role) -> dict:
                                                  required=record.get("conclusion") == "success")
         except Unanswered:
             kept, kept_whole = None, False
-        if not kept_whole or not isinstance(kept, (dict, type(None))):
+        # Past its retention, its record is read as recording nothing, as a Lens's is (decision 0097).
+        if kept is artifacts.EXPIRED:
+            continue
+        if not kept_whole:
             out["unreadable"].add(item["number"])
             continue
         keys = [e["key"] for e in (kept or {}).get("effects", ())

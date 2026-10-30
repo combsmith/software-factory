@@ -115,7 +115,9 @@ OPTIONS="--output-format json --no-session-persistence --strict-mcp-config --dis
 # The model is given no tool: --tools with an empty list. Held apart from OPTIONS so that the empty word survives.
 TOOLS=""
 
-scratch=$(cd "$(mktemp -d)" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d)
+scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/* | "$cfg"/*) rm -rf "$scratch"; refuse "the scratch directory is inside the repo or CONFIG_DIR" ;; esac
 finish() {
     rm -rf "$scratch"

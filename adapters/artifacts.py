@@ -43,6 +43,9 @@ SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
            for p in sorted((pathlib.Path(__file__).resolve().parent.parent / "schemas").glob("*.schema.json"))}
 
 
+# An `applied/1` past the artifact retention: what its Run recorded can no longer be read (issue 346).
+EXPIRED = object()
+
 def _listed(transport, repo: str, github_id: int, seen=None, name: str = NAME):
     """The one artifact named `name`, `outcome` unless asked, the run lists, None if it lists none, or False if the list
     cannot be read. `seen`, where given, is handed the list's answer, so the caller can record what the read cost."""
@@ -80,15 +83,18 @@ def _member(zipped: bytes, member: str = MEMBER, held: int = HELD):
 
 
 def read(transport, repo: str, github_id: int, seen=None, name: str = NAME, member: str = MEMBER,
-         zipped_most: int = ZIPPED, held_most: int = HELD, required: bool = False) -> tuple:
+         zipped_most: int = ZIPPED, held_most: int = HELD, required: bool = False, expired=None) -> tuple:
     """`(bytes, whole)` of the one file of the one artifact named `name` the run GitHub numbers `github_id` lists, read
     in the bounds given: None and whole for a run that lists none, or one past its retention; None and not whole for
     what cannot be read, and for a run that lists none where one is `required`. `outcome`'s bounds unless asked; a
-    wider `zipped_most` is downloaded under `PASSED`."""
+    wider `zipped_most` is downloaded under `PASSED`. `expired`, a list, is told when the artifact is past its
+    retention, so that a caller can tell it from one never uploaded (issue 346)."""
     found = _listed(transport, repo, github_id, seen, name)
     if found is None:
         return None, not required
     if found and found.get("expired") is True:
+        if expired is not None:
+            expired.append(github_id)
         return None, True
     ident, size, digest = (found or {}).get("id"), (found or {}).get("size_in_bytes"), (found or {}).get("digest")
     if not found or found.get("expired") is not False or not isinstance(ident, int) or isinstance(ident, bool) \
@@ -129,8 +135,13 @@ def applied(transport, repo: str, github_id: int, run: str, seen=None, required:
     Read as the outcome is: bounded at every step, its digest checked. The archive is held to an outcome's bound and
     downloaded under `STORED`, since `PASSED` is a pass record's alone; only the file in it may be larger, as JSON
     zipped is (issue 329). `required`, for a Run that succeeded, which uploads one whatever it wrote: one that lists
-    none was deleted, and is not whole (decision 0069)."""
-    held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required)
+    none was deleted, and is not whole (decision 0069). One past its retention is `EXPIRED`, whole: it recorded what
+    can no longer be read, and its Lens's review is asked for again (issue 346)."""
+    told = []
+    held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required,
+                       expired=told)
+    if told:
+        return EXPIRED, True
     if held is None:
         return None, whole
     try:

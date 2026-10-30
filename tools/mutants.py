@@ -940,7 +940,9 @@ MUTANTS = ISSUE + [
      ' or item["type"] != "issue" or item["repo"] != repo:\n            continue',
      ':\n            continue', ('tests.test_adapters',)),
     ("an opening Run's record not read whole is read", 'adapters/applied.py',
-     'if not kept_whole or not isinstance(kept, (dict, type(None))):', 'if not isinstance(kept, (dict, type(None))):', ('tests.test_adapters',)),
+     '        if not kept_whole:\n            out["unreadable"]', '        if False:\n            out["unreadable"]', ('tests.test_adapters',)),
+    ("an opening Run's record past retention is read", 'adapters/applied.py',
+     '        if kept is artifacts.EXPIRED:\n            continue\n', '', ('tests.test_adapters',)),
     ("an open Effect that did not land names a pull request", 'adapters/applied.py',
      'if e["type"] == OPENED and e["state"] in ("applied", "already_applied")]', 'if e["type"] == OPENED]', ('tests.test_adapters',)),
     ("a Run listed before its name is read as no opening Run", 'adapters/applied.py',
@@ -957,6 +959,53 @@ MUTANTS = ISSUE + [
      'acceptance.read(transport, first, accounts, opener, opened)', 'acceptance.read(transport, first, accounts, opener)', ('tests.test_adapters',)),
     ("no Role opens pull requests whatever the configuration", 'adapters/facts.py',
      '    return intent["role"] if isinstance(intent, dict) else None', '    return None', ('tests.test_adapters',)),
+    # Issue 346: a Lens review whose applied/1 is past retention on an open pull request is asked for again.
+    ("a review past retention is never asked for again", 'kernel/derive.py',
+     ' or review_expired(mine, facts, lens))', ')', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a review that started before the expired Run answers it", 'kernel/derive.py',
+     ' and r["started_at"] > last\n', '\n', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("an adjudication answers an expired review", 'kernel/derive.py',
+     'return not any(r["role"] == role and r["intent"] == "review-change" and r["content_id"]',
+     'return not any(r["role"] == role and r["content_id"]', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("the earliest expired Run is the one a review must follow", 'kernel/derive.py',
+     '    last = max(gone)\n', '    last = min(gone)\n', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a review still running answers an expired one", 'kernel/derive.py',
+     '                   and r["status"] == "completed" and r["conclusion"] == "success" and r["started_at"] > last',
+     '                   and r["conclusion"] in ("success", None) and r["started_at"] > last', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a Run named as past retention that is none of the item's is ignored", 'kernel/derive.py',
+     '    if unknown:\n        return {"state": None, "reason": "run_unreadable", "evidence": unknown}\n', '',
+     ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a Run of another item named as past retention is read", 'kernel/derive.py',
+     '{r["run"] for r in runs_on(runs, facts)})', '{r["run"] for r in runs})', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a conflict admits a fix Run past a Run named as past retention that is none of the item's", 'kernel/derive.py',
+     '    if unknown:\n', '    if unknown and facts["mergeable"] is not False:\n', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a Lens's failure admits a fix Run past a Run named as past retention that is none of the item's", 'kernel/derive.py',
+     '    if unknown:\n', '    if unknown and all(c["conclusion"] != "failure" for c in facts["checks"]):\n', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a review of another item answers an expired one", 'kernel/derive.py',
+     'review_expired(mine, facts, lens)', 'review_expired(runs, facts, lens)', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a review that failed answers an expired one", 'kernel/derive.py',
+     ' and r["conclusion"] == "success" and r["started_at"] > last\n', ' and r["started_at"] > last\n', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a review of other content answers an expired one", 'kernel/derive.py',
+     'return not any(r["role"] == role and r["intent"] == "review-change" and r["content_id"] == facts["content_id"]\n',
+     'return not any(r["role"] == role and r["intent"] == "review-change"\n', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("another Lens's review answers an expired one", 'kernel/derive.py',
+     'return not any(r["role"] == role and r["intent"]', 'return not any(r["intent"]', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("another Lens's expired Run asks this Lens's review again", 'kernel/derive.py',
+     'gone = [r["started_at"] for r in runs if r["role"] == role and r["run"] in', 'gone = [r["started_at"] for r in runs if r["run"] in',
+     ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a list of expired Runs that cannot be read is read as none", 'kernel/derive.py',
+     '    if not readable_expired(facts):\n        return {"state": None, "reason": "facts_incomplete", "evidence": ["expired_reviews"]}\n',
+     '', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("a list of expired Runs of anything but run ids is read", 'kernel/derive.py',
+     ' and all(isinstance(run, str) for run in found)', '', ('tests.test_decide.OnlyAPersonEnds',)),
+    ("an applied/1 past retention is one never uploaded", 'adapters/artifacts.py',
+     '    if told:\n        return EXPIRED, True\n', '', ('tests.test_adapters',)),
+    ("the artifact reader never tells an expired one", 'adapters/artifacts.py',
+     '        if expired is not None:\n            expired.append(github_id)\n', '', ('tests.test_adapters',)),
+    ("a Lens Run whose record is past retention is not named", 'adapters/applied.py',
+     '        if done is artifacts.EXPIRED:', '        if False:', ('tests.test_adapters',)),
+    ("the snapshot names no expired Run", 'adapters/facts.py',
+     'if r.get("expired") is True),', 'if False),', ('tests.test_adapters',)),
     # Issue 378: the approving act approves only a pull request open at the commit, and claims none closed under it.
     ('an approval is recovered on a timeline read short', 'harness/approve.py',
      ' \\\n            and (facts.get("complete") or {}).get("timeline") is True:',
@@ -1133,8 +1182,8 @@ MUTANTS = ISSUE + [
      'period or PERIODS[-1][0]',
      'period or "day"', ("tests.test_reconcile",)),
     ('an applied file of any size is read', 'adapters/artifacts.py',
-     'APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required)',
-     'APPLIED_MEMBER, ZIPPED, 10 ** 9, required)', ("tests.test_adapters",)),
+     'APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required,\n',
+     'APPLIED_MEMBER, ZIPPED, 10 ** 9, required,\n', ("tests.test_adapters",)),
     ('a resolver that cannot be read is whole', 'adapters/seen.py',
      '        whole &= resolver is None or (isinstance(ident, int) and not isinstance(ident, bool) and ident > 0)\n',
      '', ("tests.test_reconcile",)),
@@ -1160,8 +1209,8 @@ MUTANTS = ISSUE + [
      ' and len(found) < PAGE and period is not None',
      ' and len(found) < PAGE', ("tests.test_reconcile",)),
     ("an applied archive is downloaded under a pass record's bound", 'adapters/artifacts.py',
-     'APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required)',
-     'APPLIED_MEMBER, APPLIED_MOST, APPLIED_MOST, required)', ("tests.test_adapters",)),
+     'APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required,\n',
+     'APPLIED_MEMBER, APPLIED_MOST, APPLIED_MOST, required,\n', ("tests.test_adapters",)),
     # Issue 299: every actor's write access, in both worlds, read from the permission each serves (decision 0048).
     ("a Lens's write access is read from a permission", 'sim/world.py',
      'in ("human", "machine_user") and "can_write"',
@@ -2095,8 +2144,8 @@ MUTANTS = ISSUE + [
     # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
     # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
     ('the baseline runs the whole suite', 'tools/mutants.py',
-     '    tests = cases(named(muta' 'nts), root)\n    if not tests:',
-     '    tests = ()\n    if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+     '        tests = cases(named(muta' 'nts), root)\n        if not tests:',
+     '        tests = ()\n        if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('the baseline is split by the names its mutants give', 'tools/mutants.py',
      '    tests = cases(na' 'med(mutants), root)\n',
      '    tests = named(mutants)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
@@ -2110,8 +2159,8 @@ MUTANTS = ISSUE + [
      '        return [ru' 'n(root)]\n    parts',
      '        return []\n    parts', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('a test named twice runs twice', 'tools/mutants.py',
-     '    return tuple(di' 'ct.fromkeys(found))\n',
-     '    return tuple(found)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
+     '    return tuple(di' 'ct.fromkeys(found)), read\n',
+     '    return tuple(found), read\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
     ('a name read as no test runs as what it was read as', 'tools/mutants.py',
      '        found.extend(id' 's if whole else [name])\n',
      '        found.extend(ids)\n', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
@@ -2139,6 +2188,69 @@ MUTANTS = ISSUE + [
     ('a red part after the first is passed over', 'tools/mutants.py',
      '    for status, output in runs:\n       ' ' outcome, why = verdict(status, output)',
      '    for status, output in runs[:1]:\n        outcome, why = verdict(status, output)', (RUNNER + "test_a_baseline_that_is_only_slow_says_so_and_one_that_is_red_stops_the_shard",)),
+    # Issue 398: a shard's baseline is its share of what every mutant names, and the whole suite runs in parts.
+    ('the shards share no baseline', 'tools/mutants.py',
+     '    return tests[index::count] if re' 'ad else tests\n', '    return tests\n',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('a tree that cannot be read is shared', 'tools/mutants.py',
+     '    return tests[index::count] if re' 'ad else tests\n', '    return tests[index::count]\n',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ("a tree that cannot be read runs only the shard's own names", 'tools/mutants.py',
+     '    return tests[index::count] if re' 'ad else tests\n', '    return tests[index::count] if read else None\n',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('mutants that name no test share nothing, and run nothing', 'tools/mutants.py',
+     '    if not tests:\n        return No' 'ne\n    return tests[index', '    return tests[index',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('a tree that cannot be read is read as read', 'tools/mutants.py',
+     '        return tuple(dict.fromk' 'eys(tests)), False\n', '        return tuple(dict.fromkeys(tests)), True\n',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('a name kept whole is read as read', 'tools/mutants.py',
+     '        read = read and wh' 'ole\n', '',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('the front door gives no share', 'tools/mutants.py',
+     'workers=at_once, where=where, sh' 'are=share)', 'workers=at_once, where=where)',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('the front door runs the default workers', 'tools/mutants.py',
+     'workers=at_o' 'nce, where=where, share=share)', 'where=where, share=share)',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('a shard is given no share', 'tools/mutants.py',
+     ' counted from 0" % (index, count), None, (mutan' 'ts, index, count)', ' counted from 0" % (index, count), None, None',
+     ("tests.test_tools.Mutants.test_a_shard_is_read_from_the_matrix_or_the_run_stops",)),
+    ("the share given is not the baseline's", 'tools/mutants.py',
+     '    runs = baseline(mutants, root, run, wor' 'kers, share)\n', '    runs = baseline(mutants, root, run, workers)\n',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('a share that holds no test stops the run', 'tools/mutants.py',
+     '    if not pa' 'rts:\n        return []\n', '',
+     (RUNNER + "test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it",)),
+    ('the whole suite runs in one part', 'tools/mutants.py',
+     '    return [methods[at::co' 'unt] for at in range(count)] + [', '    return [methods] + [',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ("the whole suite's slow tests are held in one part", 'tools/mutants.py',
+     '    return [methods[at::co' 'unt] for at in range(count)] + [',
+     '    return [methods[at:at + PART_MOST] for at in range(0, len(methods), PART_MOST)] + [',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a module that cannot be read is left out of the whole suite', 'tools/mutants.py',
+     ' + [(name,) for name in te' 'sts if name in names]', '',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a module that cannot be read is run twice', 'tools/mutants.py',
+     '(test for test in tests if test not in na' 'mes)', '(test for test in tests)',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('the whole suite is one part again', 'tools/mutants.py',
+     'PART_MOST = 1' '00    #', 'PART_MOST = 100000    #',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a module that holds no test is run alone', 'tools/mutants.py',
+     'whole = isinstance(ids, list) and al' 'l(isinstance(i, str)', 'whole = isinstance(ids, list) and ids and all(isinstance(i, str)', (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('a test that is no method is run by its id', 'tools/mutants.py',
+     ' if all(method(c) for c in fo' 'und) else None', '', (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ('the whole suite runs on past a part that failed', 'tools/mutants.py',
+     '        if status != 0:\n            br' 'eak\n', '        if False:\n            break\n',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ("the whole suite's parts run last first", 'tools/mutants.py',
+     '    for part in whole_s' 'uite(cwd):\n', '    for part in reversed(whole_suite(cwd)):\n',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
+    ("a part of the whole suite is not held to the run's limit", 'tools/mutants.py',
+     '_unittest(cwd, timeout, ["-q", "-f", *pa' 'rt])', '_unittest(cwd, TIMEOUT, ["-q", "-f", *part])',
+     (RUNNER + "test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit",)),
     ("a shard drops a mutant", "tools/mutants.py",
      "if place % count" " == index]", "if place % count == index and place]", ("tests.test_tools.Mutants",)),
     ("a mutant is in two shards", "tools/mutants.py",
@@ -2446,7 +2558,7 @@ MUTANTS = ISSUE + [
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"',
      ("tests.test_tools.ReaderTrialScript.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("the reader's output folder is read without its links", "tools/trial_reader_reads.sh",
-     'if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then', 'if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd); then',
+     'if ! parent=$(CDPATH= cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then', 'if ! parent=$(CDPATH= cd "$(dirname -- "$1")" 2>/dev/null && pwd); then',
      ("tests.test_tools.ReaderTrialScript.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused",)),
     ("a mint whose transfer failed is trusted", "tools/trial_reader_reads.sh",
      '{ [ -z "$token" ] || [ "$minted_exit" != 0 ]; }', '[ -z "$token" ]',
@@ -3164,7 +3276,7 @@ MUTANTS = ISSUE + [
      '                    or files[0].compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) \\\n',
      '', ('tests.test_adapters',)),
     ('an outcome past its retention defers', 'adapters/artifacts.py',
-     '    if found and found.get("expired") is True:\n        return None, True\n',
+     '    if found and found.get("expired") is True:\n        if expired is not None:\n            expired.append(github_id)\n        return None, True\n',
      '', ('tests.test_adapters',)),
     ("a refusal over the bound is chained to the storage's error", 'adapters/github.py',
      '        except Unanswered as err:\n            refused = str(err)\n',
@@ -4267,9 +4379,20 @@ MUTANTS = ISSUE + [
      (COVERAGE + "test_an_unreadable_rubric_is_unreadable_never_covered",)),
     # A Finding that cites a criterion has the rubric's severity, never the model's (section 3.14, issue 373).
     ("a cited Finding keeps any severity the model gives it", "kernel/coverage.py",
-     'f.get("severity") != severity[said]', 'f.get("severity") not in t.SEVERITIES',
+     '(f.get("severity"), f.get("category")) != given[said]',
+     '(f.get("severity") in t.SEVERITIES, f.get("category")) != (True, given[said][1])',
      (COVERAGE + "test_a_finding_that_cites_a_criterion_has_the_rubrics_severity",
       "tests.test_apply.Apply.test_an_uncovered_result_writes_nothing")),
+    # Issue 407: a Finding that cites a criterion is of the category the rubric gives it.
+    ('a cited Finding keeps any category the model gives it', 'kernel/coverage.py',
+     '(f.get("severity"), f.get("category")) != given[said]',
+     '(f.get("severity"), f.get("category") in t.CATEGORIES) != (given[said][0], True)', (COVERAGE + "test_a_finding_that_cites_a_criterion_has_the_rubrics_category", "tests.test_apply.Apply.test_an_uncovered_result_writes_nothing")),
+    ('a rubric whose criterion gives no category is read', 'kernel/coverage.py',
+     '\n            and all(c.get("category") in t.CATEGORIES for c in criteria))',
+     ')', (COVERAGE + "test_an_unreadable_rubric_is_unreadable_never_covered",)),
+    ("a cited Finding is held to another criterion's category", 'kernel/coverage.py',
+     'given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}',
+     'given = {c["id"]: (c["severity_if_violated"], rubric["criteria"][0]["category"]) for c in rubric["criteria"]}', (COVERAGE + "test_a_finding_that_cites_a_criterion_has_the_rubrics_category", "tests.test_apply.Apply.test_an_uncovered_result_writes_nothing")),
     # The reads of #405: every Finding is read, and one that cites an id the rubric lacks is uncovered.
     ('a Finding after the first is not read', 'kernel/coverage.py',
      '    for f in findings:\n        said = f.get("criterion") if isinstance(f, dict) else None\n',
@@ -4287,7 +4410,7 @@ MUTANTS = ISSUE + [
      ' and said not in out:\n            out.append(said)\n', ':\n            out.append(said)\n',
      (COVERAGE + "test_a_finding_that_cites_a_criterion_has_the_rubrics_severity",)),
     ("a rubric whose criterion gives no severity is read", "kernel/coverage.py",
-     '\n            and all(c.get("severity_if_violated") in t.SEVERITIES for c in criteria))', ")",
+     '\n            and all(c.get("severity_if_violated") in t.SEVERITIES for c in criteria)\n', "\n",
      (COVERAGE + "test_an_unreadable_rubric_is_unreadable_never_covered",)),
     ("a contradictory Run by a Role no required Lens is is read", "kernel/derive.py",
      'if r["role"] in lenses and contradicts(r, facts)]', "if contradicts(r, facts)]",
@@ -5333,8 +5456,8 @@ MUTANTS = ISSUE + [
      "        if index is not None or count is not None:\n            raise ValueError(\"MUTANTS_SHARD and a path filter",
      "        if False:\n            raise ValueError(\"MUTANTS_SHARD and a path filter", FILTER_TESTS),
     ("a filtered run uses the default workers", "tools/mutants.py",
-     '        return chosen, ", of %s" % ", ".join(sorted(wanted)), FILTER_WORKERS\n',
-     '        return chosen, ", of %s" % ", ".join(sorted(wanted)), None\n', FILTER_TESTS),
+     '        return chosen, ", of %s" % ", ".join(sorted(wanted)), FILTER_WORKERS, None\n',
+     '        return chosen, ", of %s" % ", ".join(sorted(wanted)), None, None\n', FILTER_TESTS),
     ("a path is read only as it is spelt", "tools/mutants.py",
      '        wanted = {re.sub(r"^(\\./)+", "", str(pathlib.PurePosixPath(path))) for path in paths}\n',
      "        wanted = set(paths)\n", FILTER_TESTS),
@@ -5561,7 +5684,7 @@ MUTANTS = ISSUE + [
      '    [[ "$read_head" = "$pushed" ]] && break\n', '    break\n',
      ("tests.test_tools.AppThreads.test_the_app_opens_resolves_and_deletes_and_revokes_its_token",)),
     ("P-52 forgets a token its refused mint carried", "tools/trial_p52_pause.sh",
-     '    # A token the refusal carried all the same is left for the trap, which revokes it and says so (Muse on #364).\n',
+     '    # A token the refusal carried all the same is left set, for the exit trap to revoke; its answer is not shown.\n',
      '    token=""\n',
      ("tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing",)),
     ("the review Role does not permit its check run", "roles/pr-review.json",
@@ -5637,8 +5760,8 @@ MUTANTS = ISSUE + [
     ("a key shaped like a credential is kept", "tools/check_trials.py", "            elif shaped(key):\n", "            elif False:\n",
      ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
     ("the redaction keeps a key shaped like a credential", "tools/redact_trial.py",
-     "            if refused_key(key) or shaped(key) or (isinstance(item, str) and shaped(item)):\n",
-     "            if refused_key(key) or (isinstance(item, str) and shaped(item)):\n",
+     "            if refused_key(key) or _held(key) or (isinstance(item, str) and _held(item)):\n",
+     "            if refused_key(key) or (isinstance(item, str) and _held(item)):\n",
      ("tests.test_tools.Redaction.test_a_drafted_fixture_comes_out_with_no_credential",)),
     ("a CONFIG_DIR is read as written, not as the file system resolves it", P13, 'cfg=$(cd "$2" && pwd -P)\n', 'cfg=$(cd "$2" && pwd)\n',
      (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
@@ -5742,7 +5865,7 @@ MUTANTS = ISSUE + [
      ("tests.test_tools.Repo.test_the_p50_stub_alone_may_serve_and_only_on_loopback",)),
     # The #193 PR 2 ruling, read:pass.pause: P-52's pause read, against a stand-in curl and openssl.
     ('P-52 reads on with no token minted', "tools/trial_p52_pause.sh",
-     'if [ "$minted_status" != 201 ] || [ -z "$token" ]; then', 'if false; then',
+     'if [ "$minted_status" != 201 ]; then', 'if false; then',
      ('tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing',)),
     ('P-52 finishes though its token was not revoked', "tools/trial_p52_pause.sh",
      'if [ "$revoked" != 204 ]; then\n    echo "trial_p52_pause: revoking the token returned', 'if false; then\n    echo "trial_p52_pause: revoking the token returned',
@@ -8761,9 +8884,9 @@ MUTANTS = ISSUE + [
     ('a start that cannot be read is read', 'adapters/applied.py',
      'if not isinstance(when, str) or not TIME.fullmatch(when):', 'if not isinstance(when, str):', ('tests.test_adapters.Recorded.test_a_review_on_other_content_or_before_supersedes_nothing',)),
     ('a later Run that did not succeed supersedes', 'adapters/applied.py',
-     ' and record.get("conclusion") == "success"\n', '\n', ('tests.test_adapters.Recorded.test_only_a_later_review_that_succeeded_supersedes',)),
+     ' and record.get("conclusion") == "success"})', '})', ('tests.test_adapters.Recorded.test_only_a_later_review_that_succeeded_supersedes',)),
     ('a review whose record is past retention supersedes', 'adapters/applied.py',
-     '\n                             and done is not None})', '})', ('tests.test_adapters.Recorded.test_only_a_later_review_that_succeeded_supersedes',)),
+     '"reviewed": False, "expired": True}', '"reviewed": True, "expired": True}', ('tests.test_adapters.Recorded.test_only_a_later_review_that_succeeded_supersedes',)),
     ('a start that is no time is read', 'adapters/applied.py',
      '        datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")\n', '        pass\n', ('tests.test_adapters.Recorded.test_a_review_on_other_content_or_before_supersedes_nothing',)),
     ('an adjudication supersedes', 'adapters/applied.py',
@@ -9038,6 +9161,31 @@ MUTANTS = ISSUE + [
     ('a plan whose time cannot be read starts its cases', 'harness/eval/run.py',
      '    if not isinstance(began, int) or isinstance(began, bool):\n        raise Stop("scratch_unreadable")\n',
      '', ('tests.test_evals.EvalJob.test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run',)),
+    # Issue 365: a set short of a kind fails the run and closes the gate, and no count of a kind is written.
+    ('a set may hold fewer than twenty of a kind', 'harness/eval/__init__.py', 'KIND_LEAST = 20\n', 'KIND_LEAST = 19\n', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+    ('a short split passes the gate', 'harness/eval/__init__.py',
+     '    if document["split_ok"] is not True:\n        return "eval_split_short"\n', '', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    ('a report that cannot say passes the gate', 'harness/eval/__init__.py',
+     'if document["split_ok"] is not True:', 'if document["split_ok"] is False:', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    ('a set of right changes alone holds its split', 'harness/eval/__init__.py',
+     'return min(counted.values()) >= KIND_LEAST', 'return counted["met"] >= KIND_LEAST', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+    ("a report's word may be a count", 'schemas/eval-report.schema.json',
+     '    "split_ok": {\n      "type": [\n        "boolean",\n',
+     '    "split_ok": {\n      "type": [\n        "integer",\n        "boolean",\n', ('tests.test_evals.TheSet.test_a_case_dropped_under_evals_in_any_file_is_caught',)),
+    ('a report may carry a field of its own', 'schemas/eval-report.schema.json',
+     '  "additionalProperties": false,\n  "required": [\n    "schema",\n    "release",',
+     '  "additionalProperties": true,\n  "required": [\n    "schema",\n    "release",', ('tests.test_evals.TheSet.test_a_case_dropped_under_evals_in_any_file_is_caught',)),
+    ('the log says the word of the set', 'harness/eval/__init__.py',
+     'return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])',
+     'return "scored %d of %d cases, %d passed, %s" % (len(assessed), found["count"], written["passed"], written["split_ok"])', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+    ('a report need not say', 'schemas/eval-report.schema.json', '    "passed",\n    "split_ok"\n', '    "passed"\n', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    ('every case is counted as one kind', 'harness/eval/__init__.py', '        counted[said] += 1\n', '        counted["finding"] += 1\n', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+    ('a set of one kind holds its split', 'harness/eval/__init__.py', 'return min(counted.values()) >= KIND_LEAST', 'return max(counted.values()) >= KIND_LEAST', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+    ('the report is not told the split', 'harness/eval/__init__.py', 'report(kept, found, assessed, split_ok(found, place))', 'report(kept, found, assessed)', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+    ('a case not read counts as no kind', 'harness/eval/__init__.py', '        except Stop:\n            return None\n        said = case.get', '        except Stop:\n            continue\n        said = case.get', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+    ('a case of no kind is counted as nothing', 'harness/eval/__init__.py',
+     '        if not isinstance(said, str) or said not in counted:\n            return None\n',
+     '        if not isinstance(said, str) or said not in counted:\n            continue\n', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
     ('the plan keeps no time', 'harness/eval/__init__.py',
      ', "planned_at": now()}',
      '}', ('tests.test_evals.EvalJob.test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run',)),
@@ -9183,9 +9331,220 @@ MUTANTS = ISSUE + [
      'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
      ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
     ("P-50's runner takes an OUT another made after the check", "tools/trial_p50_linux_sandbox.sh",
-     'mkdir -m 700 -- "$1" ||', 'mkdir -p -m 700 -- "$1" ||', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_make_their_output_alone_too",)),
+     'mkdir -m 700 -- "$target" ||', 'mkdir -p -m 700 -- "$target" ||', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_make_their_output_alone_too",)),
     ("P-51's runner takes an OUT another made after the check", "tools/trial_p51_sandbox_writes.sh",
-     'mkdir -m 700 -- "$1" ||', 'mkdir -p -m 700 -- "$1" ||', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_make_their_output_alone_too",)),
+     'mkdir -m 700 -- "$target" ||', 'mkdir -p -m 700 -- "$target" ||', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_make_their_output_alone_too",)),
+    # Issue 367, its private parent: OUT is never made under a directory other users can write to, unless it is sticky.
+    ("P-4's trial makes OUT under a directory its group can write to", "tools/trial_p4_narrow.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-4's trial makes OUT under a directory others can write to", "tools/trial_p4_narrow.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-4's trial makes OUT under a directory another user owns", "tools/trial_p4_narrow.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-4's trial takes a find that fails for a directory none can write to", "tools/trial_p4_narrow.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-4's trial reads OUT's parent alone, not the directories above it", "tools/trial_p4_narrow.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-39's trial of reach makes OUT under a directory its group can write to", "tools/trial_p39_reach.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-39's trial of reach makes OUT under a directory others can write to", "tools/trial_p39_reach.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-39's trial of reach makes OUT under a directory another user owns", "tools/trial_p39_reach.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-39's trial of reach takes a find that fails for a directory none can write to", "tools/trial_p39_reach.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-39's trial of reach reads OUT's parent alone, not the directories above it", "tools/trial_p39_reach.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial makes OUT under a directory its group can write to", "tools/trial_p52_pause.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial makes OUT under a directory others can write to", "tools/trial_p52_pause.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial makes OUT under a directory another user owns", "tools/trial_p52_pause.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial takes a find that fails for a directory none can write to", "tools/trial_p52_pause.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial reads OUT's parent alone, not the directories above it", "tools/trial_p52_pause.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-8's trial makes OUT under a directory its group can write to", "tools/trial_p8_cost.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-8's trial makes OUT under a directory others can write to", "tools/trial_p8_cost.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-8's trial makes OUT under a directory another user owns", "tools/trial_p8_cost.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-8's trial takes a find that fails for a directory none can write to", "tools/trial_p8_cost.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-8's trial reads OUT's parent alone, not the directories above it", "tools/trial_p8_cost.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("the reader's trial makes OUT under a directory its group can write to", "tools/trial_reader_reads.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("the reader's trial makes OUT under a directory others can write to", "tools/trial_reader_reads.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("the reader's trial makes OUT under a directory another user owns", "tools/trial_reader_reads.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("the reader's trial takes a find that fails for a directory none can write to", "tools/trial_reader_reads.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("the reader's trial reads OUT's parent alone, not the directories above it", "tools/trial_reader_reads.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-50's runner makes OUT under a directory its group can write to", "tools/trial_p50_linux_sandbox.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-50's runner makes OUT under a directory others can write to", "tools/trial_p50_linux_sandbox.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-50's runner makes OUT under a directory another user owns", "tools/trial_p50_linux_sandbox.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-50's runner takes a find that fails for a directory none can write to", "tools/trial_p50_linux_sandbox.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-50's runner reads OUT's parent alone, not the directories above it", "tools/trial_p50_linux_sandbox.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-50's runner takes an OUT that ends in a dot", "tools/trial_p50_linux_sandbox.sh",
+     'case "$(basename -- "$1")" in .|..) refuse', 'case "$(basename -- "$1")" in ...) refuse', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot",)),
+    ("P-51's runner makes OUT under a directory its group can write to", "tools/trial_p51_sandbox_writes.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-51's runner makes OUT under a directory others can write to", "tools/trial_p51_sandbox_writes.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-51's runner makes OUT under a directory another user owns", "tools/trial_p51_sandbox_writes.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-51's runner takes a find that fails for a directory none can write to", "tools/trial_p51_sandbox_writes.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-51's runner reads OUT's parent alone, not the directories above it", "tools/trial_p51_sandbox_writes.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-51's runner takes an OUT that ends in a dot", "tools/trial_p51_sandbox_writes.sh",
+     'case "$(basename -- "$1")" in .|..) refuse', 'case "$(basename -- "$1")" in ...) refuse', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot",)),
+    # Issue 406: a mint answered 201 whose token cannot be read is written nowhere, and its token revoked or told.
+    ("P-39's trial of reach reads a 201 it cannot read as no token minted", "tools/trial_p39_reach.sh",
+     '    if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', '    if false; then\n', ("tests.test_tools.ReachScript.test_a_201_whose_token_cannot_be_read_is_written_nowhere_and_is_revoked_or_told",)),
+    ("P-39's trial of reach leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_p39_reach.sh",
+     '        token=$(token_in "$minted")\n        minted=""\n        if [ -n "$token" ]; then\n',
+     '        token=""\n        minted=""\n        if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_a_201_whose_token_cannot_be_read_is_written_nowhere_and_is_revoked_or_told",)),
+    ("P-39's trial of reach drops a token a refused mint held", "tools/trial_p39_reach.sh",
+     '            minted=""\n            echo "trial_p39_reach: $slug: the mint answered', '            token=""\n            minted=""\n            echo "trial_p39_reach: $slug: the mint answered',
+     ("tests.test_tools.ReachScript.test_a_refused_mint_is_shown_redacted_and_a_token_it_holds_is_revoked",)),
+    ("P-8's trial reads a 201 it cannot read as no token minted", "tools/trial_p8_cost.sh",
+     'if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', 'if false; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-8's trial leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_p8_cost.sh",
+     '    token=$(token_in "$minted")\n    minted=""\n    if [ -n "$token" ]; then\n',
+     '    token=""\n    minted=""\n    if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-8's trial drops a token a refused mint held", "tools/trial_p8_cost.sh",
+     '    minted=""\n    echo "trial_p8_cost: $slug: the mint answered', '    token=""\n    minted=""\n    echo "trial_p8_cost: $slug: the mint answered',
+     ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-52's trial reads a 201 it cannot read as no token minted", "tools/trial_p52_pause.sh",
+     'if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', 'if false; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-52's trial leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_p52_pause.sh",
+     '    token=$(token_in "$minted")\n    minted=""\n    if [ -n "$token" ]; then\n',
+     '    token=""\n    minted=""\n    if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-52's trial drops a token a refused mint held", "tools/trial_p52_pause.sh",
+     '    minted=""\n    echo "trial_p52_pause: $slug: the mint answered', '    token=""\n    minted=""\n    echo "trial_p52_pause: $slug: the mint answered',
+     ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-39's trial of reach writes a refused mint's answer to scratch", "tools/trial_p39_reach.sh",
+     '        if shown=$(printf \'%s\\n\' "$minted" |', '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" |',
+     ("tests.test_tools.ReachScript.test_a_refused_mint_is_shown_redacted_and_a_token_it_holds_is_revoked",)),
+    ("P-8's trial writes a refused mint's answer to scratch", "tools/trial_p8_cost.sh",
+     '    if shown=$(printf \'%s\\n\' "$minted" |', '    printf \'%s\\n\' "$minted" > "$scratch/mint"\n    if shown=$(printf \'%s\\n\' "$minted" |',
+     ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("the reader's trial writes a refused mint's answer to scratch", "tools/trial_reader_reads.sh",
+     '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |',
+     ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("the reader's trial drops a token a refused mint held", "tools/trial_reader_reads.sh",
+     '        minted=""\n        echo "trial_reader_reads: $slug: the mint answered', '        token=""\n        minted=""\n        echo "trial_reader_reads: $slug: the mint answered',
+     ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-39's trial of reach loses a token a refused mint's cut answer held", "tools/trial_p39_reach.sh",
+     '        token=$(token_in "$minted")    # a refusal cut short', '        token=""    # a refusal cut short', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-8's trial loses a token a refused mint's cut answer held", "tools/trial_p8_cost.sh",
+     '    token=$(token_in "$minted")    # a refusal cut short', '    token=""    # a refusal cut short', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-52's trial loses a token a refused mint's cut answer held", "tools/trial_p52_pause.sh",
+     '    token=$(token_in "$minted")    # a refusal cut short', '    token=""    # a refusal cut short', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("the reader's trial loses a token a refused mint's cut answer held", "tools/trial_reader_reads.sh",
+     '        token=$(token_in "$minted")    # a refusal cut short', '        token=""    # a refusal cut short', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("the trial-author App keeps what came back with no status line as a head", "tools/trial_as_app.sh",
+     '    head = "(no status line)"', '    pass', ("tests.test_tools.AppThreads.test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked",)),
+    ("the trial-author App looks for a token in the body alone", "tools/trial_as_app.sh",
+     '\\"([^\\"]+)\\"", text)', '\\"([^\\"]+)\\"", body)', ("tests.test_tools.AppThreads.test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked",)),
+    ("a key of JSON is judged by its shape alone", "tools/redact_trial.py",
+     '            if refused_key(key) or _held(key) or', '            if refused_key(key) or shaped(key) or', ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ("a key held for what it holds is named by it", "tools/redact_trial.py",
+     '            shown = KEY_SHAPED if _held(key) else key', '            shown = KEY_SHAPED if shaped(key) else key', ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ("a field's name in quotes escaped once is not read", "tools/redact_trial.py",
+     """QUOTED_FIELD = re.compile(r'\\\\?"([^"\\\\]{1,64})\\\\?"\\s*:')""",
+     """QUOTED_FIELD = re.compile(r'"([^"\\\\]{1,64})"\\s*:')""", ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ("the trial-author App keeps a head no blank line ends whole", "tools/trial_as_app.sh",
+     '    head = text[starts[-1]:].split("\\n", 1)[0]', '    head = text', ("tests.test_tools.AppThreads.test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked",)),
+    ("the trial-author App reads JSON that is not an object as its answer", "tools/trial_as_app.sh",
+     'if not isinstance(data, dict) or not isinstance(data.get("token", ""), str):', 'if False:', ("tests.test_tools.AppThreads.test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked",)),
+    ("a field's name in single quotes is not read", "tools/redact_trial.py",
+     '    return QUOTED_FIELD.findall(line) + SINGLE_FIELD.findall(line)\n', '    return QUOTED_FIELD.findall(line)\n', ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ("a field's name is read across both kinds of quote", "tools/redact_trial.py",
+     "SINGLE_FIELD = re.compile(r\"'([^'\\\\]{1,64})'\\s*:\")", """SINGLE_FIELD = re.compile(r'["\\']([^"\\'\\\\]{1,64})["\\']\\s*:')""",
+     ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ("the trial-author App keeps a mint's answer that is not JSON", "tools/trial_as_app.sh",
+     'if data is not None else "(an answer that is not JSON, not kept)"', 'if data is not None else body', ("tests.test_tools.AppThreads.test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked",)),
+    ("the trial-author App never finds a token in a mint's answer that is not JSON", "tools/trial_as_app.sh",
+     '    token = found.group(1) if found else ""\n', '    token = ""\n', ("tests.test_tools.AppThreads.test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked",)),
+    ("the trial-author App goes on past a mint's answer that is not JSON", "tools/trial_as_app.sh",
+     '    sys.exit(3)\' "$raw")', '    pass\' "$raw")', ("tests.test_tools.AppThreads.test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked",)),
+    # Issue 342: P-54 reads the bound issue under the Controller's grant, with a token narrowed to each permission.
+    ("P-54's first token is narrowed to metadata, not issues", "tools/trial_p54_issue_lookup.sh", 'with_token issues\n', 'with_token metadata\n', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-54's token is not narrowed", "tools/trial_p54_issue_lookup.sh", '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-54's token reaches every repo", "tools/trial_p54_issue_lookup.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-54 mints for another App's installation", "tools/trial_p54_issue_lookup.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-54 keeps a read without its redaction", "tools/trial_p54_issue_lookup.sh",
+     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-54 may ask the Factory's own repo", "tools/trial_p54_issue_lookup.sh", ' or sys.argv[1] == "combsmith/software-factory":', ":", ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
+    ("P-54 takes an issue of any shape", "tools/trial_p54_issue_lookup.sh", '    ""|0*|*[!0-9]*) echo', '    "") echo', ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
+    ("P-54 takes any count of words", "tools/trial_p54_issue_lookup.sh", 'if [ "$#" -ne 4 ]; then', 'if [ "$#" -lt 3 ]; then', ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
+    ("P-54 takes an OUT another made after the check", "tools/trial_p54_issue_lookup.sh", 'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
+    ("P-54 makes OUT under a directory its group can write to", "tools/trial_p54_issue_lookup.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-54 makes OUT under a directory others can write to", "tools/trial_p54_issue_lookup.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-54 makes OUT under a directory another user owns", "tools/trial_p54_issue_lookup.sh", '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-54 takes a find that fails for a directory none can write to", "tools/trial_p54_issue_lookup.sh", '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-54 reads OUT's parent alone, not the directories above it", "tools/trial_p54_issue_lookup.sh", '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-54 reads a mint cut short as none", "tools/trial_p54_issue_lookup.sh",
+     '    if [ "$minted_status" = 201 ] && { [ -z "$token" ] || [ "$minted_exit" != 0 ]; }; then\n', '    if false; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-54 loses a token a refused mint's cut answer held", "tools/trial_p54_issue_lookup.sh",
+     '        token=$(token_in "$minted")    # a refusal cut short', '        token=""    # a refusal cut short', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-54 drops a token a refused mint held", "tools/trial_p54_issue_lookup.sh",
+     '        minted=""\n        echo "trial_p54_issue_lookup: $slug: the mint answered',
+     '        token=""\n        minted=""\n        echo "trial_p54_issue_lookup: $slug: the mint answered', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-54 writes a refused mint's answer to scratch", "tools/trial_p54_issue_lookup.sh",
+     '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |',
+     '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-54 leaves its token live on a signal", "tools/trial_p54_issue_lookup.sh", "trap 'exit 1' HUP INT TERM\n", "", ("tests.test_tools.IssueLookupTrial.test_a_signal_mid_read_revokes_the_live_token",)),
+    ("P-54 goes on past a revocation that fails", "tools/trial_p54_issue_lookup.sh", '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n', ("tests.test_tools.IssueLookupTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so",)),
+    ("P-54 keeps a read curl failed", "tools/trial_p54_issue_lookup.sh", '    if [ "$read_ok" = 0 ] || [ -z "$status" ]; then\n', '    if false; then\n', ("tests.test_tools.IssueLookupTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
+    ("P-54 reads on past a read curl failed", "tools/trial_p54_issue_lookup.sh", '        "$API/$2" > "$scratch/crlf-$n" || read_ok=0\n', '        "$API/$2" > "$scratch/crlf-$n" || true\n', ("tests.test_tools.IssueLookupTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
+    ("P-54 goes on past a capture the redaction refused", "tools/trial_p54_issue_lookup.sh", '> "$out/clean-$n") 2> "$out/redacted-$n"\n', '> "$out/clean-$n") 2> "$out/redacted-$n" || true\n', ("tests.test_tools.IssueLookupTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
+    ("P-54 takes a key file it cannot read", "tools/trial_p54_issue_lookup.sh", 'if [ ! -r "$key" ]; then', 'if false; then', ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
+    ("P-54 trusts a mint whose transfer failed", "tools/trial_p54_issue_lookup.sh", ' || [ "$minted_exit" != 0 ]', '', ("tests.test_tools.IssueLookupTrial.test_a_mint_answered_whole_by_a_transfer_that_failed_is_revoked_and_told",)),
+    ("P-54's curl reads the Maintainer's configuration", "tools/trial_p54_issue_lookup.sh", 'curl -q -sS -i -H @-', 'curl -sS -i -H @-', ("tests.test_tools.IssueLookupTrial.test_curl_reads_no_configuration_of_the_maintainers",)),
+    ("P-54 may write OUT inside the repo", "tools/trial_p54_issue_lookup.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
+    ("P-54's OUT is read without its links", "tools/trial_p54_issue_lookup.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ("tests.test_tools.IssueLookupTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused",)),
+    ("P-54's raw answers may be kept inside the repo", "tools/trial_p54_issue_lookup.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ("tests.test_tools.IssueLookupTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted",)),
+    ("P-54 keeps the first head's status", "tools/trial_p54_issue_lookup.sh", 'head && /^HTTP', 'NR == 1 && /^HTTP', ("tests.test_tools.IssueLookupTrial.test_the_status_kept_is_the_last_heads",)),
+    ("P-54 reads a failed mktemp as where it stands", "tools/trial_p54_issue_lookup.sh",
+     '''made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p54.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-p54.XXXXXX")" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    ("the reader's trial reads a failed mktemp as where it stands", "tools/trial_reader_reads.sh",
+     '''made=$(mktemp -d "${TMPDIR:-/tmp}/trial-reader.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-reader.XXXXXX")" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    ("P-51's runner reads a failed mktemp as where it stands", "tools/trial_p51_sandbox_writes.sh",
+     '''made=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/p51.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/p51.XXXXXX")" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    ("P-50's runner reads a failed mktemp as where it stands", "tools/trial_p50_linux_sandbox.sh",
+     '''made=$(mktemp -d)\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d)" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    ("P-13's trial reads a failed mktemp as where it stands", "tools/trial_p13_cli.sh",
+     '''made=$(mktemp -d)\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d)" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    ("P-26's trial reads a failed mktemp as where it stands", "tools/trial_p26_sandbox.sh",
+     '''made=$(mktemp -d)\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d)" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    ("the context eval reads a failed mktemp as where it stands", "tools/context_eval.sh",
+     '''made=$(mktemp -d)\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d)" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    ("the trial-author App reads a failed mktemp as where it stands", "tools/trial_as_app.sh",
+     '''made=$(mktemp -d)\nout=$(cd "$made" && pwd -P)''', '''out=$(cd "$(mktemp -d)" && pwd -P)''',
+     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
     # Issue 369: a title is looked for from the first opening quote of a run alone, so a line of them is read in time.
     ("every opening quote is tried for a title", "tools/check_context.py",
      'TITLE = re.compile(r"(?:\\"|(?:^|(?<=[”\\n]))[^\\"“”\\n]*“)[^\\"”\\n]{8,}[\\"”]")',
@@ -9212,7 +9571,7 @@ MUTANTS = ISSUE + [
      ('tests.test_tools.Trials.test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen',)),
     # Issue 372: every head of a capture is read as a head, and a body that should be JSON and is not is refused.
     ('a second head is read as the body', "tools/redact_trial.py",
-     '    while gap and (not heads or STATUS.match(body)):\n',
+     '    while gap and (not heads or (STATUS.match(body) and "\\n\\n" in body)):\n',
      '    while gap and not heads:\n',
      ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('a body that should be JSON and is not is kept in part', "tools/redact_trial.py",
@@ -9230,7 +9589,7 @@ MUTANTS = ISSUE + [
     ("a header's value may open as JSON", "tools/redact_trial.py",
      '        if n > first and _opens_json(line.partition(":")[2]):\n', '        if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('a field named for a credential is kept in a text line', "tools/redact_trial.py",
-     '            if any(refused_key(name) for name in QUOTED_FIELD.findall(line)):\n', '            if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
+     '            if any(refused_key(name) for name in _named(line)):\n', '            if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('only the first head says its body is JSON', "tools/redact_trial.py",
      'any(JSON_TYPE.match(line) for head in heads for line in head.splitlines())',
      'heads and any(JSON_TYPE.match(line) for line in heads[0].splitlines())', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
@@ -9243,6 +9602,21 @@ MUTANTS = ISSUE + [
      '    if isinstance(data, str):\n', '    if False:\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     ('a refusal in a body falls back to its lines', "tools/redact_trial.py",
      '    except Unreadable:\n        raise\n', '', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
+    # Issue 406: a string is judged as a line of text is, and what is neither a head nor JSON is refused.
+    ('a string of JSON is judged by its shape alone', "tools/redact_trial.py",
+     '    return shaped(text) or any(ANY_STATUS.match(line)', '    return shaped(text) or False and any(ANY_STATUS.match(line)',
+     ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ("an item of a list is judged by its shape alone", "tools/redact_trial.py",
+     '            if isinstance(item, str) and _held(item):\n', '            if isinstance(item, str) and shaped(item):\n',
+     ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ("a field's string is judged by its shape alone", "tools/redact_trial.py",
+     '(isinstance(item, str) and _held(item))', '(isinstance(item, str) and shaped(item))', ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ('NaN and Infinity are read as JSON', "tools/redact_trial.py",
+     '    data = json.loads(text, parse_constant=_constant)\n', '    data = json.loads(text)\n', ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ('a status line with no blank line after it is read as a head', "tools/redact_trial.py",
+     '(STATUS.match(body) and "\\n\\n" in body)', 'STATUS.match(body)', ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
+    ('a status line shaped like a credential is deleted alone', "tools/redact_trial.py",
+     '        if n == first and shaped(line):\n', '        if False:\n', ('tests.test_tools.Redaction.test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused',)),
     ('text with no status line is read as heads', "tools/redact_trial.py",
      '    if STATUS.match(raw):\n', '    if "\\n\\n" in raw or STATUS.match(raw):\n', ('tests.test_tools.Redaction.test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused',)),
     # Issue 375: a link the agent left in the export is held as a link and never followed.
@@ -9317,6 +9691,57 @@ MUTANTS = ISSUE + [
     ("the redefinitions are read with their quotes escaped twice", "tools/hooks/identity.py",
      "    reasons, quoted = [], _quoted(shell.without_heredocs(text, raw=True))",
      "    reasons, quoted = [], _quoted(shell.without_heredocs(text))", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
+    # Issue 366: an external Lens's approval never counts, in the Kernel or toward the Factory's ruleset.
+    ("an external Lens's approval stands", 'kernel/derive.py',
+     '            rv["by"]["kind"] == t.MACHINE_USER\n', '            rv["by"]["kind"] in (t.MACHINE_USER, "lens", t.APP)\n', ('tests.test_decide.OnlyAPersonEnds.test_an_external_lenss_approval_never_counts',)),
+    ("an App with write judges a change to a model Lens's input", 'kernel/derive.py',
+     '        if is_person(rv["by"]) and rv["state"] != "commented" and rv["dismissed_from"] != "commented":\n',
+     '        if rv["by"]["can_write"] is True and rv["state"] != "commented" and rv["dismissed_from"] != "commented":\n', ('tests.test_decide.OnlyAPersonEnds.test_an_external_lenss_approval_never_counts',)),
+    ("two counted approvals pass", 'tools/check_rulesets.py',
+     'if review.get("required_approving_review_count") != 1 or review.get("require_code_owner_review") is not True \\',
+     'if review.get("require_code_owner_review") is not True \\', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a counted approval needs no code owner's", 'tools/check_rulesets.py',
+     '!= 1 or review.get("require_code_owner_review") is not True \\', '!= 1 \\', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a counted approval needs not be of the last push", 'tools/check_rulesets.py',
+     '                or review.get("require_last_push_approval") is not True \\\n', '                or False \\\n', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("an extra approval for an unattributed change passes", 'tools/check_rulesets.py',
+     '                or review.get("require_extra_approval_for_unattributed_changes") is not False \\\n',
+     '                or False \\\n', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a stale code owner's approval may stand", 'tools/check_rulesets.py',
+     '                or review.get("dismiss_stale_reviews_on_push") is not True or review.get("required_reviewers"):',
+     '                or review.get("required_reviewers"):', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a required reviewer beside the code owner passes", 'tools/check_rulesets.py',
+     ' is not True or review.get("required_reviewers"):\n            problems.append(', ' is not True:\n            problems.append(', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a code owner's approval with none counted is not read", 'tools/check_rulesets.py',
+     'review.get("required_approving_review_count", 0) != 0 or review.get("require_code_owner_review") is True \\',
+     'review.get("required_approving_review_count", 0) != 0 \\', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a required reviewer with none counted is not read", 'tools/check_rulesets.py',
+     ' or review.get("required_reviewers") or review.get("require_last_push_approval") is True \\\n',
+     ' or review.get("require_last_push_approval") is True \\\n', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("an approval of the last push with none counted is not read", 'tools/check_rulesets.py',
+     ' or review.get("required_reviewers") or review.get("require_last_push_approval") is True \\\n',
+     ' or review.get("required_reviewers") \\\n', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("the code owners are read whatever is counted", 'tools/check_rulesets.py',
+     '    if review.get("required_approving_review_count", 0) != 0 or review.get("require_code_owner_review") is True \\\n',
+     '    if True \\\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("an extra approval with none counted is not read", 'tools/check_rulesets.py',
+     '            or review.get("require_extra_approval_for_unattributed_changes") is True:\n', '            or False:\n', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("a count alone is not read", 'tools/check_rulesets.py',
+     'if review.get("required_approving_review_count", 0) != 0 or review.get("require_code_owner_review") is True \\',
+     'if review.get("require_code_owner_review") is True \\', ('tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push',)),
+    ("code owners that cannot be read are none", 'tools/check_rulesets.py',
+     'return [".github/CODEOWNERS cannot be read, so who may approve cannot be told: %s" % err]', 'return []', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("any doubled star is every path", 'tools/check_rulesets.py',
+     'CATCH_ALL = "*"     # the one', 'CATCH_ALL = ("*", "/**", "**")     # the one',
+     ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',
+      'tests.test_tools.Rulesets.test_an_approval_counts_only_a_code_owners_of_the_last_push')),
+    ("the code owners are not read", 'tools/check_rulesets.py', '        problems += _code_owners(root)\n', '', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("an owner beside the team passes", 'tools/check_rulesets.py',
+     '        if words[1:] != [CODE_OWNER]:\n', '        if CODE_OWNER not in words[1:]:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("a path owned by no one passes", 'tools/check_rulesets.py',
+     '        if words[1:] != [CODE_OWNER]:\n', '        if words[1:] and words[1:] != [CODE_OWNER]:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    ("code owners with no catch-all pass", 'tools/check_rulesets.py',
+     '    if not any(words[0] == CATCH_ALL for words in lines):\n', '    if False:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
 ]
 
 
@@ -9324,10 +9749,14 @@ WORKERS = 4        # runs at once, at most, unless told: each is a whole run of 
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
 # The baseline, the run of the unbroken tests before anything is broken, runs the tests the run's own mutants name,
 # method by method, shared among its workers, each part one run held to TIMEOUT, never the whole suite, which outgrew
-# TIMEOUT on a CI runner (issue 396). A shard names most of the suite's tests, since its mutants name whole classes
-# that the other shards' do too: the room under TIMEOUT is the workers', not the shard's.
+# TIMEOUT on a CI runner (issue 396). A shard runs a disjoint share of what every shard's mutants name, so that its
+# baseline shrinks as shards are added (issue 398).
+# The whole suite, which a mutant runs once the tests it names pass, runs in parts of at most PART_MOST tests dealt in
+# turn, one after another, each one run held to TIMEOUT, so that no run grows with the suite (issue 398). On a loaded
+# desk, where the suite took 940 s, its 1,311 tests made 14 parts of 9 to 124 s.
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
 # issue 217): it breaks at most FILTER_MOST mutants, FILTER_WORKERS at a time, and never a shard.
+PART_MOST = 100    # test methods in one run of the whole suite, at most
 FILTER_MOST = 40
 FILTER_WORKERS = 2
 # What unittest prints last when a test failed or raised. Without it, the run broke some other way.
@@ -9360,8 +9789,25 @@ def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only=N
         if status != 0:
             return status, output
     # Every module, named from the top so that a test's id is its dotted path, as `first` and `only` name it, the slow
-    # ones last (issue 217).
-    return _unittest(cwd, timeout, ["-q", "-f", *modules(cwd)])
+    # ones last (issue 217), in parts, the next run only when the last passed (issue 398).
+    status, output = 0, ""
+    for part in whole_suite(cwd):
+        status, output = _unittest(cwd, timeout, ["-q", "-f", *part])
+        if status != 0:
+            break
+    return status, output
+
+
+def whole_suite(cwd: pathlib.Path) -> list:
+    """The whole suite in `cwd` as the runs it is made in: its test methods, as `cases` reads them there, dealt in turn
+    into as few parts as hold at most PART_MOST each, each in the order `modules` gives, so that no run of the whole
+    suite grows with it and its slow tests, which stand together, are spread among the parts. A module that cannot be
+    read method by method is a part of its own, after them (issue 398)."""
+    names = tuple(modules(cwd))
+    tests = cases(names, cwd)
+    methods = tuple(test for test in tests if test not in names)
+    count = -(-len(methods) // PART_MOST)
+    return [methods[at::count] for at in range(count)] + [(name,) for name in tests if name in names]
 
 
 def modules(cwd: pathlib.Path) -> list:
@@ -9596,8 +10042,9 @@ def shard(mutants: list, index: int, count: int) -> list:
 
 
 def selected(environ, paths: list = (), mutants: list = None) -> tuple:
-    """(the mutants this run breaks, the words its summary ends with, how many run at once or None for the default),
-    read from MUTANTS_SHARD and MUTANTS_SHARDS, or from `paths`, the targets a filtered run is given.
+    """(the mutants this run breaks, the words its summary ends with, how many run at once or None for the default,
+    and a shard's share of the baseline for `shared`, or None for a run with no shard), read from MUTANTS_SHARD and
+    MUTANTS_SHARDS, or from `paths`, the targets a filtered run is given.
 
     CI sets both from the matrix, the shard counted from 0. Neither set and no path: every mutant, as a run at a desk.
     With paths, the mutants whose target is one of them, at most FILTER_MOST of them, FILTER_WORKERS at a time, and no
@@ -9622,9 +10069,9 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
         if len(chosen) > FILTER_MOST:
             raise ValueError("%d mutants target %s; a filtered run breaks at most %d: give fewer paths"
                              % (len(chosen), ", ".join(sorted(wanted)), FILTER_MOST))
-        return chosen, ", of %s" % ", ".join(sorted(wanted)), FILTER_WORKERS
+        return chosen, ", of %s" % ", ".join(sorted(wanted)), FILTER_WORKERS, None
     if index is None and count is None:
-        return mutants, "", None
+        return mutants, "", None, None
     if not all(isinstance(said, str) and re.fullmatch(r"[0-9]+", said) for said in (index, count)):
         raise ValueError("MUTANTS_SHARD is %r and MUTANTS_SHARDS is %r; set both, to whole numbers, or neither"
                          % (index, count))
@@ -9635,7 +10082,7 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
     chosen = shard(mutants, index, count)
     if not chosen:
         raise ValueError("shard %d of %d holds no mutant" % (index, count))
-    return chosen, ", in shard %d of %d counted from 0" % (index, count), None
+    return chosen, ", in shard %d of %d counted from 0" % (index, count), None, (mutants, index, count)
 
 
 def named(mutants: list) -> tuple:
@@ -9644,16 +10091,22 @@ def named(mutants: list) -> tuple:
 
 
 # Read in a child, in the tree the baseline runs in, by unittest's own loader: the ids of the test methods each name
-# holds, an empty list for one it cannot read.
+# holds, an empty list for one that holds none, and null for one it cannot read, or one that holds a test that is not
+# a method of a TestCase by its own id, as a doctest a load_tests adds is: such a name runs only whole (issue 398).
 LISTING = """import json, sys, unittest
 def flat(s):
     return [c for i in s for c in flat(i)] if isinstance(s, unittest.TestSuite) else [s]
+def method(c):
+    kind = type(c)
+    return isinstance(c, unittest.TestCase) and c.id() == "%s.%s.%s" % (kind.__module__, kind.__qualname__,
+                                                                      getattr(c, "_testMethodName", ""))
 said = []
 for name in json.loads(sys.stdin.read()):
     try:
-        said.append([c.id() for c in flat(unittest.defaultTestLoader.loadTestsFromName(name))])
+        found = flat(unittest.defaultTestLoader.loadTestsFromName(name))
+        said.append([c.id() for c in found] if all(method(c) for c in found) else None)
     except Exception:
-        said.append([])
+        said.append(None)
 print(json.dumps(said))
 """
 
@@ -9663,6 +10116,11 @@ def cases(tests: tuple, root: pathlib.Path) -> tuple:
     each once, so that a class or module named whole is shared among the baseline's parts and does not hold one of
     them. A name read as no test, or as any id that is not a test under tests/, is kept whole, for its own run to
     find; and every name is, where the tree cannot be read at all (issue 396)."""
+    return read_cases(tests, root)[0]
+
+
+def read_cases(tests: tuple, root: pathlib.Path) -> tuple:
+    """(`cases`, and whether every name was read method by method: False where any is kept whole)."""
     try:
         listed = subprocess.run([sys.executable, "-c", LISTING], cwd=str(root), input=json.dumps(list(tests)),
                                 capture_output=True, text=True, timeout=TIMEOUT,
@@ -9671,30 +10129,54 @@ def cases(tests: tuple, root: pathlib.Path) -> tuple:
     except (OSError, ValueError, subprocess.SubprocessError):
         said = None
     if not isinstance(said, list) or len(said) != len(tests):
-        return tuple(dict.fromkeys(tests))
-    found = []
+        return tuple(dict.fromkeys(tests)), False
+    found, read = [], True
     for name, ids in zip(tests, said):
-        whole = isinstance(ids, list) and ids and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
+        # A module that holds no test, as one of shared helpers, is read as none: nothing of it runs, alone or whole.
+        whole = isinstance(ids, list) and all(isinstance(i, str) and i.startswith("tests.") for i in ids)
         found.extend(ids if whole else [name])
-    return tuple(dict.fromkeys(found))
+        read = read and whole
+    return tuple(dict.fromkeys(found)), read
 
 
-def baseline(mutants: list, root: pathlib.Path, run, workers: int) -> list:
+def baseline(mutants: list, root: pathlib.Path, run, workers: int, share: tuple = None) -> list:
     """(exit status, output) of each run of the unbroken tests before anything is broken: the tests `mutants` name,
     method by method, in `workers` parts run at once, so that the baseline is shared among the run's workers and is
-    never one run of the whole suite (issue 396). A list that names no test runs the whole suite, once."""
-    tests = cases(named(mutants), root)
-    if not tests:
-        return [run(root)]
+    never one run of the whole suite (issue 396). A list that names no test runs the whole suite, once. A shard runs
+    its `share` of what every mutant names, which may hold no test, instead (issue 398)."""
+    tests = shared(share, root)
+    if tests is None:
+        tests = cases(named(mutants), root)
+        if not tests:
+            return [run(root)]
     parts = [tests[at::workers] for at in range(min(workers, len(tests)))]
+    if not parts:
+        return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(parts)) as pool:
         return list(pool.map(lambda part: run(root, only=part), parts))
 
 
-def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "") -> int:
+def shared(share: tuple, root: pathlib.Path):
+    """A shard's share of the baseline, given `share`, (every mutant of the run, the shard, the count of shards): of
+    the tests every mutant names, method by method as `cases` reads them in `root`, each `count`-th from the shard's
+    place, so that across the shards each runs once, whichever shard's mutants name it, and a shard's share shrinks as
+    shards are added (issue 398). Where any name cannot be read method by method, one shard's list cannot be told to
+    be another's, so the shard runs all of them, each read as far as it can be, and no named test is left in no
+    share. None with no share, and for mutants that name no test."""
+    if share is None:
+        return None
+    every, index, count = share
+    tests, read = read_cases(named(every), root)
+    if not tests:
+        return None
+    return tests[index::count] if read else tests
+
+
+def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "",
+         share: tuple = None) -> int:
     mutants = MUTANTS if mutants is None else mutants
     workers = workers or min(os.cpu_count() or 1, WORKERS)
-    runs = baseline(mutants, root, run, workers)
+    runs = baseline(mutants, root, run, workers, share)
     # A test that fails is told first, since it is a fault whatever else is slow, a part that ran out of time after
     # one failed among them; a part that only ran out of time failed no test that ran, and says so, so that a slow
     # baseline is never read as a red one.
@@ -9723,10 +10205,15 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
     return 0 if killed == len(mutants) else 1
 
 
-if __name__ == "__main__":
+def front(environ, paths: list, run=suite, root: pathlib.Path = ROOT, mutants: list = None) -> int:
+    """`python3 -m tools.mutants [PATH...]`: the run `selected` reads from `environ` and `paths`, as `main` runs it."""
     try:
-        chosen, where, at_once = selected(os.environ, sys.argv[1:])
+        chosen, where, at_once, share = selected(environ, paths, mutants)
     except ValueError as err:
         print(err)
-        sys.exit(1)
-    sys.exit(main(chosen, where=where, workers=at_once))
+        return 1
+    return main(chosen, root, run, workers=at_once, where=where, share=share)
+
+
+if __name__ == "__main__":
+    sys.exit(front(os.environ, sys.argv[1:]))

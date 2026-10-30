@@ -139,7 +139,9 @@ denied_address=$(dig +short +time=5 +tries=2 A "$DENIED_HOST" 2>/dev/null | grep
 # The write the probe tries outside its work directory, in the home directory. A unique name, removed on every path.
 outside="$home/.p26-write-probe-$$"
 [[ ! -e "$outside" ]] || refuse "$outside exists; remove it first"
-scratch=$(cd "$(mktemp -d)" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d)
+scratch=$(cd "$made" && pwd -P)
 finish() {
     rm -rf "$scratch"
     rm -f "$outside"

@@ -920,6 +920,62 @@ class OnlyAPersonEnds(unittest.TestCase):
         d = go(facts(queue=True, reviews=APPROVED, threads=[minor]), REVIEWED)
         self.assertEqual((d["state"], d["outcome"]), ("queued", "nothing"))
 
+    def test_a_lens_review_past_retention_is_asked_for_again(self):  # issue 346, decision 0069
+        # A Lens Run whose applied/1 is past the artifact retention recorded what can no longer be read, so its threads
+        # cannot be joined to their Findings. Its Lens's review of the current content is asked for again, after it,
+        # and the expired record is never read as a whole one.
+        old = run(name="r_0OLD01", at=at(10))
+        expired = facts(expired_reviews=["r_0OLD01"])
+        d = go(expired, [old])
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["admit"]["intent"]),
+                         ("verifying", "awaiting_review", ["pr-review"], "admit", "review-change"))
+        # A review of the current content that succeeded after it answers it; with no record expired, the expired
+        # Run's own review stands as before.
+        fresh = run(name="r_0NEW01", at=at(20))
+        self.assertEqual(go(expired, [old, fresh])["action"], "issue_approval")
+        self.assertEqual(go(facts(), [old])["action"], "issue_approval")
+        # Of two Runs past retention, the later is the one a fresh review must follow.
+        later_gone = run(name="r_0OLD02", at=at(30))
+        d = go(facts(expired_reviews=["r_0OLD01", "r_0OLD02"]), [old, fresh, later_gone])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
+        # While a thread of the expired Run is open, its category can no longer be joined, so the item defers on the
+        # thread first, and admits nothing: a person resolves it (issue 420, decision 0096's limit).
+        open_old = thread(category=None, severity=None)
+        self.assertEqual(go(dict(expired, threads=[open_old]), [old])["reason"], "thread_unreadable")
+        # Another Lens's Run past retention asks that Lens's review again, never this one's.
+        other = run(name="r_0OTH01", role="security-review", at=at(15))
+        self.assertEqual(go(facts(expired_reviews=["r_0OTH01"]), [old, other])["action"], "issue_approval")
+        # The other side: a later review that failed, or of other content, or one that started before the expired Run,
+        # answers nothing; nor does another Lens's.
+        for later in (dict(fresh, conclusion="failure", outcome="environment"), dict(fresh, content_id="sha256:bbbb"),
+                      dict(fresh, started_at=at(5)), dict(fresh, role="security-review"),
+                      dict(fresh, intent="adjudicate-findings")):
+            d = go(expired, [old, later])
+            self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"), later)
+        # A review of the current content still running answers nothing yet: the item waits on it.
+        d = go(expired, [old, dict(fresh, status="in_progress", conclusion=None)])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "nothing"))
+        # A Run named as past retention that is no Run of this item contradicts the records: nothing is read from it,
+        # a Run of another pull request among them.
+        elsewhere = dict(fresh, run="r_0ELSE1", item=dict(fresh["item"], number=fresh["item"]["number"] + 1))
+        for named in (["r_0GONE1"], ["r_0OLD01", "r_0GONE1"], [""], ["r_0ELSE1"]):
+            d = go(facts(expired_reviews=named), [old, fresh, elsewhere])
+            self.assertEqual((d["state"], d["reason"]), (None, "run_unreadable"), named)
+        # Nor is a fix Run admitted past it: a conflict and a Lens's failure each admit one, so it is read before them.
+        for odd in ({"mergeable": False}, {"checks": with_check(0, "failure")}):
+            d = go(facts(expired_reviews=["r_0GONE1"], **odd), [old, fresh])
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "run_unreadable", "defer"), odd)
+        # A review of another pull request answers nothing of this one's.
+        d = go(expired, [old, dict(elsewhere, run="r_0ELSE2")])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
+        # A fact that cannot be read is no list of runs: nothing converges on it.
+        for odd in (None, "r_0OLD01", [7], [None]):
+            d = go(dict(expired, expired_reviews=odd), [old, fresh])
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["expired_reviews"]),
+                             odd)
+        missing = {k: v for k, v in expired.items() if k != "expired_reviews"}
+        self.assertEqual(go(missing, [old, fresh])["reason"], "facts_incomplete")
+
     def test_a_thread_whose_resolution_cannot_be_read_defers(self):  # I-13
         # A thread says whether it is resolved, exactly, and a resolved one says who resolved it: without them, a
         # person's thread could be read as closed. One that is not resolved names nobody.
@@ -951,6 +1007,29 @@ class OnlyAPersonEnds(unittest.TestCase):
         self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
         # The other side: the machine user's approval of this content stands.
         self.assertEqual(go(facts(reviews=[review(**MACHINE)]), REVIEWED)["action"], "enqueue")
+
+    def test_an_external_lenss_approval_never_counts(self):  # issue 366
+        # CodeRabbit approves once its threads are resolved, by whoever resolves them (P-25). Its approval, or that of
+        # any App that is no Role's, with write access and of this content, neither stands, nor judges a change to a
+        # model Lens's input, nor answers a person's request for changes.
+        externals = (dict(ADVISORY, can_write=True), {"kind": "app", "name": "coderabbitai[bot]", "can_write": True},
+                     {"kind": "lens", "name": "cubic", "can_write": True})
+        own = changing(**AGENT, changed_paths=["roles/pr-review.json"])
+        asked = review(state="changes_requested", **MAINTAINER)
+        for who in externals:
+            with self.subTest(who=who):
+                self.assertIsNone(derive.standing_approval(facts(reviews=[review(**who)]), CONFIG))
+                d = go(facts(reviews=[review(**who)]), REVIEWED)
+                self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
+                self.assertFalse(derive.judged_by_a_person(dict(own, reviews=[review(**who)])))
+                d = go(facts(**AGENT, reviews=[asked, review(**who, at=at(30))]), ANSWERED)
+                self.assertEqual((d["reason"], d["evidence"]), ("awaiting_human", ["don-petry"]))
+        # The other side: the machine user's approval stands, a person's judges, and that person's answers their own
+        # request.
+        self.assertIsNotNone(derive.standing_approval(facts(reviews=[review(**MACHINE)]), CONFIG))
+        self.assertTrue(derive.judged_by_a_person(dict(own, reviews=[review(kind="human", name="a-colleague")])))
+        d = go(facts(**AGENT, reviews=[asked, review(**MAINTAINER, at=at(30))]), ANSWERED)
+        self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
 
     def test_only_a_person_ends_a_request_for_changes(self):  # L-17
         asked = review(state="changes_requested", **MAINTAINER)
