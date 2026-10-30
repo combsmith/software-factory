@@ -19,6 +19,8 @@ KERNEL = [changed("kernel/derive.py")]
 APPLYING = ["PR-1", "PR-2", "PR-3", "PR-4"]
 # The severity a Finding that cites each criterion has: the rubric's (section 3.14).
 SEVERITY = {c["id"]: c["severity_if_violated"] for c in RUBRIC["criteria"]}
+# And the category, the rubric's too (section 3.14, issue 407).
+CATEGORY = {c["id"]: c["category"] for c in RUBRIC["criteria"]}
 
 
 def entry(criterion: str, verdict: str = "met", reason=None) -> dict:
@@ -32,9 +34,11 @@ def every(*over) -> list:
     return [given.get(c, entry(c)) for c in APPLYING] + [e for c, e in given.items() if c not in APPLYING]
 
 
-def finding(criterion, severity=None) -> dict:
-    """A Finding of the Result, citing `criterion`, or none, at `severity`, or else the one the rubric gives it."""
-    return {"criterion": criterion, "severity": severity or SEVERITY.get(criterion, "minor")}
+def finding(criterion, severity=None, category=None) -> dict:
+    """A Finding of the Result, citing `criterion`, or none, at `severity` and of `category`, or else those the rubric
+    gives it."""
+    return {"criterion": criterion, "severity": severity or SEVERITY.get(criterion, "minor"),
+            "category": category or CATEGORY.get(criterion, "delivery")}
 
 
 def rubric_with(criterion: str, **over) -> dict:
@@ -160,18 +164,51 @@ class Coverage(unittest.TestCase):
         for severity in t.SEVERITIES:
             self.assertEqual(covered(RUBRIC, every(), [finding(None, severity)], KERNEL), ("covered", []), severity)
 
+    def test_a_finding_that_cites_a_criterion_has_the_rubrics_category(self):  # section 3.14, issue 407
+        # A Finding that cites a criterion is of the category the rubric gives it, as it has its severity: relabelled,
+        # a Finding that cites the security criterion would escape the guards a security Finding is held to, its
+        # decline refused among them. Another category, or none, leaves the criterion uncovered, whether it applies or
+        # not; the category is never rewritten from the rubric.
+        for c in CATEGORY:
+            said = every(entry(c, "finding")) if c in APPLYING else every()
+            self.assertEqual(covered(RUBRIC, said, [finding(c)], KERNEL), ("covered", []), c)
+            for other in [k for k in t.CATEGORIES if k != CATEGORY[c]] + ["Security", "", None, 2]:
+                given = dict(finding(c), category=other)
+                self.assertEqual(covered(RUBRIC, said, [given], KERNEL), ("uncovered", [c]), (c, other))
+            bare = {k: v for k, v in finding(c).items() if k != "category"}
+            self.assertEqual(covered(RUBRIC, said, [bare], KERNEL), ("uncovered", [c]), c)
+            # Wrong in its severity and its category, it is named once.
+            wrong = next(s for s in t.SEVERITIES if s != SEVERITY[c])
+            other = next(k for k in t.CATEGORIES if k != CATEGORY[c])
+            self.assertEqual(covered(RUBRIC, said, [finding(c, wrong, other)], KERNEL), ("uncovered", [c]), c)
+        # The security criterion's Finding relabelled, as the case on issue 407 has it.
+        security = next(c for c in CATEGORY if CATEGORY[c] == "security")
+        said = every(entry(security, "finding"))
+        self.assertEqual(covered(RUBRIC, said, [finding(security, category="functional")], KERNEL),
+                         ("uncovered", [security]))
+        # The other side: a Finding off the rubric, citing none, is of the category it gives.
+        for category in t.CATEGORIES:
+            self.assertEqual(covered(RUBRIC, every(), [finding(None, category=category)], KERNEL), ("covered", []),
+                             category)
+
     def test_an_unreadable_rubric_is_unreadable_never_covered(self):  # I-13
         # The Factory's fault, never the item's: whatever the Result says, nothing is read as covered.
-        # Each criterion with an id at fault gives a severity, so that its id alone is what cannot be read.
-        major = {"severity_if_violated": "major"}
+        # Each criterion with an id at fault gives a severity and a category, so that its id alone is what cannot be read.
+        major = {"severity_if_violated": "major", "category": "functional"}
         broken = [None, [], {}, {"criteria": []}, {"criteria": "PR-1"}, {"criteria": [None]},
                   {"criteria": [dict(major, statement="no id")]}, {"criteria": [dict(major, id="pr-1")]},
                   {"criteria": [dict(major, id=1)]}, {"criteria": [dict(major, id="PR-1"), dict(major, id="PR-1")]},
                   {"criteria": [dict(major, id="-1")]}, {"criteria": [dict(major, id="PR-x")]},
-                  # A criterion with no severity that a Finding citing it could be given.
-                  {"criteria": [{"id": "PR-1"}]}, {"criteria": [{"id": "PR-1", "severity_if_violated": "Major"}]},
-                  {"criteria": [{"id": "PR-1", "severity_if_violated": None}]},
-                  rubric_with("PR-2", severity_if_violated=None), rubric_with("PR-5", severity_if_violated="high")]
+                  # A criterion with no severity that a Finding citing it could be given, each with a category, so that
+                  # its severity alone is what cannot be read.
+                  {"criteria": [{"id": "PR-1", "category": "functional"}]},
+                  {"criteria": [{"id": "PR-1", "severity_if_violated": "Major", "category": "functional"}]},
+                  {"criteria": [{"id": "PR-1", "severity_if_violated": None, "category": "functional"}]},
+                  rubric_with("PR-2", severity_if_violated=None), rubric_with("PR-5", severity_if_violated="high"),
+                  # Nor one with no category among the Factory's (issue 407).
+                  {"criteria": [{"id": "PR-1", "severity_if_violated": "major"}]},
+                  rubric_with("PR-2", category=None), rubric_with("PR-5", category="Security"),
+                  rubric_with("PR-3", category="style")]
         for rubric in broken:
             for said in (every(), []):
                 self.assertEqual(covered(rubric, said, [], KERNEL), ("unreadable", []), (rubric, len(said)))
@@ -181,7 +218,7 @@ class Coverage(unittest.TestCase):
                       None, "kernel/derive.py", [None], [{"path": "kernel/derive.py"}], [changed(None)]):
             self.assertEqual(covered(RUBRIC, every(), [], paths), ("unreadable", []), paths)
         # The other side: a rubric of one criterion that applies to everything, and no paths at all, are read.
-        one = {"criteria": [{"id": "X-1", "severity_if_violated": "info"}]}
+        one = {"criteria": [{"id": "X-1", "severity_if_violated": "info", "category": "delivery"}]}
         self.assertEqual(covered(one, [entry("X-1")], [], []), ("covered", []))
         self.assertEqual(covered(one, [], [], []), ("uncovered", ["X-1"]))
         two = {"criteria": [dict(major, id="PR-1"), dict(major, id="PR-2")]}
