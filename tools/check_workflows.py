@@ -1254,10 +1254,13 @@ def _on_items(text: str, on: dict) -> list:
             break       # the next key beside on:, at its own indent however far the root stands in (Muse's read)
         section.append((lead, number, item, raw.strip()))
     events = min((lead for lead, _, _, _ in section), default=0)
-    found, key = [], None
+    found, key, compact = [], None, False
     for lead, number, item, line in section:
         if lead > events:
-            # A list begun deeper under schedule: is its list, and a compact item after it no part of it (Codex on #428).
+            # A list begun deeper under schedule: is its list, and a compact item after it no part of it; a deeper line
+            # after its compact crons is no part of theirs (Codex on #428).
+            if key == COMPACT_EVENT and compact:
+                found.append(number)
             key = None if key == COMPACT_EVENT else key
         elif not item:
             name, _, rest = line.partition(":")
@@ -1266,6 +1269,8 @@ def _on_items(text: str, on: dict) -> list:
             key = name.strip() if bare else line
         elif key != COMPACT_EVENT or not COMPACT_ITEM.match(line):
             found.append(number)
+        else:
+            compact = True
     return found
 
 

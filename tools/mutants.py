@@ -9325,6 +9325,8 @@ MUTANTS = ISSUE + [
      '        elif not item:\n', '        elif not item and key is None:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ('a list begun deeper under schedule: is no end of it', 'tools/check_workflows.py',
      '            key = None if key == COMPACT_EVENT else key\n', '            pass\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("a deeper line after a schedule's compact crons is theirs", 'tools/check_workflows.py',
+     '            if key == COMPACT_EVENT and compact:\n                found.append(number)\n', '', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
 ]
 
 
