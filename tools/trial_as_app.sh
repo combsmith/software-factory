@@ -49,7 +49,9 @@ done
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 [ -f "$root/tools/redact_trial.py" ] || { echo "run the copy of this script in a checkout of software-factory" >&2; exit 2; }
-out=$(cd "$(mktemp -d)" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d)
+out=$(cd "$made" && pwd -P)
 case "$out/" in "$root"/*) echo "the scratch directory is inside the repo" >&2; exit 2 ;; esac
 
 jwt="" token="" n=0 id="" raw="" pushed="" read_head=""

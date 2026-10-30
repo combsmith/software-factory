@@ -86,7 +86,9 @@ cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 [[ -f "$4" ]] || refuse "no stub at '$4'"
 stub=$(cd "$(dirname "$4")" && pwd -P)/$(basename "$4")
 
-scratch=$(cd "$(mktemp -d)" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d)
+scratch=$(cd "$made" && pwd -P)
 cfg="$scratch/cfg"
 mkdir "$cfg"
 outside="$HOME/.p50-write-probe-$$"
