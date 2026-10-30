@@ -7934,6 +7934,67 @@ class Rulesets(unittest.TestCase):
         self.main["code_scanning"]["code_scanning_tools"][0]["tool"] = "verify"    # a Lens a workflow runs
         self.assertTrue(caught(self.run_on(), "names the tool 'verify'"))
 
+    def counted(self, owners: str = None) -> list:
+        """The check on a `main` ruleset that counts one approval, of a code owner, of the last push, as issue 198's
+        switch makes it, beside `owners` as `.github/CODEOWNERS`, the repo's own by default."""
+        review = self.main["pull_request"]
+        review.update(required_approving_review_count=1, require_code_owner_review=True, require_last_push_approval=True,
+                      dismiss_stale_reviews_on_push=True, required_reviewers=[],
+                      require_extra_approval_for_unattributed_changes=False)
+        owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                        "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
+
+    def test_an_approval_counts_only_a_code_owners_of_the_last_push(self):  # issue 366
+        # The switch issue 198 makes is let through: the machine user's team owns every path.
+        self.assertEqual(self.counted(), [])
+        # Each other way of counting could be met by CodeRabbit's approval: two approvals, a code owner's and an App's;
+        # none of a code owner; not of the last push; a stale code owner's left standing beside an App's of the last
+        # push; a required reviewer's.
+        for key, value in (("required_approving_review_count", 2), ("require_code_owner_review", False),
+                           ("require_last_push_approval", False), ("dismiss_stale_reviews_on_push", False),
+                           # One more approval where no person made the change, which an App's then meets.
+                           ("require_extra_approval_for_unattributed_changes", True),
+                           ("required_reviewers", [{"minimum_approvals": 1, "file_patterns": ["*"],
+                                                    "reviewer": {"id": 1, "type": "Team"}}])):
+            with self.subTest(key=key):
+                self.counted()
+                self.main["pull_request"][key] = value
+                self.assertTrue(caught(self.run_on(), "counts an approval otherwise than as one"), key)
+        # A ruleset counts an approval when it asks for a code owner's, a required reviewer's, or one of the last push,
+        # with a count of none: GitHub asks for an approval by someone other than the last pusher, which an App's meets.
+        for key, value in (("required_approving_review_count", 1), ("require_code_owner_review", True),
+                           ("require_last_push_approval", True), ("require_extra_approval_for_unattributed_changes", True),
+                           ("required_reviewers", [{"minimum_approvals": 1, "file_patterns": ["*"],
+                                                    "reviewer": {"id": 1, "type": "Team"}}])):
+            with self.subTest(none_counted=key):
+                self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
+                                                 required_reviewers=[], require_last_push_approval=False,
+                                                 require_extra_approval_for_unattributed_changes=False)
+                self.main["pull_request"][key] = value
+                self.assertTrue(caught(self.run_on(), "counts an approval otherwise than as one"), key)
+
+    def test_the_code_owners_are_the_machine_users_team_on_every_path(self):  # issue 366
+        for owners, words in (("docs/ @combsmith/org-leads\n", "has no line for every path"),
+                              ("* @combsmith/org-leads\ndocs/ @someone-else\n", "docs/ is owned by @someone-else"),
+                              ("* @combsmith/org-leads @coderabbitai\n", "not by @combsmith/org-leads alone"),
+                              ("* @combsmith/org-leads\ndocs/\n", "docs/ is owned by no one"),
+                              # Only `*` is read as every path: another spelling is refused, never guessed at.
+                              ("/** @combsmith/org-leads\n", "has no line for every path")):
+            with self.subTest(owners=owners):
+                self.assertTrue(caught(self.counted(owners), words), (owners, self.counted(owners)))
+        # Code owners that cannot be read, under a ruleset that counts an approval, are a problem, never none.
+        self.counted()
+        self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                                        "config/defaults.json": json.dumps(self.defaults)})),
+                               ".github/CODEOWNERS cannot be read"))
+        # A ruleset that counts no approval, of anyone, reads no code owners at all.
+        self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
+                                         require_last_push_approval=False)
+        self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                                  "config/defaults.json": json.dumps(self.defaults),
+                                                  ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
+
     def test_files_that_cannot_be_read_are_a_problem(self):
         self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": "{}"})), "cannot be read"))
 

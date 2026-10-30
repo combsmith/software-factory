@@ -31,6 +31,7 @@ Its protected paths and each Lens's inputs are also the Kernel's `protected_path
 | In `rulesets.json`, CodeQL fails on a security alert of any severity, and a thread left open holds a merge | `examples/invalid/rulesets.a-security-alert-below-high-passes.json`, `examples/invalid/rulesets.a-thread-left-open-merges.json` |
 | Nobody bypasses `main`, and only the admin role, whoever holds it, moves a `factory/*` tag | `examples/invalid/rulesets.main-with-a-bypass.json`, `examples/invalid/rulesets.a-release-tag-a-writer-may-move.json` |
 | Each check `main` requires is a deterministic Lens's, pinned to that Lens's App; `verify` is among them; each code-scanning tool is a Lens no workflow runs | `tools/check_rulesets.py` |
+| An approval `main` counts is exactly one, a code owner's, of the last push, a stale one dismissed, and `.github/CODEOWNERS` names only the machine user's team on every path (decision 0092) | `tools/check_rulesets.py` |
 | A secret a workflow names has a row in `credential-ages.json` naming its workflows | `tests/test_tools.py::test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows` |
 | A credential near its limit in `credential-ages.json`, or a row that cannot be read, is one alert | `tests/test_controller.py::test_a_credential_near_its_limit_raises_one_alert` |
 | JSON, with each key written once | `tests/test_tools.py::test_a_key_written_twice_is_refused` |

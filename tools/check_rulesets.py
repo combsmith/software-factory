@@ -6,6 +6,14 @@ what a ruling fixed (issues 62 and 95). This check holds the values written in t
 `app_id`; `verify`'s check is among them, so GitHub merges nothing the verification check has not passed; and each
 tool of the code-scanning rule is the check of a deterministic Lens that no workflow runs. Whether the live rulesets
 still say this is `tools/rulesets_drift.sh`'s, run by hand: nothing here reads GitHub.
+
+No external Lens's approval counts toward the merge (issue 366): CodeRabbit approves once its threads are resolved, by
+whoever resolves them (trials/P-25.json). A `main` ruleset counts an approval when it asks for any number of them, a
+code owner's, a required reviewer's, one of the last push, or an extra one for a change no person made. One that does
+asks for exactly one, a code owner's, of the last push, with a stale one dismissed on a push, no required reviewer and
+no extra one for a change no person made, and `.github/CODEOWNERS` names on every line, a `*` line among them, only the
+team through which the machine user is a code owner (issue 198's ruling 2). An App is never a code owner. Whether GitHub
+reads each line as written (a team it cannot see makes a line no owner's) is no file's to say.
 """
 from __future__ import annotations
 
@@ -15,6 +23,9 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BRANCH = "main"
 VERIFY = "verify"
+# The team through which the machine user is a code owner (issue 198's ruling 2).
+CODE_OWNER = "@combsmith/org-leads"
+CATCH_ALL = "*"     # the one spelling read as every path; another is refused, never guessed at
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -57,6 +68,36 @@ def _agree(root: pathlib.Path) -> list:
         if lens is None or lens.get("workflow") is not None:
             problems.append("config/rulesets.json: the code-scanning rule names the tool %r, which is no deterministic "
                             "Lens's check that no workflow runs in config/defaults.json; make them agree" % (tool,))
+    review = rules.get("pull_request") or {}
+    if review.get("required_approving_review_count", 0) != 0 or review.get("require_code_owner_review") is True \
+            or review.get("required_reviewers") or review.get("require_last_push_approval") is True \
+            or review.get("require_extra_approval_for_unattributed_changes") is True:
+        if review.get("required_approving_review_count") != 1 or review.get("require_code_owner_review") is not True \
+                or review.get("require_last_push_approval") is not True \
+                or review.get("require_extra_approval_for_unattributed_changes") is not False \
+                or review.get("dismiss_stale_reviews_on_push") is not True or review.get("required_reviewers"):
+            problems.append("config/rulesets.json: the %s ruleset counts an approval otherwise than as one, a code "
+                            "owner's, of the last push, a stale one dismissed, with no required reviewer, so an "
+                            "external Lens's approval could count; ask for exactly that" % BRANCH)
+        problems += _code_owners(root)
+    return problems
+
+
+def _code_owners(root: pathlib.Path) -> list:
+    """What lets an approval by anyone but the code owners' team count, in a ruleset that asks for a code owner's."""
+    try:
+        text = (root / ".github" / "CODEOWNERS").read_text()
+    except (OSError, ValueError) as err:
+        return [".github/CODEOWNERS cannot be read, so who may approve cannot be told: %s" % err]
+    lines = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    problems = []
+    for words in lines:
+        if words[1:] != [CODE_OWNER]:
+            problems.append(".github/CODEOWNERS: %s is owned by %s, not by %s alone, so another account's approval "
+                            "could count" % (words[0], " ".join(words[1:]) or "no one", CODE_OWNER))
+    if not any(words[0] == CATCH_ALL for words in lines):
+        problems.append(".github/CODEOWNERS has no line for every path, so a path no code owner holds could merge on "
+                        "an external Lens's approval; add `* %s`" % CODE_OWNER)
     return problems
 
 
