@@ -33,7 +33,7 @@ ANY_STATUS = re.compile(r"\s*HTTP/[0-9.]+\s+[0-9]{3}\b", re.I)
 # A status line and nothing else: the version, the code and a reason phrase of words alone, as HTTP writes one.
 STATUS_LINE = re.compile(r"HTTP/[0-9.]+ [0-9]{3}(?: [A-Za-z][A-Za-z '-]*)?\s*")
 # A quoted name and a colon, as a field of JSON is written inside text: one named for a credential is never kept.
-QUOTED_FIELD = re.compile(r'"([^"\\]{1,64})"\s*:')
+QUOTED_FIELD = re.compile(r'\\?"([^"\\]{1,64})\\?"\s*:')     # its quotes escaped once, too
 # A header line of a head: a name of no space, a colon, a value. A line folded onto the one before begins with a space.
 HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+:")
 
@@ -50,9 +50,9 @@ def _clean(value, where: str, removed: list):
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
-            shown = KEY_SHAPED if shaped(key) else key     # a place is never named by a credential
+            shown = KEY_SHAPED if _held(key) else key     # a place is never named by a credential
             here = "%s.%s" % (where, shown) if where else shown
-            if refused_key(key) or shaped(key) or (isinstance(item, str) and _held(item)):
+            if refused_key(key) or _held(key) or (isinstance(item, str) and _held(item)):
                 removed.append(here)
             else:
                 out[key] = _clean(item, here, removed)

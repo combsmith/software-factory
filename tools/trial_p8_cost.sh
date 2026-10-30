@@ -45,7 +45,7 @@ if [ -e "$1" ] || [ -L "$1" ]; then
     exit 2
 fi
 # OUT is read as the file system resolves it, every link and .. followed, before it is held to be outside the repo.
-if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
+if ! parent=$(CDPATH= cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
     echo "trial_p8_cost: the directory that would hold $1 does not exist; make it first" >&2
     exit 2
 fi
@@ -54,13 +54,17 @@ case "$out/" in "$root"/*)
     echo "trial_p8_cost: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
-# OUT's parent, and each directory above it, is one no other user can write to, or one that is sticky: in any other,
-# another user could rename OUT once it is made and put a link where it was (issue 367).
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
+# that fails says nothing, and is refused as such.
+uid=$(id -u)
 above=$parent
 while :; do
-    if [ -n "$(find "$above" -maxdepth 0 -perm -0002 ! -perm -1000)" ]; then
-        echo "trial_p8_cost: $above can be written by other users and is not sticky; name a directory under one only you can" \
-            "write to" >&2
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    if [ -n "$found" ]; then
+        echo "trial_p8_cost: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+            "under one only you can write to" >&2
         exit 2
     fi
     [ "$above" = / ] && break
@@ -336,6 +340,9 @@ if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
     fi
     echo "trial_p8_cost: $slug: nothing read, and nothing of the answer kept." >&2
     exit 1
+fi
+if [ "$minted_status" != 201 ] && [ -z "$token" ]; then
+    token=$(token_in "$minted")    # a refusal cut short may hold one all the same; the trap revokes it
 fi
 if [ "$minted_status" != 201 ] && [ -n "$token" ]; then
     # A token the refusal carried all the same is left set, for the exit trap to revoke; its answer is not shown.

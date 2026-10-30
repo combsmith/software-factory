@@ -65,17 +65,22 @@ case "$2" in as-is | userns) phase=$2; order="plain scrubbed" ;; userns-reversed
 case "$(basename -- "$1")" in .|..) refuse "$1 names no new directory, since it ends in . or ..; name the directory itself" ;; esac
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into.
 mkdir -p -- "$(dirname -- "$1")"
-# OUT's parent, and each directory above it, is one no other user can write to, or one that is sticky: in any other,
-# another user could rename OUT once it is made and put a link where it was (issue 367).
-above=$(cd "$(dirname -- "$1")" && pwd -P)
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
+# that fails says nothing, and is refused as such. OUT is made where the check read, never through the path as given.
+above=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)
+target=$above/$(basename -- "$1")
+uid=$(id -u)
 while :; do
-    [[ -z "$(find "$above" -maxdepth 0 -perm -0002 ! -perm -1000)" ]] ||
-        refuse "$above can be written by other users and is not sticky; name a directory under one only you can write to"
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    [[ -z "$found" ]] || refuse "$above is another user's, or can be written by other users and is not sticky; name a" \
+        "directory under one only you can write to"
     [[ "$above" != / ]] || break
     above=$(dirname -- "$above")
 done
-mkdir -m 700 -- "$1" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
-out=$(cd "$1" && pwd -P)
+mkdir -m 700 -- "$target" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
+out=$(cd "$target" && pwd -P)
 [[ -f "$3" && -x "$3" ]] || refuse "no CLI at '$3'"
 cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 [[ -f "$4" ]] || refuse "no stub at '$4'"

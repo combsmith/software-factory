@@ -245,15 +245,19 @@ text = sys.stdin.read().replace("\r\n", "\n")
 starts = [m.start(1) for m in re.finditer(r"(?:\A|\n\n)(HTTP/[0-9.]+ [0-9]{3})", text)]
 cut = text.find("\n\n", starts[-1]) if starts else -1
 head, body = (text[starts[-1]:cut], text[cut + 2:]) if cut >= 0 else (text, "")
-try:
-    data = json.loads(body)
-except ValueError:
-    data = None
+data = None
+if not starts:
+    head = "(no status line)"   # what came back cannot be told from a head, so none of it is kept as one
+else:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        pass
 token = data.pop("token", "") if isinstance(data, dict) else ""
 if data is None:
-    # An answer that is not JSON, one cut short among them, is never written, since a token may be in it. A token is
-    # found by its field alone and handed on, so the exit trap revokes it; the run stops either way.
-    found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", body)
+    # An answer that is not JSON, one cut short or with no status line among them, is never written, since a token
+    # may be in it. A token is found by its field alone and handed on, so the exit trap revokes it; the run stops.
+    found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", text)
     token = found.group(1) if found else ""
 with open(sys.argv[1], "w") as kept:
     kept.write(head + "\n\n" + (json.dumps(data) if data is not None else "(an answer that is not JSON, not kept)"))

@@ -4833,9 +4833,12 @@ class OutputMadeAlone(unittest.TestCase):
 
     def test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky(self):
         # Issue 367: in a directory other users can write to, one of them could rename OUT once it is made and put a link
-        # where it was. OUT's parent, or a directory above it, that others can write to is refused, unless it is sticky.
+        # where it was. OUT's parent, or a directory above it, that others can write to, its group among them, is
+        # refused unless it is sticky; so is one another user owns, and one a find that fails cannot read.
+        said = " is another user's, or can be written by other users and is not sticky"
         for script in list(self.SCRIPTS) + list(self.SANDBOX):
-            for modes, refused in (((0o700, 0o777), True), ((0o777, 0o700), True), ((0o700, 0o1777), False)):
+            for modes, refused in (((0o700, 0o777), True), ((0o777, 0o700), True), ((0o700, 0o770), True),
+                                   ((0o700, 0o707), True), ((0o700, 0o1777), False)):
                 with self.subTest(script=script, modes=modes):
                     folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
                     above, parent = folder / "above", folder / "above" / "parent"
@@ -4847,15 +4850,26 @@ class OutputMadeAlone(unittest.TestCase):
                     finally:
                         parent.chmod(0o700)
                         above.chmod(0o700)
-                    wrong = (above if modes[0] == 0o777 else parent)
+                    wrong = (above if modes[0] != 0o700 else parent)
                     if refused:
                         self.assertEqual(code, 2, told)
-                        self.assertIn("%s can be written by other users and is not sticky" % wrong, told)
+                        self.assertIn(str(wrong) + said, told)
                         self.assertFalse((parent / "out").exists())
                         self.assertFalse((folder / "calls").exists(), "a call was made")
                     else:
                         self.assertNotIn("can be written by other users", told)
                         self.assertTrue((parent / "out").is_dir(), told)
+            # A directory this user does not own, as an id that names another user reads it; and a find that fails.
+            for name, stand_in in (("id", '#!/bin/sh\necho 4242\n'), ("find", '#!/bin/sh\nexit 1\n')):
+                with self.subTest(script=script, stand_in=name):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    (folder / "bin").mkdir()
+                    (folder / "bin" / name).write_text(stand_in)
+                    (folder / "bin" / name).chmod(0o755)
+                    code, told = self.run_out(script, folder, folder / "out")
+                    self.assertEqual(code, 2, told)
+                    self.assertIn(said, told)
+                    self.assertFalse((folder / "out").exists())
 
     def test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot(self):
         # P-50 and P-51 make OUT's parent if it is missing: given x/. they made x itself, then refused it as made since,
@@ -4987,6 +5001,7 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
                     ({"status": 201, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "nothing of the answer"),
                     ({"status": 201, "body": "<html>gateway</html>"}, False, "the Maintainer must revoke it by hand"),
                     ({"status": 403, "body": '{"message": "Resource not accessible by integration"}'}, False, "403"),
+                    ({"status": 502, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "held a token all the same"),
                     ({"status": 422, "body": self.MINTED}, True, "held a token all the same")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
@@ -5477,13 +5492,17 @@ esac
         token = "ghs_" + "Q" * 36
         script = self.SCRIPT.read_text()
         parse = re.search(r"/access_tokens\" \|\n    python3 -I -c '\n(.*?)' \"\$raw\"\)", script, re.S).group(1)
-        for body, found in (('{"token": "%s", "expires_at": "2026-10' % token, token), ('{"expires_at": "2026-10', ""),
-                            ("<html>gateway</html>", "")):
+        head = "HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n"
+        for answer, found in ((head + '{"token": "%s", "expires_at": "2026-10' % token, token), (head + '{"expires_at": "2026-10', ""),
+                              (head + "<html>gateway</html>", ""), ('{"token": "%s"}' % token, token),
+                              ('{"token": "%s", "expires_at": "2026-10' % token, token)):
             kept = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "02.raw"
             ran = subprocess.run([sys.executable, "-I", "-c", parse, str(kept)], capture_output=True, text=True, timeout=60,
-                                 input="HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n" + body)
-            self.assertEqual((ran.returncode, ran.stdout), (3, found), body)
-            self.assertEqual(kept.read_text(), "HTTP/2 201 \ncontent-type: application/json\n\n(an answer that is not JSON, not kept)")
+                                 input=answer)
+            self.assertEqual((ran.returncode, ran.stdout), (3, found), answer)
+            # With no status line, nothing of what came back is kept, not even as a head.
+            self.assertEqual(kept.read_text(), ("HTTP/2 201 \ncontent-type: application/json" if answer.startswith("HTTP")
+                                                else "(no status line)") + "\n\n(an answer that is not JSON, not kept)")
             self.assertIn("revoked as the script stops" if found else "it was not revoked", ran.stderr)
 
     def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
@@ -6638,6 +6657,17 @@ class Redaction(unittest.TestCase):
             self.assertEqual(said.splitlines()[0], gone, raw)
         self.assertEqual(json.loads(self.redact(json.dumps({"a": "HTTP is a protocol", "b": ["NaN", "token"]}))[0]),
                          {"a": "HTTP is a protocol", "b": ["NaN", "token"]})
+        # A key is judged as a string is, and the report names it by its kind, never by what it held. Quotes escaped once,
+        # as JSON inside a string is written, are read as quotes.
+        out, said = self.redact(json.dumps({unshaped[0]: 1, unshaped[1]: 2, "a": 3}))
+        self.assertEqual((json.loads(out), "hunter2" in said, "7Qp" in said), ({"a": 3}, False, False))
+        escaped = 'see {\\"password\\": \\"hunter2\\"}'
+        out, said = self.redact(json.dumps({"note": escaped, "a": 1}))
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: note"))
+        refused = io.StringIO()
+        self.assertEqual(redact_trial.main([], stdin=io.BytesIO(("HTTP/2 200\ncontent-type: text/plain\n\n" + escaped + "\n")
+                                                                .encode()), stdout=io.StringIO(), stderr=refused), 1)
+        self.assertIn("named for a credential", refused.getvalue())
         # NaN and Infinity are not JSON; a status line after a head with no blank line after it is a body, not a head; and
         # a status line shaped like a credential is never deleted alone, leaving headers with no status line above them.
         for raw, why in (("HTTP/1.1 200 OK\nContent-Type: application/json\n\nNaN\n", "holds NaN"),
