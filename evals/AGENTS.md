@@ -1,8 +1,7 @@
 # evals/
 
-What this repo holds of each held-out eval set: one manifest a directory, `<role>/cases.json`, with the Role, the Intent,
-the count of cases and each case's id and sha256. The cases themselves live in a private repo under a different owner
-(design §3.13), read only by the eval job (§4.9), and never here, in a pull request, an issue or a note.
+What this repo holds of each held-out eval set: one manifest a directory, `<role>/cases.json`, with the Role, the Intent, the count of cases and each case's id and sha256.
+The cases themselves live in a private repo under a different owner (design §3.13), read only by the eval job (§4.9), and never here, in a pull request, an issue or a note.
 No count of a kind is written here or anywhere public (decision 0094). The review set's split was public on a pull request for a
 time and cannot be fully erased, so its current ids are treated as having a known split: the next change to the set re-ids
 every case in the home, the Maintainer's act when it comes.
@@ -24,6 +23,7 @@ Maintainer's terminal and recorded by `tools/context_eval.py` with no text of th
 | Each case is fetched into a scratch outside the workspace and scored; only the report, of hashes and codes, reaches it | `tests/test_evals.py::test_each_case_is_fetched_into_the_scratch_and_scored_and_only_the_report_reaches_the_workspace` |
 | A set short of 20 of a kind fails the run and closes the gate; its log and report hold no count of a kind | `tests/test_evals.py::test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count` |
 | A case not read whole or failed fails the run, its report written all the same, for the upload | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
+| A case whose expected Finding is off its rubric is unreadable by a code alone, and asks nothing | `tests/test_evals.py::test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing` |
 | A case of another set, or no case, is unreadable and asks nothing | `tests/test_evals.py::test_a_case_that_is_no_case_of_this_set_is_unreadable` |
 | The gate passes only this set's report on this commit for this Release, every case passed | `tests/test_evals.py::test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release` |
 | The fetch takes its token from its own environment alone, and reads with it, never writes | `tests/test_evals.py::test_the_fetch_step_takes_its_token_from_its_environment_alone` |

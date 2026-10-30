@@ -54,6 +54,21 @@ def _criteria(role: str, root: pathlib.Path = ROOT):
         return None
 
 
+def off_rubric(case: dict, root: pathlib.Path = ROOT) -> bool:
+    """Whether a case's expected Finding is of another severity or category than the rubric gives the criterion it asks
+    about: a case that expects one would reward a Result `apply` refuses (decisions 0088 and 0095, issue 421). One that
+    expects no Finding, or whose rubric lacks the criterion, is not: that is the scorer's `criterion_unknown`."""
+    want = case["expected"]
+    if want["finding"] is None:
+        return False
+    try:
+        rubric = json.loads((root / "config" / ("rubric-%s.json" % case["role"])).read_text())
+        given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return want["criterion"] in given and (want["finding"]["severity"], want["finding"]["category"]) != given[want["criterion"]]
+
+
 def score(case: dict, result: dict, known: dict = None) -> dict:
     """{case, verdict, reasons}: `pass`, `fail` with the codes that say why, or `unreadable` when the case or the
     Result is not what its schema says, or the case's answer does not match its verdict."""
@@ -73,6 +88,8 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     criteria = _criteria(case["role"])
     if criteria is None or want["criterion"] not in criteria:
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["criterion_unknown"]}
+    if off_rubric(case):
+        return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_off_rubric"]}
     reasons = []
     if result["status"] != "completed":
         reasons.append("result_not_completed")

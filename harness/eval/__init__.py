@@ -199,6 +199,11 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
                 (case["role"], case["intent"]) != (found["role"], found["intent"]):
             assessed[entry["id"]] = ("unreadable", ["not_this_set"])
             continue
+        # A case whose answer the rubric refuses would reward a Result `apply` refuses: it asks nothing of the model, and
+        # says so by a code alone, for its owner to mend in the home (issue 421).
+        if eval_result.off_rubric(case):
+            assessed[entry["id"]] = ("unreadable", ["answer_off_rubric"])
+            continue
         # A case the review cannot be asked of, or not in time, is unreadable by its code; whatever else the review
         # raised is unanswered, so that one case's fault leaves the report whole and the run failed.
         try:
