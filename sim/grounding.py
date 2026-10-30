@@ -38,22 +38,35 @@ RULES = (
      ("P-38",), None, None),
     ("an_approval_stands_without_stale_dismissal", "Under a ruleset that does not dismiss stale approvals, a push leaves "
      "an earlier approval in place", ("P-1",), None, None),
-    ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",), None, None),
+    # trials/P-41.json: canary pull requests 64 (a request, a push, two dismissals) and 66 (the controller's labels).
+    ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",),
+     "trials/P-41.json", None),
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
-     "says which App and what the review was before (previousReviewState)", ("P-41",), None, None),
-    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), None, None),
+     "says which App and what the review was before (previousReviewState)", ("P-41",), "trials/P-41.json", None),
+    # trials/P-42.json: a pull request's head, its checks read at once and an hour later, and the new head after a push.
+    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.json",
+     None),
+    # P-42 saw no required check go from pending to its verdict: the new head's was read once, in progress.
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
      ("P-42",), None, None),
+    # P-42 saw neutral, skipped and cancelled kept an hour, but no timed_out: GitHub concluded a job stopped at its
+    # timeout cancelled, and its run too (issue 388). Unverified until that issue rules how a timeout is read.
     ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
      "or stale, and keeps that conclusion until the content changes or a person runs it again",
      ("P-42",), None, None),
+    # P-42's filter=latest dropped earlier runs of a name in one suite, and filter=all kept them; the port reads the
+    # status rollup, which no trial has recorded with two runs of one name in a suite. Unverified until one does.
     ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
      "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), None, None),
+    # P-42 saw two suites on one commit each keep their runs, and filter=latest keep one run of a name in each suite,
+    # though the second was a post of that name, not a re-run. Unverified: the port reads the status rollup, not
+    # filter=latest, and no trial has read the rollup with two runs of one name in one suite.
     ("a_rerun_replaces_only_its_own_run", "Only a re-run of the same job in the same check suite replaces an earlier "
      "check run: filter=latest is per check suite, so two workflow runs on one commit both stay", ("P-42",), None,
      None),
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
-     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), None, None),
+     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
+     None),
     ("a_check_names_the_workflow_that_ran_it", "Every check run GitHub Actions reports is read with the path of the "
      "workflow file that ran it, the path of its check suite's workflow run as GitHub gives it, a dynamic/ one "
      "verbatim, with the permissions the reader and the Controller hold; a check run no workflow ran, as GitHub "
@@ -78,7 +91,7 @@ RULES = (
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
      "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
-     "timeline says who and what the review was before", ("P-41",), None, None),
+     "timeline says who and what the review was before", ("P-41",), "trials/P-41.json", None),
     # Contradicted by this repo's own merge queue, which ran the verify workflow on #243's merge group and ejected it on
     # a failure. Left unverified, as it is, until P-2 records it: changing the fake is a story of its own.
     ("the_merge_group_is_not_checked", "The merge queue merges without running the checks on the merge group",
@@ -100,10 +113,12 @@ RULES = (
      "thread, a person's too, and the thread says who resolved it; with pull_requests: write alone GitHub refuses it",
      ("P-5",), "trials/P-5.json", None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
-     ("P-41",), None, None),
+     ("P-41",), "trials/P-41.json", None),
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
      "label, "
      "and when", ("P-32",), "trials/P-32.json", None),
+    # P-41 read each actor on its reviews, dismissals and labels by its type, but it met no thread, so the rule's
+    # thread actors are not yet shown: unverified until a trial reads a thread's actors as the threads port does.
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
      "other App and the machine user apart, never from a name's spelling", ("P-41",), None, None),

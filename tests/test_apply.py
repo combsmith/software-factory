@@ -110,11 +110,12 @@ class Identity(unittest.TestCase):
         self.assertEqual(identity.permissions(review, APPS["needs"], ["submit_review", "comment", "submit_review"]),
                          {"pull_requests": "write"})
         self.assertEqual(identity.permissions(review, APPS["needs"], []), {})
-        # An Effect whose need waits or is not in the table, or that the App was not granted, is never minted for.
+        # An Effect whose need waits or is not in the table, or that the App was not granted, is never minted for: the
+        # queue's acts take contents: write, which the queue App holds and the reviewer's App does not (issue 381).
         needs = dict(APPS["needs"], **{"effect:create_check_run": {"waits_on": "the grant"}})
         for effects, table, code in ((["assign"], APPS["needs"], "effect_not_grantable"),
                                      (["create_check_run"], needs, "effect_not_grantable"),
-                                     (["enqueue_merge"], APPS["needs"], "effect_not_grantable")):
+                                     (["enqueue_merge"], APPS["needs"], "effect_not_granted")):
             with self.assertRaisesRegex(identity.Refused, "^%s$" % code):
                 identity.permissions(review, table, effects)
         for app in (APPS["apps"]["reader"], APPS["apps"]["controller"],

@@ -47,7 +47,10 @@ MODULE = re.compile(r"python3 -m ([\w.]*\w)")
 BARE_NUMBER = re.compile(r"(?<![&`])(?<!\]\()#\d+\b")
 DATE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
 NUMBERED = re.compile(r"\b(?:[Ii]ssue|[Pp]ull request|PR)(?: number)? #?\d+\b")
-TITLE = re.compile(r"[\"“][^\"”\n]{8,}[\"”]")
+# A title: an opening quote, eight characters or more, and a closing one. Only the first opening quote after a
+# closing one or a line's start is tried, since a later one inside the same run is shorter and fails if it does;
+# trying every one took time in the square of the length of a line of opening quotes left unclosed (issue 369).
+TITLE = re.compile(r"(?:\"|(?:^|(?<=[”\n]))[^\"“”\n]*“)[^\"”\n]{8,}[\"”]")
 
 
 def _text(path: pathlib.Path) -> str:

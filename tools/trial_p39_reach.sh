@@ -1,13 +1,13 @@
 #!/bin/sh
 # Trial P-39, its third read: which repos each Factory App's installation reaches (issue 26, decision 0035).
 #
-#   tools/trial_p39_reach.sh OUT CONTROLLER_KEY PR_REVIEW_KEY READER_KEY
+#   tools/trial_p39_reach.sh OUT CONTROLLER_KEY PR_REVIEW_KEY READER_KEY QUEUE_KEY
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. Each KEY is the path of that App's private key
 # file, which only openssl reads. Needs curl, openssl and python3; no gh login is used.
 #
-# For each App, in the order controller, pr-review, reader: sign a JWT with the App's key; mint a token for the
+# For each App, in the order controller, pr-review, reader, queue: sign a JWT with the App's key; mint a token for the
 # installation P-39 found (trials/P-39.grants.json), narrowed to metadata: read; read GET /installation/repositories
 # with it once; revoke it, and record the revocation's status. A token or a JWT is held in a shell variable only,
 # reaches curl on its standard input, and is never printed, logged or written to a file. Each response is captured
@@ -20,8 +20,8 @@
 # and a token that may be live is told to the Maintainer.
 set -eu
 
-if [ "$#" -ne 4 ]; then
-    echo "usage: tools/trial_p39_reach.sh OUT CONTROLLER_KEY PR_REVIEW_KEY READER_KEY" >&2
+if [ "$#" -ne 5 ]; then
+    echo "usage: tools/trial_p39_reach.sh OUT CONTROLLER_KEY PR_REVIEW_KEY READER_KEY QUEUE_KEY" >&2
     exit 2
 fi
 root=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -39,7 +39,7 @@ case "$out/" in "$root"/*)
     echo "trial_p39_reach: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
-for key in "$2" "$3" "$4"; do
+for key in "$2" "$3" "$4" "$5"; do
     if [ ! -r "$key" ]; then
         echo "trial_p39_reach: cannot read the key file $key" >&2
         exit 2
@@ -76,18 +76,24 @@ trap 'exit 1' HUP INT TERM
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
-# Each App's name, id and installation, as the data and P-39's first reads give them.
+# Each App's name, id and installation, as P-39's first reads give them: the installation GitHub listed for the App's
+# name, so an App the data does not name yet is read too.
 ids=$(cd "$root" && python3 -I -c '
 import json
-apps = json.load(open("config/apps.json"))["apps"]
 fixture = json.load(open("trials/P-39.grants.json"))
 read = [e for e in fixture["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"]
-found = {i["app_id"]: i["id"] for i in read[0]["response"]["body"]["installations"]}
-for app in ("controller", "pr-review", "reader"):
-    print(app, apps[app]["name"], apps[app]["app_id"], found[apps[app]["app_id"]])
+found = {i["app_slug"]: i for i in read[0]["response"]["body"]["installations"]}
+for app in ("controller", "pr-review", "reader", "queue"):
+    installation = found["combsmith-sf-" + app]
+    print(app, installation["app_slug"], installation["app_id"], installation["id"])
 ')
 
-mkdir -p "$out"
+# OUT is made here, by this script alone and for its user alone: one made since it was found absent is refused,
+# never written into, since what is in it may be a link to a file this run would overwrite.
+if ! mkdir -m 700 "$out"; then
+    echo "trial_p39_reach: $out could not be made new by this run (made since, or refused); name a new directory" >&2
+    exit 2
+fi
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 asked=""
 
@@ -158,5 +164,6 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
 reach 1 controller "$2"
 reach 2 pr-review "$3"
 reach 3 reader "$4"
+reach 4 queue "$5"
 printf '[%s]\n' "${asked%,}" > "$out/requests.json"
 echo "Done. Hand $out to a session; it holds no credential. Each token was revoked with status 204."
