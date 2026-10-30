@@ -44,7 +44,7 @@ SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
 
 
 # An `applied/1` past the artifact retention: what its Run recorded can no longer be read (issue 346).
-EXPIRED = "expired"
+EXPIRED = object()
 
 def _listed(transport, repo: str, github_id: int, seen=None, name: str = NAME):
     """The one artifact named `name`, `outcome` unless asked, the run lists, None if it lists none, or False if the list

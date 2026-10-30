@@ -934,13 +934,22 @@ class OnlyAPersonEnds(unittest.TestCase):
         fresh = run(name="r_0NEW01", at=at(20))
         self.assertEqual(go(expired, [old, fresh])["action"], "issue_approval")
         self.assertEqual(go(facts(), [old])["action"], "issue_approval")
+        # Of two Runs past retention, the later is the one a fresh review must follow.
+        later_gone = run(name="r_0OLD02", at=at(30))
+        d = go(facts(expired_reviews=["r_0OLD01", "r_0OLD02"]), [old, fresh, later_gone])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
+        # While a thread of the expired Run is open, its category can no longer be joined, so the item defers on the
+        # thread first, and admits nothing: a person resolves it (issue 420, decision 0096's limit).
+        open_old = thread(category=None, severity=None)
+        self.assertEqual(go(dict(expired, threads=[open_old]), [old])["reason"], "thread_unreadable")
         # Another Lens's Run past retention asks that Lens's review again, never this one's.
         other = run(name="r_0OTH01", role="security-review", at=at(15))
         self.assertEqual(go(facts(expired_reviews=["r_0OTH01"]), [old, other])["action"], "issue_approval")
         # The other side: a later review that failed, or of other content, or one that started before the expired Run,
         # answers nothing; nor does another Lens's.
         for later in (dict(fresh, conclusion="failure", outcome="environment"), dict(fresh, content_id="sha256:bbbb"),
-                      dict(fresh, started_at=at(5)), dict(fresh, role="security-review")):
+                      dict(fresh, started_at=at(5)), dict(fresh, role="security-review"),
+                      dict(fresh, intent="adjudicate-findings")):
             d = go(expired, [old, later])
             self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"), later)
         # A fact that cannot be read is no list of runs: nothing converges on it.
