@@ -238,7 +238,7 @@ class Candidate(unittest.TestCase):
             (gate_reads(document=report(commit=A)), "another_commit"),
             (gate_reads(document=report(verdict="fail")), "case_failed"),
             # A set short of a kind closes the gate by the report's one word, which says neither count; and so does a
-            # report that cannot say, and a run the job failed for it, whatever its report (decision 0094).
+            # report that cannot say, and a run the job failed for it, whatever its report (decision 0099).
             (gate_reads(document=report(split_ok=False)), "eval_split_short"),
             (gate_reads(document=report(split_ok=None)), "eval_split_short"),
             (gate_reads(document={k: v for k, v in report().items() if k != "split_ok"}), "report_unreadable"),
