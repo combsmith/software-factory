@@ -952,6 +952,13 @@ class OnlyAPersonEnds(unittest.TestCase):
                       dict(fresh, intent="adjudicate-findings")):
             d = go(expired, [old, later])
             self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"), later)
+        # A review of the current content still running answers nothing yet: the item waits on it.
+        d = go(expired, [old, dict(fresh, status="in_progress", conclusion=None)])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "nothing"))
+        # A Run named as past retention that is no Run of this item contradicts the records: nothing is read from it.
+        for named in (["r_0GONE1"], ["r_0OLD01", "r_0GONE1"], [""]):
+            d = go(facts(expired_reviews=named), [old, fresh])
+            self.assertEqual((d["state"], d["reason"]), (None, "run_unreadable"), named)
         # A fact that cannot be read is no list of runs: nothing converges on it.
         for odd in (None, "r_0OLD01", [7], [None]):
             d = go(dict(expired, expired_reviews=odd), [old, fresh])
