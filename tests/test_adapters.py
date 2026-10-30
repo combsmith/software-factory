@@ -1921,10 +1921,11 @@ class Acceptance(unittest.TestCase):
         reads = (closing_answer("o/r", 26, []), issue_answer("o/r", 36), issue_timeline("o/r", 36, []))
         for given in (made(), made([("r_01JA7Q", 36)]), dict(made(), named={27: [("r_01JA7Q", 37)]})):
             self.assertEqual(self.opened(*reads, made=given), (None, True), given)
-        # The other side, each not read whole: a Run of another issue names it, or two Runs do; an opening Run of the
-        # branch's issue whose record cannot be read; a list of them not read whole.
+        # The other side, each not read whole: a Run of another issue names it, or two Runs do; an opening Run that
+        # cannot be read or has not finished, of the branch's issue or any other, since it may be the one that opened
+        # this pull request on another issue's branch; a list of them not read whole.
         for given in (made([("r_01JA7Q", 37)]), made([("r_01JA7Q", 36), ("r_01JA7R", 36)]), made(unreadable=[36]),
-                      made(whole=False)):
+                      made(unreadable=[7]), made([("r_01JA7Q", 36)], unreadable=[7]), made(whole=False)):
             self.assertEqual(self.opened(made=given), (None, False), given)
         # With no record handed in at all, the opener's pull request is never bound: a caller cannot leave it out.
         self.assertIs(acceptance.bound(dict(self.OPENED, head={"ref": "factory-work/issue-36-1",
@@ -2483,22 +2484,24 @@ class Recorded(unittest.TestCase):
             self.assertEqual(read(listed_runs(opening(self.RUN)), *applied_stored("o/r", 39100000000, done))["named"],
                              {})
         # The other side, its issue unreadable: two pull requests named, a number that is none, a record that cannot be
-        # read, or a Run named by two GitHub runs.
+        # read or is another Run's, a successful Run that lists no record (deleted), a read never answered, a Run named
+        # by two GitHub runs though one of them answers, or a Run not yet finished.
         stored = lambda done: applied_stored("o/r", 39100000000, done)
         alone = listed_runs(opening(self.RUN))
+        twice = listed_runs(opening(self.RUN), ids={self.RUN: [39100000000, 39100000001]})
         for runs, exchanges in ((alone, stored(record(self.RUN, "26", "27"))), (alone, stored(record(self.RUN, "026"))),
                                 (alone, stored(record(self.RUN, "x"))), (alone, stored(record("r_01JA7Z", "26"))),
-                                (listed_runs(opening(self.RUN), ids={self.RUN: [1, 2]}), [])):
+                                (alone, stored(None)), (alone, []), (twice, stored(record(self.RUN, "26"))),
+                                (listed_runs(opening(self.RUN, status="in_progress", conclusion=None)), [])):
             got = read(runs, *exchanges)
             self.assertEqual((got["named"], got["unreadable"], got["whole"]), ({}, {36}, True), runs)
         # A run list not read whole is not whole; with no Role that opens pull requests, nothing is read.
         self.assertIs(read(listed_runs(opening(self.RUN), complete=False))["whole"], False)
         self.assertEqual(read(listed_runs(opening(self.RUN)), role=None),
                          {"named": {}, "unreadable": set(), "whole": True})
-        # A Run of another Role, another Intent, not completed, or on a pull request or in another repo, is not read:
-        # the replay holds no answer, so a read would fail.
+        # A Run of another Role, another Intent, or on a pull request or in another repo, is not read: the replay holds
+        # no answer, so a read would fail.
         for run in (opening(self.RUN, role="qa-lead"), opening(self.RUN, intent="review-change"),
-                    opening(self.RUN, status="in_progress", conclusion=None),
                     opening(self.RUN, item={"repo": "o/r", "type": "pull_request", "number": 36}),
                     opening(self.RUN, item={"repo": "o/x", "type": "issue", "number": 36})):
             self.assertEqual(read(listed_runs(run)), {"named": {}, "unreadable": set(), "whole": True}, run)

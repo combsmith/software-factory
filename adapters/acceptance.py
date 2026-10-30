@@ -31,9 +31,10 @@ so none is bound yet.
 
 It is bound by the Run that opened it as well (issue 342): the opening Run's own `applied/1` names the pull request in
 its `open_pull_request` Effect (`adapters/applied.opened`). Where a Run names it, the Run's issue and the branch's must
-agree; two Runs that name it, a Run of another issue that names it, or an opening Run of the branch's issue whose
-record cannot be read, leave it not read whole. Where none names it, the branch alone binds it: the writer, `apply`'s
-open Effect, lands in slice 2 with push.
+agree; two Runs that name it, a Run of another issue that names it, or any opening Run that cannot be read or has not
+finished, of whatever issue, leave it not read whole. Where none names it, the branch alone binds it: the writer,
+`apply`'s open Effect, lands in slice 2 with push, and once it does a pull request no Run names is not whole
+(decision 0097).
 """
 from __future__ import annotations
 
@@ -165,7 +166,9 @@ def bound(pull: dict, opener, opened=None):
     if not (shaped and same):
         return False
     issue = int(shaped.group(1))
-    if not isinstance(opened, dict) or opened.get("whole") is not True or issue in opened.get("unreadable", ()):
+    # An opening Run that cannot be read, of any issue, may be the one that opened this pull request on another issue's
+    # branch: nothing the opener opened is read whole while one is.
+    if not isinstance(opened, dict) or opened.get("whole") is not True or opened.get("unreadable"):
         return False
     named = opened.get("named", {}).get(pull.get("number"), [])
     if len(named) > 1 or any(served != issue for _, served in named):

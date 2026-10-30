@@ -199,8 +199,9 @@ OPENED = "open_pull_request"      # the Effect that records the pull request it 
 
 def opened(transport, repo: str, runs, role) -> dict:
     """What the opening Runs recorded of the pull requests they opened (issue 342): `{"named": {number: [(run,
-    issue)]}, "unreadable": {issue}, "whole"}`. A Run counts when the records port names it completed, of `role`, the
-    Role that opens pull requests, its Intent `open-pull-request` and its item an issue of `repo`. Its `applied/1`
+    issue)]}, "unreadable": {issue}, "whole"}`. A Run counts when the records port names it of `role`, the Role that
+    opens pull requests, its Intent `open-pull-request` and its item an issue of `repo`; one not yet completed is
+    unreadable, since it may have opened a pull request it has not recorded yet. Its `applied/1`
     names the pull request it opened in a landed `open_pull_request` Effect, keyed by its number. An issue whose
     opening Run cannot be read, is named by more than one GitHub run, or names more than one pull request, or a number
     that is none, is unreadable; the list is whole only when the run list was read whole. With no Role named, nothing
@@ -212,8 +213,11 @@ def opened(transport, repo: str, runs, role) -> dict:
         return out
     for record in runs["runs"]:
         item = record["item"]
-        if record["role"] != role or record["status"] != "completed" or record.get("intent") != OPENS \
-                or item["type"] != "issue" or item["repo"] != repo:
+        if record["role"] != role or record.get("intent") != OPENS or item["type"] != "issue" or item["repo"] != repo:
+            continue
+        # One still running may have opened a pull request whose record it has not yet uploaded.
+        if record["status"] != "completed":
+            out["unreadable"].add(item["number"])
             continue
         github = github_ids.get(record["run"])
         if not isinstance(github, list) or len(github) != 1:

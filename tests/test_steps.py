@@ -209,11 +209,18 @@ class Reader(unittest.TestCase):
         pulled = {"head": {"sha": first}, "number": 42}
         listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
         calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
+        calls["opened"], calls["opened_role"] = [], []
+        made = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}
 
         def snapshot(*a, **k):
             calls["recorded"].append(k["recorded"])
             calls["opener"].append(k.get("opener", "not told"))
+            calls["opened"].append(k["opened"] is made)
             return facts, "title", head
+
+        def read_opened(transport, repo, runs, role):
+            calls["opened_role"].append(role)
+            return made
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(identity, "from_key", from_key), \
                 unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(record)), \
@@ -224,6 +231,8 @@ class Reader(unittest.TestCase):
                 recorded_spy(read, calls["asked"]), \
                 unittest.mock.patch.object(read.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(read.facts_, "opener_of", lambda *told: (12, "Bot")), \
+                unittest.mock.patch.object(read.applied, "opened", read_opened), \
+                unittest.mock.patch.object(read.facts_, "opener_role", lambda kernel: "dev-lead"), \
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change):
@@ -244,6 +253,8 @@ class Reader(unittest.TestCase):
         self.assertEqual(json.loads(kept["role.json"])["name"], "pr-review")
         # The threads are held to what the item's Lenses recorded, read from the run records (issue 338).
         self.assertEqual(calls["recorded"], [({}, True, [])])
+        # What the opening Runs recorded is read for the configured Role and handed to the snapshot (issue 342).
+        self.assertEqual((calls["opened"], calls["opened_role"]), ([True], ["dev-lead"]))
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
         self.assertEqual(calls["listed"], [["run.yml", "approve.yml"]])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
@@ -749,6 +760,19 @@ class Reread(unittest.TestCase):
         # What the item's model Lenses recorded is read from that list, held to the authority table (issue 338).
         self.assertEqual(asked_, [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         self.assertEqual((got[3]["paused"], got[3]["active_runs"], got[3]["passes_since"]), (False, 1, None))
+        # What the opening Runs recorded is read for the configured Role and handed to the snapshot (issue 342).
+        made, seen, given = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}, [], []
+        with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(listed)), \
+                unittest.mock.patch.object(reread.facts_, "snapshot",
+                                           lambda *a, **k: given.append(k["opened"]) or (facts, "t", HEAD)), \
+                unittest.mock.patch.object(reread.applied, "opened",
+                                           lambda transport, repo, runs, role: seen.append(role) or made), \
+                unittest.mock.patch.object(reread.facts_, "opener_role", lambda kernel: "dev-lead"), \
+                unittest.mock.patch.object(reread.pause_, "read",
+                                           lambda transport, org, repos: {"org": None, "repos": {HOME: None}}):
+            reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+        self.assertEqual((seen, len(given)), (["dev-lead"], 1))
+        self.assertIs(given[0], made)
         # The pull request is read with the App that opens pull requests, as the pass reads it (issue 295).
         told = []
         with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(listed)), \
