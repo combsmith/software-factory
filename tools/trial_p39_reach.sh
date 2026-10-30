@@ -17,8 +17,11 @@
 #
 # A mint, or a read, that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script
 # with a non-zero exit: what was read is not kept, a refused mint shows its status and GitHub's answer, redacted,
-# and a token that may be live is told to the Maintainer.
+# and a token that may be live is told to the Maintainer. A mint GitHub answered 201 whose token cannot be read is
+# written nowhere, not even to scratch: its token is revoked if it can be found in the answer, and the Maintainer is
+# told it may be live if not; no reach is recorded for that App.
 set -eu
+set +x
 
 if [ "$#" -ne 5 ]; then
     echo "usage: tools/trial_p39_reach.sh OUT CONTROLLER_KEY PR_REVIEW_KEY READER_KEY QUEUE_KEY" >&2
@@ -30,7 +33,7 @@ if [ -e "$1" ] || [ -L "$1" ]; then
     exit 2
 fi
 # OUT is read as the file system resolves it, every link and .. followed, before it is held to be outside the repo.
-if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
+if ! parent=$(CDPATH= cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
     echo "trial_p39_reach: the directory that would hold $1 does not exist; make it first" >&2
     exit 2
 fi
@@ -39,6 +42,22 @@ case "$out/" in "$root"/*)
     echo "trial_p39_reach: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
+# that fails says nothing, and is refused as such.
+uid=$(id -u)
+above=$parent
+while :; do
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    if [ -n "$found" ]; then
+        echo "trial_p39_reach: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+            "under one only you can write to" >&2
+        exit 2
+    fi
+    [ "$above" = / ] && break
+    above=$(dirname -- "$above")
+done
 for key in "$2" "$3" "$4" "$5"; do
     if [ ! -r "$key" ]; then
         echo "trial_p39_reach: cannot read the key file $key" >&2
@@ -57,12 +76,24 @@ revoke() {
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
+# A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
+token_in() {
+    printf '%s\n' "$1" | python3 -I -c '
+import re, sys
+found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.read())
+print(found.group(1) if found else "")' 2>/dev/null || true
+}
+
 unrevoked() {
     echo "trial_p39_reach: $1: revoking its token returned $2, not 204. The token may be live for up to an hour;" \
         "the Maintainer must revoke it by hand." >&2
 }
 
 finish() {
+    if [ -z "$token" ] && [ -n "${minted:-}" ]; then
+        token=$(token_in "$minted")
+        minted=""
+    fi
     if [ -n "$token" ]; then
         last=$(revoke || true)
         echo "trial_p39_reach: stopped with a token live; revoking it returned $last" >&2
@@ -113,24 +144,48 @@ reach() {
         "$API/app/installations/$installation/access_tokens" || true)
     jwt=""
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
-    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
+    minted=$(printf '%s\n' "$minted" | sed '$d')
+    token=$(printf '%s\n' "$minted" | python3 -I -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
-    if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
-        # No token was minted, so the answer is GitHub's error; it is still redacted before it is shown.
-        token=""
-        printf '%s\n' "$minted" | sed '$d' > "$scratch/mint-$n"
+    if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
+        # GitHub minted a token and its answer could not be read: the token may be live, and the answer is written
+        # nowhere. The token is revoked if it can be found in the answer, and the Maintainer is told either way.
+        token=$(token_in "$minted")
         minted=""
+        if [ -n "$token" ]; then
+            revoked=$(revoke || true)
+            token=""
+            [ "$revoked" = 204 ] || unrevoked "$slug, whose mint answered 201 and could not be read," "$revoked"
+        else
+            echo "trial_p39_reach: $slug: GitHub minted a token for installation $installation and its answer could not" \
+                "be read; the token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
+        fi
+        echo "trial_p39_reach: $slug: nothing read, and nothing of the answer kept." >&2
+        exit 1
+    fi
+    if [ "$minted_status" != 201 ] && [ -z "$token" ]; then
+        token=$(token_in "$minted")    # a refusal cut short may hold one all the same; the trap revokes it
+    fi
+    if [ "$minted_status" != 201 ]; then
+        if [ -n "$token" ]; then
+            # A token the refusal carried all the same is left set, for the exit trap to revoke; its answer is not shown.
+            minted=""
+            echo "trial_p39_reach: $slug: the mint answered ${minted_status:-none} and held a token all the same;" \
+                "nothing read, and the token is revoked as the script stops." >&2
+            exit 1
+        fi
+        # No token was minted, so the answer is GitHub's error: it is redacted before it is shown, and never written
+        # to a file.
         echo "trial_p39_reach: $slug: no token was minted for installation $installation (status ${minted_status:-none});" \
             "nothing read. GitHub answered, redacted:" >&2
-        if (cd "$root" && python3 -m tools.redact_trial < "$scratch/mint-$n" > "$scratch/mint-$n.clean") 2>/dev/null
-        then
-            cat "$scratch/mint-$n.clean" >&2
+        if shown=$(printf '%s\n' "$minted" | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
+            printf '%s\n' "$shown" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2
         fi
-        rm -f "$scratch/mint-$n" "$scratch/mint-$n.clean"
+        minted=""
         exit 1
     fi
     minted=""

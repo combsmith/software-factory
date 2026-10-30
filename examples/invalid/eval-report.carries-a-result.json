@@ -25,5 +25,6 @@
       "reasons": []
     }
   ],
-  "passed": 2
+  "passed": 2,
+  "split_ok": true
 }

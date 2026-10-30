@@ -33,6 +33,9 @@ RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
 CASE_FAILED = "case_failed"
+# How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
+# held here, where the cases are, and written nowhere public (decision 0094).
+KIND_LEAST = 20
 
 
 class Stop(Exception):
@@ -224,14 +227,32 @@ def eval_result_codes() -> set:
     return set(known["eval-report"]["properties"]["cases"]["items"]["properties"]["reasons"]["items"]["enum"])
 
 
-def report(kept: dict, found: dict, assessed: dict) -> dict:
-    """The `eval-report/1` of this run: the plan's Release, commit and set, and each case by id and hash, in the
-    manifest's order, with its verdict and codes."""
+def split_ok(found: dict, place: pathlib.Path):
+    """Whether the set's cases, as fetched into the scratch, hold KIND_LEAST of each kind: one word of the whole set,
+    never how many of either, since a public count and the ids a change adds or removes would tell each case's kind
+    (decision 0094). None where a case was not read, or its answer is no kind: such a run fails by that case."""
+    counted = {"finding": 0, "met": 0}
+    for entry in found["cases"]:
+        try:
+            case = _read(place / "cases", "%s.json" % entry["id"])
+        except Stop:
+            return None
+        said = case.get("expected") if isinstance(case, dict) else None
+        said = said.get("verdict") if isinstance(said, dict) else None
+        if not isinstance(said, str) or said not in counted:
+            return None
+        counted[said] += 1
+    return min(counted.values()) >= KIND_LEAST
+
+
+def report(kept: dict, found: dict, assessed: dict, held: bool = None) -> dict:
+    """The `eval-report/1` of this run: the plan's Release, commit and set, each case by id and hash, in the manifest's
+    order, with its verdict and codes, and whether the set holds `split_ok`'s kinds."""
     cases = [{"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1]}
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "cases": cases,
-            "passed": len([c for c in cases if c["verdict"] == PASS])}
+            "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held}
 
 
 def verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
@@ -256,6 +277,8 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
         return "case_failed"
     if document["passed"] != found["count"]:
         return "count_differs"
+    if document["split_ok"] is not True:
+        return "eval_split_short"
     return PASS
 
 
@@ -264,7 +287,7 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     the upload finds it, whatever the verdicts, so that a set that fails is uploaded too and `judge` fails the run."""
     kept, found, place = _planned(env, root, workspace)
     assessed = assess(found, _read(place, "fetched.json"), place, review)
-    written = report(kept, found, assessed)
+    written = report(kept, found, assessed, split_ok(found, place))
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 

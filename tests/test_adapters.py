@@ -1904,6 +1904,21 @@ class Acceptance(unittest.TestCase):
             pull["user"] = user
         return self.read(*found, pull=pull, opener=opener)
 
+    def test_the_bound_issues_lookup_is_read_under_the_controllers_grant(self):
+        # P-54: the token narrowed to issues: read reads the lookup, GitHub names that permission as what it accepts, and
+        # labelled() reads the answer. The canary is public, so the metadata: read token is answered too; a private repo
+        # stays open until a private Consumer repo exists (slice 3).
+        found = exchanges("P-54")
+        minted, read = found[0], found[1]
+        self.assertEqual(minted["request"]["body"]["permissions"], {"issues": "read"})
+        self.assertEqual(read["response"]["status"], 200)
+        self.assertEqual(read["response"]["headers"]["x-accepted-github-permissions"], "issues=read")
+        self.assertEqual(found[3]["request"]["body"]["permissions"], {"metadata": "read"})
+        repo = read["request"]["call"].split("/repos/")[1].split("/issues/")[0]
+        for at in (1, 4):
+            self.assertIs(acceptance.labelled(replay("P-54", at), repo, 42), False)
+        self.assertEqual([n["name"] for n in read["response"]["body"]["labels"]], ["question"])
+
     def test_a_pull_request_the_factory_opens_is_bound_to_the_issue_its_branch_names(self):  # issue 295
         asks = [label_event("labeled")]
         # Its closing references may leave the bound issue out: the ask is read from the issue its branch names.
@@ -3058,6 +3073,8 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
+    # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs.
+    "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
     # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
     "the_queue_can_eject": "shape",
 }
