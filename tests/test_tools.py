@@ -4859,8 +4859,11 @@ class OutputMadeAlone(unittest.TestCase):
                     else:
                         self.assertNotIn("can be written by other users", told)
                         self.assertTrue((parent / "out").is_dir(), told)
-            # A directory this user does not own, as an id that names another user reads it; and a find that fails.
+            # A directory this user does not own, as an id that names another user reads it; and a find that fails. Run
+            # as root, the folder is root's, which the check takes as safe whoever runs it, so the id case cannot be shown.
             for name, stand_in in (("id", '#!/bin/sh\necho 4242\n'), ("find", '#!/bin/sh\nexit 1\n')):
+                if name == "id" and os.geteuid() == 0:
+                    continue
                 with self.subTest(script=script, stand_in=name):
                     folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
                     (folder / "bin").mkdir()
@@ -6675,6 +6678,13 @@ class Redaction(unittest.TestCase):
         self.assertIn("named for a credential", refused.getvalue())
         out, said = self.redact(json.dumps({"note": "{'password': 'hunter2'}", "a": 1}))     # a field in single quotes
         self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: note"))
+        # Each kind of quote is read on its own: the other kind inside a name is part of it, and the name is still judged.
+        for line in ('error: {"token\'s value": "hunter2"}', "error: {'the \"password\"': 'hunter2'}"):
+            refused = io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(("HTTP/2 200\ncontent-type: text/plain\n\n" + line
+                                                                     + "\n").encode()), stdout=io.StringIO(),
+                                               stderr=refused), 1, line)
+            self.assertIn("named for a credential", refused.getvalue())
         # NaN and Infinity are not JSON; a status line after a head with no blank line after it is a body, not a head; and
         # a status line shaped like a credential is never deleted alone, leaving headers with no status line above them.
         for raw, why in (("HTTP/1.1 200 OK\nContent-Type: application/json\n\nNaN\n", "holds NaN"),
