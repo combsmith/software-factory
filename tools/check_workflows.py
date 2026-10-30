@@ -1233,7 +1233,7 @@ def release_problems(text: str) -> list:
 
 
 COMPACT_EVENT = "schedule"       # the one event whose value is a list, which may stand at its own key's indent,
-COMPACT_ITEM = "- cron:"         # each item of it a cron
+COMPACT_ITEM = re.compile(r"- cron:( |$)")   # each item of it a cron, its key read as the reader reads one (Codex on #428)
 
 
 def _on_items(text: str, on: dict) -> list:
@@ -1258,7 +1258,7 @@ def _on_items(text: str, on: dict) -> list:
     for lead, number, item, line in section:
         if lead == events and not item:
             key = line.split(":", 1)[0].strip()
-        elif lead == events and (key != COMPACT_EVENT or not line.startswith(COMPACT_ITEM)):
+        elif lead == events and (key != COMPACT_EVENT or not COMPACT_ITEM.match(line)):
             found.append(number)
     return found
 
