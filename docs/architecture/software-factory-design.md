@@ -367,9 +367,10 @@ check. `success` alone is passing. `failure` and `timed_out` are failing: the co
 the author, because a hung test usually belongs to the content and attempts bound the fixes (L-39).
 GitHub concludes a job it stops at its own `timeout-minutes` `cancelled`, not `timed_out`, and its
 check run with it (P-42). So each job the Factory writes stops its own work first: each `run:` step
-has a `timeout-minutes` of its own, the steps' together fewer than the job's, and a step stopped at
-its limit concludes `failure`, its job and check run with it (`tools/check_workflows.py`, issue 388).
-A Lens that runs too long is then a failing check, never one with no verdict.
+has a `timeout-minutes` of its own, the steps' together two minutes fewer than the job's, kept for
+its checkout and other steps, and a step stopped at its limit concludes `failure`, its job and check
+run with it (`tools/check_workflows.py`, issue 388). A Lens whose work runs too long is then a
+failing check, not one with no verdict, while its other steps keep within those two minutes.
 `queued`, `in_progress`, `pending`, `waiting`, `requested` and `expected`, and a required check that
 has not reported at all, are pending: a normal wait that ends on its own, so the item waits in
 `verifying`. `neutral`, `skipped`, `cancelled`, `stale`, `action_required`, `startup_failure` and

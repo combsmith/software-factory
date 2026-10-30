@@ -1783,8 +1783,10 @@ class Workflows(unittest.TestCase):
             step = "      - run: %s\n        timeout-minutes: %d\n" % (command, minutes)
             self.assertIn(step, GOOD, command)
             # The job keeps MARGIN, two minutes, for its other steps: its checkout and set-up, which took 8 s at most.
+            # A limit of 0 is none to the runner; and a digit only Unicode calls one is none to YAML.
             for given, broken in ((None, True), (job - 2, False), (job - 1, True), (job, True), (600, True),
-                                  ("five", True)):
+                                  ("five", True), (0, True), ("00", True), ("0%d" % (job - 2), True),
+                                  ("\u00b2", True), ("\u0665", True)):
                 text = GOOD.replace(step, "      - run: %s\n" % command + (
                     "" if given is None else "        timeout-minutes: %s\n" % given))
                 with self.subTest(command=command, given=given):
@@ -1805,6 +1807,24 @@ class Workflows(unittest.TestCase):
         self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
                                   "2 its other steps keep"), check_workflows.lint(more))
         self.assertEqual(check_workflows.MARGIN, 2)
+        # A job's own limit is held the same way.
+        for job in ("0", "\u00b2"):
+            self.assertIn(("timeout", "job checks has no timeout-minutes"),
+                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job)))
+
+    def test_each_step_limit_holds_what_its_step_needs(self):  # issue 388
+        # The eval job's run step starts no case it cannot end within BUDGET of the plan, so its limit is BUDGET at
+        # least; the Engine's step calls the CLI for its tier's seconds at most, with two reads of its version.
+        from harness.eval import run as eval_run
+        live = ROOT / ".github" / "workflows"
+        limit = re.search(r"      - run: python3 -m harness\.eval\.run\n        timeout-minutes: (\d+)\n",
+                          (live / "eval.yml").read_text())
+        self.assertGreaterEqual(int(limit.group(1)) * 60, eval_run.BUDGET)
+        engine = re.search(r"        timeout-minutes: (\d+)\n        run: python3 -m harness\.run\n",
+                           (live / "run-jobs.yml").read_text())
+        tiers = json.loads((ROOT / "config" / "harness.json").read_text())
+        longest = max(limits["seconds"] for limits in tiers["limits"].values())
+        self.assertGreater(int(engine.group(1)) * 60, longest + eval_run.VERSION_READS)
 
     def test_an_example_in_the_standard_that_has_drifted_is_caught(self):
         root = tree({"examples/workflows/verify.yml": GOOD,

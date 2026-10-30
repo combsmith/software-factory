@@ -206,4 +206,4 @@ continue-on-error: true    # never
 ```
 
 Org standard: none for the time limit. Refusing continue-on-error departs from ci-standards.md, "3. SonarCloud Analysis (sonarcloud.yml)": decision 0014.
-Held by: `examples/workflows/invalid/timeout.a-hung-step-runs-six-hours.yml`, `examples/workflows/invalid/timeout.a-run-step-with-no-limit-of-its-own.yml`, `examples/workflows/invalid/timeout.a-step-limit-that-leaves-no-margin.yml`, `examples/workflows/invalid/soft.a-failure-nobody-sees.yml`
+Held by: `examples/workflows/invalid/timeout.a-hung-step-runs-six-hours.yml`, `examples/workflows/invalid/timeout.a-run-step-with-no-limit-of-its-own.yml`, `examples/workflows/invalid/timeout.a-step-limit-that-leaves-no-margin.yml`, `examples/workflows/invalid/timeout.a-step-limit-of-none.yml`, `examples/workflows/invalid/soft.a-failure-nobody-sees.yml`

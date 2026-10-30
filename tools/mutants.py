@@ -78,6 +78,7 @@ COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
 LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
+NEEDED = ("tests.test_tools.Workflows.test_each_step_limit_holds_what_its_step_needs",)
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
 P50 = "tools/trial_p50_linux_sandbox.sh"
@@ -2023,13 +2024,19 @@ MUTANTS = ISSUE + [
      'COPIED.search(text) if name == "workflows" else None', "COPIED.search(text)", ("tests.test_tools.Context",)),
     # Issue 388: each run: step stops under a limit of its own, the steps together below their job's.
     ("a run: step needs no limit of its own", "tools/check_workflows.py",
-     "        if not all(minutes.isdigit() for minutes in given):\n", "        if False:\n", LIMITED),
+     "        if not all(MINUTES.match(minutes) for minutes in given):\n", "        if False:\n", LIMITED),
     ("run: steps may be given their whole job", "tools/check_workflows.py",
      'sum(map(int, given)) + MARGIN > int(inside["timeout-minutes"]["value"])',
      'sum(map(int, given)) > int(inside["timeout-minutes"]["value"])', LIMITED),
     ("a job keeps a minute for its other steps", "tools/check_workflows.py", "MARGIN = 2\n", "MARGIN = 1\n", LIMITED),
     ("a job's run: steps are not counted together", "tools/check_workflows.py",
      'sum(map(int, given)) + MARGIN > int(', 'max(map(int, given)) + MARGIN > int(', LIMITED),
+    ("a limit of none, or of another script's digits, is a limit", "tools/check_workflows.py",
+     'MINUTES = re.compile(r"^[1-9][0-9]*$")', 'MINUTES = re.compile(r"^[0-9]+$")', LIMITED),
+    ("the eval job's run step is cut before its budget", ".github/workflows/eval.yml",
+     "        timeout-minutes: 110\n", "        timeout-minutes: 30\n", NEEDED),
+    ("the Engine's step is cut before its call can end", ".github/workflows/run-jobs.yml",
+     "        timeout-minutes: 20\n", "        timeout-minutes: 15\n", NEEDED),
     ("a uses: step must have a limit of its own", "tools/check_workflows.py",
      '                 for s in steps if s["key"] == "run"]', '                 for s in steps if s["key"] in ("run", "uses")]',
      LIMITED),
