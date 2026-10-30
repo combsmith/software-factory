@@ -544,8 +544,8 @@ class Feed(unittest.TestCase):
         def table(*rows, within=14):
             return {"schema": "credential-ages/1", "due_within_days": within, "credentials": [dict(r) if isinstance(r, dict) else r for r in rows]}
 
-        def row(secret="APPROVER_TOKEN", kind="write", rotated="2026-10-01", expires=None, every=90, expiring="given"):
-            return {"secret": secret, "kind": kind, "stored": "environment", "environment": "factory-approve",
+        def row(name="APPROVER_TOKEN", kind="write", rotated="2026-10-01", expires=None, every=90, expiring="given"):
+            return {"name": name, "kind": kind, "stored": "environment", "environment": "factory-approve",
                     "workflows": ["approve-job.yml"], "rotated_on": rotated,
                     "expires": expires is not None if expiring == "given" else expiring, "expires_on": expires,
                     "rotate_every_days": every}
@@ -593,7 +593,7 @@ class Feed(unittest.TestCase):
         # pass on #427).
         self.assertEqual(due(table(row(every=3000000), row("CONTROLLER_APP_KEY")), NOW), (True, ["APPROVER_TOKEN"]))
         self.assertEqual(due(table(row(), within=1000000000), NOW), (True, []))
-        for nameless in (row(secret=None), row(secret="approver_token"), row(secret="APPROVER TOKEN"), "APPROVER_TOKEN", None):
+        for nameless in (row(name=None), row(name="approver_token"), row(name="APPROVER TOKEN"), "APPROVER_TOKEN", None):
             self.assertEqual(due(table(nameless, row("CONTROLLER_APP_KEY")), NOW), (True, []), nameless)
         # A table that cannot be read is due whole; so is a moment that is none.
         for bad in (None, [], "credential-ages/1", table(), dict(table(row()), schema="credentials/2"),

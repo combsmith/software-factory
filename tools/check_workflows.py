@@ -1467,7 +1467,7 @@ def credential_problems(root: pathlib.Path, live: list) -> list:
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as err:
         return ["config/credential-ages.json or config/apps.json cannot be read, so no workflow's secrets can be checked "
                 "against them: %r" % err]
-    if not isinstance(rows, list) or not all(isinstance(r, dict) and isinstance(r.get("secret"), str)
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and isinstance(r.get("name"), str)
                                              and isinstance(r.get("workflows"), list) for r in rows):
         return ["config/credential-ages.json: its credentials are not rows each naming a secret and its workflows"]
     named = {}
@@ -1478,7 +1478,7 @@ def credential_problems(root: pathlib.Path, live: list) -> list:
                 named.setdefault(name, set()).add(path.name)
     problems, held = [], {}
     for row in rows:
-        held.setdefault(row["secret"].upper(), []).append(row)
+        held.setdefault(row["name"].upper(), []).append(row)
     for name in sorted(set(named) - set(held)):
         problems.append("%s names the secret %s, which config/credential-ages.json has no row for"
                         % (", ".join(sorted(named[name])), name))

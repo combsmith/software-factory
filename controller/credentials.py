@@ -79,7 +79,7 @@ def due(table, now: str) -> tuple:
     except OverflowError:
         return True, []
     rows = table["credentials"]
-    names = [row.get("secret") if isinstance(row, dict) else None for row in rows]
+    names = [row.get("name") if isinstance(row, dict) else None for row in rows]
     raised, found = False, set()
     for row, name in zip(rows, names):
         readable = isinstance(name, str) and NAME.fullmatch(name) is not None and names.count(name) == 1

@@ -1758,8 +1758,8 @@ class Workflows(unittest.TestCase):
         # Apps' keys and the workflows' text alone.
         self.assertEqual(check_workflows.credential_problems(ROOT, sorted((ROOT / ".github" / "workflows").glob("*.yml"))), [])
 
-        def row(secret, workflows, kind="write", stored="environment", environment=None):
-            return {"secret": secret, "kind": kind, "stored": stored, "environment": environment, "workflows": workflows,
+        def row(name, workflows, kind="write", stored="environment", environment=None):
+            return {"name": name, "kind": kind, "stored": stored, "environment": environment, "workflows": workflows,
                     "rotated_on": "2026-10-01", "expires_on": None, "rotate_every_days": 90}
 
         app = {"name": "combsmith-sf-controller", "key": {"environment": "factory-poller", "secret": "CONTROLLER_APP_KEY"},
@@ -1795,10 +1795,10 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(problems(rows=rows + [row("QUEUE_APP_KEY", ["queue.yml"])]),
                                "QUEUE_APP_KEY lists the workflows ['queue.yml'], and is named by none"))
         self.assertEqual(problems(rows=rows + [row("QUEUE_APP_KEY", [], environment="factory-queue")]), [])
-        two = [dict(r, kind="read") if r["secret"] == "CLAUDE_CODE_OAUTH_TOKEN" else r for r in rows]
+        two = [dict(r, kind="read") if r["name"] == "CLAUDE_CODE_OAUTH_TOKEN" else r for r in rows]
         self.assertTrue(caught(problems(rows=two), "CLAUDE_CODE_OAUTH_TOKEN is named by 2 workflows"))
         self.assertTrue(caught(problems(rows=rows + [rows[1]]), "APPROVER_TOKEN has 2 rows"))
-        self.assertTrue(caught(problems(rows=rows + [dict(rows[1], secret="approver_token")]), "APPROVER_TOKEN has 2 rows"))
+        self.assertTrue(caught(problems(rows=rows + [dict(rows[1], name="approver_token")]), "APPROVER_TOKEN has 2 rows"))
         # An App's key: kept where config/apps.json says alone, and a write credential if and only if its App writes.
         keyed = [dict(rows[0], environment="factory-poller")] + rows[1:]
         self.assertTrue(caught(problems(rows=keyed), "CONTROLLER_APP_KEY is an App's key"))
@@ -1813,11 +1813,11 @@ class Workflows(unittest.TestCase):
                                "config/apps.json keeps the key QUEUE_APP_KEY, which config/credential-ages.json has no row for"))
         # Any other secret names its environment if and only if it is stored in one.
         for bad in (dict(rows[1], environment=None), dict(rows[4], environment="factory-run")):
-            self.assertTrue(caught(problems(rows=[r for r in rows if r["secret"] != bad["secret"]] + [bad]),
-                                   "%s names its environment if and only if it is stored in one" % bad["secret"]), bad)
+            self.assertTrue(caught(problems(rows=[r for r in rows if r["name"] != bad["name"]] + [bad]),
+                                   "%s names its environment if and only if it is stored in one" % bad["name"]), bad)
         # Rows or Apps that cannot be read check nothing, and say so.
-        for broken in ({"credentials": "x"}, {"credentials": [{"secret": 1, "workflows": []}]},
-                       {"credentials": [{"secret": "X"}]}):
+        for broken in ({"credentials": "x"}, {"credentials": [{"name": 1, "workflows": []}]},
+                       {"credentials": [{"name": "X"}]}):
             files = {".github/workflows/pass.yml": flows["pass.yml"], "config/credential-ages.json": json.dumps(broken),
                      "config/apps.json": json.dumps({"apps": {}})}
             root = tree(files)
