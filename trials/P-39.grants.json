@@ -4,7 +4,7 @@
   "question": "Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with config/apps.json?",
   "pass": "They agree exactly, and a difference fails (section 6). As the story, #26, states it in its working rulings: for each App, app_id is the data's; the permissions and their levels are exactly the data's, no more and no fewer, and the same registered and installed; events is empty; the selection is selected; and the repos are exactly installed_on. A mismatch is a fail, and no key for that App is stored. This fixture holds the first two reads, made through the Maintainer's login and minting nothing: GET /apps/{slug} for each App, and GET /orgs/combsmith/installations, kept whole, third-party Apps included. Its verdict is on every part of the condition but the repos. The repos each installation reaches need an installation token, so they are read at the Maintainer's terminal by tools/trial_p39_reach.sh and kept in P-39.reach.json, with a verdict of their own. P-39 passes only if both fixtures do.",
   "repo": "combsmith",
-  "ran_at": "2026-10-27T23:43:41Z",
+  "ran_at": "2026-10-29T14:36:34Z",
   "exchanges": [
     {
       "request": {
@@ -25,18 +25,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 23:43:42 GMT",
-          "etag": "W/\"cb9105064fdf464881ec90ccb4ba1ace6aacc283711c460594b0758b6941de61\"",
+          "date": "Thu, 29 Oct 2026 14:36:35 GMT",
+          "etag": "W/\"aa0d7e5b7dca42688a13a7a86d2be1638ff470801e5d9fd4693f2dadd4157a28\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D404:817C5:3B8C544:C3ABDC5:6AE1372D",
+          "x-github-request-id": "CCCB:77139:12A88A8F:3D66BA39:6AE359F3",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4790",
-          "x-ratelimit-reset": "1793146453",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793288176",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "210"
+          "x-ratelimit-used": "2"
         },
         "body": {
           "id": 5364130,
@@ -69,7 +69,7 @@
           "external_url": "https://github.com/combsmith",
           "html_url": "https://github.com/apps/combsmith-sf-controller",
           "created_at": "2026-10-18T02:22:10Z",
-          "updated_at": "2026-10-27T22:37:13Z",
+          "updated_at": "2026-10-28T11:58:29Z",
           "permissions": {
             "actions": "read",
             "actions_variables": "read",
@@ -77,7 +77,7 @@
             "contents": "read",
             "issues": "write",
             "metadata": "read",
-            "pull_requests": "read"
+            "pull_requests": "write"
           },
           "events": []
         }
@@ -102,18 +102,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 23:43:42 GMT",
-          "etag": "W/\"ccc27d368edb150b66f7612e2fb4b83ac31afe01a4eb309766c6c0fbc05aa6c2\"",
+          "date": "Thu, 29 Oct 2026 14:36:35 GMT",
+          "etag": "W/\"df7bc75ec92605341578fee45a1d28f794eaa91533b3473d16422acecb63ffff\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D407:A6D16:3CA0548:C62FCB4:6AE1372E",
+          "x-github-request-id": "CCCD:3E23CA:137F5035:409927DE:6AE359F3",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4789",
-          "x-ratelimit-reset": "1793146453",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793288176",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "211"
+          "x-ratelimit-used": "3"
         },
         "body": {
           "id": 5364144,
@@ -179,18 +179,18 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 23:43:43 GMT",
-          "etag": "W/\"aa14bd18168cc76f84c6c0d3232c4f0ef53a5f1f023100a016fc515827de1226\"",
+          "date": "Thu, 29 Oct 2026 14:36:36 GMT",
+          "etag": "W/\"9e0f723eaea60600e68f8d70cfc03ac8dc6dd7c88c859430d311124fe43d13c4\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D408:34229E:3C30223:C5BDD5C:6AE1372F",
+          "x-github-request-id": "CCCE:10D6AE:13DFA4CA:41D0B5AB:6AE359F3",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4788",
-          "x-ratelimit-reset": "1793146453",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1793288176",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "212"
+          "x-ratelimit-used": "4"
         },
         "body": {
           "id": 5364151,
@@ -243,6 +243,78 @@
           "name": "don-petry"
         },
         "via": "rest",
+        "call": "GET /apps/combsmith-sf-queue",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 29 Oct 2026 14:36:36 GMT",
+          "etag": "W/\"58adf3f9113c95083470a356e2ede7c965894e8456ee880abbc13970b7fda319\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CCCF:2698FD:11AF5DA8:3A461EBD:6AE359F4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4995",
+          "x-ratelimit-reset": "1793288176",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "5"
+        },
+        "body": {
+          "id": 5519382,
+          "client_id": "Iv23licYr9KFpnXQbkSg",
+          "slug": "combsmith-sf-queue",
+          "node_id": "A_kwHOD2inqs4AVDgW",
+          "owner": {
+            "login": "combsmith",
+            "id": 258516906,
+            "node_id": "O_kgDOD2inqg",
+            "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/combsmith",
+            "html_url": "https://github.com/combsmith",
+            "followers_url": "https://api.github.com/users/combsmith/followers",
+            "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+            "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+            "organizations_url": "https://api.github.com/users/combsmith/orgs",
+            "repos_url": "https://api.github.com/users/combsmith/repos",
+            "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/combsmith/received_events",
+            "type": "Organization",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "name": "combsmith-sf-queue",
+          "description": "combsmith-sf-queue",
+          "external_url": "https://github.com/combsmith",
+          "html_url": "https://github.com/apps/combsmith-sf-queue",
+          "created_at": "2026-10-29T01:09:22Z",
+          "updated_at": "2026-10-29T14:35:54Z",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read"
+          },
+          "events": []
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
         "call": "GET /orgs/combsmith/installations",
         "headers": {
           "accept": "application/vnd.github+json",
@@ -255,21 +327,21 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 23:43:44 GMT",
-          "etag": "W/\"d80be2db669a77c567ccd65047bcede8cb8a85a509dcf3e3b9cec52bc204947b\"",
+          "date": "Thu, 29 Oct 2026 14:36:37 GMT",
+          "etag": "W/\"091ffa5c6d37a6dd2119c95d459d9caa7d6f87b5faaa5025c42199967d2e1e3c\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "admin:org, read:org, write:org",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D409:1A3955:40AC1B2:D87597E:6AE1372F",
+          "x-github-request-id": "CCD0:1CC953:126B96F7:3CC30CF4:6AE359F4",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4369",
-          "x-ratelimit-reset": "1793146310",
+          "x-ratelimit-remaining": "4632",
+          "x-ratelimit-reset": "1793284870",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "631"
+          "x-ratelimit-used": "368"
         },
         "body": {
-          "total_count": 18,
+          "total_count": 19,
           "installations": [
             {
               "id": 117883859,
@@ -694,7 +766,7 @@
                 "user_view_type": "public",
                 "site_admin": false
               },
-              "repository_selection": "all",
+              "repository_selection": "selected",
               "repositories_url": "https://api.github.com/installation/repositories",
               "html_url": "https://github.com/organizations/combsmith/settings/installations/148147703",
               "app_id": 646884,
@@ -725,7 +797,7 @@
                 "pull_request_review_thread"
               ],
               "created_at": "2026-07-21T19:04:47.000-05:00",
-              "updated_at": "2026-08-10T10:54:37.000-05:00",
+              "updated_at": "2026-10-27T20:23:15.000-05:00",
               "single_file_name": null,
               "has_multiple_single_files": false,
               "single_file_paths": [],
@@ -1217,12 +1289,12 @@
                 "actions": "read",
                 "contents": "read",
                 "metadata": "read",
-                "pull_requests": "read",
+                "pull_requests": "write",
                 "actions_variables": "read"
               },
               "events": [],
               "created_at": "2026-10-17T21:31:16.000-05:00",
-              "updated_at": "2026-10-27T17:40:18.000-05:00",
+              "updated_at": "2026-10-28T07:00:26.000-05:00",
               "single_file_name": null,
               "has_multiple_single_files": false,
               "single_file_paths": [],
@@ -1324,6 +1396,50 @@
               "single_file_paths": [],
               "suspended_by": null,
               "suspended_at": null
+            },
+            {
+              "id": 176376387,
+              "client_id": "Iv23licYr9KFpnXQbkSg",
+              "account": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "repository_selection": "selected",
+              "repositories_url": "https://api.github.com/installation/repositories",
+              "html_url": "https://github.com/organizations/combsmith/settings/installations/176376387",
+              "app_id": 5519382,
+              "app_slug": "combsmith-sf-queue",
+              "target_id": 258516906,
+              "target_type": "Organization",
+              "permissions": {
+                "contents": "write",
+                "metadata": "read"
+              },
+              "events": [],
+              "created_at": "2026-10-28T20:09:49.000-05:00",
+              "updated_at": "2026-10-29T09:36:16.000-05:00",
+              "single_file_name": null,
+              "has_multiple_single_files": false,
+              "single_file_paths": [],
+              "suspended_by": null,
+              "suspended_at": null
             }
           ]
         }
@@ -1335,24 +1451,26 @@
     "exchanges[1].request.headers.authorization",
     "exchanges[2].request.headers.authorization",
     "exchanges[3].request.headers.authorization",
-    "exchanges[3].response.body.installations[0].access_tokens_url",
-    "exchanges[3].response.body.installations[1].access_tokens_url",
-    "exchanges[3].response.body.installations[2].access_tokens_url",
-    "exchanges[3].response.body.installations[3].access_tokens_url",
-    "exchanges[3].response.body.installations[4].access_tokens_url",
-    "exchanges[3].response.body.installations[5].access_tokens_url",
-    "exchanges[3].response.body.installations[6].access_tokens_url",
-    "exchanges[3].response.body.installations[7].access_tokens_url",
-    "exchanges[3].response.body.installations[8].access_tokens_url",
-    "exchanges[3].response.body.installations[9].access_tokens_url",
-    "exchanges[3].response.body.installations[10].access_tokens_url",
-    "exchanges[3].response.body.installations[11].access_tokens_url",
-    "exchanges[3].response.body.installations[12].access_tokens_url",
-    "exchanges[3].response.body.installations[13].access_tokens_url",
-    "exchanges[3].response.body.installations[14].access_tokens_url",
-    "exchanges[3].response.body.installations[15].access_tokens_url",
-    "exchanges[3].response.body.installations[16].access_tokens_url",
-    "exchanges[3].response.body.installations[17].access_tokens_url"
+    "exchanges[4].request.headers.authorization",
+    "exchanges[4].response.body.installations[0].access_tokens_url",
+    "exchanges[4].response.body.installations[1].access_tokens_url",
+    "exchanges[4].response.body.installations[2].access_tokens_url",
+    "exchanges[4].response.body.installations[3].access_tokens_url",
+    "exchanges[4].response.body.installations[4].access_tokens_url",
+    "exchanges[4].response.body.installations[5].access_tokens_url",
+    "exchanges[4].response.body.installations[6].access_tokens_url",
+    "exchanges[4].response.body.installations[7].access_tokens_url",
+    "exchanges[4].response.body.installations[8].access_tokens_url",
+    "exchanges[4].response.body.installations[9].access_tokens_url",
+    "exchanges[4].response.body.installations[10].access_tokens_url",
+    "exchanges[4].response.body.installations[11].access_tokens_url",
+    "exchanges[4].response.body.installations[12].access_tokens_url",
+    "exchanges[4].response.body.installations[13].access_tokens_url",
+    "exchanges[4].response.body.installations[14].access_tokens_url",
+    "exchanges[4].response.body.installations[15].access_tokens_url",
+    "exchanges[4].response.body.installations[16].access_tokens_url",
+    "exchanges[4].response.body.installations[17].access_tokens_url",
+    "exchanges[4].response.body.installations[18].access_tokens_url"
   ],
   "verdict": "pass"
 }
