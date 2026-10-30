@@ -1,0 +1,26 @@
+# Must pass. A list under an event's key may stand at that key's own indent, YAML's compact form: each item is the
+# event's value, never an on: written as a list (Muse's read of #416).
+name: sf-poller
+on:
+  schedule:
+  - cron: "13 * * * *"
+  - cron: "33 * * * *"
+  - cron: "53 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+    - factory
+    - ci
+    - sf-run
+    types:
+    - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next

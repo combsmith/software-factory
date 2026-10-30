@@ -9217,8 +9217,8 @@ MUTANTS = ISSUE + [
     ("an on: written as a list is read", "tools/check_workflows.py",
      '    elif _on_items(text, top["on"]):\n', '    elif False:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("an on: list at the events' level only deeper is read", "tools/check_workflows.py",
-     '    return [number for lead, number, item in section if item and lead == events]',
-     '    return [number for lead, number, item in section if item and lead > events]', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+     '    level = [(number, item) for lead, number, item in section if lead == events]',
+     '    level = [(number, item) for lead, number, item in section if lead > events]', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("an on: list in YAML's compact form ends the section", "tools/check_workflows.py",
      '        if lead < on["indent"] or (lead == on["indent"] and not item):\n', '        if lead <= on["indent"]:\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("an on: section ends only at the margin", "tools/check_workflows.py",
@@ -9253,6 +9253,13 @@ MUTANTS = ISSUE + [
     ("the redefinitions are read with their quotes escaped twice", "tools/hooks/identity.py",
      "    reasons, quoted = [], _quoted(shell.without_heredocs(text, raw=True))",
      "    reasons, quoted = [], _quoted(shell.without_heredocs(text))", (IDENTITY_TESTS + "test_a_substitution_in_a_redirection_or_an_expanded_here_document_is_read",)),
+    # Issue 426: the reviewers' three reads of #416's on: list.
+    ('a blank line ends the on: section', 'tools/check_workflows.py',
+     'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip() or raw.lstrip().startswith("#"):', 'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if raw.lstrip().startswith("#"):', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ('a comment ends the on: section', 'tools/check_workflows.py',
+     'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip() or raw.lstrip().startswith("#"):', 'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip():', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("an item after an event's key is an on: written as a list", 'tools/check_workflows.py',
+     'if level and level[0][1] else []', 'if level else []', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
 ]
 
 
