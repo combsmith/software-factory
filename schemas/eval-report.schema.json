@@ -11,7 +11,8 @@
     "intent",
     "set",
     "cases",
-    "passed"
+    "passed",
+    "split_ok"
   ],
   "properties": {
     "schema": {
@@ -100,6 +101,12 @@
     "passed": {
       "type": "integer",
       "minimum": 0
+    },
+    "split_ok": {
+      "type": [
+        "boolean",
+        "null"
+      ]
     }
   }
 }
