@@ -2495,8 +2495,13 @@ class Recorded(unittest.TestCase):
                                 (listed_runs(opening(self.RUN, status="in_progress", conclusion=None)), [])):
             got = read(runs, *exchanges)
             self.assertEqual((got["named"], got["unreadable"], got["whole"]), ({}, {36}, True), runs)
-        # A run list not read whole is not whole; with no Role that opens pull requests, nothing is read.
+        # A run list not read whole is not whole, nor is one that lists a Run before its name, which may be an opening
+        # Run (decision 0036); with no Role that opens pull requests, nothing is read.
         self.assertIs(read(listed_runs(opening(self.RUN), complete=False))["whole"], False)
+        unnamed = dict(listed_runs(opening(self.RUN)), unidentified=[{"run": "39100000009", "status": "completed",
+                                                                     "created_at": "2026-10-21T16:00:00Z"}])
+        self.assertIs(read(unnamed)["whole"], False)
+        self.assertIs(read(dict(listed_runs(opening(self.RUN)), unidentified="x"))["whole"], False)
         self.assertEqual(read(listed_runs(opening(self.RUN)), role=None),
                          {"named": {}, "unreadable": set(), "whole": True})
         # A Run of another Role, another Intent, or on a pull request or in another repo, is not read: the replay holds

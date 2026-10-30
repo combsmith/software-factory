@@ -943,6 +943,8 @@ MUTANTS = ISSUE + [
      'if not kept_whole or not isinstance(kept, (dict, type(None))):', 'if not isinstance(kept, (dict, type(None))):', ('tests.test_adapters',)),
     ("an open Effect that did not land names a pull request", 'adapters/applied.py',
      'if e["type"] == OPENED and e["state"] in ("applied", "already_applied")]', 'if e["type"] == OPENED]', ('tests.test_adapters',)),
+    ("a Run listed before its name is read as no opening Run", 'adapters/applied.py',
+     '    if runs.get("unidentified") != []:\n        out["whole"] = False\n        return out\n', '', ('tests.test_adapters',)),
     ("an opening Run that opened none is unreadable", 'adapters/applied.py',
      'if len(keys) > 1 or any(not isinstance(k, str)', 'if len(keys) != 1 or any(not isinstance(k, str)', ('tests.test_adapters',)),
     ("an opening Run naming two pull requests is read", 'adapters/applied.py',

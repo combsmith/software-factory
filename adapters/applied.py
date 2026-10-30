@@ -204,12 +204,19 @@ def opened(transport, repo: str, runs, role) -> dict:
     unreadable, since it may have opened a pull request it has not recorded yet. Its `applied/1`
     names the pull request it opened in a landed `open_pull_request` Effect, keyed by its number. An issue whose
     opening Run cannot be read, is named by more than one GitHub run, or names more than one pull request, or a number
-    that is none, is unreadable; the list is whole only when the run list was read whole. With no Role named, nothing
+    that is none, is unreadable; the list is whole only when the run list was read whole and lists no Run before its
+    name (decision 0036). A Run that did not succeed and uploaded no record names none, as a Lens's does; the writer's
+    rule, once it lands, leaves a pull request no Run names not whole (decision 0097). With no Role named, nothing
     is read: no Role opens one in slice 1, and the writer, `apply`'s open Effect, lands in slice 2 with push."""
     listed_whole = isinstance(runs, dict) and runs.get("complete") is True
     github_ids = runs.get("github_ids") if listed_whole else None
     out = {"named": {}, "unreadable": set(), "whole": listed_whole and isinstance(github_ids, dict)}
     if role is None or not out["whole"]:
+        return out
+    # A Run listed before its name may be an opening Run, and cannot be told from one (decision 0036): while one is, no
+    # binding by an opening Run is read whole.
+    if runs.get("unidentified") != []:
+        out["whole"] = False
         return out
     for record in runs["runs"]:
         item = record["item"]
