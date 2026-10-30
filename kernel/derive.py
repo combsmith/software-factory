@@ -1063,6 +1063,12 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     stop = contract_reading(facts, config)
     if stop is not None:
         return stop
+    # A Run named as past retention is read from the same records as the Runs: one that names none of this item's
+    # contradicts them, and nothing is read from it, never that it asks nothing (issue 346). It admits nothing, so it is
+    # read before a conflict and before any Lens's failure, which admit the author's fix Run.
+    unknown = sorted(set(facts["expired_reviews"]) - {r["run"] for r in runs_on(runs, facts)})
+    if unknown:
+        return {"state": None, "reason": "run_unreadable", "evidence": unknown}
     # GitHub works the merge state out after a push. Until it has, it is unknown, and unreadable.
     mergeable = facts.get("mergeable")
     if mergeable is False:
@@ -1102,11 +1108,6 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     odd = [r["run"] for r in mine if r["role"] in lenses and contradicts(r, facts)]
     if odd:
         return {"state": None, "reason": "run_unreadable", "evidence": odd}
-    # A Run named as past retention is read from the same records as the Runs: one that names none of this item's
-    # contradicts them, and nothing is read from it, never that it asks nothing (issue 346).
-    unknown = sorted(set(facts["expired_reviews"]) - {r["run"] for r in mine})
-    if unknown:
-        return {"state": None, "reason": "run_unreadable", "evidence": unknown}
     for lens in lenses:
         # A review whose record is past retention is asked for again (issue 346).
         if (not reviewed_clean_or_not(mine, facts, lens) or review_expired(mine, facts, lens)) \

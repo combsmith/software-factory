@@ -961,6 +961,10 @@ class OnlyAPersonEnds(unittest.TestCase):
         for named in (["r_0GONE1"], ["r_0OLD01", "r_0GONE1"], [""], ["r_0ELSE1"]):
             d = go(facts(expired_reviews=named), [old, fresh, elsewhere])
             self.assertEqual((d["state"], d["reason"]), (None, "run_unreadable"), named)
+        # Nor is a fix Run admitted past it: a conflict and a Lens's failure each admit one, so it is read before them.
+        for odd in ({"mergeable": False}, {"checks": with_check(0, "failure")}):
+            d = go(facts(expired_reviews=["r_0GONE1"], **odd), [old, fresh])
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "run_unreadable", "defer"), odd)
         # A review of another pull request answers nothing of this one's.
         d = go(expired, [old, dict(elsewhere, run="r_0ELSE2")])
         self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
