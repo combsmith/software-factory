@@ -128,7 +128,9 @@ fi
 [ -n "$cli" ] && [ -f "$cli" ] && [ -x "$cli" ] || refuse "no claude CLI found at '$cli'; install version $PIN"
 cli=$(real "$cli")
 
-scratch=$(cd "$(mktemp -d)" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d)
+scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/* | "$repo"/* | "$cfg"/*) rm -rf "$scratch"; refuse "the scratch directory is inside the repo or CONFIG_DIR" ;; esac
 finish() {
     rm -rf "$scratch"

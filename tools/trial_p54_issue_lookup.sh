@@ -90,7 +90,9 @@ VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or a link into it, is refused.
 # The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
-scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-p54.XXXXXX")" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p54.XXXXXX")
+scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/*)
     rm -rf "$scratch"
     echo "trial_p54_issue_lookup: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
@@ -169,7 +171,8 @@ read_one() {   # NARROWED PATH
         "$API/$2" > "$scratch/crlf-$n" || read_ok=0
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
-    status=$(sed -n '1s/^HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p' "$scratch/raw-$n")
+    # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
+    status=$(awk 'BEGIN { head = 1 } head && /^HTTP\/[0-9.]+ [0-9]+/ { found = $2 } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ -z "$status" ]; then
         rm -f "$scratch/raw-$n"
         echo "trial_p54_issue_lookup: GET /$2 with a token narrowed to $1: curl failed; nothing of it is kept" >&2

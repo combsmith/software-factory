@@ -4877,6 +4877,27 @@ class OutputMadeAlone(unittest.TestCase):
                     self.assertIn(said, told)
                     self.assertFalse((folder / "out").exists())
 
+    def test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in(self):
+        # Argon on the P-54 PR: inside `cd "$(mktemp ...)"` a failed mktemp is `cd ""`, which succeeds where it stands, so
+        # the scratch directory was the working directory, and the clean-up removed it: a run from the repo's root
+        # removed the repo. mktemp fails here, and everything where the run stands is kept.
+        for script in list(self.SCRIPTS) + list(self.SANDBOX):
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                (folder / "bin" / "mktemp").write_text("#!/bin/sh\nexit 1\n")
+                (folder / "bin" / "mktemp").chmod(0o755)
+                (folder / "kept").write_text("kept\n")
+                code, told = self.run_out(script, folder, folder / "out")
+                self.assertNotEqual(code, 0, told)
+                self.assertEqual((folder / "kept").read_text(), "kept\n")
+                self.assertFalse((folder / "calls").exists(), "a call was made")
+        # The scripts this cannot run so plainly hold to the same line.
+        for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p26_sandbox.sh",
+                       "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
+                       "trial_reader_reads.sh"):
+            self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
+
     def test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot(self):
         # P-50 and P-51 make OUT's parent if it is missing: given x/. they made x itself, then refused it as made since,
         # and left it behind (issue 406). An OUT whose last part is . or .. is refused before anything is made.
@@ -8007,6 +8028,8 @@ class ReaderTrialScript(unittest.TestCase):
     SCRIPT = ROOT / "tools" / "trial_reader_reads.sh"
     CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
               if r != "combsmith/software-factory"][0]
+    GIVEN = (CANARY, "main", "don-petry", "a-writer", "a-triager", "an-outsider")
+    FIRST = "metadata"
     TOKEN = "gh" + "s_" + "R" * 36
     # The stand-in GitHub: each call is logged with its method, URL, body and whether a credential came on stdin; a mint
     # answers a token, a revocation the status in revoke.status, and a read an answer by its path and the token's grant.
@@ -8097,7 +8120,7 @@ esac
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
         env.update({"TMPDIR": str(tmpdir)} if tmpdir else {})
-        given = args or (self.CANARY, "main", "don-petry", "a-writer", "a-triager", "an-outsider")
+        given = args or self.GIVEN
         return subprocess.run(["sh", str(self.SCRIPT), str(out or self.out), str(self.key), *given],
                               cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
 
@@ -8210,7 +8233,7 @@ esac
         held_r, held_w = os.pipe()
         (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
-        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), self.CANARY, "main", "don-petry"],
+        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
                                    cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                                    pass_fds=(told_w, held_r))
         os.close(told_w)
@@ -8241,7 +8264,7 @@ esac
         (self.stand_in / "mint.status").write_text("401\n")
         ran = self.run_script()
         self.assertEqual(ran.returncode, 1)
-        self.assertIn("no token narrowed to metadata was minted (status 401)", ran.stderr)
+        self.assertIn("no token narrowed to %s was minted (status 401)" % self.FIRST, ran.stderr)
         self.assertEqual([c for c in self.calls() if c["method"] == "GET"], [])
         (self.stand_in / "log").unlink()
         (self.stand_in / "mint.status").write_text("201\n")
@@ -8254,46 +8277,35 @@ esac
         self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
 
 
-class IssueLookupTrial(unittest.TestCase):
-    """`tools/trial_p54_issue_lookup.sh`, run against a stand-in curl and openssl and never GitHub (issue 342): each
-    refusal before anything is minted, two tokens for the Controller's installation each narrowed to one permission on
-    the canary alone, the bound issue read with each and kept with its status, and no token anywhere in OUT."""
+class IssueLookupTrial(ReaderTrialScript):
+    """`tools/trial_p54_issue_lookup.sh`, run against the reader trial's stand-ins and never GitHub (issue 342). It is that
+    script held to the Controller's installation and one read, so every test of the reader's that is not about what is
+    read runs over it too, by inheritance: the signal, the cut mint, the transfer that failed, the refused mint and
+    revocation, the scratch directory and OUT inside the repo, and curl's configuration."""
 
     SCRIPT = ROOT / "tools" / "trial_p54_issue_lookup.sh"
     CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
               if r != "combsmith/software-factory"][0]
+    GIVEN = (CANARY, "42")
+    FIRST = "issues"
     # The reader trial's stand-in GitHub, which also answers an issue: to a token narrowed to issues, and to any token
-    # where the repo is public, as a file beside it says.
+    # where the repo is public, as a file beside it says. A file beside it puts a proxy's block before the answer.
     CURL = ReaderTrialScript.CURL.replace('elif "/activity" in url:', '''elif "/issues/" in url:
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
     if grant == "issues" or os.path.exists(os.path.join(here, "public")):
         status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}
     else:
         status, answer = 403, {"message": "Resource not accessible by integration"}
-elif "/activity" in url:''', 1)
+elif "/activity" in url:''', 1).replace('''sys.stdout.write("HTTP/2 %d''', '''if os.path.exists(os.path.join(here, "proxied")):
+    sys.stdout.write("HTTP/1.1 200 Connection established\\r\\n\\r\\n")
+sys.stdout.write("HTTP/2 %d''', 1)
 
-    def setUp(self):
-        self.stand_in = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        for name, text in (("curl", self.CURL), ("openssl", ReaderTrialScript.OPENSSL)):
-            (self.stand_in / name).write_text(text)
-            (self.stand_in / name).chmod(0o755)
-        (self.stand_in / "mint.status").write_text("201\n")
-        (self.stand_in / "revoke.status").write_text("204\n")
-        (self.stand_in / "roles").write_text("{}")
-        self.key = self.stand_in / "controller.pem"
-        self.key.write_text("not a key\n")
-        self.out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
-
-    def run_script(self, *given) -> subprocess.CompletedProcess:
-        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
-               "TMPDIR": str(self.stand_in)}
-        return subprocess.run(["sh", str(self.SCRIPT), str(self.out), str(self.key), *(given or (self.CANARY, "42"))],
-                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
-
-    def calls(self) -> list:
-        log = self.stand_in / "log"
-        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
-
-    def test_the_issue_is_read_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
         grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
         listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
         app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]
@@ -8326,19 +8338,51 @@ elif "/activity" in url:''', 1)
                                  [{"revoked": "issues: read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
                 self.assertIn('"number": 42', texts["clean-1"])
                 self.assertIn('"name": "question"', texts["clean-1"])
-                everything = "".join(texts.values()) + ran.stdout + ran.stderr
-                self.assertNotIn("gh" + "s_", everything)
+                self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+
+    def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
+        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
+                self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's refusal after it is the read's answer.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 403])
 
     def test_each_refusal_comes_before_anything_is_minted(self):
-        for given in (("combsmith/software-factory", "42"), ("combsmith/elsewhere", "42"), (self.CANARY, "0"),
-                      (self.CANARY, "12a"), (self.CANARY, "-1"), (self.CANARY, "1/../2"), (self.CANARY, ""),
-                      (self.CANARY,), (self.CANARY, "42", "43")):
-            with self.subTest(given=given):
-                self.setUp()
-                ran = self.run_script(*given)
-                self.assertNotEqual(ran.returncode, 0, given)
-                self.assertEqual(self.calls(), [], given)
-                self.assertFalse(self.out.exists(), given)
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        for given, out, said in (((self.CANARY, "42"), self.out.parent, "exists"),
+                                 ((self.CANARY, "42"), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", "42"), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith/elsewhere", "42"), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith", "42"), None, "is not owner/name"),
+                                 ((self.CANARY, "0"), None, "is not an issue's number"),
+                                 ((self.CANARY, "12a"), None, "is not an issue's number"),
+                                 ((self.CANARY, "-1"), None, "is not an issue's number"),
+                                 ((self.CANARY, "1/../2"), None, "is not an issue's number"),
+                                 ((self.CANARY, ""), None, "is not an issue's number"),
+                                 ((self.CANARY,), None, "usage:"), ((self.CANARY, "42", "43"), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
 
 
 class Rulesets(unittest.TestCase):

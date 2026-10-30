@@ -81,7 +81,9 @@ out=$(cd "$target" && pwd -P)
 
 # The scratch directory, and so each work directory's parent, is under the runner's own temporary directory, where a
 # Run's work would be, and not under /tmp, which is a target of its own.
-scratch=$(cd "$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/p51.XXXXXX")" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/p51.XXXXXX")
+scratch=$(cd "$made" && pwd -P)
 base_cfg="$scratch/cfg"
 mkdir "$base_cfg"
 stub_pid=

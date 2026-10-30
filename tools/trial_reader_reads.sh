@@ -89,7 +89,9 @@ VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or a link into it, is refused.
 # The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
-scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-reader.XXXXXX")" && pwd -P)
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d "${TMPDIR:-/tmp}/trial-reader.XXXXXX")
+scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/*)
     rm -rf "$scratch"
     echo "trial_reader_reads: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
