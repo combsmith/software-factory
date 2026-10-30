@@ -1256,11 +1256,15 @@ def _on_items(text: str, on: dict) -> list:
     events = min((lead for lead, _, _, _ in section), default=0)
     found, key = [], None
     for lead, number, item, line in section:
-        if lead == events and not item:
+        if lead > events:
+            # A list begun deeper under schedule: is its list, and a compact item after it no part of it (Codex on #428).
+            key = None if key == COMPACT_EVENT else key
+        elif not item:
             name, _, rest = line.partition(":")
             # A key with a value of its own on its line is never one whose list follows (Codex on #428).
-            key = name.strip() if re.fullmatch(r"(\s+#.*)?\s*", rest) else line
-        elif lead == events and (key != COMPACT_EVENT or not COMPACT_ITEM.match(line)):
+            bare = not rest.strip() or (rest[:1].isspace() and rest.strip().startswith("#"))
+            key = name.strip() if bare else line
+        elif key != COMPACT_EVENT or not COMPACT_ITEM.match(line):
             found.append(number)
     return found
 
