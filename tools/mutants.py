@@ -9311,6 +9311,8 @@ MUTANTS = ISSUE + [
      'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip() or raw.lstrip().startswith("#"):', 'for number, raw in enumerate(text.split("\\n")[on["line"]:], on["line"] + 1):\n        if not raw.strip():', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ('a compact list under any event is its value', 'tools/check_workflows.py',
      'elif lead == events and (key != COMPACT_EVENT or not COMPACT_ITEM.match(line)):', 'elif lead == events and key is None:', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    ("a cron under any event is a schedule's", 'tools/check_workflows.py',
+     '(key != COMPACT_EVENT or not COMPACT_ITEM.match(line))', '(not COMPACT_ITEM.match(line))', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ('any item under schedule: is a cron', 'tools/check_workflows.py',
      '(key != COMPACT_EVENT or not COMPACT_ITEM.match(line))', '(key != COMPACT_EVENT)', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ('a cron with no space after its colon is a cron', 'tools/check_workflows.py',
