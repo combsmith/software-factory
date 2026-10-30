@@ -7123,8 +7123,19 @@ class Mutants(unittest.TestCase):
         # that does not exist made its mutant an ERROR. Every mutant names the tests that kill it, and each exists.
         self.assertEqual(mutants.unnamed(mutants.MUTANTS), [])
         good = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_exists", "tests.test_tools.Mutants",
-                "tests.test_tools")
+                "tests.test_coverage")
         self.assertEqual(mutants.unnamed([("ok", "k.py", "rule\n", "x\n", good)]), [])
+        # A class that can run past a run's limit, whole and beside the other workers, fails a shard for its length and
+        # ejects a pull request at random: a mutant names the method that kills it, never the class, nor the module
+        # that holds it. A method of the class is named freely.
+        for slow in ("tests.test_tools.Trials", "tests.test_tools.Workflows", "tests.test_tools.Apps",
+                     "tests.test_tools.AppThreads", "tests.test_tools.Verify", "tests.test_simulator.Simulation",
+                     "tests.test_transitions.Transitions", "tests.test_tools", "tests.test_simulator"):
+            said = mutants.unnamed([("m", "k.py", "rule\n", "x\n", (slow,))])
+            self.assertEqual(len(said), 1, slow)
+            self.assertIn("name the method that kills it", said[0], slow)
+        self.assertEqual(mutants.unnamed([("m", "k.py", "rule\n", "x\n",
+                                           ("tests.test_tools.Trials.test_an_asker_named_by_an_address_is_caught",))]), [])
         for bad, why in (("tests.test_tools.NeedsPassed", "does not exist"), ("tests.test_tools.Mutants.test_gone",
                          "does not exist"), ("tests.test_nowhere", "whose module does not exist"),
                          ("tests.test_simulator.Roll", "not a TestCase"), ("tests.test_tools.Mutants.check",
