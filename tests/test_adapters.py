@@ -3034,6 +3034,8 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
+    # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs.
+    "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
     # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
     "the_queue_can_eject": "shape",
 }

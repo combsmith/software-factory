@@ -1,0 +1,401 @@
+{
+  "schema": "trial/1",
+  "trial": "P-54",
+  "question": "Can the Controller's installation token, narrowed to issues: read on the canary alone, read the issue a pull request is bound to, GET /repos/{repo}/issues/{n}, as the acceptance port's labelled() reads it; and what is a token with metadata: read alone answered for the same read?",
+  "pass": "Written before the run, at the top of tools/trial_p54_issue_lookup.sh: pass if a token for the Controller's installation narrowed to issues: read, on the canary alone, reads GET /repos/{repo}/issues/{n} with 200, and the body is that issue: its number is the one asked, it holds no pull_request, and its labels are a list of objects each with a name, which is what labelled() reads. Fail otherwise. Recorded, deciding nothing: what a token with metadata: read alone is answered for the same read; the canary is public, so GitHub may answer it as it would anyone (decision 0068), and a private repo is not asked. Run at the Maintainer's terminal with the Controller's key, two tokens minted and revoked. Of each mint only what was asked and that it succeeded is kept: the script stops on any other answer.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-30T15:50:40Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172571513/access_tokens",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ],
+          "permissions": {
+            "issues": "read"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/42",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 30 Oct 2026 15:50:41 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "4492",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"e637e6b191df5e0303548f1284b36087fdcc01000bd279d0ad0383619bac85e4\"",
+          "last-modified": "Tue, 27 Oct 2026 11:15:13 GMT",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "issues=read",
+          "x-github-request-id": "F7A5:150377:F716:3301D:6AE4BCD1",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1793379041",
+          "x-ratelimit-used": "1",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42",
+          "repository_url": "https://api.github.com/repos/combsmith/software-factory-canary",
+          "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/labels{/name}",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/comments",
+          "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/events",
+          "html_url": "https://github.com/combsmith/software-factory-canary/issues/42",
+          "id": 5949774153,
+          "node_id": "I_kwDOVFD6788AAAABYqJZSQ",
+          "number": 42,
+          "title": "Trial P-34: when an issue's title or body last changed",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "labels": [
+            {
+              "id": 12640584776,
+              "node_id": "LA_kwDOVFD6788AAAAC8XAESA",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/labels/question",
+              "name": "question",
+              "color": "d876e3",
+              "default": true,
+              "description": "Further information is requested",
+              "archived_at": null,
+              "archived_by": null
+            }
+          ],
+          "state": "closed",
+          "locked": false,
+          "assignees": [],
+          "milestone": null,
+          "comments": 1,
+          "created_at": "2026-10-20T21:15:16Z",
+          "updated_at": "2026-10-20T21:31:23Z",
+          "closed_at": "2026-10-20T21:31:23Z",
+          "assignee": null,
+          "author_association": "CONTRIBUTOR",
+          "issue_field_values": [],
+          "type": null,
+          "active_lock_reason": null,
+          "sub_issues_summary": {
+            "total": 0,
+            "completed": 0,
+            "percent_completed": 0
+          },
+          "issue_dependencies_summary": {
+            "blocked_by": 0,
+            "total_blocked_by": 0,
+            "blocking": 0,
+            "total_blocking": 0
+          },
+          "body": "A trial of section 6 of the Factory's design: the time the title or body last changed, apart from the time anything on the issue changed, and each reopening with who did it. Body edited once.",
+          "closed_by": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "reactions": {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/reactions",
+            "total_count": 0,
+            "+1": 0,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+          },
+          "timeline_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/timeline",
+          "performed_via_github_app": null,
+          "state_reason": "not_planned",
+          "pinned_comment": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172571513/access_tokens",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ],
+          "permissions": {
+            "metadata": "read"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/42",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 30 Oct 2026 15:50:42 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "4492",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"bd189831b9946a49fa83fc2bc245fb6a240afe5b738a1f74e19a9753b83594da\"",
+          "last-modified": "Tue, 27 Oct 2026 11:15:13 GMT",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "issues=read",
+          "x-github-request-id": "F7A9:1B33C3:C83E:29984:6AE4BCD2",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793379041",
+          "x-ratelimit-used": "2",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42",
+          "repository_url": "https://api.github.com/repos/combsmith/software-factory-canary",
+          "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/labels{/name}",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/comments",
+          "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/events",
+          "html_url": "https://github.com/combsmith/software-factory-canary/issues/42",
+          "id": 5949774153,
+          "node_id": "I_kwDOVFD6788AAAABYqJZSQ",
+          "number": 42,
+          "title": "Trial P-34: when an issue's title or body last changed",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "labels": [
+            {
+              "id": 12640584776,
+              "node_id": "LA_kwDOVFD6788AAAAC8XAESA",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/labels/question",
+              "name": "question",
+              "color": "d876e3",
+              "default": true,
+              "description": "Further information is requested",
+              "archived_at": null,
+              "archived_by": null
+            }
+          ],
+          "state": "closed",
+          "locked": false,
+          "assignees": [],
+          "milestone": null,
+          "comments": 1,
+          "created_at": "2026-10-20T21:15:16Z",
+          "updated_at": "2026-10-20T21:31:23Z",
+          "closed_at": "2026-10-20T21:31:23Z",
+          "assignee": null,
+          "author_association": "CONTRIBUTOR",
+          "issue_field_values": [],
+          "type": null,
+          "active_lock_reason": null,
+          "sub_issues_summary": {
+            "total": 0,
+            "completed": 0,
+            "percent_completed": 0
+          },
+          "issue_dependencies_summary": {
+            "blocked_by": 0,
+            "total_blocked_by": 0,
+            "blocking": 0,
+            "total_blocking": 0
+          },
+          "body": "A trial of section 6 of the Factory's design: the time the title or body last changed, apart from the time anything on the issue changed, and each reopening with who did it. Body edited once.",
+          "closed_by": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "reactions": {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/reactions",
+            "total_count": 0,
+            "+1": 0,
+            "-1": 0,
+            "laugh": 0,
+            "hooray": 0,
+            "confused": 0,
+            "heart": 0,
+            "rocket": 0,
+            "eyes": 0
+          },
+          "timeline_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/42/timeline",
+          "performed_via_github_app": null,
+          "state_reason": "not_planned",
+          "pinned_comment": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-controller"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
