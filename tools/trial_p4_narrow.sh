@@ -38,7 +38,7 @@ if [ -e "$1" ] || [ -L "$1" ]; then
     echo "trial_p4_narrow: $1 exists; name a new directory" >&2
     exit 2
 fi
-if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
+if ! parent=$(CDPATH= cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
     echo "trial_p4_narrow: the directory that would hold $1 does not exist; make it first" >&2
     exit 2
 fi
@@ -47,6 +47,22 @@ case "$out/" in "$root"/*)
     echo "trial_p4_narrow: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
+# that fails says nothing, and is refused as such.
+uid=$(id -u)
+above=$parent
+while :; do
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    if [ -n "$found" ]; then
+        echo "trial_p4_narrow: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+            "under one only you can write to" >&2
+        exit 2
+    fi
+    [ "$above" = / ] && break
+    above=$(dirname -- "$above")
+done
 key=$2
 if [ ! -r "$key" ]; then
     echo "trial_p4_narrow: cannot read the key file $key" >&2

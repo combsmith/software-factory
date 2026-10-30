@@ -26,8 +26,11 @@
 # redacted there by tools/redact_trial.py, and deleted; OUT receives only the redacted answers (clean-N), the token's
 # permissions (token.json), what was asked (requests.json) and when the run started (ran_at). A read GitHub refuses is
 # kept as it was answered: the refusal is the record. A mint that fails, or a revocation that does not return 204,
-# stops the script with a non-zero exit, and a token that may be live is told to the Maintainer.
+# stops the script with a non-zero exit, and a token that may be live is told to the Maintainer. A mint GitHub answered
+# 201 whose token cannot be read is written nowhere: its token is revoked if it can be found in the answer, and the
+# Maintainer is told it may be live if not.
 set -eu
+set +x
 
 if [ "$#" -ne 2 ]; then
     echo "usage: tools/trial_p52_pause.sh OUT CONTROLLER_KEY" >&2
@@ -38,7 +41,7 @@ if [ -e "$1" ] || [ -L "$1" ]; then
     echo "trial_p52_pause: $1 exists; name a new directory" >&2
     exit 2
 fi
-if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
+if ! parent=$(CDPATH= cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
     echo "trial_p52_pause: the directory that would hold $1 does not exist; make it first" >&2
     exit 2
 fi
@@ -47,6 +50,22 @@ case "$out/" in "$root"/*)
     echo "trial_p52_pause: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
 esac
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
+# that fails says nothing, and is refused as such.
+uid=$(id -u)
+above=$parent
+while :; do
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    if [ -n "$found" ]; then
+        echo "trial_p52_pause: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+            "under one only you can write to" >&2
+        exit 2
+    fi
+    [ "$above" = / ] && break
+    above=$(dirname -- "$above")
+done
 if [ ! -r "$2" ]; then
     echo "trial_p52_pause: cannot read the key file $2" >&2
     exit 2
@@ -64,7 +83,19 @@ revoke() {
     printf 'Authorization: Bearer %s\n' "$token" | curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
+# A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
+token_in() {
+    printf '%s\n' "$1" | python3 -I -c '
+import re, sys
+found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.read())
+print(found.group(1) if found else "")' 2>/dev/null || true
+}
+
 finish() {
+    if [ -z "$token" ] && [ -n "${minted:-}" ]; then
+        token=$(token_in "$minted")
+        minted=""
+    fi
     if [ -n "$token" ]; then
         last=$(revoke || true)
         echo "trial_p52_pause: stopped with a token live; revoking it returned $last" >&2
@@ -115,18 +146,45 @@ minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -sS -w '\n%{http_code
     -H "$VERSION" "$API/app/installations/$installation/access_tokens" || true)
 jwt=""
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
-token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
+minted=$(printf '%s\n' "$minted" | sed '$d')
+token=$(printf '%s\n' "$minted" | python3 -I -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
-if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
-    # A token the refusal carried all the same is left for the trap, which revokes it and says so (Muse on #364).
+if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
+    # GitHub minted a token and its answer could not be read: the token may be live, and the answer is written
+    # nowhere. The token is revoked if it can be found in the answer, and the Maintainer is told either way.
+    token=$(token_in "$minted")
+    minted=""
+    if [ -n "$token" ]; then
+        revoked=$(revoke || true)
+        token=""
+        [ "$revoked" = 204 ] || echo "trial_p52_pause: revoking it returned $revoked, not 204; the token may be" \
+            "live for up to an hour, and the Maintainer must revoke it by hand." >&2
+    else
+        echo "trial_p52_pause: $slug: GitHub minted a token for installation $installation and its answer could not" \
+            "be read; the token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
+    fi
+    echo "trial_p52_pause: $slug: nothing read, and nothing of the answer kept." >&2
+    exit 1
+fi
+if [ "$minted_status" != 201 ] && [ -z "$token" ]; then
+    token=$(token_in "$minted")    # a refusal cut short may hold one all the same; the trap revokes it
+fi
+if [ "$minted_status" != 201 ] && [ -n "$token" ]; then
+    # A token the refusal carried all the same is left set, for the exit trap to revoke; its answer is not shown.
+    minted=""
+    echo "trial_p52_pause: $slug: the mint answered ${minted_status:-none} and held a token all the same;" \
+        "nothing read, and the token is revoked as the script stops." >&2
+    exit 1
+fi
+if [ "$minted_status" != 201 ]; then
     minted=""
     echo "trial_p52_pause: $slug: the mint was refused for installation $installation (status ${minted_status:-none});" \
         "nothing read" >&2
     exit 1
 fi
-printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
+printf '%s\n' "$minted" | python3 -I -c '
 import json, sys
 answer = json.load(sys.stdin)
 json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},
