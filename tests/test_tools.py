@@ -7130,7 +7130,8 @@ class Mutants(unittest.TestCase):
         # that holds it. A method of the class is named freely.
         for slow in ("tests.test_tools.Trials", "tests.test_tools.Workflows", "tests.test_tools.Apps",
                      "tests.test_tools.AppThreads", "tests.test_tools.Verify", "tests.test_simulator.Simulation",
-                     "tests.test_transitions.Transitions", "tests.test_tools", "tests.test_simulator"):
+                     "tests.test_transitions.Transitions", "tests.test_tools", "tests.test_simulator",
+                     "tests.test_transitions"):
             said = mutants.unnamed([("m", "k.py", "rule\n", "x\n", (slow,))])
             self.assertEqual(len(said), 1, slow)
             self.assertIn("name the method that kills it", said[0], slow)

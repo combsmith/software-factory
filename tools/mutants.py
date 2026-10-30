@@ -2029,7 +2029,6 @@ MUTANTS = ISSUE + [
      '        return ["NEEDS cannot be read as JSON; give it ${{ toJSON(needs) }} in the job\'s env"]\n',
      "        return []\n", ("tests.test_tools.Workflows.test_the_required_check_fails_unless_every_job_it_needs_passed",)),
     # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
-    # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
     # A mutant names no class too slow to name whole, nor the module that holds one.
     ('a mutant may name a slow class whole', 'tools/mutants.py',
      '            if any(whole == test or whole.startswith(test + ".") for whole in WHOLE_TOO_L' 'ONG):\n', '            if False:\n', NAMING_TESTS),
@@ -2037,6 +2036,7 @@ MUTANTS = ISSUE + [
      'if any(whole == test or whole.startswith(test + ".") for whole in WHOLE_TOO_L' 'ONG):', 'if any(whole == test for whole in WHOLE_TOO_LONG):', NAMING_TESTS),
     ('Trials may be named whole', 'tools/mutants.py',
      'WHOLE_TOO_LONG = ("tests.test_tools.Tri' 'als", ', 'WHOLE_TOO_LONG = (', NAMING_TESTS),
+    # Issue 396: the baseline runs what the run's own mutants name, in parts, and a slow one is told from a red one.
     ('the baseline runs the whole suite', 'tools/mutants.py',
      '        tests = cases(named(muta' 'nts), root)\n        if not tests:',
      '        tests = ()\n        if not tests:', (RUNNER + "test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite",)),
