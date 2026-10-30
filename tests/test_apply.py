@@ -338,6 +338,16 @@ class Apply(unittest.TestCase):
         met = [dict(c, verdict="met") if c["criterion"] == "PR-3" else c for c in result()["coverage"]]
         self.assertIsNone(refused(res=result(findings=[dict(n1, severity="minor", criterion=None), n2], coverage=met,
                                              effects={"create_check_run": [dict(check, annotations=both)]})))
+        # And the rubric's category (section 3.14, issue 407). n1 cites PR-3, `functional`: relabelled, it is refused.
+        self.assertEqual(refused(res=result(findings=[dict(n1, category="delivery"), n2])), ("item", "uncovered"))
+        # A Finding that cites PR-2, the rubric's `security` criterion, under another category would escape the guards
+        # a security Finding is held to. Refused; of its own category, it is taken.
+        cited = [dict(c, verdict="finding") if c["criterion"] == "PR-2" else
+                 dict(c, verdict="met") if c["criterion"] == "PR-3" else c for c in result()["coverage"]]
+        on_two = dict(n1, criterion="PR-2", severity="blocking")
+        self.assertEqual(refused(res=result(findings=[dict(on_two, category="functional"), n2], coverage=cited)),
+                         ("item", "uncovered"))
+        self.assertIsNone(refused(res=result(findings=[dict(on_two, category="security"), n2], coverage=cited)))
 
     def test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing(self):  # 3.6, 3.7
         base = result()
