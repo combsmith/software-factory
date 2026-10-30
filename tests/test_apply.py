@@ -110,11 +110,12 @@ class Identity(unittest.TestCase):
         self.assertEqual(identity.permissions(review, APPS["needs"], ["submit_review", "comment", "submit_review"]),
                          {"pull_requests": "write"})
         self.assertEqual(identity.permissions(review, APPS["needs"], []), {})
-        # An Effect whose need waits or is not in the table, or that the App was not granted, is never minted for.
+        # An Effect whose need waits or is not in the table, or that the App was not granted, is never minted for: the
+        # queue's acts take contents: write, which the queue App holds and the reviewer's App does not (issue 381).
         needs = dict(APPS["needs"], **{"effect:create_check_run": {"waits_on": "the grant"}})
         for effects, table, code in ((["assign"], APPS["needs"], "effect_not_grantable"),
                                      (["create_check_run"], needs, "effect_not_grantable"),
-                                     (["enqueue_merge"], APPS["needs"], "effect_not_grantable")):
+                                     (["enqueue_merge"], APPS["needs"], "effect_not_granted")):
             with self.assertRaisesRegex(identity.Refused, "^%s$" % code):
                 identity.permissions(review, table, effects)
         for app in (APPS["apps"]["reader"], APPS["apps"]["controller"],
@@ -324,12 +325,27 @@ class Apply(unittest.TestCase):
         self.assertEqual(refused(rubric={"criteria": []}), ("environment", "coverage_unreadable"))
         self.assertEqual(refused(facts=support.facts(changed_paths=None)), ("superseded", "not_admitted"))
         self.assertIsNone(refused(res=short, rubric=None))      # an Intent that does not review has no rubric
+        # A Finding that cites a criterion has the rubric's severity (section 3.14, issue 373). n1 cites PR-3, `major`
+        # in the rubric: graded `minor` and posted as an annotation, it would pass the gate as a success. Refused.
+        n1, n2 = result()["findings"]
+        check = result()["effects"]["create_check_run"][0]
+        both = [{"finding": "n1", "body": "x"}, {"finding": "n2", "body": "y"}]
+        down = result(findings=[dict(n1, severity="minor"), n2],
+                      effects={"create_check_run": [dict(check, annotations=both)]})
+        self.assertEqual(refused(res=down), ("item", "uncovered"))
+        # Graded above the rubric, and posted where a Finding that gates is, it has still not taken the rubric's.
+        self.assertEqual(refused(res=result(findings=[dict(n1, severity="blocking"), n2])), ("item", "uncovered"))
+        # The other side: off the rubric, a Finding takes the severity the model gives it, and is posted by it.
+        met = [dict(c, verdict="met") if c["criterion"] == "PR-3" else c for c in result()["coverage"]]
+        self.assertIsNone(refused(res=result(findings=[dict(n1, severity="minor", criterion=None), n2], coverage=met,
+                                             effects={"create_check_run": [dict(check, annotations=both)]})))
 
     def test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing(self):  # 3.6, 3.7
         base = result()
         e = base["effects"]
         review, check = e["submit_review"][0], e["create_check_run"][0]
         n1, n2 = base["findings"]
+        met = [dict(c, verdict="met") if c["criterion"] == "PR-3" else c for c in base["coverage"]]
         cases = (
             ({"effects": dict(e, comment=[{"id": "e3", "on": "item", "body": "x"}])}, "effect_not_permitted"),
             ({"effects": {"submit_review": [review], "create_check_run": [dict(check, id="e1")]}}, "effect_named_twice"),
@@ -340,7 +356,8 @@ class Apply(unittest.TestCase):
             ({"effects": {"submit_review": [review], "create_check_run": [dict(check, annotations=check["annotations"] + [
                 {"finding": "n1", "body": "again"}])]}}, "finding_not_posted_once"),
             ({"findings": [n1, dict(n2, severity="major")]}, "finding_gates"),
-            ({"findings": [dict(n1, severity="minor"), n2]}, "finding_does_not_gate"),
+            # Off the rubric: a Finding that cites a criterion has the rubric's severity, or the Result is uncovered.
+            ({"findings": [dict(n1, severity="minor", criterion=None), n2], "coverage": met}, "finding_does_not_gate"),
             ({"findings": [{k: v for k, v in n1.items() if k != "location"}, n2]}, "finding_has_no_place"),
             ({"findings": [n1, {k: v for k, v in n2.items() if k != "location"}]}, "finding_has_no_place"),
             ({"findings": [dict(n1, location={"path": "kernel/decide.py"}), n2]}, "finding_has_no_place"),
@@ -351,7 +368,7 @@ class Apply(unittest.TestCase):
         for over, code in cases:
             self.assertEqual(refused(res=result(**over)), ("item", code), code)
         # A security Finding gates at any severity, so it is a review comment.
-        secure = result(findings=[dict(n1, category="security", severity="info"), n2])
+        secure = result(findings=[dict(n1, category="security", severity="info", criterion=None), n2], coverage=met)
         self.assertIsNone(refused(res=secure))
         self.assertEqual(refused(res=result(findings=[n1, dict(n2, category="security")])), ("item", "finding_gates"))
         # A refused Result lists each Effect it asked for refused, and posts nothing.

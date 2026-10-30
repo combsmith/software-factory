@@ -28,6 +28,7 @@
         "effect:remove_label",
         "write:status_on_item",
         "write:tracking_issue",
+        "write:issue_label",
         "write:write_view",
         "write:release_tag",
         "write:move_channel",
@@ -94,6 +95,9 @@
           "$ref": "#/$defs/mapping"
         },
         "write:tracking_issue": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:issue_label": {
           "$ref": "#/$defs/mapping"
         },
         "write:write_view": {
@@ -198,13 +202,14 @@
       }
     },
     "apps": {
-      "title": "One App for the Controller, one for each Role that writes, and the one reader.",
+      "title": "One App for the Controller, one for each Role that writes, the queue's, and the one reader.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "controller",
         "pr-review",
-        "reader"
+        "reader",
+        "queue"
       ],
       "properties": {
         "controller": {
@@ -214,6 +219,9 @@
           "$ref": "#/$defs/app"
         },
         "reader": {
+          "$ref": "#/$defs/app"
+        },
+        "queue": {
           "$ref": "#/$defs/app"
         }
       }
@@ -288,7 +296,8 @@
               "enum": [
                 "factory-poller",
                 "factory-apply",
-                "factory-run"
+                "factory-run",
+                "factory-queue"
               ]
             },
             "secret": {
@@ -364,6 +373,7 @@
               "effect:remove_label",
               "write:status_on_item",
               "write:tracking_issue",
+              "write:issue_label",
               "write:write_view",
               "write:release_tag",
               "write:move_channel",

@@ -17,25 +17,33 @@
       "level": "write"
     },
     "effect:enqueue_merge": {
-      "waits_on": "the queue App, combsmith-sf-queue, with contents and pull-request write alone, which trial P-2 showed the queue takes, registered by the Maintainer and read again by trial P-39 (issue 381; Maintainer, 2026-10-28)"
+      "permission": "contents",
+      "level": "write"
     },
     "effect:dequeue_merge": {
-      "waits_on": "the queue App, combsmith-sf-queue, with contents and pull-request write alone, which trial P-2 showed the queue takes, registered by the Maintainer and read again by trial P-39 (issue 381; Maintainer, 2026-10-28)"
+      "permission": "contents",
+      "level": "write"
     },
     "effect:assign": {
       "waits_on": "the Controller's notification story"
     },
     "effect:add_label": {
-      "waits_on": "the issue Lifecycle's Admission"
+      "permission": "pull_requests",
+      "level": "write"
     },
     "effect:remove_label": {
-      "waits_on": "the issue Lifecycle's Admission"
+      "permission": "pull_requests",
+      "level": "write"
     },
     "write:status_on_item": {
       "permission": "checks",
       "level": "write"
     },
     "write:tracking_issue": {
+      "permission": "issues",
+      "level": "write"
+    },
+    "write:issue_label": {
       "permission": "issues",
       "level": "write"
     },
@@ -211,6 +219,7 @@
           "level": "write",
           "needs": [
             "write:tracking_issue",
+            "write:issue_label",
             "read:facts.acceptance"
           ]
         },
@@ -224,8 +233,10 @@
           ]
         },
         "pull_requests": {
-          "level": "read",
+          "level": "write",
           "needs": [
+            "effect:add_label",
+            "effect:remove_label",
             "read:facts.class",
             "read:facts.state",
             "read:facts.is_draft",
@@ -377,6 +388,33 @@
             "read:facts.last_writer_action_at",
             "read:facts.reviews",
             "read:facts.threads"
+          ]
+        }
+      }
+    },
+    "queue": {
+      "name": "combsmith-sf-queue",
+      "app_id": 5519382,
+      "key": {
+        "environment": "factory-queue",
+        "secret": "QUEUE_APP_KEY"
+      },
+      "installed_on": [
+        "combsmith/software-factory",
+        "combsmith/software-factory-canary"
+      ],
+      "permissions": {
+        "contents": {
+          "level": "write",
+          "needs": [
+            "effect:enqueue_merge",
+            "effect:dequeue_merge"
+          ]
+        },
+        "metadata": {
+          "level": "read",
+          "needs": [
+            "read:facts.queue"
           ]
         }
       }

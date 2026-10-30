@@ -10,6 +10,8 @@ import base64
 import concurrent.futures
 import contextlib
 import copy
+import datetime
+import email.utils
 import hashlib
 import importlib.machinery
 import io
@@ -1045,7 +1047,8 @@ class Apps(unittest.TestCase):
         self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
         self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
         installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
-        self.listed = installations[0]["response"]["body"]["installations"]
+        self.listing = installations[0]["response"]["body"]
+        self.listed = self.listing["installations"]
         self.installed = {i["app_slug"]: i for i in self.listed}
         self.registered = {e["response"]["body"]["slug"]: e["response"]["body"] for e in self.fixture["exchanges"]
                            if e["request"]["call"].startswith(check_apps.REGISTRATION)}
@@ -1131,6 +1134,50 @@ class Apps(unittest.TestCase):
             self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories read "
                                              "as combsmith-sf-%s" % (app, app)))
 
+    def test_a_reach_read_before_its_installation_last_changed_is_caught(self):
+        # The repos an installation reaches are read with a token of what it holds then, so a read GitHub answered
+        # before the installation last changed holds nothing of it now. The time is GitHub's own date on its answer,
+        # never the fixture's ran_at, which a session writes; a read answered at the very time it changed stands.
+        changed = {app: self.installed[entry["name"]]["updated_at"] for app, entry in self.apps.items()}
+        when = {app: check_apps._when(at) for app, at in changed.items()}
+        last = max(when, key=when.get)
+        answer = next(e["response"] for e in self.reach["exchanges"]
+                      if e["request"]["as"]["name"] == self.apps[last]["name"])
+        self.reach["ran_at"] = "2030-01-01T00:00:00Z"
+        answer["headers"]["date"] = email.utils.format_datetime(when[last].astimezone(datetime.timezone.utc),
+                                                                usegmt=True)
+        self.assertEqual(self.check(), [])
+        answer["headers"]["date"] = email.utils.format_datetime(
+            (when[last] - datetime.timedelta(seconds=1)).astimezone(datetime.timezone.utc), usegmt=True)
+        problems = self.check()
+        self.assertTrue(caught(problems, "%s: GitHub answered its reach in trials/P-39.reach.json at %s, before its "
+                                         "installation last changed at %s" % (last, answer["headers"]["date"],
+                                                                              changed[last])))
+        first = min(when, key=when.get)
+        self.assertFalse(caught(problems, "%s: GitHub answered" % first))
+        for unread in ("the 29th", "Thu, 29 Oct 2026 14:40:11 -0000", None):
+            answer["headers"]["date"] = unread
+            self.assertTrue(caught(self.check(), "%s: when GitHub answered its reach in trials/P-39.reach.json, or "
+                                                 "when its installation last changed in trials/P-39.grants.json, "
+                                                 "cannot be read" % last))
+        del answer["headers"]["date"]
+        self.assertTrue(caught(self.check(), "%s: when GitHub answered its reach" % last))
+        # Each read is held to its own date: a second read of the same App, answered before the change, is caught
+        # though the first was answered after it.
+        self.setUp()
+        early = json.loads(json.dumps(next(e for e in self.reach["exchanges"]
+                                           if e["request"]["as"]["name"] == self.apps[last]["name"])))
+        early["response"]["headers"]["date"] = email.utils.format_datetime(
+            (when[last] - datetime.timedelta(seconds=1)).astimezone(datetime.timezone.utc), usegmt=True)
+        self.reach["exchanges"].append(early)
+        self.assertTrue(caught(self.check(), "%s: GitHub answered its reach in trials/P-39.reach.json at %s"
+                                             % (last, early["response"]["headers"]["date"])))
+        self.setUp()
+        self.installed["combsmith-sf-reader"]["updated_at"] = "2026-10-29T00:53:36"
+        problems = self.check()
+        self.assertTrue(caught(problems, "reader: when GitHub answered its reach"))
+        self.assertFalse(caught(problems, "controller: when"))
+
     def test_a_read_github_refused_is_not_trusted(self):
         # A read answered with anything but 200 holds nothing GitHub granted, even when its body matches the data.
         exchange = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS][0]
@@ -1148,7 +1195,7 @@ class Apps(unittest.TestCase):
         twin = json.loads(json.dumps(self.installed["combsmith-sf-controller"]))
         twin["permissions"]["contents"] = "write"
         self.listed.insert(0, twin)
-        self.fixture["exchanges"][3]["response"]["body"]["total_count"] += 1
+        self.listing["total_count"] += 1
         problems = self.check()
         self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
                                          "App 5364130 more than once"))
@@ -1161,7 +1208,7 @@ class Apps(unittest.TestCase):
         self.reached["combsmith-sf-pr-review"]["total_count"] = 3
         repos = self.reached["combsmith-sf-reader"]["repositories"]
         repos[1] = json.loads(json.dumps(repos[0]))
-        self.fixture["exchanges"][3]["response"]["body"]["total_count"] = 19
+        self.listing["total_count"] = len(self.listed) + 1
         problems = self.check()
         call = "its read GET /installation/repositories?per_page=100"
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s has a link header, so it is one page of more"
@@ -1170,7 +1217,7 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists combsmith/software-factory more than once"
                                          % call))
         self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
-                                         "18 of the 19 it counts"))
+                                         "%d of the %d it counts" % (len(self.listed), len(self.listed) + 1)))
         for app in ("controller", "pr-review", "reader"):
             self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories"
                                              % app))
@@ -1189,7 +1236,10 @@ class Apps(unittest.TestCase):
         apps = self.apps
         apps["controller"]["key"], apps["reader"]["key"] = apps["reader"]["key"], apps["controller"]["key"]
         self.apps["pr-review"]["key"]["secret"] = "REVIEW_APP_KEY"
+        self.apps["queue"]["key"]["environment"] = "factory-apply"
         problems = self.check()
+        # The queue App's key is the queue step's alone, never apply's, where every Role's key is read (issue 381).
+        self.assertTrue(caught(problems, "queue: its key is kept in factory-apply, and the queue job holds it"))
         self.assertTrue(caught(problems, "controller: its key is kept in factory-run, and the poller job holds it"))
         self.assertTrue(caught(problems, "reader: its key is kept in factory-poller, and the run job holds it"))
         self.assertTrue(caught(problems, "controller: its key is kept as READER_APP_KEY; name it CONTROLLER_APP_KEY"))
@@ -1239,6 +1289,7 @@ class Apps(unittest.TestCase):
 
     def test_a_need_served_by_another_permission_or_level_is_caught(self):
         self.apps["controller"]["permissions"]["contents"]["needs"].append("read:facts.reviews")
+        self.apps["controller"]["permissions"]["pull_requests"]["level"] = "read"
         self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:comment")
         problems = self.check()
         self.assertTrue(caught(problems, "controller: contents serves read:facts.reviews, which the table maps to "
@@ -1247,9 +1298,9 @@ class Apps(unittest.TestCase):
                                          "table maps to pull_requests write"))
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
-        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:dequeue_merge")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:dequeue_merge, which waits on the "
-                                             "queue App, combsmith-sf-queue"))
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:assign")
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves effect:assign, which waits on the "
+                                             "Controller's notification story"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
@@ -2080,11 +2131,16 @@ class Workflows(unittest.TestCase):
         (local / "config" / "hooks.json").write_text("{}")
         self.assertTrue(caught(said(second), "cannot be read"))
         (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
                                                                "EVENT": "pull_request"}, local), 0)
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
                                                                "EVENT": "pull_request"}, local), 1)
+        # What it says is what it holds: that the commits name the Maintainer, never that they are theirs (decision
+        # 0087), and the committer only where GitHub did not commit it.
+        self.assertIn("names the Maintainer as its author, and as its committer where GitHub did not commit it",
+                      printed.getvalue())
+        self.assertNotIn("is the Maintainer's", printed.getvalue())
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -2583,6 +2639,8 @@ class Workflows(unittest.TestCase):
             "a mapping on one line": (GOOD.replace(STEP, "      - {uses: evil/action@main, continue-on-error: true}\n"), "form"),
             "two spaces after the dash": (GOOD.replace(STEP, "      -  uses: actions/checkout@v7\n"), "form"),
             "a quoted key": (GOOD.replace("    runs-on:", '    "runs-on":'), "form"),
+            # An on: with no event under it at all, which no list item stands in (#416's mutant run).
+            "an on: with nothing under it": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n"), "form"),
             "a colon set apart": (GOOD.replace(STEP, "      - uses : evil/action@main\n"), "form"),
             "an escaped event name": (GOOD.replace("  merge_group:\n", '  merge_group:\n  "pull_request\\x5ftarget":\n'), "form"),
             "a list on one line": (GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule: [{cron: '0 * * * *'}]\n"), "form"),
@@ -2606,8 +2664,32 @@ class Workflows(unittest.TestCase):
             "a key written twice": (GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    timeout-minutes: 600\n"), "form"),
             "a step's key written twice": (GOOD.replace(STEP, "      - run: make verify\n        run: make evil\n"), "form"),
             "nothing at all": ("", "form"),
+            # Issue 371: a YAML reader reads each as more of the command, `make verify - ; exit 0`, and runs it whole.
+            "a command carried on as a list item": (GOOD.replace(STEP, STEP + "          - ; exit 0\n"), "form"),
+            "a command carried on past a blank line": (GOOD.replace(STEP, STEP + "\n          - ; exit 0\n"), "form"),
+            "a list item under a key with a value": (GOOD.replace(STEP, STEP + "        - ; exit 0\n"), "form"),
+            "a list item after a step": (GOOD.replace(STEP, STEP + "      - exit 0\n"), "form"),
+            "a list item indented apart from the one before": (
+                GOOD.replace("      - checks\n", "      - checks\n        - mutants\n"), "form"),
+            "a list left of its key": (GOOD.replace("      - checks\n      - commits\n      - mutants\n",
+                                                    "  - checks\n  - commits\n  - mutants\n"), "form"),
+            # Under a key with no value, where an item may stand, a colon set apart is still refused (CodeRabbit's read of
+            # #392): it is a mapping no entry would hold.
+            "a colon set apart under a key with no value": (
+                GOOD.replace("      - checks\n", "      - uses : evil/action@main\n      - checks\n"), "form"),
+            # A YAML reader reads each of these otherwise than the lines do, so a command or a key it runs is one no
+            # entry holds (the security pass on #392): a line led by a space of another kind, which is no comment to it;
+            # a line break of another kind inside a comment; a quoted value not closed on its line, or with text after
+            # its close; and an on: written as a list, never read as events.
+            "a comment led by another space": (GOOD.replace(STEP, STEP + "          \u00a0# || true\n"), "form"),
+            "a line break inside a comment": (GOOD.replace(STEP, STEP + "        # c\u0085        shell: bash\n"), "form"),
+            "a quote not closed on its line": (GOOD.replace(STEP, STEP + '        name: "0\n        id: x # "\n'), "form"),
+            "text after a quote's close": (GOOD.replace(STEP, STEP + '        name: "a" b\n'), "form"),
+            "on: as a list": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  - pull_request_target\n"),
+                              "form"),
         }
         for name, (text, rule) in ways.items():
+            self.assertNotEqual(text, GOOD, name)
             self.assertIn(rule, rules(text), name)
 
     def test_a_workflow_that_keeps_the_rules_is_not_refused(self):
@@ -2618,6 +2700,13 @@ class Workflows(unittest.TestCase):
             "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
             "an off-zero schedule": POLLER.replace('"13 * * * *"', "'17,47 * * * *'"),
             "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")),
+            "a list under its key's own indent": GOOD.replace("      - checks\n      - commits\n      - mutants\n",
+                                                              "    - checks\n    - commits\n    - mutants\n"),
+            "a comment between a list's items": GOOD.replace("      - checks\n", "      - checks\n      # and\n"),
+            # A key with no value but its comment, its list under it.
+            "a comment beside a list's key": GOOD.replace("    needs:\n", "    needs: # all three\n"),
+            # A quoted value closed on its line, whatever it holds, with its comment after it.
+            "quoted values": GOOD.replace(STEP, STEP + '        name: "a # b \\"c\\"" # d\n        id: \'it\'\'s\'\n'),
         }
         for name, text in fine.items():
             self.assertEqual(rules(text), [], name)
@@ -2688,6 +2777,22 @@ class Workflows(unittest.TestCase):
             self.assertEqual(check_workflows.run_jobs_problems(together, moved), [])
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
+
+    def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
+        # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
+        text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
+        self.assertEqual(check_workflows.lint(text), [])
+        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1))],
+                         ["form"])
+
+    def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392
+        # A run's value is its command; a # after a quoted command is no comment of the entry's, as it is for uses: the
+        # comment a pin is read by.
+        entries, bad = check_workflows.read('on:\n  pull_request:\njobs:\n  x:\n    steps:\n'
+                                            '      - run: "make verify" # a note\n      - uses: "a/b@c" # v1\n')
+        self.assertEqual(bad, [])
+        self.assertEqual([(e["key"], e["value"], e["comment"]) for e in entries if e["key"] in ("run", "uses")],
+                         [("run", "make verify", ""), ("uses", "a/b@c", "# v1")])
 
     def test_the_commit_a_later_job_checks_out_is_the_releases_own(self):  # decision 0066
         # A job output is as trusted as the step that writes it. `commit` is written by one step alone, `commit`, right
@@ -2945,6 +3050,20 @@ class Context(unittest.TestCase):
             self.assertTrue(found(text), text)
         for text in ('See "docs: factory MVP" (pull request 2225).', "See \u201cdocs: factory MVP\u201d (issue 12)."):
             self.assertEqual(found(text), [], text)
+
+    def test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before(self):
+        # Issue 369: every opening quote was tried, each to the line's end, so a line of them took time in its square.
+        self.assertTrue(check_context.TITLE.search("x" * 10 + "\u201c" * 40000 + "\u201d") is not None)
+        self.assertIsNone(check_context.TITLE.search("See issue 12 " + "\u201ca" * 20000))
+        read_in_linear_cpu(self, check_context.TITLE.search, "\u201ca", 12000)
+        # Only the first opening quote of a run is tried; it is a title wherever a later one in the run would be.
+        for text, titled in (("\u201cdocs: \u201cfactory\u201d MVP\u201d", True), ('"docs: \u201cfactory MVP"', True),
+                             ("\u201cshort \u201cdocs: factory MVP\u201d", True), ('"ab" \u201cdocs: factory\u201d', True),
+                             ("\u201cab\u201d \u201cdocs: factory\u201d", True), ("\u201cdocs: factory\nMVP\u201d", False),
+                             ("\u201cab \u201cdocs: f\u201d", True), ("a\u201cb\u201cdocs\u201d", False),
+                             ('\u201cdocs: factory MVP', False), ('x" docs: factory MVP"', True),
+                             ("ab\n\u201cdocs: factory\u201d", True)):
+            self.assertEqual(check_context.TITLE.search(text) is not None, titled, text)
 
     def test_a_root_file_too_long_to_read_in_full_is_caught(self):
         root = tree({"AGENTS.md": "line\n" * (check_context.ROOT_LINES + 1), "kernel/AGENTS.md": "x " * 200 + "\n"})
@@ -3389,6 +3508,20 @@ PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", 
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
 
+def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
+    """Fail `test` unless `read(unit * n)` spends CPU time linearly in n, and under half a second at `size`. CPU time is
+    what a busy machine does not stretch, and no clock is judged, so a pattern read in time in its square is a mutant
+    this kills (issues 369 and 370); where it was so, the reading at `size` took a second or more of CPU."""
+    read(unit * (size // 4))    # once, untimed, so what the first reading warms is not counted to it
+    spent = []
+    for n in support.sizes(size):
+        with support.Spent() as one:
+            read(unit * n)
+        spent.append(one)
+    test.assertEqual(support.faster_than_linear(*spent), "", unit)
+    test.assertLess(spent[-1].cpu, 0.5, unit)
+
+
 class Trials(unittest.TestCase):
     def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
         root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
@@ -3399,6 +3532,20 @@ class Trials(unittest.TestCase):
                       "trials/P-98.json: trials/ holds fixtures only"):
             self.assertTrue(caught(problems, words), words)
         self.assertEqual(check_trials.run(clone({"trials/P-12.json": fixture(), "trials/P-12.retry.json": fixture()})), [])
+
+    def test_a_run_of_auth_or_eyj_is_read_in_time_and_a_shape_inside_one_is_still_seen(self):
+        # Issue 370: each auth in a run of letters, and each eyJ in a run with no dot, was tried again to the run's end.
+        self.assertFalse(check_trials.shaped("auth" * 10000) or check_trials.shaped("eyJ" * 40000))
+        read_in_linear_cpu(self, check_trials.SHAPES.search, "auth", 4800)
+        read_in_linear_cpu(self, check_trials.SHAPES.search, "eyJ", 12000)
+        hexed = "0123456789abcdef" * 2 + "deadbeef"
+        for text, found in (("auth" * 50 + hexed, True), ("xauthorization: " + hexed, True), ("authorization" + hexed, True),
+                            ("Authorizationdeadbeef" + hexed, True), ("authx" * 30 + "=" + hexed, True),
+                            ("aéauth " + hexed, True), ("authé" + hexed, False), ("auth" + hexed[:39], False),
+                            ("auth" * 9 + ": : " + hexed, False), ("noeyJ" * 30 + ".x", True), ("x-eyJ_0.", True),
+                            ("ey" * 40 + "J.", True), ("eyJ" * 40 + "/.", False), ("ey-J" * 30 + ".", False),
+                            ("eyJ" * 20 + " ." + "eyJ" * 20, False)):
+            self.assertEqual(check_trials.shaped(text), found, text)
 
     def test_a_credential_in_a_fixture_is_caught(self):
         for name, value in sorted(SHAPED.items()):
@@ -3512,18 +3659,19 @@ class Trials(unittest.TestCase):
         # Another org, a GraphQL query whose call looks like an App's, and a path that climbs out of /apps/ are each
         # a call of something else; the fixture's own calls are not.
         reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        n = len(reach["exchanges"])
         reach["exchanges"] += [json.loads(json.dumps(reach["exchanges"][0])) for _ in range(4)]
-        reach["exchanges"][3]["request"]["call"] = "GET /orgs/other-org/installations"
-        reach["exchanges"][4]["request"]["via"] = "graphql"
-        reach["exchanges"][4]["request"]["call"] = "GET /apps/combsmith-sf-reader"
-        reach["exchanges"][5]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
-        reach["exchanges"][6]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
+        reach["exchanges"][n]["request"]["call"] = "GET /orgs/other-org/installations"
+        reach["exchanges"][n + 1]["request"]["via"] = "graphql"
+        reach["exchanges"][n + 1]["request"]["call"] = "GET /apps/combsmith-sf-reader"
+        reach["exchanges"][n + 2]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
+        reach["exchanges"][n + 3]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
         self.assertEqual([where for where, _ in check_trials._askers(reach)],
-                         ["exchanges[%d].request.call" % i for i in (3, 4, 5, 6)])
-        reach["exchanges"][3]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
-        reach["exchanges"][4]["request"]["via"] = "rest"
+                         ["exchanges[%d].request.call" % i for i in range(n, n + 4)])
+        reach["exchanges"][n]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
+        reach["exchanges"][n + 1]["request"]["via"] = "rest"
         self.assertEqual([where for where, _ in check_trials._askers(reach)],
-                         ["exchanges[5].request.call", "exchanges[6].request.call"])
+                         ["exchanges[%d].request.call" % i for i in (n + 2, n + 3)])
 
     def test_a_call_of_a_repo_in_a_fixture_of_the_org_is_one_problem_whoever_asked(self):
         # The pairing is read once for the fixture, not once for each exchange, and an asker that cannot be read
@@ -4404,7 +4552,7 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: rowless})),
                                "a_request_for_changes_survives_a_push: P-41 has no row in section 6"))
         # Only section 6's own table counts: a row before it, or in a fenced block within it, is no trial.
-        p99 = GROUNDING.replace('("P-41",), None, None)', '("P-99",), None, None)', 1)
+        p99 = GROUNDING.replace('("P-38",), None, None)', '("P-99",), None, None)', 1)
         for elsewhere in ("| P-99 | x | y |\n" + design, design.replace("\n## 6. ", "\n```\n| P-99 | x | y |\n```\n## 6. ", 1),
                           design.replace("| P-41 |", "```\n| P-99 | x | y |\n```\n| P-41 |", 1)):
             self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: elsewhere, "sim/grounding.py": p99})),
@@ -4596,6 +4744,69 @@ exit 0
         self.assertEqual(done.returncode, 0, done.stderr)
         asked = json.loads((folder / "out" / "requests.json").read_text())
         self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
+
+
+class OutputMadeAlone(unittest.TestCase):
+    """Each trial the Maintainer runs with a key finds OUT absent, then makes it itself (issue 367). A directory made in
+    between, by another, may hold a link where the run will write; it is refused, and nothing is written through it."""
+
+    READER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY", "KEY"),
+               "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
+               "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry")}
+
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        for script, args in self.SCRIPTS.items():
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                out, victim = folder / "out", folder / "victim"
+                victim.write_text("kept\n")
+                # mktemp runs after the check and before OUT is made: here it plants OUT, with a link inside it.
+                (folder / "bin" / "mktemp").write_text(
+                    '#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/mktemp "$@"\n'
+                    % (out, out, victim, out))
+                (folder / "bin" / "curl").write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
+                for name in ("mktemp", "curl"):
+                    (folder / "bin" / name).chmod(0o755)
+                (folder / "key.pem").write_text("not a key\n")
+                argv = [str(folder / "key.pem") if a == "KEY" else a for a in args]
+                done = subprocess.run(["sh", str(ROOT / "tools" / script), str(out), *argv], capture_output=True, text=True,
+                                      env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
+                                           "LANG": "C", "TMPDIR": str(folder)},
+                                      cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("could not be made new by this run", done.stderr)
+                self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+                self.assertFalse((folder / "calls").exists(), "a call was made")
+
+
+    def test_the_sandbox_trials_make_their_output_alone_too(self):
+        # P-50's and P-51's runners hold no key, but they write into OUT too: one made between the check and their own
+        # mkdir, here by the dirname they call first, is refused, and nothing is written through a link in it.
+        for script, phase in (("trial_p50_linux_sandbox.sh", "as-is"), ("trial_p51_sandbox_writes.sh", "forward")):
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                out, victim = folder / "out", folder / "victim"
+                victim.write_text("kept\n")
+                (folder / "bin" / "dirname").write_text(
+                    '#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/dirname "$@"\n'
+                    % (out, out, victim, out))
+                (folder / "bin" / "dirname").chmod(0o755)
+                (folder / "cli").write_text("#!/bin/sh\nexit 0\n")
+                (folder / "cli").chmod(0o755)
+                (folder / "stub.py").write_text("")
+                done = subprocess.run(["bash", str(ROOT / "tools" / script), str(out), phase, str(folder / "cli"),
+                                       str(folder / "stub.py")], capture_output=True, text=True,
+                                      env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
+                                           "LANG": "C", "TMPDIR": str(folder)},
+                                      cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("could not be made new by this run", done.stderr)
+                self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+
 
 class TrialScript(unittest.TestCase):
     """`tools/trial_p13_cli.sh`, run against a stand-in CLI and never the real one (issue 178): the environment the CLI is
@@ -6103,6 +6314,74 @@ class Redaction(unittest.TestCase):
         out, said = self.redact("kept line\none line, " + SHAPED["jwt"] + " and done\n")
         self.assertEqual((out, said.splitlines()[0]), ("kept line\n", "removed: line 2"))
 
+    def test_every_head_is_read_as_a_head_and_a_body_that_should_be_json_and_is_not_is_refused(self):
+        # Issue 372: a second head, after an interim answer or a proxy's, was read as the body, and a field that holds a
+        # credential no shape finds was kept because the body was no longer JSON.
+        body = '{"login": "don", "client_secret": "opaque-7Qp", "password": "hunter2"}'
+        for first in ("HTTP/1.1 100 Continue\r\n\r\n", "HTTP/1.1 200 Connection established\r\nVia: proxy\r\n\r\n",
+                      "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 100 Continue\r\n\r\n"):
+            out, said = self.redact(first + "HTTP/2 200\r\nX-Foo: bar\r\nContent-Type: application/json\r\n\r\n" + body)
+            heads, _, kept = out.rpartition("\n\n")
+            self.assertEqual(json.loads(kept), {"login": "don"}, first)
+            self.assertEqual(heads.splitlines()[-2:], ["HTTP/2 200", "Content-Type: application/json"], first)
+            self.assertNotIn("X-Foo", out)
+            self.assertNotIn("Via", out)
+        # A head with no body after it is a head, and its headers are read as headers.
+        self.assertEqual(self.redact("HTTP/2 204\nX-Foo: bar\nDate: x\n")[0], "HTTP/2 204\nDate: x\n\n")
+        # A body that should be JSON, by its type or its first character, and cannot be read as JSON is refused whole.
+        for raw in ('HTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n',
+                    'HTTP/2 200\nContent-Type: text/plain\n\n{"password": "hunter2"\n',
+                    'HTTP/1.1 100 Continue\n\nHTTP/2 200\n\n[{"password": "hunter2"}\n', '{"password": "hunter2"\n'):
+            out, said = io.StringIO(), io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
+            self.assertEqual(out.getvalue(), "", raw)
+            self.assertIn("refused: the body should be JSON", said.getvalue())
+        # A capture in any other shape is refused whole, never filtered for shapes alone: a head a blank line too many,
+        # a cased or indented status line, or a redirect's text, hides; a head with a line that is no header, a folded
+        # one among them; a JSON type on an earlier head; JSON cut short; a field named for a credential in a text line.
+        fields = '{"client_secret": "abc123xyz", "password": "hunter22"}'
+        for raw, why in (
+                ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/1.1 100 Continue\n\n HTTP/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/1.1 100 Continue\n\nhttp/2 200\ncontent-type: application/json\n\n" + fields, "head"),
+                ("HTTP/2 302\nlocation: x\n\nmoved\n\nHTTP/2 200\ncontent-type: text/plain\n\nfine\n", "head"),
+                ('HTTP/2 200\ncontent-type: application/json\n{ "client_secret": "abc123xyz" }', "header"),
+                ("HTTP/2 200\nx-api-key: part1\n\tsecretcontinuation\ncontent-type: text/plain\n\nfine\n", "header"),
+                ("HTTP/1.1 100 Continue\ncontent-type: application/json\n\nHTTP/2 200\n\nnot json\n", "JSON"),
+                ('HTTP/1.1 100 Continue\n\nHTTP/2 200\nContent-Type: application/json\n\n"password": "hunter2"\n', "JSON"),
+                ('HTTP/2 200\ncontent-type: text/event-stream\n\ndata: {"password": "hunter2"}\n', "field"),
+                ("\ufeffHTTP/2 200\nX-Secret: hunter2\ncontent-type: application/json\n\nnot json\n", "JSON"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n\ufeffHTTP/2 200\nX-Secret: hunter2\n", "head"),
+                ('"HTTP/1.1 200\\nauthorization: hunter2"', "string"),
+                ('HTTP/2 200\ncontent-type: application/json\n\n"hunter2 is the password"', "string"),
+                ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + fields + "\n", "JSON"),
+                ('{\n\n"password": "hunter2"\n', "JSON"),
+                ('HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 500 {"token": "opaque"}', "status"),
+                ('HTTP/1.1 200 {"token": "opaque"}', "status"),
+                ('HTTP/1.1 200 OK\n\nHTTP/1.1 502 Bad Gateway\ncontent-type: {"token": "opaque"}', "header")):
+            out, said = io.StringIO(), io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
+            self.assertEqual(out.getvalue(), "", raw)
+            self.assertIn({"head": "a head it was not read as", "header": "a line that is no header",
+                           "JSON": "should be JSON", "status": "holds more than a status", "field": "named for a credential",
+                           "string": "is a JSON string"}[why], said.getvalue(), raw)
+        # JSON behind a byte order mark is read as JSON once the mark is out, and its fields are redacted.
+        out, _ = self.redact("HTTP/2 200\ncontent-type: application/json\n\n\ufeff" + fields)
+        self.assertNotIn("abc123xyz", out)
+        self.assertNotIn("hunter22", out)
+        # A run's log writes a byte order mark at the start of its lines: it is taken out, and the log is still text.
+        self.assertEqual(self.redact("\ufeffapprove\tApprove\t2026-10-28T02:00:00Z a\n")[0],
+                         "approve\tApprove\t2026-10-28T02:00:00Z a\n")
+        # Text with no status line is text, its blank lines and all, as a run's log is.
+        log = ("approve\tApprove\t2026-10-28T02:00:00Z a\napprove\tApprove\t2026-10-28T02:00:00Z a2\n\n"
+               "approve\tApprove\t2026-10-28T02:00:01Z b\n")
+        self.assertEqual(self.redact(log)[0], log)
+        # Text is still text, and an empty body under a JSON type has nothing to refuse.
+        self.assertEqual(self.redact("HTTP/2 200\nContent-Type: text/plain\n\nfine\n")[0],
+                         "HTTP/2 200\nContent-Type: text/plain\n\nfine\n")
+        self.assertEqual(self.redact("HTTP/2 204\nContent-Type: application/json\n\n")[0],
+                         "HTTP/2 204\nContent-Type: application/json\n\n")
+
 
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {
@@ -7066,6 +7345,62 @@ class ContextEval(unittest.TestCase):
         put_back = context_eval.record(self.transcript(work), pristine, work, self.PASSED, dict(self.META, restored=["Makefile"]))
         self.assertEqual(put_back["restored"], ["Makefile"])
 
+    def test_a_link_the_agent_left_is_never_followed(self):
+        # Issue 375: a link in the export the agent left, to a file outside it, was read, and the names of the tests in
+        # that file reached the record. A link is held as a link and is never read, nor is a file reached through one.
+        pristine, work = self.export(changed=False)
+        outside = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (outside / "test_held.py").write_text("def test_a_private_name(self):\n    pass\n")
+        (outside / "kernel.py").write_text('x = "empty_diff"\n')
+        (outside / "mutants.py").write_text('MUTANTS = [\n    ("a private mutant", "kernel/derive.py", "a", "b", ("t",)),\n]\n')
+        (work / "tests" / "test_x.py").symlink_to(outside / "test_held.py")
+        (work / "tests" / "more").symlink_to(outside, target_is_directory=True)
+        (work / "kernel" / "derive.py").unlink()
+        (work / "kernel" / "derive.py").symlink_to(outside / "kernel.py")
+        (work / "tools" / "mutants.py").unlink()
+        (work / "tools" / "mutants.py").symlink_to(outside / "mutants.py")
+        run = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertEqual(run["added"], {"test": None, "mutant": None, "reason": None})
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        self.assertEqual(context_eval.new_mutants(pristine, work), [])
+        self.assertNotIn("private", json.dumps(run))
+        self.assertIn({"path": "tests/test_x.py", "added": 1, "removed": 0}, run["changed"])
+        self.assertEqual(run["verdicts"]["mutant"], "survived")      # the mutants the export held are gone with the link
+        # A whole tests/ that is a link is not read either.
+        pristine, work = self.export(changed=False)
+        shutil.rmtree(work / "tests")
+        (work / "tests").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        # Nor a tests/ linked to a folder inside the export, nor a test file that is a hard link of one elsewhere.
+        pristine, work = self.export(changed=False)
+        (work / "other").mkdir()
+        (work / "other" / "test_planted.py").write_text("def test_planted(self):\n    pass\n")
+        shutil.rmtree(work / "tests")
+        (work / "tests").symlink_to(work / "other", target_is_directory=True)
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        pristine, work = self.export(changed=False)
+        os.link(outside / "test_held.py", work / "tests" / "test_hard.py")
+        self.assertEqual(context_eval.new_tests(pristine, work), [])
+        self.assertIn({"path": "tests/test_hard.py", "added": 1, "removed": 0},
+                      context_eval.changes(pristine, work))
+        # Nor the mutants of a tools/ that is a link to a folder elsewhere.
+        pristine, work = self.export(changed=False)
+        shutil.rmtree(work / "tools")
+        (work / "tools").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(context_eval.new_mutants(pristine, work), [])
+        pristine, work = self.export(changed=False)
+        os.link(outside / "test_held.py", work / "tests" / "test_hard.py")
+        # Nor a path that steps out of the export, though no link is on its way.
+        (outside / "secret.txt").write_text("held\n")
+        self.assertEqual(context_eval._read(work, work / ".." / outside.name / "secret.txt"), "")
+        self.assertFalse(context_eval._own(work, work / "kernel" / ".." / ".." / outside.name / "secret.txt"))
+        # What _own let past is still opened without following a link, and held to one name once open.
+        with unittest.mock.patch.object(context_eval, "_own", lambda folder, path: True):
+            self.assertEqual(context_eval._read(work, work / "tests" / "test_hard.py"), "")
+            (outside / "test_alone.py").write_text("def test_a_private_name(self):\n    pass\n")
+            (work / "tests" / "test_soft.py").symlink_to(outside / "test_alone.py")
+            self.assertEqual(context_eval._read(work, work / "tests" / "test_soft.py"), "")
+
     def test_what_cannot_be_read_makes_no_record(self):
         pristine, work = self.export()
         text = self.transcript(work)
@@ -7614,6 +7949,67 @@ class Rulesets(unittest.TestCase):
         self.assertTrue(caught(self.run_on(), "names the tool 'Semgrep'"))
         self.main["code_scanning"]["code_scanning_tools"][0]["tool"] = "verify"    # a Lens a workflow runs
         self.assertTrue(caught(self.run_on(), "names the tool 'verify'"))
+
+    def counted(self, owners: str = None) -> list:
+        """The check on a `main` ruleset that counts one approval, of a code owner, of the last push, as issue 198's
+        switch makes it, beside `owners` as `.github/CODEOWNERS`, the repo's own by default."""
+        review = self.main["pull_request"]
+        review.update(required_approving_review_count=1, require_code_owner_review=True, require_last_push_approval=True,
+                      dismiss_stale_reviews_on_push=True, required_reviewers=[],
+                      require_extra_approval_for_unattributed_changes=False)
+        owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                        "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
+
+    def test_an_approval_counts_only_a_code_owners_of_the_last_push(self):  # issue 366
+        # The switch issue 198 makes is let through: the machine user's team owns every path.
+        self.assertEqual(self.counted(), [])
+        # Each other way of counting could be met by CodeRabbit's approval: two approvals, a code owner's and an App's;
+        # none of a code owner; not of the last push; a stale code owner's left standing beside an App's of the last
+        # push; a required reviewer's.
+        for key, value in (("required_approving_review_count", 2), ("require_code_owner_review", False),
+                           ("require_last_push_approval", False), ("dismiss_stale_reviews_on_push", False),
+                           # One more approval where no person made the change, which an App's then meets.
+                           ("require_extra_approval_for_unattributed_changes", True),
+                           ("required_reviewers", [{"minimum_approvals": 1, "file_patterns": ["*"],
+                                                    "reviewer": {"id": 1, "type": "Team"}}])):
+            with self.subTest(key=key):
+                self.counted()
+                self.main["pull_request"][key] = value
+                self.assertTrue(caught(self.run_on(), "counts an approval otherwise than as one"), key)
+        # A ruleset counts an approval when it asks for a code owner's, a required reviewer's, or one of the last push,
+        # with a count of none: GitHub asks for an approval by someone other than the last pusher, which an App's meets.
+        for key, value in (("required_approving_review_count", 1), ("require_code_owner_review", True),
+                           ("require_last_push_approval", True), ("require_extra_approval_for_unattributed_changes", True),
+                           ("required_reviewers", [{"minimum_approvals": 1, "file_patterns": ["*"],
+                                                    "reviewer": {"id": 1, "type": "Team"}}])):
+            with self.subTest(none_counted=key):
+                self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
+                                                 required_reviewers=[], require_last_push_approval=False,
+                                                 require_extra_approval_for_unattributed_changes=False)
+                self.main["pull_request"][key] = value
+                self.assertTrue(caught(self.run_on(), "counts an approval otherwise than as one"), key)
+
+    def test_the_code_owners_are_the_machine_users_team_on_every_path(self):  # issue 366
+        for owners, words in (("docs/ @combsmith/org-leads\n", "has no line for every path"),
+                              ("* @combsmith/org-leads\ndocs/ @someone-else\n", "docs/ is owned by @someone-else"),
+                              ("* @combsmith/org-leads @coderabbitai\n", "not by @combsmith/org-leads alone"),
+                              ("* @combsmith/org-leads\ndocs/\n", "docs/ is owned by no one"),
+                              # Only `*` is read as every path: another spelling is refused, never guessed at.
+                              ("/** @combsmith/org-leads\n", "has no line for every path")):
+            with self.subTest(owners=owners):
+                self.assertTrue(caught(self.counted(owners), words), (owners, self.counted(owners)))
+        # Code owners that cannot be read, under a ruleset that counts an approval, are a problem, never none.
+        self.counted()
+        self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                                        "config/defaults.json": json.dumps(self.defaults)})),
+                               ".github/CODEOWNERS cannot be read"))
+        # A ruleset that counts no approval, of anyone, reads no code owners at all.
+        self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
+                                         require_last_push_approval=False)
+        self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                                  "config/defaults.json": json.dumps(self.defaults),
+                                                  ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
 
     def test_files_that_cannot_be_read_are_a_problem(self):
         self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": "{}"})), "cannot be read"))
