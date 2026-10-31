@@ -36,10 +36,12 @@ NAME = re.compile(r"sf ([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]
 ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms.ISSUE_APPROVAL}
 # GitHub's words for a run that has not started, and how each ends, as the run record holds them. A Run whose job never
 # started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
-# bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt.
+# bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt. A Run `skipped`, as the
+# entry shim's `if:` may leave it, ran no Role either and reads the same; a word not here would leave the list not whole
+# for as long as GitHub serves the row, and admit nothing anywhere (issue 196's ruling 10).
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
-               "timed_out": "timed_out"}
+               "skipped": "cancelled", "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
 # The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
 CONCLUDED = {"item", "capacity", "environment", "superseded"}
