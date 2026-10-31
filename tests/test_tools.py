@@ -219,16 +219,16 @@ class Validator(unittest.TestCase):
         # That it notices one is the two mutants' to show, since a pattern that backtracks written here is CodeQL's alert.
         self.assertFalse(self.backtracks(r"^[a-z]+(/[a-z]+)*$"))
         found = set()
-        def walk(node):
+        def gather(node):
             if isinstance(node, dict):
                 if isinstance(node.get("pattern"), str):
                     found.add(node["pattern"])
                 node = list(node.values())
             if isinstance(node, list):
                 for value in node:
-                    walk(value)
-        for path in (ROOT / "schemas").glob("*.json"):
-            walk(json.loads(path.read_text()))
+                    gather(value)
+        for path in [p for p in walk.files(ROOT, "schemas") if p.suffix == ".json"]:
+            gather(json.loads(path.read_text()))
         self.assertGreater(len(found), 1)
         self.assertEqual([pattern for pattern in sorted(found) if self.backtracks(pattern)], [])
 
