@@ -717,7 +717,7 @@ _FOUND = {}
 def _apps_text(root: pathlib.Path):
     try:
         return (root / "config" / "apps.json").read_text()
-    except OSError:
+    except (OSError, ValueError):       # `_installed` says so, for each fixture that reads it
         return None
 
 
@@ -749,7 +749,8 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
             else:
                 wrong += ["%s: %s %s" % (rel, where, what) for where, what in _credentials(data, "") + _headers(data)]
             _FOUND[key] = (data, wrong)
-        wrong = _FOUND[key][1]
+        else:
+            wrong = _FOUND[key][1]
         problems += wrong
         if not wrong:
             valid[rel] = data

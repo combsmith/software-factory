@@ -3547,6 +3547,23 @@ class Trials(unittest.TestCase):
         after = check_trials.run(clone({"config/apps.json": json.dumps(dict(apps, apps=reach))}))
         self.assertEqual(before, [])
         self.assertTrue(after, "a fixture read before the Apps' reach changed is read again")
+        # Apps that cannot be decoded, or are gone, are said to be, as `_installed` says, and stop nothing (the security
+        # pass and the Claude review of #441).
+        root = clone({})
+        (root / "config" / "apps.json").write_bytes(b"\xff")
+        self.assertTrue(caught(check_trials.run(root), "config/apps.json cannot be read"))
+        (root / "config" / "apps.json").unlink()
+        self.assertTrue(caught(check_trials.run(root), "config/apps.json cannot be read"))
+        # A finding is kept: a second run of the same tree reads no fixture again (the Claude review of #441).
+        root = clone({})
+        check_trials.run(root)
+        with unittest.mock.patch.object(check_trials, "_load", wraps=check_trials._load) as loaded:
+            self.assertEqual(check_trials.run(root), [])
+        self.assertEqual([c for c in loaded.call_args_list if c.args[0].parent.name == "trials"], [])
+        # A fixture found wrong is found wrong again from what was kept, and is no valid one (the security pass on #441).
+        for _ in range(2):
+            self.assertTrue(caught(check_trials.run(clone({"trials/P-15.json": fixture(trial="P-16")})),
+                                   "trials/P-15.json: records trial P-16"))
         # An unreadable fixture is said to be, whether or not a text like it was read before.
         for _ in range(2):
             self.assertTrue(caught(check_trials.run(clone({"trials/P-12.json": "{"})), "trials/P-12.json cannot be read"))
@@ -7268,6 +7285,10 @@ class Mutants(unittest.TestCase):
                          ["tests.test_x.T.test_c", "tests.test_x.T.test_a: AssertionError: Lists differ"])
         self.assertEqual(mutants.failures([failure("ERROR: setUpClass (tests.test_x.T)", "OSError: no")]),
                          ["tests.test_x.T: OSError: no"])
+        # A test's docstring stands on the line after its head, and is no error; nor is the rule after it (the Claude
+        # review of #441).
+        self.assertEqual(mutants.failures([failure("FAIL: test_d (tests.test_x.T)\nA docstring on the test.", "AssertionError: 1 != 2")]),
+                         ["tests.test_x.T.test_d: AssertionError: 1 != 2"])
         # The log stays readable: so many tests, each so wide, and how many more.
         many = "".join(failure("FAIL: test_%d (tests.test_x.T)" % i, "AssertionError: " + "x" * 500)
                        for i in range(mutants.NAMED_MOST + 3))
