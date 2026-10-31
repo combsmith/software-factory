@@ -6761,6 +6761,12 @@ MUTANTS = ISSUE + [
      '        if eval_result.off_rubric(case):\n            assessed[entry["id"]] = ("unreadable", ["answer_off_rubric"])\n            continue\n',
      '', ("tests.test_evals.EvalJob.test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing",)),
     # Decision 0105: the facts the set predates are filled where it is read, in the job alone, and told apart by a code.
+    ('a case nested past the parser ends the step', 'harness/eval/__init__.py',
+     '        except (OSError, ValueError, RecursionError, Stop):\n',
+     '        except (OSError, ValueError, Stop):\n', ("tests.test_evals.EvalJob.test_a_case_that_is_no_case_of_this_set_is_unreadable",)),
+    ("a case nested past the parser ends the split's reading", 'harness/eval/__init__.py',
+     '    except (OSError, ValueError, RecursionError):\n        raise Stop("scratch_unreadable") from None\n',
+     '    except (OSError, ValueError):\n        raise Stop("scratch_unreadable") from None\n', ("tests.test_evals.EvalJob.test_a_case_that_is_no_case_of_this_set_is_unreadable",)),
     ('the scorer reads the case as it was fetched', 'harness/eval/__init__.py',
      '        said = eval_result.score(case, result)\n',
      '        said = eval_result.score(dict(case, facts={k: v for k, v in case["facts"].items() if k != "expired_reviews"}), result)\n', ("tests.test_evals.EvalJob.test_the_manifest_holds_a_cases_raw_bytes_and_the_fill_never_touches_them",)),

@@ -107,7 +107,7 @@ def _read(directory, name: str):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         raise Stop("scratch_unreadable") from None
 
 
@@ -251,7 +251,7 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
         try:
             with open(within(place / "cases", "%s.json" % entry["id"]), encoding="utf-8") as f:
                 case = json.load(f)
-        except (OSError, ValueError, Stop):
+        except (OSError, ValueError, RecursionError, Stop):
             assessed[entry["id"]] = ("unreadable", ["schema"])
             continue
         if isinstance(case, dict) and "facts" in case:

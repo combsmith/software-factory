@@ -647,14 +647,17 @@ class EvalJob(unittest.TestCase):
                  "poc-five": (json.dumps(bare) + "\n").encode(),
                  "poc-six": (json.dumps(dict(stray, id="poc-six", role="devops-lead")) + "\n").encode(),
                  # JSON that is no object is one of the set's no more than text is: none of them ends the step.
-                 "poc-seven": b"3", "poc-eight": b'"facts"', "poc-nine": b"null", "poc-ten": b"true", "poc-eleven": b"[]"}
+                 "poc-seven": b"3", "poc-eight": b'"facts"', "poc-nine": b"null", "poc-ten": b"true", "poc-eleven": b"[]",
+                 # Nested past what the parser reads, whatever Python's limit: it costs that case, not the report of all.
+                 "poc-deep": b"[" * 100000 + b"]" * 100000}
         self.set(cases)
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))
         self.step(job.score, lambda case: self.fail("no case of this set is reviewed"))
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([c["reasons"] for c in written["cases"]],
-                         [["not_this_set"], ["schema"], ["not_this_set"], ["not_this_set"], ["not_this_set"]] + [["not_this_set"]] * 5)
+                         [["not_this_set"], ["schema"], ["not_this_set"], ["not_this_set"], ["not_this_set"]] + [["not_this_set"]] * 5 + [["schema"]])
+        self.assertIsNone(job.split_ok({"cases": [{"id": "poc-deep"}]}, self.temp / "heldout"), "a case not read says nothing")
 
     def test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing(self):  # issue 421
         # Where the cases are, at run time: a case whose expected Finding is not as its criterion gives it asks nothing of
