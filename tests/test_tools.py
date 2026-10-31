@@ -8561,7 +8561,9 @@ esac
 
     # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
     # lends to the next mutant, so each is removed after the test whether or not it was refused.
-    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "scratch-of-the-reader")
+    # The scratch directory is one a test does make, so it stands where the walk leaves out: a test running beside this one
+    # copies the tree, and a directory that goes while it copies fails that test.
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "__pycache__/scratch-of-the-reader")
 
     def tearDown(self):
         for name in self.INSIDE:
@@ -8648,7 +8650,7 @@ esac
         # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
         # is refused and the directory mktemp made is removed (Codex on PR 298).
         inside = ROOT / self.INSIDE[2]
-        inside.mkdir()
+        inside.mkdir(parents=True)
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
         link.symlink_to(inside)
         for tmpdir in (inside, link):
