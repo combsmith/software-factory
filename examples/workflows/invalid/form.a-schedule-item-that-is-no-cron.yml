@@ -1,0 +1,27 @@
+# Must be rejected. Under a schedule: in YAML's compact form, an item that is no cron is read as an on: written as
+# a list: the check allows the crons it names, and refuses what it does not read (the Claude review of #428).
+name: sf-poller
+on:
+  workflow_dispatch:
+  schedule:
+  - cron: "13 * * * *"
+  - cron: "33 * * * *"
+  - cron: "53 * * * *"
+  - pull_request_target:
+  workflow_run:
+    workflows:
+    - factory
+    - ci
+    - sf-run
+    types:
+    - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next
