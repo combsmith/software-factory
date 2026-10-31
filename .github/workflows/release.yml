@@ -45,6 +45,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m release.move
+        timeout-minutes: 10
         env:
           RELEASE_COMMAND: ${{ inputs.command || 'cut' }}
           RELEASE_VERSION: ${{ inputs.version }}

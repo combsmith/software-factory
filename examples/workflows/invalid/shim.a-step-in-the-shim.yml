@@ -26,3 +26,4 @@ jobs:
     timeout-minutes: 15
     steps:
       - run: python3 -m controller
+        timeout-minutes: 1
