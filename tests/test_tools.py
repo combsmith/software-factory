@@ -40,7 +40,6 @@ from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
-GOOD_ON = "on:\n  pull_request:\n    types:\n      - opened\n      - synchronize\n      - reopened\n      - edited\n  merge_group:\n"
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
 POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n      - sf-run\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n'
 STEP = "      - run: make verify\n"
@@ -1883,14 +1882,7 @@ class Workflows(unittest.TestCase):
         depth = "          fetch-depth: 0\n          ref: %s\n" % check_workflows.BASE
         self.assertEqual((job.count(reading), job.count(depth)), (1, 1))
         shape = "its job commits's steps are not a checkout"
-        # A retarget fires `edited` alone: without it a pull request opened against another branch stands green on main
-        # (decision 0102, the security pass on its pull request). A list that leaves out any type is a filter besides.
-        kinds = "    types:\n      - opened\n      - synchronize\n      - reopened\n      - edited\n"
-        self.assertEqual(GOOD.count(kinds), 1)
-        for text in (GOOD.replace(kinds, ""), GOOD.replace(kinds, kinds.replace("      - edited\n", "")),
-                     GOOD.replace(kinds, kinds.replace("      - synchronize\n", ""))):
-            self.assertTrue(caught(self.lens_problems(text), "so a retargeted pull request is not read again"), text[:120])
-        # That list is no filter, and a list that leaves a type out is one: the repo's workflows and counter-examples say so.
+        # A list of an event's types is a filter, which the workflow and its counter-example say.
         self.assertEqual(check_workflows.run(ROOT), [])
         cases = [(GOOD.replace(job, "").replace("      - commits\n", ""), "has no job commits"),
                  (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "has keys other than"),
@@ -1899,6 +1891,13 @@ class Workflows(unittest.TestCase):
                   "has keys other than"),
                  (GOOD.replace(job, job.replace("    timeout-minutes: 10\n", "")), "has keys other than"),
                  (GOOD.replace(job, job.replace("      contents: read\n", "      contents: write\n")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "      pull-requests: write\n")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "      pull-requests: read\n      actions: read\n")),
+                  "granted other than"),
+                 (GOOD.replace(job, job.replace("      WORKFLOW_TOKEN: ${{ github.token }}\n", "")), "is not told BASE_SHA"),
+                 (GOOD.replace(job, job.replace("      WORKFLOW_TOKEN: ${{ github.token }}\n", "      WORKFLOW_TOKEN: ${{ secrets.X }}\n")),
+                  "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace("      EVENT: ${{ github.event_name }}\n", "")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace("github.event.merge_group.head_sha", "github.sha")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace(depth, "          ref: %s\n" % check_workflows.BASE)), "whole history"),
@@ -2021,7 +2020,7 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(text, GOOD)
             self.assertTrue(caught(self.lens_problems(text), empty), event)
         for event in ("push", "workflow_dispatch"):
-            text = GOOD.replace(GOOD_ON, "on: %s\n" % event)
+            text = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: %s\n" % event)
             self.assertNotEqual(text, GOOD)
             self.assertTrue(caught(self.lens_problems(text), "its workflow runs on %s, where there is no base" % event),
                             event)
@@ -2206,16 +2205,73 @@ class Workflows(unittest.TestCase):
         refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request",
                                                                    "GITHUB_EVENT_PATH": str(root / "no-such")}), "cannot be read")
         refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request"}), "cannot be read")
-        # A merge group's payload names no opener, and passes: its pull request's own run of this job read one, and neither
-        # value can change after. The payload must be a merge group's: an event that says so of a pull request's refuses,
-        # as the other way about, and any other event.
-        group = {"merge_group": {"head_sha": "a" * 40, "base_sha": "b" * 40}}
-        self.assertEqual(said(event="merge_group", payload=group), [])
-        refused(said(event="merge_group"), "merge group")
-        refused(said(event="merge_group", payload=dict(group, pull_request={})), "merge group")
-        refused(said(event="merge_group", payload=[]), "cannot be read")
-        refused(said(event="merge_group", payload={"merge_group": None}), "merge group")
-        refused(said(payload=group), "")
+        # A merge group's payload names no opener, so the pull request its ref names is read from GitHub, by the base's tool
+        # and list, and held to the same rule. This is what catches a pull request retargeted to main.
+        sha = "a" * 40
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + sha
+        open_on_main = {"number": 44, "state": "open", "user": {"login": "ada", "id": 1}, "base": {"ref": "main", "repo": {"full_name": "o/r"}},
+                        "head": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, status=200, body=None, fails=False):
+                self.status, self.body, self.fails, self.asked = status, open_on_main if body is None else body, fails, []
+
+            def send(self, asked):
+                self.asked.append(asked)
+                if self.fails:
+                    raise commits_are_the_maintainers.Unanswered("no answer")
+                return {"status": self.status, "body": self.body}
+
+        def group(transport=None, head_ref=ref, base_ref="refs/heads/main", token="t", payload=None):
+            told = {"merge_group": {"head_ref": head_ref, "base_ref": base_ref, "head_sha": "b" * 40, "base_sha": sha},
+                    "repository": {"full_name": "o/r"}}
+            where.write_text(json.dumps(told if payload is None else payload))
+            environ = {"EVENT": "merge_group", "GITHUB_EVENT_PATH": str(where)}
+            if token is not None:
+                environ["WORKFLOW_TOKEN"] = token
+            return commits_are_the_maintainers.opener_problems(root, environ, Asked() if transport is None else transport)
+
+        # The pull request it names is read, once, by its number; on the list and from this repo, it passes.
+        read = Asked()
+        self.assertEqual(group(read), [])
+        self.assertEqual([(a["method"], a["path"]) for a in read.asked], [("GET", "/repos/o/r/pulls/44")])
+        self.assertEqual(group(Asked(body=dict(open_on_main, user={"login": "sf-dev[bot]", "id": 2}))), [])
+        # Read from GitHub, the same rule refuses: another account, a retargeted one among them, or a fork.
+        refused(group(Asked(body=dict(open_on_main, user={"login": "bob", "id": 9}))), "opened by bob")
+        refused(group(Asked(body=dict(open_on_main, head={"repo": {"full_name": "bob/r"}}))), "from bob/r")
+        refused(group(Asked(body=dict(open_on_main, head={"repo": None}))), "from None")
+        # A ref that does not name exactly one pull request, on the branch the group merges to, asks nothing and refuses.
+        for odd in ("refs/heads/gh-readonly-queue/main/pr-44", "refs/heads/gh-readonly-queue/main/pr-44-abc", "refs/heads/main",
+                    "gh-readonly-queue/main/pr-44-" + sha, "x" + ref, ref + "x", ref + "\n", None, 44,
+                    "refs/heads/gh-readonly-queue/main/pr-044-" + sha, "refs/heads/gh-readonly-queue/main/pr-0-" + sha,
+                    "refs/heads/gh-readonly-queue/main/pr-44-45-" + sha, "refs/heads/gh-readonly-queue/main/pr-x-" + sha,
+                    "refs/heads/gh-readonly-queue/a/b/pr-44-" + sha, "refs/heads/gh-readonly-queue/other/pr-44-" + sha):
+            read = Asked()
+            refused(group(read, head_ref=odd), "merge_group_ref_unreadable")
+            self.assertEqual(read.asked, [], odd)
+        for odd in ("refs/heads/other", "main", None):
+            refused(group(base_ref=odd), "merge_group_ref_unreadable")
+        # An answer that cannot be read refuses, with its code: none, another status, another pull request, one closed or on
+        # another base, and no token to ask with.
+        refused(group(Asked(fails=True)), "merge_group_pull_unreadable")
+        for transport in (Asked(status=404), Asked(status=500), Asked(body=[]), Asked(body="x"),
+                          Asked(body=dict(open_on_main, number=45)), Asked(body=dict(open_on_main, state="closed")),
+                          Asked(body=dict(open_on_main, base={"ref": "other", "repo": {"full_name": "o/r"}})),
+                          Asked(body=dict(open_on_main, base=None))):
+            refused(group(transport), "merge_group_pull_unreadable")
+        for token in (None, ""):
+            refused(group(token=token), "merge_group_pull_unreadable")
+        refused(group(token="two words", transport=False), "merge_group_pull_unreadable")
+        # An answer with no opener in it cannot be read either, and neither can a repository the payload does not name.
+        for body in ({"number": 44, "state": "open", "base": {"ref": "main"}},):
+            refused(group(Asked(body=body)), "cannot be read")
+        refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}}), "cannot be read")
+        # The payload must be a merge group's: an event that says so of a pull request's refuses, as the other way about.
+        refused(said(event="merge_group"), "merge_group_unreadable")
+        refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}, "pull_request": {}}), "merge_group_unreadable")
+        refused(group(payload={"merge_group": None}), "merge_group_unreadable")
+        refused(group(payload=[]), "cannot be read")
+        refused(said(payload={"merge_group": {}}), "")
         for event in (None, "push", "pull_request_target"):
             refused(said(event=event), "must be set")
         # The list is the configuration's: one that cannot be read refuses every opener, and an empty one allows none.
@@ -2244,11 +2300,11 @@ class Workflows(unittest.TestCase):
                                  "base": {"repo": {"full_name": "o/r"}}}}
         environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}
 
-        def ended(commits, payload, told=environ):
+        def ended(commits, payload):
             where.write_text(json.dumps(payload))
             with mock.patch.object(commits_are_the_maintainers, "problems", return_value=commits), \
                     contextlib.redirect_stdout(io.StringIO()) as printed:
-                return commits_are_the_maintainers.main(told, root), printed.getvalue()
+                return commits_are_the_maintainers.main(environ, root), printed.getvalue()
 
         code, printed = ended([], ours)
         self.assertEqual(code, 0)
@@ -2262,11 +2318,21 @@ class Workflows(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("opened by bob", printed)
         self.assertNotIn("names the Maintainer as", printed)
-        # A merge group says it read no opener, and why, rather than that one passed.
-        code, printed = ended([], {"merge_group": {}}, dict(environ, EVENT="merge_group"))
-        self.assertEqual(code, 0)
-        self.assertIn("names no opener", printed)
-        self.assertNotIn("opened from", printed)
+        # A merge group's opener is read through the transport main is handed, and refuses or says the same.
+        queue = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40, "base_ref": "refs/heads/main"},
+                 "repository": {"full_name": "o/r"}}
+        where.write_text(json.dumps(queue))
+        answer = dict(ours["pull_request"], number=44, state="open", base={"ref": "main", "repo": {"full_name": "o/r"}})
+
+        class Asked:
+            def send(self, asked):
+                return {"status": 200, "body": answer}
+        with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            told = dict(environ, EVENT="merge_group", WORKFLOW_TOKEN="t")
+            self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 0)
+            self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
+        self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -2340,14 +2406,14 @@ class Workflows(unittest.TestCase):
             self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, why)
         # Each of the three events makes a shim alone: a dispatch, a schedule and another's end.
         for event in ("  workflow_dispatch:\n", "  schedule:\n    - cron: '17 3 * * *'\n", "  workflow_run:\n"):
-            alone = GOOD.replace(GOOD_ON, "on:\n" + event)
+            alone = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n" + event)
             self.assertIn("shim", {rule for rule, _ in check_workflows.lint(alone)}, event)
         passed_on = POLLER + "    with:\n      item: ${{ inputs.item }}\n"
         self.assertEqual([r for r, _ in check_workflows.lint(passed_on) if r == "shim"], [])
         # An environment is a called workflow's alone: named on a push's job or a pull request's, it is refused.
         pushed = GOOD.replace("  checks:\n", "  checks:\n    environment: factory-run\n", 1)
         self.assertIn("shim", {rule for rule, _ in check_workflows.lint(pushed)})
-        called = GOOD.replace(GOOD_ON, "on:\n  workflow_call:\n").replace(
+        called = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  workflow_call:\n").replace(
             "  checks:\n", "  checks:\n    environment: factory-run\n", 1)
         self.assertNotIn("shim", {rule for rule, _ in check_workflows.lint(called)})
         # Called and something else: the something else runs the file with the key too.
@@ -2367,7 +2433,7 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(problems, "poller.yml: a shim is held word for word"), problems)
         held = hashlib.sha256(check_workflows.PIN.sub("@PIN", POLLER).encode()).hexdigest()
         # A shim's events written as one scalar are its events still: such a file is held too.
-        scalar = GOOD.replace(GOOD_ON, "on: workflow_dispatch\n")
+        scalar = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: workflow_dispatch\n")
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/x.yml": scalar}))),
                                "x.yml: a shim is held word for word"))
         # Only the Run's shim names its run.
@@ -2766,7 +2832,7 @@ class Workflows(unittest.TestCase):
             "two spaces after the dash": (GOOD.replace(STEP, "      -  uses: actions/checkout@v7\n"), "form"),
             "a quoted key": (GOOD.replace("    runs-on:", '    "runs-on":'), "form"),
             # An on: with no event under it at all, which no list item stands in (#416's mutant run).
-            "an on: with nothing under it": (GOOD.replace(GOOD_ON, "on:\n"), "form"),
+            "an on: with nothing under it": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n"), "form"),
             "a colon set apart": (GOOD.replace(STEP, "      - uses : evil/action@main\n"), "form"),
             "an escaped event name": (GOOD.replace("  merge_group:\n", '  merge_group:\n  "pull_request\\x5ftarget":\n'), "form"),
             "a list on one line": (GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule: [{cron: '0 * * * *'}]\n"), "form"),
@@ -2811,7 +2877,7 @@ class Workflows(unittest.TestCase):
             "a line break inside a comment": (GOOD.replace(STEP, STEP + "        # c\u0085        shell: bash\n"), "form"),
             "a quote not closed on its line": (GOOD.replace(STEP, STEP + '        name: "0\n        id: x # "\n'), "form"),
             "text after a quote's close": (GOOD.replace(STEP, STEP + '        name: "a" b\n'), "form"),
-            "on: as a list": (GOOD.replace(GOOD_ON, "on:\n  - pull_request_target\n"),
+            "on: as a list": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  - pull_request_target\n"),
                               "form"),
         }
         for name, (text, rule) in ways.items():

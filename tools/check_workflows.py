@@ -424,11 +424,9 @@ JUDGE = "python3 -m tools.needs_passed"
 NEEDS = "${{ toJSON(needs) }}"
 # The job that reads every commit a pull request carries (decision 0041): the base's tool, from a checkout of the base
 # with the whole history, told the base, the head and the event by the expressions below and nothing else. It reads the
-# opener from the payload the runner leaves, so no expression gives it one (decision 0102).
+# opener from the payload the runner leaves, so no expression gives it one, and on a merge group with the job's own
+# token, read-only, which it is given by name (decision 0102).
 COMMITS = "python3 -m tools.commits_are_the_maintainers"
-# GitHub's default types and `edited`, which a retarget fires: the commits and the opener are read again against the new
-# base's list, or a pull request opened against another branch stands green on main (decision 0102).
-READ_ON = ["opened", "synchronize", "reopened", "edited"]
 # The mutant shards (issue 180): each leg is told its index and the count by the matrix itself, never by a number
 # written in, so every leg runs its own shard and the count is the matrix's size.
 SHARDED = "python3 -m tools.mutants"
@@ -437,6 +435,7 @@ TOTAL = "${{ strategy.job-total }}"
 JUDGING_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "env", "steps"}
 SHARD_KEYS = {"runs-on", "timeout-minutes", "permissions", "strategy", "env", "steps"}
 HEAD = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
+JOB_TOKEN = "${{ github.token }}"
 EVENT = "${{ github.event_name }}"
 # The commit a pull request, or a merge-queue entry, is judged against (decision 0023). A judging job checks out this and
 # nothing else; the secret scan, which also runs on a push to main, falls back to the commit pushed.
@@ -706,10 +705,7 @@ def lint(text: str) -> list:
         events.add(top["on"]["value"])
     if events - EVENTS:
         found.append(("target", "runs on %s" % ", ".join(sorted(events - EVENTS))))
-    # The one list here that filters nothing: every event that moves the head or the base (decision 0102).
-    filtered = [e for e in entries if e["path"][:2] in (["on", "pull_request"], ["on", "merge_group"])
-                and not (e["path"] == ["on", "pull_request"] and e["key"] == "types"
-                         and _listed(text, e) == READ_ON)]
+    filtered = [e for e in entries if e["path"][:2] in (["on", "pull_request"], ["on", "merge_group"])]
     if "pull_request" in events and ("merge_group" not in events or filtered):
         found.append(("queue", "runs on pull_request without merge_group, or behind a filter"))
 
@@ -1058,28 +1054,26 @@ def _shards(entries: list, jobs: list) -> list:
 
 def _commits(text: str, entries: list, jobs: list) -> list:
     """Why the workflow's job `commits` would not read every commit the pull request carries from the base (decision
-    0041). Its shape is closed: the keys runs-on, timeout-minutes, permissions (contents: read), env and steps and no
-    other, so no container, strategy, if: or default can change what runs; env: exactly BASE_SHA, HEAD_SHA and EVENT as
-    the expressions name them; two steps, a checkout of the base with the whole history and persist-credentials: false,
+    0041). Its shape is closed: the keys runs-on, timeout-minutes, permissions (contents: read, pull-requests: read, and
+    nothing else), env and steps and no other, so no container, strategy, if: or default can change what runs; env:
+    exactly BASE_SHA, HEAD_SHA, EVENT and the job's own token as the expressions name them; two steps, a checkout of the base with the whole history and persist-credentials: false,
     and `COMMITS` on a line of its own, each step holding no other key, since a step's env: or if: would override the
     job's or skip it."""
     if "commits" not in jobs:
         return ["has no job commits, which reads every commit the pull request carries from the base"]
-    told = [e for e in entries if e["path"] == ["on", "pull_request"] and e["key"] == "types"]
-    if [_listed(text, e) for e in told] != [READ_ON]:
-        return ["its pull_request event's types are not %s, so a retargeted pull request is not read again" % ", ".join(READ_ON)]
     mine = [e for e in entries if e["path"][:2] == ["jobs", "commits"]]
     inside = {e["key"]: e for e in mine if e["path"] == ["jobs", "commits"]}
     whys = []
     if set(inside) != {"runs-on", "timeout-minutes", "permissions", "env", "steps"}:
         whys.append("its job commits has keys other than runs-on, timeout-minutes, permissions, env and steps, or lacks "
                     "one: a container, a strategy, an if: or a default could change what runs")
-    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} != {"contents": "read"}:
-        whys.append("its job commits is granted other than contents: read")
+    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} \
+            != {"contents": "read", "pull-requests": "read"}:
+        whys.append("its job commits is granted other than contents: read and pull-requests: read")
     given = {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "env"]}
-    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:
-        whys.append("its job commits is not told BASE_SHA: %s, HEAD_SHA: %s and EVENT: %s in its own env:, and "
-                    "nothing else" % (BASE, HEAD, EVENT))
+    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT, "WORKFLOW_TOKEN": JOB_TOKEN}:
+        whys.append("its job commits is not told BASE_SHA: %s, HEAD_SHA: %s, EVENT: %s and WORKFLOW_TOKEN: %s in its own "
+                    "env:, and nothing else" % (BASE, HEAD, EVENT, JOB_TOKEN))
     steps = _steps(entries, "commits")
     keys = [set(step) for step in steps]
     wanted = {"persist-credentials": "false", "fetch-depth": "0", "ref": BASE}
