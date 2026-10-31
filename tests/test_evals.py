@@ -85,6 +85,70 @@ class Scoring(unittest.TestCase):
         del wrong["coverage"][0]
         self.assertEqual(eval_result.score(case, wrong)["reasons"], ["criterion_not_met"])
 
+    def test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing(self):  # issue 421
+        # A Result whose Finding cites a criterion at another severity or category than the rubric's is refused (decisions
+        # 0088 and 0095), so a case that expects one would reward a Result `apply` refuses: what is measured would not be
+        # what runs. Such a case is no answer, whatever the Result says, and it is read as a code alone.
+        case, result = load("examples/eval-case.json"), load("examples/result.json")
+        self.assertEqual(eval_result.score(case, result)["verdict"], "pass")
+        self.assertFalse(eval_result.off_rubric(case))
+        for change in ({"category": "delivery"}, {"severity": "minor"}, {"category": "security", "severity": "blocking"}):
+            off = copy.deepcopy(case)
+            off["expected"]["finding"].update(change)
+            self.assertTrue(eval_result.off_rubric(off), change)
+            # A Result that gives what the case expects is still no pass, and the answer is said in no word of the code.
+            said = copy.deepcopy(result)
+            said["findings"][0].update(change)
+            self.assertEqual(eval_result.score(off, said),
+                             {"case": case["id"], "verdict": "unreadable", "reasons": ["answer_off_rubric"]}, change)
+        # Each criterion's own severity and category are what is held, not the first's.
+        rubric = load("config/rubric-pr-review.json")
+        for criterion in rubric["criteria"]:
+            on = copy.deepcopy(case)
+            on["expected"]["criterion"] = criterion["id"]
+            on["expected"]["finding"].update(category=criterion["category"], severity=criterion["severity_if_violated"])
+            self.assertFalse(eval_result.off_rubric(on), criterion["id"])
+        # The other side: a case of a criterion met expects no Finding, and one whose rubric lacks the criterion, or
+        # whose Role has none, is the scorer's `criterion_unknown`, as before.
+        met = load("examples/eval-case.met.json")
+        self.assertIsNone(met["expected"]["finding"])
+        self.assertFalse(eval_result.off_rubric(met))
+        unknown = copy.deepcopy(case)
+        unknown["expected"]["criterion"] = "PR-99"
+        self.assertFalse(eval_result.off_rubric(unknown))
+        self.assertEqual(eval_result.score(unknown, result)["reasons"], ["criterion_unknown"])
+        nobody = dict(copy.deepcopy(case), role="no-such-role")
+        self.assertFalse(eval_result.off_rubric(nobody))
+        # A rubric read, but whose criterion gives no severity or category, holds no case to it: the case is off it, and
+        # is never asked of the model. One that cannot be read at all is the scorer's, as above.
+        import tempfile
+        with tempfile.TemporaryDirectory() as made:
+            place = pathlib.Path(made)
+            (place / "config").mkdir()
+            given = place / "config" / "rubric-pr-review.json"
+            for field in ("category", "severity_if_violated"):
+                broken = copy.deepcopy(rubric)
+                del broken["criteria"][-1][field]
+                given.write_text(json.dumps(broken))
+                self.assertTrue(eval_result.off_rubric(case, place), field)
+            given.write_text(json.dumps(dict(rubric, criteria=[None])))
+            self.assertTrue(eval_result.off_rubric(case, place))
+            # Nor is the case on a rubric coverage refuses wholesale, though the criterion it cites reads as it expects
+            # (Muse's read of #421): another criterion's severity or category out of the Factory's, or one given twice.
+            cited = next(c for c in rubric["criteria"] if c["id"] == case["expected"]["criterion"])
+            other = next(c for c in rubric["criteria"] if c["id"] != cited["id"])
+            for at_fault in ([dict(other, severity_if_violated="high"), cited], [dict(other, category=None), cited],
+                             [cited, dict(cited)]):
+                given.write_text(json.dumps(dict(rubric, criteria=at_fault)))
+                self.assertTrue(eval_result.off_rubric(case, place), at_fault)
+            given.write_text(json.dumps(dict(rubric, criteria=[other, cited])))
+            self.assertFalse(eval_result.off_rubric(case, place))
+            given.write_text("not json")
+            self.assertFalse(eval_result.off_rubric(case, place))
+        # The cases the repo gives as examples are on it.
+        for path in sorted((ROOT / "examples").glob("eval-case*.json")):
+            self.assertFalse(eval_result.off_rubric(json.loads(path.read_text())), path.name)
+
     def test_a_case_or_a_result_that_cannot_be_read_scores_nothing(self):
         case, result = load("examples/eval-case.json"), load("examples/result.json")
         for broken in ({}, dict(case, expected=None), dict(case, diff=None), "a case", None):
@@ -336,8 +400,8 @@ class TheSet(unittest.TestCase):
         # Decision 0010: an Intent family is cut over only after its eval set exists. The cases are written in the
         # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
         # with a Finding and as many of a change that was right: forty at least. The manifest keeps no count of a kind,
-        # since a public count and the ids a change adds or removes would tell each case's kind; the eval job holds the
-        # split where the cases are (decision 0094).
+        # since a session here cannot read a case to hold it true; the eval job holds the split where the cases are
+        # (decision 0099).
         manifest = json.loads(SET.read_text())
         self.assertGreaterEqual(manifest["count"], 40)
 
@@ -472,10 +536,9 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
-        # Decision 0094: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. No file
-        # here holds either count: a public count and the ids a change adds or removes would tell each case's kind. A set
-        # short of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set,
-        # which `verdict`, the Release's gate too, refuses.
+        # Decision 0099: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
+        # of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set, which
+        # `verdict`, the Release's gate too, refuses. Neither says how many of a kind.
         from harness import eval as job
         self.assertEqual(job.KIND_LEAST, 0, "as these fixtures set it")
         result = load("examples/result.json")
@@ -587,6 +650,28 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([c["reasons"] for c in written["cases"]],
                          [["not_this_set"], ["schema"], ["not_this_set"], ["not_this_set"], ["not_this_set"]])
+
+    def test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing(self):  # issue 421
+        # Where the cases are, at run time: a case whose expected Finding is not as its criterion gives it asks nothing of
+        # the model, and the run fails by a code alone, naming neither the severity nor the category. Its owner mends it
+        # in the home; nothing here holds what it expected.
+        from harness import eval as job
+        first = next(iter(self.cases))
+        off = json.loads(self.cases[first])
+        off["expected"]["finding"]["category"] = "delivery"
+        cases = dict(self.cases, **{first: (json.dumps(off, indent=2) + "\n").encode()})
+        self.set(cases)
+        self.step(job.plan)
+        self.step(job.fetch, self.home(cases))
+        asked = []
+        self.step(job.score, lambda case: asked.append(case["id"]) or load("examples/result.json"))
+        self.assertEqual(asked, ["poc-two"], "the case off its rubric is never given to the review")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual([(c["id"], c["verdict"], c["reasons"]) for c in written["cases"]],
+                         [(first, "unreadable", ["answer_off_rubric"]), ("poc-two", "pass", [])])
+        self.assertNotIn("delivery", (self.work / job.REPORT).read_text())
+        self.assertEqual(self.step(job.judge), "case_failed")
 
     def test_the_fetch_step_takes_its_token_from_its_environment_alone(self):
         from harness import eval as job

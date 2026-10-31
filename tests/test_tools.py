@@ -7073,6 +7073,11 @@ class Verify(unittest.TestCase):
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
             with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+                # `make checks` is the checks alone, whether they pass or not: it runs no test (issue 438).
+                self.assertEqual((verify.main(["--checks"]), ran), (0, {}))
+                verify.failed = lambda checks: True
+                self.assertEqual((verify.main(["--checks"]), ran), (1, {}))
+                verify.failed = lambda checks: False
                 self.assertEqual(verify.main([]), 0)
                 self.assertEqual(ran["modules"], everything)
                 verify.main(["--fast"])
@@ -7082,6 +7087,7 @@ class Verify(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
+        self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
 
     def test_every_test_file_is_discovered(self):
         found = set()

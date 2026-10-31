@@ -2,7 +2,7 @@
 
 Each hook is run once from its front door, as `.claude/settings.json` runs it: `python3 -I` on the
 script, the event's JSON on stdin. The other cases call the function that front door calls, in this
-process, since a Python start for each would make `make fast` slow. Every case has a PATH that holds
+process, since a Python start for each would make `make verify` slow. Every case has a PATH that holds
 only the programs it allows; `make` and `gh` are stand-ins, so no case runs the real checks or reads a
 real account.
 """
@@ -36,7 +36,8 @@ GOOD_REMOTE = "https://github.com/combsmith/software-factory.git"
 GH_HELPER = "!gh auth git-credential"
 STAND_INS = {
     "gh": 'if [ -n "$FAKE_GH_SLEEP" ]; then exec /bin/sleep "$FAKE_GH_SLEEP"; fi\necho "$FAKE_GH_USER"',
-    "make": 'if [ "$1" = "-n" ]; then exit "${FAKE_MAKE_DRY:-0}"; fi\n'
+    "make": 'if [ "$1" = "-n" ]; then [ "$2" = checks ] || exit 0; [ -n "$FAKE_MAKE_DRY" ] && echo "make: *** No rule to make '
+            'target \'$2\'.  Stop." >&2; exit "${FAKE_MAKE_DRY:-0}"; fi\n'
             'echo "make $* in $(pwd -P)"\nexit "${FAKE_MAKE_EXIT:-0}"',
 }
 PATHS = {}     # made once: a new program's first run is slow on some systems
@@ -1789,7 +1790,7 @@ class Identity(unittest.TestCase):
 
 
 class AfterEdit(unittest.TestCase):
-    """PostToolUse on an edit. The fast checks run, and a failure is shown to the agent."""
+    """PostToolUse on an edit. The checks run, and a failure is shown to the agent."""
 
     def edit(self, path, rel="kernel/decide.py", key="file_path", **extra):
         self.project = a_project()
@@ -1801,7 +1802,8 @@ class AfterEdit(unittest.TestCase):
         payload, env = self.edit(programs("make"))
         done = hook("after_edit", payload, env["PATH"], FAKE_MAKE_EXIT="1", CLAUDE_PROJECT_DIR=str(self.project))
         self.assertEqual(done.returncode, 2)
-        self.assertIn("make fast in %s" % self.project, done.stderr)
+        self.assertIn("make checks in %s" % self.project, done.stderr)
+        self.assertIn("The checks fail after this edit", done.stderr)
 
     def test_passing_fast_checks_say_nothing(self):
         self.assertEqual(after_edit.respond(*self.edit(programs("make"))), (0, "", ""))
@@ -1810,31 +1812,47 @@ class AfterEdit(unittest.TestCase):
         code, _, err = after_edit.respond(*self.edit(programs("make"), ".claude/worktrees/w/kernel/x.py",
                                                      FAKE_MAKE_EXIT="1"))
         self.assertEqual(code, 2)
-        self.assertIn("make fast in %s" % (self.project / ".claude" / "worktrees" / "w"), err)
+        self.assertIn("make checks in %s" % (self.project / ".claude" / "worktrees" / "w"), err)
         payload, env = self.edit(programs("make"), "kernel/x.ipynb", "notebook_path", FAKE_MAKE_EXIT="1")
         payload["cwd"] = str(folder())      # the notebook, not where the session stands, says where
         code, _, err = after_edit.respond(payload, env)
         self.assertEqual(code, 2)
-        self.assertIn("make fast in %s" % self.project, err)
+        self.assertIn("make checks in %s" % self.project, err)
 
     def test_an_edit_outside_the_project_runs_nothing(self):
         payload, env = self.edit(programs("make"), FAKE_MAKE_EXIT="1")
         payload["tool_input"]["file_path"] = str(folder() / "notes.md")
         self.assertEqual(after_edit.respond(payload, env), (0, "", ""))
 
-    def test_a_branch_with_no_fast_target_tells_the_person_and_does_not_fail(self):
+    def test_a_branch_with_no_checks_target_tells_the_person_and_does_not_fail(self):
         code, out, err = after_edit.respond(*self.edit(programs("make"), FAKE_MAKE_EXIT="2", FAKE_MAKE_DRY="2"))
         self.assertEqual((code, err), (0, ""))
-        self.assertIn("make fast", json.loads(out)["systemMessage"])
+        self.assertIn("make checks", json.loads(out)["systemMessage"])
+
+    def test_checks_that_ran_out_of_time_found_nothing_and_say_so(self):  # issue 438
+        # A run that did not finish is no failure: the agent is not told the checks fail, and nothing is sent back.
+        bin_dir = folder()
+        (bin_dir / "make").write_text("#!/bin/sh\nexec /bin/sleep 30\n")
+        (bin_dir / "make").chmod(0o755)
+        payload, env = self.edit(str(bin_dir))
+        with unittest.mock.patch.object(after_edit, "TIMEOUT", 1):
+            code, out, err = after_edit.respond(payload, env)
+        self.assertEqual((code, err), (0, ""))
+        said = json.loads(out)["systemMessage"]
+        self.assertIn("did not finish", said)
+        self.assertIn("found nothing", said)
+        self.assertNotIn("checks fail", said)
 
     def test_with_no_make_the_agent_is_told_the_checks_did_not_run(self):
         code, _, err = after_edit.respond(*self.edit(programs()))
         self.assertEqual(code, 2)
         self.assertIn("make is not on PATH", err)
+        self.assertIn("python3 -m tools.verify --checks", err)
+        self.assertIn("as python3 -m tools.verify.", make.make("verify", self.project, environment(programs()), 1)[1])
 
 
 class BeforeStop(unittest.TestCase):
-    """Stop. A session is sent back once while make verify fails on work it has not pushed."""
+    """Stop. A session is sent back once while make checks fails on work it has not pushed."""
 
     def stop(self, again, path, where=None, **extra):
         self.where = where or a_project()
@@ -1845,7 +1863,7 @@ class BeforeStop(unittest.TestCase):
         payload, env = self.stop(False, programs("make"))
         done = hook("before_stop", payload, env["PATH"], FAKE_MAKE_EXIT="2", CLAUDE_PROJECT_DIR=str(self.where))
         self.assertEqual(done.returncode, 2)
-        self.assertIn("make verify in %s" % self.where, done.stderr)
+        self.assertIn("make checks in %s" % self.where, done.stderr)
         for coaching in ("say why", "next stop", "ends"):
             self.assertNotIn(coaching, done.stderr)
 
@@ -1855,12 +1873,35 @@ class BeforeStop(unittest.TestCase):
     def test_a_session_sent_back_once_ends_and_the_person_is_told(self):
         code, out, _ = before_stop.respond(*self.stop(True, programs("make"), FAKE_MAKE_EXIT="2"))
         self.assertEqual(code, 0)
-        self.assertIn("make verify in %s" % self.where, json.loads(out)["systemMessage"])
+        self.assertIn("make checks in %s" % self.where, json.loads(out)["systemMessage"])
 
     def test_with_no_make_the_session_is_told_verify_did_not_run(self):
         code, _, err = before_stop.respond(*self.stop(False, programs()))
         self.assertEqual(code, 2)
         self.assertIn("make is not on PATH", err)
+
+    def test_a_branch_with_no_checks_target_tells_the_person_and_ends(self):  # issue 438
+        # A branch older than the target must not be sent back for what it cannot run.
+        code, out, err = before_stop.respond(*self.stop(False, programs("make"), FAKE_MAKE_EXIT="2", FAKE_MAKE_DRY="2"))
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("has no `make checks` target", json.loads(out)["systemMessage"])
+
+    def test_only_a_target_truly_absent_is_lacking(self):  # the security pass on #443
+        # A Makefile that cannot be read, or a target whose needs are missing, is no branch older than the target: running
+        # it says what is wrong, and the session is sent back. Read with the real make.
+        env = dict(os.environ)
+        for text, lacking in (("other:\n\ttrue\n", True), ("", True), ("checks:\n\ttrue\n", False),
+                              ("checks: nothere\n\ttrue\n", False), ("include nothere.mk\nchecks:\n\ttrue\n", False),
+                              ("checks:\n    spaces not a tab\n", False)):
+            where = folder()
+            (where / "Makefile").write_text(text)
+            self.assertEqual(make.lacks("checks", where, env), lacking, text)
+        where = folder()
+        (where / "Makefile").write_text("checks: nothere\n\ttrue\n")
+        payload, env = self.stop(False, str(pathlib.Path(shutil.which("make")).parent) + os.pathsep + "/usr/bin:/bin", where)
+        code, out, err = before_stop.respond(payload, env)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("`make checks` fails", err)
 
     def test_with_nothing_unpushed_verify_is_not_run(self):
         pushed = repo(fresh=True)
@@ -1881,15 +1922,19 @@ class BeforeStop(unittest.TestCase):
         (where / "new.py").write_text("")
         bin_dir = folder()
         (bin_dir / "git").symlink_to(shutil.which("git"))
-        (bin_dir / "make").write_text("#!/bin/sh\n[ -n \"$SLOW\" ] && exec /bin/sleep 30\nexit \"${FAKE_MAKE_EXIT:-0}\"\n")
+        (bin_dir / "make").write_text("#!/bin/sh\n[ \"$1\" = -n ] && exit 0\n[ -n \"$SLOW\" ] && exec /bin/sleep 30\nexit \"${FAKE_MAKE_EXIT:-0}\"\n")
         (bin_dir / "make").chmod(0o755)
         env = environment(str(bin_dir), CLAUDE_PROJECT_DIR=str(where), FAKE_MAKE_EXIT="2")
         payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
         record = before_stop.record_of(where, env)
         self.assertEqual(record.parent, (where / ".git").resolve())
         with unittest.mock.patch.object(before_stop, "TIMEOUT", 1):
-            code, out, _ = before_stop.respond(payload, dict(env, SLOW="1"), clock=lambda: 1000.0)
-        self.assertEqual(code, 2)
+            code, out, err = before_stop.respond(payload, dict(env, SLOW="1"), clock=lambda: 1000.0)
+        # A run that did not finish found nothing: no session is sent back, and none is told the checks fail (issue 438).
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("did not finish", json.loads(out)["systemMessage"])
+        self.assertIn("found nothing", json.loads(out)["systemMessage"])
+        self.assertNotIn("fails in", json.loads(out)["systemMessage"])
         self.assertEqual(json.loads(record.read_text()), {"started": 1000.0, "finished": False})
         code, out, _ = before_stop.respond(payload, env, clock=lambda: 1100.0)
         self.assertEqual(code, 0)
