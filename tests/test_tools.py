@@ -3590,6 +3590,50 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
 
 
 class Trials(unittest.TestCase):
+    def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438
+        # The check keeps each fixture's finding between runs in one process, by its name, its text, the schema and the
+        # Apps' reach; a change to any of them is read afresh, and what a run finds is what a first run would.
+        good = fixture()
+        first = clone({"trials/P-12.json": good})
+        self.assertEqual(check_trials.run(first), [])
+        self.assertEqual(check_trials.run(clone({"trials/P-12.json": good})), [])
+        self.assertTrue(caught(check_trials.run(clone({"trials/P-12.json": fixture(trial="P-13")})),
+                               "trials/P-12.json: records trial P-13"))
+        self.assertTrue(caught(check_trials.run(clone({"trials/P-14.json": good})), "trials/P-14.json: records trial P-12"))
+        schema = json.loads((ROOT / "schemas" / "trial.schema.json").read_text())
+        schema["required"] = schema["required"] + ["a_field_no_fixture_has"]
+        self.assertTrue(caught(check_trials.run(clone({"trials/P-12.json": good,
+                                                       "schemas/trial.schema.json": json.dumps(schema)})),
+                               "trials/P-12.json: $: missing"))
+        self.assertEqual(check_trials.run(clone({"trials/P-12.json": good})), [])
+        # A canary fixture is read against the Apps' reach: an App no longer installed there is read afresh.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        reach = {name: dict(app, installed_on=[]) for name, app in apps["apps"].items()}
+        before = check_trials.run(clone({}))
+        after = check_trials.run(clone({"config/apps.json": json.dumps(dict(apps, apps=reach))}))
+        self.assertEqual(before, [])
+        self.assertTrue(after, "a fixture read before the Apps' reach changed is read again")
+        # Apps that cannot be decoded, or are gone, are said to be, as `_installed` says, and stop nothing (the security
+        # pass and the Claude review of #441).
+        root = clone({})
+        (root / "config" / "apps.json").write_bytes(b"\xff")
+        self.assertTrue(caught(check_trials.run(root), "config/apps.json cannot be read"))
+        (root / "config" / "apps.json").unlink()
+        self.assertTrue(caught(check_trials.run(root), "config/apps.json cannot be read"))
+        # A finding is kept: a second run of the same tree reads no fixture again (the Claude review of #441).
+        root = clone({})
+        check_trials.run(root)
+        with unittest.mock.patch.object(check_trials, "_load", wraps=check_trials._load) as loaded:
+            self.assertEqual(check_trials.run(root), [])
+        self.assertEqual([c for c in loaded.call_args_list if c.args[0].parent.name == "trials"], [])
+        # A fixture found wrong is found wrong again from what was kept, and is no valid one (the security pass on #441).
+        for _ in range(2):
+            self.assertTrue(caught(check_trials.run(clone({"trials/P-15.json": fixture(trial="P-16")})),
+                                   "trials/P-15.json: records trial P-16"))
+        # An unreadable fixture is said to be, whether or not a text like it was read before.
+        for _ in range(2):
+            self.assertTrue(caught(check_trials.run(clone({"trials/P-12.json": "{"})), "trials/P-12.json cannot be read"))
+
     def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
         root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
                       "trials/notes.md": "x\n", "trials/P12.json": fixture(), "trials/P-98.json/P-98.json": fixture(trial="P-98")})
@@ -7282,6 +7326,43 @@ class Mutants(unittest.TestCase):
             code = mutants.main(mutate("fails"), tree({"k.py": "rule\n"}), told({"rule": (0, 1, FAILS_A_TEST)}, calls))
         self.assertEqual((code, calls), (1, ["rule", "done rule"]))
         self.assertIn("the tests fail before anything is broken", said.getvalue())
+
+    def test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error(self):  # issue 438
+        def failure(head, error="AssertionError: Lists differ\n\nmore of it"):
+            return ("=" * 70 + "\n" + head + "\n" + "-" * 70 + "\nTraceback (most recent call last):\n"
+                    '  File "x.py", line 1, in test\n    self.fail()\n' + error + "\n\n")
+
+        one = failure("FAIL: test_a (tests.test_x.T)")
+        three_twelve = failure("ERROR: test_b (tests.test_x.T.test_b)", "ValueError: no")
+        calls = []
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            code = mutants.main(mutate("fails"), tree({"k.py": "rule\n"}),
+                                told({"rule": (0, 1, one + three_twelve + "FAILED (failures=1, errors=1)\n")}, calls))
+        self.assertEqual(code, 1)
+        lines = said.getvalue().splitlines()
+        self.assertIn("    tests.test_x.T.test_a: AssertionError: Lists differ", lines)
+        self.assertIn("    tests.test_x.T.test_b: ValueError: no", lines)
+        # Each once, a subtest's head among them; a failure with no error line is named alone; a setUpClass by its class.
+        sub_test = failure("FAIL: test_a (tests.test_x.T) (check='context')", "AssertionError: other")
+        self.assertEqual(mutants.failures([one + sub_test, one]), ["tests.test_x.T.test_a: AssertionError: Lists differ"])
+        self.assertEqual(mutants.failures(["=" * 70 + "\nFAIL: test_c (tests.test_x.T)\n" + "-" * 70 + "\n"]),
+                         ["tests.test_x.T.test_c"])
+        self.assertEqual(mutants.failures(["=" * 70 + "\nFAIL: test_c (tests.test_x.T)\n" + "-" * 70 + "\n\n" + one]),
+                         ["tests.test_x.T.test_c", "tests.test_x.T.test_a: AssertionError: Lists differ"])
+        self.assertEqual(mutants.failures([failure("ERROR: setUpClass (tests.test_x.T)", "OSError: no")]),
+                         ["tests.test_x.T: OSError: no"])
+        # A test's docstring stands on the line after its head, and is no error; nor is the rule after it (the Claude
+        # review of #441).
+        self.assertEqual(mutants.failures([failure("FAIL: test_d (tests.test_x.T)\nA docstring on the test.", "AssertionError: 1 != 2")]),
+                         ["tests.test_x.T.test_d: AssertionError: 1 != 2"])
+        # The log stays readable: so many tests, each so wide, and how many more.
+        many = "".join(failure("FAIL: test_%d (tests.test_x.T)" % i, "AssertionError: " + "x" * 500)
+                       for i in range(mutants.NAMED_MOST + 3))
+        lines = mutants.failures([many])
+        self.assertEqual(len(lines), mutants.NAMED_MOST + 1)
+        self.assertEqual(lines[-1], "and 3 more")
+        self.assertEqual({len(line) for line in lines[:-1]}, {mutants.NAMED_WIDTH})
+        self.assertEqual(mutants.failures(["no failure at all\n"]), [])
 
     def test_the_baseline_runs_the_tests_its_mutants_name_in_parts_never_the_whole_suite(self):  # issue 396
         # Before anything is broken, a run runs the tests its own mutants name, each once and method by method, dealt
