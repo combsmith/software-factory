@@ -25,13 +25,15 @@ def version(name) -> tuple:
     return tuple(int(p) for p in parts)
 
 
-def channel(name) -> tuple | None:
-    """(MAJOR, "next" or "stable") of a Channel's name, or None for anything that is not one, a Release among them."""
+# `()` is what both this and `version` answer for no such name, and S8495 asks for one length: `release/cut.py` orders
+# `version`'s answers and `adapters/tags.py` slices this one's, so an answer of None breaks them. No defect; left as is.
+def channel(name) -> tuple:  # NOSONAR
+    """(MAJOR, "next" or "stable") of a Channel's name, or () for anything that is not one, a Release among them."""
     if not isinstance(name, str) or not name.startswith(PREFIX):
-        return None
+        return ()
     major, gap, ring = name[len(PREFIX):].partition("-")
     if not gap or not _number(major) or ring not in ("next", "stable"):
-        return None
+        return ()
     return int(major), ring
 
 

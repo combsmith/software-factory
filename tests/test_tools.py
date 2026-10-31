@@ -190,8 +190,12 @@ class Validator(unittest.TestCase):
     LIMIT = 2       # seconds; a search of 4,000 characters takes well under a millisecond unless it backtracks
 
     def backtracks(self, pattern: str) -> bool:
-        """Whether `pattern` runs past the limit on a long value of the shapes that make a pattern backtrack."""
+        """Whether `pattern` runs past the limit on a long value of the shapes that make a pattern backtrack, each after
+        the literal text the pattern opens with, so that it reaches a repeat behind that text. It does not reach a repeat
+        behind a class: a guard on patterns the repo writes, not a proof."""
         compiled = re.compile(pattern)
+        opens = re.match(r"\^?((?:\\[^A-Za-z0-9]|[^\\\[\](){}.*+?|^$])*)", pattern).group(1)
+        opens = re.sub(r"\\(.)", r"\1", opens)
         def over(_signum, _frame):
             raise TimeoutError
         before = signal.signal(signal.SIGALRM, over)
@@ -200,7 +204,7 @@ class Validator(unittest.TestCase):
                 for tail in ("", "!", "\n", "/", " "):
                     signal.setitimer(signal.ITIMER_REAL, self.LIMIT)
                     try:
-                        compiled.search(atom * (4000 // len(atom)) + tail)
+                        compiled.search(opens + atom * (4000 // len(atom)) + tail)
                     except TimeoutError:
                         return True
                     finally:
@@ -213,6 +217,8 @@ class Validator(unittest.TestCase):
         # A value may come from outside, a path in a pull request for one; a pattern is the Release's own. So a ReDoS is
         # a pattern written here that backtracks, and this says so, the check SonarCloud's S2631 stands in for.
         self.assertTrue(self.backtracks(r"^(a+)+$"))
+        self.assertTrue(self.backtracks(r"^AC-([0-9]+)+$"))
+        self.assertTrue(self.backtracks(r"^\.github/([a-z]+)+\.yml$"))
         self.assertFalse(self.backtracks(r"^[a-z]+(/[a-z]+)*$"))
         found = set()
         def walk(node):
