@@ -92,6 +92,11 @@
                 "unanswered",
                 "not_this_set",
                 "facts_not_current",
+                "facts_read_short",
+                "diff_unreadable",
+                "diff_not_content",
+                "pusher_unnamed",
+                "diff_not_whole",
                 "answer_off_rubric",
                 "case_failed"
               ]

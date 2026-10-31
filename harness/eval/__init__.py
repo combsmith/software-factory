@@ -207,11 +207,33 @@ def current_facts(facts):
     return filled
 
 
+def case_fault(case: dict):
+    """The code of what would refuse this case's Task, read before it is built, or None: `harness/task.py` refuses each of
+    these too, in words a live Run's report needs and this job may not print. Held here so that a set that fails says
+    why by a code alone, each its owner's to mend in the home (decision 0105). `case` is a current `eval-case/1`."""
+    facts = case["facts"]
+    if not all(v is True for v in facts["complete"].values()):
+        return "facts_read_short"
+    try:
+        diff = case["diff"].encode("utf-8")
+    except UnicodeEncodeError:
+        return "diff_unreadable"
+    if not diff:
+        return "diff_unreadable"
+    if "sha256:" + hashlib.sha256(diff).hexdigest() != facts["content_id"]:
+        return "diff_not_content"
+    # The Task's text names who pushed it, a login, where facts/1 also allows null or any string.
+    source = eval_result.schemas(ROOT)["task"]["properties"]["texts"]["items"]["properties"]["source"]["pattern"]
+    if not (isinstance(facts["last_pusher"], str) and re.search(source, facts["last_pusher"])):
+        return "pusher_unnamed"
+    return None
+
+
 def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
     `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
-    `unreadable`, `not_this_set`; one whose expected Finding
+    `unreadable`, `not_this_set`; one `case_fault` finds a fault in is `unreadable` by that code; one whose expected Finding
     is off its rubric is `unreadable`, `answer_off_rubric`; every other is given to `review`, which returns its `result/1`,
     and scored against the case by `tools/eval_result.py`."""
     assessed, interrupted = {}, False
@@ -237,6 +259,10 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
         if _errors(case, "eval-case") or case["id"] != entry["id"] or \
                 (case["role"], case["intent"]) != (found["role"], found["intent"]):
             assessed[entry["id"]] = ("unreadable", ["not_this_set"])
+            continue
+        fault = case_fault(case)
+        if fault is not None:
+            assessed[entry["id"]] = ("unreadable", [fault])
             continue
         # A case whose answer the rubric refuses would reward a Result `apply` refuses: it asks nothing of the model, and
         # says so by a code alone, for its owner to mend in the home (issue 421).

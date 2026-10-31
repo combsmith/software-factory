@@ -53,6 +53,10 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
                                       case["diff"].encode("utf-8"))
         except (tasks.Refused, KeyError, UnicodeEncodeError):
             raise Stop("not_this_set") from None
+        # A diff over the Kernel's bound is cut in the Task, and a review is never of part of one: `live.answer` would
+        # write a failed Result, and it would read as a case the reviewer failed.
+        if any(o["kind"] == "diff" for o in the_task["omitted"]):
+            raise Stop("diff_not_whole")
         if deadline - clock() < the_task["limits"]["seconds"] + VERSION_READS:
             raise Stop("unanswered")
         return live.answer(the_task, env, config, call, clock)
