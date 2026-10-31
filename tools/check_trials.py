@@ -124,6 +124,9 @@ HEADERS = {"accept", "age", "cache-control", "content-length", "if-none-match", 
 # What a credential looks like inside any string, at any length and in any case.
 SHAPES = re.compile("|".join((
     r"gh[opsur]_[a-z0-9]",                          # a token GitHub issues, wherever it starts
+    # Any other prefix of that form, whatever issues it. Not after a letter, where right_now and height_px are ordinary
+    # words, unless a long run follows, as after a percent escape's letter or a word run into it.
+    r"(?<![a-z])gh[a-z]_[a-z0-9]", r"gh[a-z]_[a-z0-9]{20,}",
     r"github_pat_", r"ghsat[0-9a-z]", r"sk-ant-",
     r"\b(token|basic|bearer)\s+\S{8,}", r"\bbearer\s+\S",
     # A signed token, eyJ and on to a dot. A run that holds eyJ is read once, from its start: trying each eyJ in it

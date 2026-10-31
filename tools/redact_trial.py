@@ -6,7 +6,8 @@ Run it on the capture where it was written, in a scratch directory outside the r
 CLEAN. It takes the capture on standard input and writes what is left on standard output, so it
 opens no path it is given (SonarCloud's S2083 and S8707). The capture is JSON (a drafted fixture,
 or a body), or the text `gh api --include` prints: a status line, headers, a blank line and a body.
-It applies the rules of `tools/check_trials.py`, so what it writes passes them. What it takes out
+It applies the rules of `tools/check_trials.py`, so what it writes passes them. A check run's details on another site
+keep their address and lose their query and fragment, which may hold what looks like a credential. What it takes out
 it names on standard error by where it was, never by what it held.
 
 In JSON, a field named for a credential, or whose key or string is shaped like one, is deleted,
@@ -23,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import urllib.parse
 
 from tools.check_trials import HEADERS, KEY_SHAPED, refused_key, shaped
 
@@ -38,6 +40,21 @@ QUOTED_FIELD = re.compile(r'\\?"([^"\\]{1,64})\\?"\s*:')     # its quotes escape
 SINGLE_FIELD = re.compile(r"'([^'\\]{1,64})'\s*:")
 # A header line of a head: a name of no space, a colon, a value. A line folded onto the one before begins with a space.
 HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+:")
+
+
+# The fields a check run or a commit status links to its details by, as REST and GraphQL spell them.
+DETAILS = {"details_url", "detailsUrl", "target_url", "targetUrl"}
+
+
+def _no_vendor_query(url: str) -> str:
+    """`url` without its query and fragment where it is on another site than GitHub's. One that cannot be read as a URL, or names no
+    host, is unchanged, and is judged as any string is."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return url
+    return re.split(r"[?#]", url, maxsplit=1)[0] if (parts.query or parts.fragment) and host and host != "github.com" else url
 
 
 def _named(line: str) -> list:
@@ -59,6 +76,9 @@ def _clean(value, where: str, removed: list):
         for key, item in value.items():
             shown = KEY_SHAPED if _held(key) else key     # a place is never named by a credential
             here = "%s.%s" % (where, shown) if where else shown
+            if key in DETAILS and isinstance(item, str) and _no_vendor_query(item) != item:
+                item = _no_vendor_query(item)
+                removed.append(here + "?query")
             if refused_key(key) or _held(key) or (isinstance(item, str) and _held(item)):
                 removed.append(here)
             else:
