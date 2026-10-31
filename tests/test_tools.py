@@ -6900,6 +6900,24 @@ esac
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
+    def test_base64_nested_inside_keys_is_read_in_time_and_a_credential_inside_is_still_seen(self):
+        # A key was read twice at each level, and each reading reads what it decodes, so the work doubled per level
+        # while the text grew by a third. Sixteen levels, 5,600 characters, took four seconds of CPU and more.
+        def nested(inner: str, levels: int) -> str:
+            for _ in range(levels):
+                inner = base64.b64encode(json.dumps({inner: 1}).encode()).decode()
+            return inner
+        text = nested("abcdefghijklmnopqrstuvwxyz", 16)
+        with support.Spent() as spent:
+            self.assertEqual(check_trials._credentials({"body": text}, "$"), [])
+        self.assertLess(spent.cpu, 1.0)
+        # One level is read through, at any place: its key is a credential's shape.
+        hidden = nested("ghp_" + "a" * 36, 1)
+        self.assertTrue(check_trials.shaped(hidden))
+        said = check_trials._credentials({hidden: 1}, "$")
+        self.assertEqual(said, [("$.%s" % check_trials.KEY_SHAPED,
+                                 "is a key shaped like a credential; leave it out, and list where in removed")])
+
     def test_a_status_line_of_spaces_is_read_in_time_and_reads_as_before(self):
         # The phrase's spaces and the trailing ones overlapped, so a status line with a run of them and then what no
         # status holds took time in its square: a crafted capture could hold the redactor up.
@@ -6909,6 +6927,7 @@ class Redaction(unittest.TestCase):
         for text, reads in (("HTTP/1.1 200", True), ("HTTP/1.1 200 ", True), ("HTTP/2 404 Not Found", True),
                             ("HTTP/1.1 200 OK  \r", True), ("HTTP/1.1 200 a", True), ("HTTP/1.1 200 a   ", True),
                             ("HTTP/1.1 200 a -", True), ("HTTP/1.1 200 it's", True), ("HTTP/1.1 200 a '", True),
+                            ("HTTP/1.1 203 Non-Authoritative Information", True), ("HTTP/1.1 207 Multi-Status", True),
                             ("HTTP/1.1 200 OK!", False), ("HTTP/1.1 200 -a", False), ("HTTP/1.1 200  a", False),
                             ("HTTP/1.1 200 a\nb", False), ("HTTP/1.1 20", False), ("http/1.1 200", False)):
             self.assertEqual(line(text) is not None, reads, text)
