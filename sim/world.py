@@ -310,7 +310,8 @@ class World:
             # GitHub: a_pull_request_lists_the_paths_it_changes
             "changed_paths": [{"path": p, "previous": None} for p in sorted(self.changed)],
             "label_events": copy.deepcopy(self.events),
-            "last_push_at": self.last_push, "last_reopened_at": None, "last_writer_action_at": self.last_writer,
+            "last_push_at": self.last_push, "last_reopened_at": None, "expired_reviews": [],
+            "last_writer_action_at": self.last_writer,
             # GitHub: an_actor_has_a_kind
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
             # GitHub: a_check_is_read_by_name_from_every_app

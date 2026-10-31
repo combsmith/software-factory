@@ -18,9 +18,9 @@ you may read is in the Task.
 
 - `findings`: each problem the diff shows, once, with its `ref` (`n1`, `n2` and so on), the place in the head's file
   (`path`, `start_line`, `end_line`, lines the diff shows), its `category` and `severity`, and the rubric `criterion`
-  it violates, or none. A Finding that cites a criterion has that criterion's `severity_if_violated`, never another; one
-  graded otherwise, or citing an id the rubric does not have, refuses the whole Result. A `security` Finding gates at any
-  severity; any other gates when `blocking` or `major`.
+  it violates, or none. A Finding that cites a criterion has that criterion's `severity_if_violated` and its `category`,
+  never another; one graded or labelled otherwise, or citing an id the rubric does not have, refuses the whole Result.
+  A `security` Finding gates at any severity; any other gates when `blocking` or `major`.
 - `effects`: one `submit_review` holding a comment for each Finding that gates, and its body null or one line; the
   Findings that do not gate as annotations of one `create_check_run`. Each Finding you raise is posted exactly once, so
   when the Task does not permit `create_check_run`, raise no Finding that does not gate. Ask for no other Effect.

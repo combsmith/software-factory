@@ -8,6 +8,7 @@ import io
 import json
 import pathlib
 import re
+import shutil
 import unittest
 from unittest import mock
 
@@ -334,7 +335,9 @@ class TheSet(unittest.TestCase):
     def test_the_review_intents_eval_set_has_its_cases(self):
         # Decision 0010: an Intent family is cut over only after its eval set exists. The cases are written in the
         # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
-        # with a Finding and as many of a change that was right: forty at least, though the manifest keeps no case's kind.
+        # with a Finding and as many of a change that was right: forty at least. The manifest keeps no count of a kind,
+        # since a public count and the ids a change adds or removes would tell each case's kind; the eval job holds the
+        # split where the cases are (decision 0094).
         manifest = json.loads(SET.read_text())
         self.assertGreaterEqual(manifest["count"], 40)
 
@@ -388,6 +391,11 @@ class EvalJob(unittest.TestCase):
         self.set(self.cases)
         self.env = {"RELEASE": "factory/v0.1.0", "GITHUB_SHA": "a" * 40, "RUNNER_TEMP": str(self.temp),
                     "HELDOUT_OWNER": "o", "HELDOUT_REPO": "home"}
+        # These sets stand in with two cases of one kind: the test of the split sets its own least.
+        from harness import eval as job
+        least = mock.patch.object(job, "KIND_LEAST", 0)
+        least.start()
+        self.addCleanup(least.stop)
 
     def tearDown(self):
         self.dir.cleanup()
@@ -462,6 +470,58 @@ class EvalJob(unittest.TestCase):
         self.assertEqual((written["passed"], written["commit"], written["release"]), (2, "a" * 40, "factory/v0.1.0"))
         self.assertNotIn("diff", (self.work / job.REPORT).read_text())
         self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
+
+    def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
+        # Decision 0094: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. No file
+        # here holds either count: a public count and the ids a change adds or removes would tell each case's kind. A set
+        # short of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set,
+        # which `verdict`, the Release's gate too, refuses.
+        from harness import eval as job
+        self.assertEqual(job.KIND_LEAST, 0, "as these fixtures set it")
+        result = load("examples/result.json")
+        one = json.loads(next(iter(self.cases.values())))
+        right = dict(copy.deepcopy(one), id="poc-right",
+                     expected={"verdict": "met", "criterion": one["expected"]["criterion"], "finding": None})
+        known = eval_result.schemas()
+        self.assertEqual(validate(right, known["eval-case"], schemas=known), [])
+        mixed = {one["id"]: self.cases[one["id"]], "poc-right": (json.dumps(right, indent=2) + "\n").encode()}
+        found = lambda: json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
+        right_only = {"poc-right": mixed["poc-right"]}
+        for least, cases, held in ((1, mixed, True), (2, mixed, False), (1, self.cases, False), (1, right_only, False),
+                                   (0, self.cases, True)):
+            with self.subTest(least=least, cases=sorted(cases)), mock.patch.object(job, "KIND_LEAST", least):
+                shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+                self.set(cases)
+                self.step(job.plan)
+                self.step(job.fetch, self.home(cases))
+                self.assertIs(job.split_ok(found(), self.temp / "heldout"), held)
+        # Short of a kind: the run says so by a code alone, and neither the log nor the report holds a count of a kind.
+        with mock.patch.object(job, "KIND_LEAST", 1):
+            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+            self.set(self.cases)
+            self.step(job.plan)
+            self.step(job.fetch, self.home(self.cases))
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                self.assertEqual(job.main(lambda env, root, work: job.score(dict(self.env), self.root, self.work,
+                                                                            lambda case: result)), 0)
+                self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
+            self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 2 passed\neval_split_short\n")
+            written = json.loads((self.work / job.REPORT).read_text())
+            self.assertIs(written["split_ok"], False)
+            self.assertEqual(sorted(written), ["cases", "commit", "intent", "passed", "release", "role", "schema", "set",
+                                               "split_ok"], "no count of a kind, nor any field of one")
+            self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "verdict"])
+            self.assertEqual(self.step(job.judge), "eval_split_short")
+        # The answer of a case that is read as no kind, or not read at all, says nothing: its run fails by that case.
+        first = next(iter(self.cases))
+        for odd in ({"expected": {"verdict": "maybe"}}, {"expected": {"verdict": ["met"]}}, {"expected": None}, []):
+            (self.temp / "heldout" / "cases" / ("%s.json" % first)).write_text(json.dumps(odd))
+            self.assertIsNone(job.split_ok(found(), self.temp / "heldout"), odd)
+        (self.temp / "heldout" / "cases" / ("%s.json" % first)).unlink()
+        self.assertIsNone(job.split_ok(found(), self.temp / "heldout"))
+        # The set's least is issue 183's, twenty of each.
+        least_is = (ROOT / "harness" / "eval" / "__init__.py").read_text()
+        self.assertEqual(len(re.findall(r"^KIND_LEAST = 20$", least_is, re.M)), 1)
 
     def test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded(self):
         from harness import eval as job
@@ -557,7 +617,7 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         found, digest = job.manifest(self.root)
         good = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}},
-                          found, {i: ("pass", []) for i in self.cases})
+                          found, {i: ("pass", []) for i in self.cases}, True)
         self.assertEqual(job.verdict(good, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
 
         def changed(**change):

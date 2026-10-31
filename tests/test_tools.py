@@ -20,6 +20,7 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -4847,9 +4848,12 @@ class OutputMadeAlone(unittest.TestCase):
 
     READER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
               if r != "combsmith/software-factory"][0]
+    CONTROLLER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
+                  if r != "combsmith/software-factory"][0]
     SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY", "KEY"),
                "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
-               "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry")}
+               "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
+               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42")}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -4901,6 +4905,266 @@ class OutputMadeAlone(unittest.TestCase):
                 self.assertEqual(done.returncode, 2, done.stderr)
                 self.assertIn("could not be made new by this run", done.stderr)
                 self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+
+
+    def run_out(self, script, folder, out):
+        """`script` run with OUT at `out`, with stand-ins that fail at once whatever it reaches: (exit code, stderr)."""
+        (folder / "bin").mkdir(exist_ok=True)
+        (folder / "bin" / "curl").write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
+        (folder / "bin" / "curl").chmod(0o755)
+        (folder / "key.pem").write_text("not a key\n")
+        (folder / "cli").write_text("#!/bin/sh\nexit 0\n")
+        (folder / "cli").chmod(0o755)
+        (folder / "stub.py").write_text("")
+        if script in self.SCRIPTS:
+            argv = ["sh", str(ROOT / "tools" / script), str(out)] + [str(folder / "key.pem") if a == "KEY" else a
+                                                                      for a in self.SCRIPTS[script]]
+        else:
+            argv = ["bash", str(ROOT / "tools" / script), str(out), self.SANDBOX[script], str(folder / "cli"),
+                    str(folder / "stub.py")]
+        done = subprocess.run(argv, capture_output=True, text=True, cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60,
+                              env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
+                                   "LANG": "C", "TMPDIR": str(folder)})
+        return done.returncode, done.stderr
+
+    SANDBOX = {"trial_p50_linux_sandbox.sh": "as-is", "trial_p51_sandbox_writes.sh": "forward"}
+
+    def test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky(self):
+        # Issue 367: in a directory other users can write to, one of them could rename OUT once it is made and put a link
+        # where it was. OUT's parent, or a directory above it, that others can write to, its group among them, is
+        # refused unless it is sticky; so is one another user owns, and one a find that fails cannot read.
+        said = " is another user's, or can be written by other users and is not sticky"
+        for script in list(self.SCRIPTS) + list(self.SANDBOX):
+            for modes, refused in (((0o700, 0o777), True), ((0o777, 0o700), True), ((0o700, 0o770), True),
+                                   ((0o700, 0o707), True), ((0o700, 0o1777), False)):
+                with self.subTest(script=script, modes=modes):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    above, parent = folder / "above", folder / "above" / "parent"
+                    parent.mkdir(parents=True)
+                    above.chmod(modes[0])
+                    parent.chmod(modes[1])
+                    try:
+                        code, told = self.run_out(script, folder, parent / "out")
+                    finally:
+                        parent.chmod(0o700)
+                        above.chmod(0o700)
+                    wrong = (above if modes[0] != 0o700 else parent)
+                    if refused:
+                        self.assertEqual(code, 2, told)
+                        self.assertIn(str(wrong) + said, told)
+                        self.assertFalse((parent / "out").exists())
+                        self.assertFalse((folder / "calls").exists(), "a call was made")
+                    else:
+                        self.assertNotIn("can be written by other users", told)
+                        self.assertTrue((parent / "out").is_dir(), told)
+            # A directory this user does not own, as an id that names another user reads it; and a find that fails. Run
+            # as root, the folder is root's, which the check takes as safe whoever runs it, so the id case cannot be shown.
+            for name, stand_in in (("id", '#!/bin/sh\necho 4242\n'), ("find", '#!/bin/sh\nexit 1\n')):
+                if name == "id" and os.geteuid() == 0:
+                    continue
+                with self.subTest(script=script, stand_in=name):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    (folder / "bin").mkdir()
+                    (folder / "bin" / name).write_text(stand_in)
+                    (folder / "bin" / name).chmod(0o755)
+                    code, told = self.run_out(script, folder, folder / "out")
+                    self.assertEqual(code, 2, told)
+                    self.assertIn(said, told)
+                    self.assertFalse((folder / "out").exists())
+
+    def test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in(self):
+        # Argon on the P-54 PR: inside `cd "$(mktemp ...)"` a failed mktemp is `cd ""`, which succeeds where it stands, so
+        # the scratch directory was the working directory, and the clean-up removed it: a run from the repo's root
+        # removed the repo. mktemp fails here, and everything where the run stands is kept.
+        for script in list(self.SCRIPTS) + list(self.SANDBOX):
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "bin").mkdir()
+                (folder / "bin" / "mktemp").write_text("#!/bin/sh\nexit 1\n")
+                (folder / "bin" / "mktemp").chmod(0o755)
+                (folder / "kept").write_text("kept\n")
+                code, told = self.run_out(script, folder, folder / "out")
+                self.assertNotEqual(code, 0, told)
+                self.assertEqual((folder / "kept").read_text(), "kept\n")
+                self.assertFalse((folder / "calls").exists(), "a call was made")
+        # The scripts this cannot run so plainly hold to the same line.
+        for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p26_sandbox.sh",
+                       "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
+                       "trial_reader_reads.sh"):
+            self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
+
+    def test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot(self):
+        # P-50 and P-51 make OUT's parent if it is missing: given x/. they made x itself, then refused it as made since,
+        # and left it behind (issue 406). An OUT whose last part is . or .. is refused before anything is made.
+        for script in self.SANDBOX:
+            for end in (".", "..", "./", "../"):
+                with self.subTest(script=script, end=end):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    code, told = self.run_out(script, folder, str(folder / "new" / "made") + "/" + end)
+                    self.assertEqual(code, 2, told)
+                    self.assertIn("names no new directory, since it ends in . or ..", told)
+                    self.assertFalse((folder / "new").exists(), "a directory was made")
+
+
+class ReachScript(unittest.TestCase):
+    """`tools/trial_p39_reach.sh`, run against a stand-in for GitHub's API and never the real one (issue 406): a token it
+    mints is revoked, or the Maintainer is told it may be live, and OUT holds no credential whatever GitHub answers."""
+
+    SCRIPT = ROOT / "tools" / "trial_p39_reach.sh"
+    # The stand-in curl: what it is asked is logged beside it, with the token that asked, and it answers from plan.json.
+    CURL = r'''#!/usr/bin/env python3
+import json, pathlib, sys, time
+here = pathlib.Path(__file__).resolve().parent.parent
+args = sys.argv[1:]
+method = args[args.index("-X") + 1] if "-X" in args else "GET"
+url, said = args[-1], sys.stdin.read()
+plan = json.loads((here / "plan.json").read_text())
+with open(str(here / "calls"), "a") as log:
+    log.write(json.dumps({"method": method, "url": url, "auth": said.partition("Bearer ")[2].strip()}) + "\n")
+if url.endswith("/access_tokens"):
+    with open(str(here / "mints"), "a") as mints:
+        mints.write("x")
+    token = "ghs_" + "Q" * 30 + "%06d" % len((here / "mints").read_text())
+    sys.stdout.write(plan["mint"]["body"].replace("TOKEN", token) + "\n%d" % plan["mint"]["status"])
+elif method == "DELETE":
+    sys.stdout.write(str(plan.get("revoke", 204)))
+else:
+    if plan.get("hang"):
+        (here / "reading").write_text("")
+        time.sleep(60)
+    sys.stdout.write("HTTP/2 200\r\ncontent-type: application/json\r\n\r\n"
+                     '{"total_count": 1, "repositories": [{"full_name": "combsmith/x", "private": true}]}')
+'''
+    OPENSSL = r'''#!/usr/bin/env python3
+import base64, sys
+data = sys.stdin.buffer.read()
+sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else "signature")
+'''
+    MINTED = '{"token": "TOKEN", "expires_at": "2026-10-29T23:00:00Z", "permissions": {"metadata": "read"}}'
+
+    def setUp(self):
+        self.folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (self.folder / "bin").mkdir()
+        (self.folder / "tmp").mkdir()
+        for name, text in (("curl", self.CURL), ("openssl", self.OPENSSL)):
+            (self.folder / "bin" / name).write_text(text)
+            (self.folder / "bin" / name).chmod(0o755)
+        self.keys = []
+        for app in ("controller", "pr-review", "reader", "queue"):
+            (self.folder / app).write_text("not a key\n")
+            self.keys.append(str(self.folder / app))
+        self.out = self.folder / "out"
+
+    def run_script(self, plan, scratch_closed=False, stop=False, script=None, args=None):
+        (self.folder / "plan.json").write_text(json.dumps(plan))
+        if scratch_closed:
+            # A scratch directory nothing can be written into: a failed mint must write nothing, not even there.
+            (self.folder / "bin" / "mktemp").write_text('#!/bin/sh\nmade=$(/usr/bin/mktemp "$@") && chmod 500 "$made" && echo "$made"\n')
+            (self.folder / "bin" / "mktemp").chmod(0o755)
+        ran = subprocess.Popen(["sh", str(script or self.SCRIPT), str(self.out), *(args or self.keys)], stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=str(self.folder),
+                               env={"PATH": "%s:%s" % (self.folder / "bin", os.environ["PATH"]), "HOME": str(self.folder),
+                                    "LANG": "C", "TMPDIR": str(self.folder / "tmp")}, start_new_session=True)
+        if stop:
+            deadline = time.monotonic() + 30
+            while not (self.folder / "reading").exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            os.killpg(ran.pid, signal.SIGTERM)
+        said, told = ran.communicate(timeout=60)
+        calls = [json.loads(line) for line in (self.folder / "calls").read_text().splitlines()] \
+            if (self.folder / "calls").exists() else []
+        # OUT holds no credential, whatever GitHub answered: no token, and nothing a fixture's check would refuse.
+        for path in (self.out.iterdir() if self.out.exists() else []):     # OUT holds files alone
+            text = path.read_text()
+            self.assertNotIn("ghs_", text, path)
+            self.assertFalse(check_trials.shaped(text), path)
+        self.assertEqual(list((self.folder / "tmp").iterdir()), [], "the scratch directory was left behind")
+        return ran.returncode, said, told, calls
+
+    def minted(self, calls):
+        return ["ghs_" + "Q" * 30 + "%06d" % n for n in range(1, sum(c["url"].endswith("/access_tokens") for c in calls) + 1)]
+
+    def revoked(self, calls):
+        return [c["auth"] for c in calls if c["method"] == "DELETE"]
+
+    def test_each_token_minted_is_revoked_and_out_holds_no_credential(self):
+        code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}})
+        self.assertEqual(code, 0, told)
+        self.assertEqual(self.revoked(calls), self.minted(calls))
+        self.assertEqual(len(self.minted(calls)), 4)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()),
+                         ["clean-1", "clean-2", "clean-3", "clean-4", "ran_at", "redacted-1", "redacted-2", "redacted-3",
+                          "redacted-4", "requests.json"])
+        self.assertIn("combsmith/x", (self.out / "clean-1").read_text())
+
+    def test_a_201_whose_token_cannot_be_read_is_written_nowhere_and_is_revoked_or_told(self):
+        # The answer cut short with the token in it: the token is found and revoked. Cut before it, or not JSON at all:
+        # the Maintainer is told it may be live. Either way nothing is written, not even to scratch, and no reach is kept.
+        for body, found in (('{"token": "TOKEN", "expires_at": "2026-10', True), ('{"expires_at": "2026-10', False),
+                            ("<html>gateway</html>", False), ('["TOKEN"]', False)):
+            with self.subTest(body=body):
+                self.setUp()
+                code, said, told, calls = self.run_script({"mint": {"status": 201, "body": body}}, scratch_closed=True)
+                self.assertEqual(code, 1, told)
+                self.assertNotIn("ermission denied", told)
+                self.assertNotIn("ghs_", said + told)
+                self.assertEqual(self.revoked(calls), self.minted(calls) if found else [])
+                if not found:
+                    self.assertIn("the token may be live for up to an hour, and the Maintainer must revoke it by hand", told)
+                self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+
+    def test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused(self):
+        # The other trials that mint with curl stop at the mint as this one does (issue 406). P-4 is not among them: it
+        # reads as its App before it mints, and keeps the mint's answer with the token taken out, or nothing of one
+        # that is not JSON. trial_as_app.sh is tested on its own, in AppThreads.
+        scripts = {name: args for name, args in OutputMadeAlone.SCRIPTS.items() if name != "trial_p4_narrow.sh"}
+        for name, args in scripts.items():
+            for plan, revoked, told in (
+                    ({"status": 201, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "nothing of the answer"),
+                    ({"status": 201, "body": "<html>gateway</html>"}, False, "the Maintainer must revoke it by hand"),
+                    ({"status": 403, "body": '{"message": "Resource not accessible by integration"}'}, False, "403"),
+                    ({"status": 502, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "held a token all the same"),
+                    ({"status": 422, "body": self.MINTED}, True, "held a token all the same")):
+                with self.subTest(script=name, plan=plan):
+                    self.setUp()
+                    argv = [self.keys[0] if a == "KEY" else a for a in args]
+                    code, said, told_, calls = self.run_script({"mint": plan}, scratch_closed=True,
+                                                               script=ROOT / "tools" / name, args=argv)
+                    self.assertEqual(code, 1, told_)
+                    self.assertNotIn("ermission denied", told_)
+                    self.assertNotIn("ghs_", said + told_)
+                    self.assertIn(told, told_)
+                    self.assertEqual(self.revoked(calls), self.minted(calls) if revoked else [])
+                    self.assertFalse((self.out / "requests.json").exists())
+
+    def test_a_refused_mint_is_shown_redacted_and_a_token_it_holds_is_revoked(self):
+        code, said, told, calls = self.run_script(
+            {"mint": {"status": 403, "body": '{"message": "Resource not accessible by integration", "client_secret": "x7Qp"}'}},
+            scratch_closed=True)
+        self.assertEqual((code, self.revoked(calls)), (1, []), told)
+        self.assertIn("Resource not accessible by integration", told)
+        self.assertNotIn("x7Qp", told)
+        self.assertNotIn("ermission denied", told)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+        self.setUp()
+        code, said, told, calls = self.run_script({"mint": {"status": 422, "body": self.MINTED}}, scratch_closed=True)
+        self.assertEqual(code, 1, told)
+        self.assertEqual(self.revoked(calls), self.minted(calls))
+        self.assertNotIn("ghs_", said + told)
+
+    def test_a_revocation_that_is_not_204_is_told_and_tried_once_more(self):
+        code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}, "revoke": 500})
+        self.assertEqual(code, 1, told)
+        self.assertEqual(self.revoked(calls), self.minted(calls) * 2)
+        self.assertIn("the Maintainer must revoke it by hand", told)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+
+    def test_a_stop_with_a_token_live_revokes_it(self):
+        code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}, "hang": True}, stop=True)
+        self.assertNotEqual(code, 0, told)
+        self.assertEqual(self.revoked(calls), self.minted(calls))
+        self.assertIn("stopped with a token live; revoking it returned 204", told)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
 
 
 class TrialScript(unittest.TestCase):
@@ -5343,6 +5607,29 @@ esac
             self.assertEqual((ran.returncode, ran.stdout), (0, token), answer[:40])
             self.assertNotIn(token, kept.read_text())
             self.assertTrue(kept.read_text().startswith("HTTP/2 201"), kept.read_text()[:40])
+
+    def test_a_mint_answer_that_is_not_json_is_never_kept_and_a_token_in_it_is_handed_on_to_be_revoked(self):
+        # Issue 406: an answer cut short was written whole beside the clean files, a token in it, and the token was
+        # never revoked. Now nothing of it is kept; a token found by its field goes to the shell, whose trap revokes it.
+        token = "ghs_" + "Q" * 36
+        script = self.SCRIPT.read_text()
+        parse = re.search(r"/access_tokens\" \|\n    python3 -I -c '\n(.*?)' \"\$raw\"\)", script, re.S).group(1)
+        head = "HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n"
+        for answer, found in ((head + '{"token": "%s", "expires_at": "2026-10' % token, token), (head + '{"expires_at": "2026-10', ""),
+                              (head + "<html>gateway</html>", ""), ('{"token": "%s"}' % token, token),
+                              ('{"token": "%s", "expires_at": "2026-10' % token, token),
+                              # No blank line after the head, JSON that is not an object, a token that is not a string.
+                              (head.replace("\r\n\r\n", "\r\n") + '{"token": "%s"}' % token, token),
+                              (head + '[{"token": "%s"}]' % token, token), (head + '{"token": null}', "")):
+            kept = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "02.raw"
+            ran = subprocess.run([sys.executable, "-I", "-c", parse, str(kept)], capture_output=True, text=True, timeout=60,
+                                 input=answer)
+            self.assertEqual((ran.returncode, ran.stdout), (3, found), answer)
+            # With no status line, nothing of what came back is kept, not even as a head.
+            self.assertEqual(kept.read_text(), ("(no status line)" if not answer.startswith("HTTP") else "HTTP/2 201 "
+                                                if "\r\n\r\n" not in answer else "HTTP/2 201 \ncontent-type: application/json")
+                             + "\n\n(an answer that is not JSON, not kept)", answer)
+            self.assertIn("revoked as the script stops" if found else "it was not revoked", ran.stderr)
 
     def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
         bin_, ran = self.run_threads()
@@ -6262,7 +6549,7 @@ esac
         folder = self.stand_in(mint=403)
         out, ran = self.run_script(folder)
         self.assertEqual(ran.returncode, 1)
-        self.assertIn("the mint was refused", ran.stderr)
+        self.assertIn("the mint answered 403 and held a token all the same", ran.stderr)
         # The stand-in's refusal carries a token all the same, and the trap revokes it before the script ends; nothing
         # else is asked, and the token is said nowhere.
         said = self.calls(folder)
@@ -6277,6 +6564,7 @@ esac
         folder = self.stand_in(mint=403, notoken=1)
         out, ran = self.run_script(folder)
         self.assertEqual(ran.returncode, 1)
+        self.assertIn("the mint was refused", ran.stderr)
         self.assertEqual(len(self.calls(folder)), 1)
 
     def test_a_revocation_refused_stops_it_and_says_so(self):
@@ -6451,9 +6739,9 @@ class Redaction(unittest.TestCase):
                 ('HTTP/2 200\ncontent-type: application/json\n\n"hunter2 is the password"', "string"),
                 ("HTTP/2 200\ncontent-type: text/plain\n\nfine\n" + fields + "\n", "JSON"),
                 ('{\n\n"password": "hunter2"\n', "JSON"),
-                ('HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 500 {"token": "opaque"}', "status"),
+                ('HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 500 {"token": "opaque"}', "JSON"),
                 ('HTTP/1.1 200 {"token": "opaque"}', "status"),
-                ('HTTP/1.1 200 OK\n\nHTTP/1.1 502 Bad Gateway\ncontent-type: {"token": "opaque"}', "header")):
+                ('HTTP/1.1 200 OK\n\nHTTP/1.1 502 Bad Gateway\ncontent-type: {"token": "opaque"}\n\n', "header")):
             out, said = io.StringIO(), io.StringIO()
             self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
             self.assertEqual(out.getvalue(), "", raw)
@@ -6476,6 +6764,61 @@ class Redaction(unittest.TestCase):
                          "HTTP/2 200\nContent-Type: text/plain\n\nfine\n")
         self.assertEqual(self.redact("HTTP/2 204\nContent-Type: application/json\n\n")[0],
                          "HTTP/2 204\nContent-Type: application/json\n\n")
+
+    def test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused(self):
+        # Issue 406, from the fourth read of PR 404. A string of JSON, an item of a list or a field's, that holds a head or
+        # a field named for a credential is deleted, as a line of text holding one is refused; a string that holds neither
+        # is kept.
+        hidden = 'HTTP/1.1 200 OK\nSet-Cookie: sid=opaque7Qp\n\n{"api_key": "opaque7Qp"}'
+        unshaped = ('see {"password": "hunter2"}', "HTTP/1.1 200 OK\nx-request: 7Qp")     # no shape finds either
+        self.assertFalse(any(check_trials.shaped(text) for text in unshaped))
+        for raw, kept, gone in ((json.dumps([hidden, "fine"]), ["fine"], "removed: [0]"),
+                                (json.dumps({"note": unshaped[0], "a": 1}), {"a": 1}, "removed: note"),
+                                (json.dumps({"note": unshaped[1], "a": [unshaped[1]]}), {"a": []}, "removed: note"),
+                                (json.dumps({"a": ['see {"password": "hunter2"}'], "b": 1}), {"a": [], "b": 1}, "removed: a[0]"),
+                                ("HTTP/2 200\ncontent-type: application/json\n\n" + json.dumps({"note": hidden, "a": 1}),
+                                 {"a": 1}, "removed: note")):
+            out, said = self.redact(raw)
+            self.assertEqual(json.loads(out.rpartition("\n\n")[2] if out.startswith("HTTP") else out), kept, raw)
+            self.assertEqual(said.splitlines()[0], gone, raw)
+        self.assertEqual(json.loads(self.redact(json.dumps({"a": "HTTP is a protocol", "b": ["NaN", "token"]}))[0]),
+                         {"a": "HTTP is a protocol", "b": ["NaN", "token"]})
+        # A key is judged as a string is, and the report names it by its kind, never by what it held. Quotes escaped once,
+        # as JSON inside a string is written, are read as quotes.
+        out, said = self.redact(json.dumps({unshaped[0]: 1, unshaped[1]: 2, "a": 3}))
+        self.assertEqual((json.loads(out), "hunter2" in said, "7Qp" in said), ({"a": 3}, False, False))
+        self.assertEqual(said.splitlines()[:2], ["removed: " + check_trials.KEY_SHAPED] * 2)
+        escaped = 'see {\\"password\\": \\"hunter2\\"}'
+        out, said = self.redact(json.dumps({"note": escaped, "a": 1}))
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: note"))
+        refused = io.StringIO()
+        self.assertEqual(redact_trial.main([], stdin=io.BytesIO(("HTTP/2 200\ncontent-type: text/plain\n\n" + escaped + "\n")
+                                                                .encode()), stdout=io.StringIO(), stderr=refused), 1)
+        self.assertIn("named for a credential", refused.getvalue())
+        out, said = self.redact(json.dumps({"note": "{'password': 'hunter2'}", "a": 1}))     # a field in single quotes
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: note"))
+        # Each kind of quote is read on its own: the other kind inside a name is part of it, and the name is still judged.
+        for line in ('error: {"token\'s value": "hunter2"}', "error: {'the \"password\"': 'hunter2'}"):
+            refused = io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(("HTTP/2 200\ncontent-type: text/plain\n\n" + line
+                                                                     + "\n").encode()), stdout=io.StringIO(),
+                                               stderr=refused), 1, line)
+            self.assertIn("named for a credential", refused.getvalue())
+        # NaN and Infinity are not JSON; a status line after a head with no blank line after it is a body, not a head; and
+        # a status line shaped like a credential is never deleted alone, leaving headers with no status line above them.
+        for raw, why in (("HTTP/1.1 200 OK\nContent-Type: application/json\n\nNaN\n", "holds NaN"),
+                         ('{"a": Infinity}', "holds Infinity"), ("[-Infinity]", "holds -Infinity"),
+                         ("HTTP/1.1 200 OK\nContent-Type: application/json\n\nHTTP/1.1 200 OK", "should be JSON"),
+                         ("HTTP/1.1 200 OK\n\nHTTP/1.1 200 OK", "a head it was not read as"),
+                         ("HTTP/1.1 200 Bearer abcdefghijklmnopqrstuvwxyz\nContent-Type: text/plain\n\nhello\n",
+                          "status line is shaped")):
+            out, said = io.StringIO(), io.StringIO()
+            self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 1, raw)
+            self.assertEqual(out.getvalue(), "", raw)
+            self.assertIn(why, said.getvalue(), raw)
+        # A later head that ends at its blank line is still a head.
+        self.assertEqual(self.redact("HTTP/1.1 100 Continue\n\nHTTP/2 204\nDate: x\n\n")[0],
+                         "HTTP/1.1 100 Continue\n\nHTTP/2 204\nDate: x\n\n")
 
 
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
@@ -6850,10 +7193,11 @@ class Mutants(unittest.TestCase):
 
     def test_a_shard_is_read_from_the_matrix_or_the_run_stops(self):
         every = len(mutants.MUTANTS)
-        self.assertEqual(mutants.selected({}), (mutants.MUTANTS, "", None))
-        chosen, where, at_once = mutants.selected({"MUTANTS_SHARD": "2", "MUTANTS_SHARDS": "6"})
+        self.assertEqual(mutants.selected({}), (mutants.MUTANTS, "", None, None))
+        chosen, where, at_once, share = mutants.selected({"MUTANTS_SHARD": "2", "MUTANTS_SHARDS": "6"})
         self.assertEqual((chosen, where, at_once), (mutants.shard(mutants.MUTANTS, 2, 6), ", in shard 2 of 6 counted "
                                                                                           "from 0", None))
+        self.assertEqual(share, (mutants.MUTANTS, 2, 6), "a shard's baseline is its share of what every mutant names")
         for shard, count, said in (("1", None, "set both"), (None, "6", "set both"), ("", "6", "set both"),
                                    ("one", "6", "set both"), ("-1", "6", "set both"), ("1.0", "6", "set both"),
                                    ("6", "6", "below the count"), ("0", "0", "below the count"),
@@ -6874,8 +7218,20 @@ class Mutants(unittest.TestCase):
         # that does not exist made its mutant an ERROR. Every mutant names the tests that kill it, and each exists.
         self.assertEqual(mutants.unnamed(mutants.MUTANTS), [])
         good = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_exists", "tests.test_tools.Mutants",
-                "tests.test_tools")
+                "tests.test_coverage")
         self.assertEqual(mutants.unnamed([("ok", "k.py", "rule\n", "x\n", good)]), [])
+        # A class that can run past a run's limit, whole and beside the other workers, fails a shard for its length and
+        # ejects a pull request at random: a mutant names the method that kills it, never the class, nor the module
+        # that holds it. A method of the class is named freely.
+        for slow in ("tests.test_tools.Trials", "tests.test_tools.Workflows", "tests.test_tools.Apps",
+                     "tests.test_tools.AppThreads", "tests.test_tools.Verify", "tests.test_simulator.Simulation",
+                     "tests.test_transitions.Transitions", "tests.test_tools", "tests.test_simulator",
+                     "tests.test_transitions"):
+            said = mutants.unnamed([("m", "k.py", "rule\n", "x\n", (slow,))])
+            self.assertEqual(len(said), 1, slow)
+            self.assertIn("name the method that kills it", said[0], slow)
+        self.assertEqual(mutants.unnamed([("m", "k.py", "rule\n", "x\n",
+                                           ("tests.test_tools.Trials.test_an_asker_named_by_an_address_is_caught",))]), [])
         for bad, why in (("tests.test_tools.NeedsPassed", "does not exist"), ("tests.test_tools.Mutants.test_gone",
                          "does not exist"), ("tests.test_nowhere", "whose module does not exist"),
                          ("tests.test_simulator.Roll", "not a TestCase"), ("tests.test_tools.Mutants.check",
@@ -6922,8 +7278,8 @@ class Mutants(unittest.TestCase):
         # of the paths, at most FILTER_MOST of them, FILTER_WORKERS at a time, never a shard. With no path, as before.
         few = [("m%d" % n, "kernel/gate.py" if n % 2 else "kernel/brakes.py", "rule\n", "x\n",
                 ("tests.test_tools.Mutants",)) for n in range(50)]
-        chosen, where, at_once = mutants.selected({}, ["kernel/gate.py"], few)
-        self.assertEqual((len(chosen), where, at_once), (25, ", of kernel/gate.py", mutants.FILTER_WORKERS))
+        chosen, where, at_once, share = mutants.selected({}, ["kernel/gate.py"], few)
+        self.assertEqual((len(chosen), where, at_once, share), (25, ", of kernel/gate.py", mutants.FILTER_WORKERS, None))
         self.assertEqual(mutants.FILTER_WORKERS, 2)
         self.assertEqual(mutants.selected({}, ["./kernel/gate.py"], few)[0], chosen, "a path is read however spelt")
         self.assertEqual(mutants.selected({}, ["kernel//gate.py"], few)[0], chosen)
@@ -6931,7 +7287,7 @@ class Mutants(unittest.TestCase):
         self.assertEqual(mutants.selected({}, [".github/workflows/verify.yml"], dotted)[0], dotted, "a dot is kept")
         with self.assertRaises(ValueError):
             mutants.selected({}, ["../kernel/gate.py"], few)
-        self.assertEqual(mutants.selected({}, [], few), (few, "", None), "with no path, every mutant, as before")
+        self.assertEqual(mutants.selected({}, [], few), (few, "", None, None), "with no path, every mutant, as before")
         for environ, paths, said in (({}, ["kernel/gate.py", "kernel/brakes.py"], "a filtered run breaks at most 40"),
                                      ({}, ["kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
                                      ({}, ["kernel/gate.py", "kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
@@ -6995,6 +7351,12 @@ class Mutants(unittest.TestCase):
         # and where the tree cannot be read at all, each name is kept whole, once.
         odd = suite_of("    def id(self):\n        return '-h'\n\n    def test_a(self):\n        pass\n")
         self.assertEqual(mutants.cases(("tests.test_x.T",), odd), ("tests.test_x.T",))
+        # And a test a module under tests/ takes from elsewhere is run by its own module's name, never by an id outside.
+        borrowed = tree({"tests/__init__.py": "", "elsewhere/__init__.py": "",
+                         "elsewhere/base.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_a(self):\n"
+                                              "        pass\n",
+                         "tests/test_x.py": "from elsewhere.base import T\n"})
+        self.assertEqual(mutants.cases(("tests.test_x.T",), borrowed), ("tests.test_x.T",))
         try:
             unread = mutants.cases(("tests.test_x.T", "tests.test_x.T"), root / "gone")
         except OSError as err:
@@ -7034,6 +7396,125 @@ class Mutants(unittest.TestCase):
             self.assertIn(said, printed.getvalue(), answers)
             self.assertNotIn(slow if said != slow else "the tests fail before", printed.getvalue(), answers)
             self.assertEqual(sorted(calls), [("tests.test_a",), ("tests.test_b",)], "no mutant was broken")
+
+    def test_each_shard_runs_a_disjoint_share_of_the_baseline_and_a_red_test_fails_the_shard_that_holds_it(self):
+        # Issue 398: the shards' mutants name whole classes, and the same ones, so each shard's baseline was most of
+        # the suite. A shard runs its share of what every mutant names, method by method: across the shards each test
+        # runs once, whoever names it, and a share shrinks as shards are added.
+        methods = "abcdefg"
+        root = suite_of("".join("    def test_%s(self):\n        pass\n\n" % m for m in methods), {"k.py": "rule\n"})
+        every = [("n%d" % n, "k.py", "rule\n", "n%d\n" % n, (named,)) for n, named in
+                 enumerate(("tests.test_x.T", "tests.test_x.T.test_b", "tests.test_x.T.test_g", "tests.test_x.T"))]
+        tests = tuple("tests.test_x.T.test_" + m for m in methods)
+        for count in (1, 2, 3, 4, 9):
+            shares = [mutants.shared((every, index, count), root) for index in range(count)]
+            self.assertEqual(sorted(test for share in shares for test in share), sorted(tests), count)
+            self.assertTrue(all(len(share) <= -(-len(tests) // count) for share in shares), (count, shares))
+        self.assertEqual(mutants.shared((every, 1, 4), root), ("tests.test_x.T.test_b", "tests.test_x.T.test_f"),
+                         "the share is of what every mutant names, not of what the shard's own name")
+        self.assertIsNone(mutants.shared(None, root), "a run with no shard runs what its own mutants name")
+        self.assertIsNone(mutants.shared((mutate("plain"), 0, 2), root), "mutants that name no test share nothing")
+        # Where any name cannot be read method by method, the shards' lists cannot be told to agree: each shard runs all
+        # of them, each read as far as it can be, so that no named test is left in no share.
+        self.assertEqual(mutants.shared((every, 1, 2), root / "gone"),
+                         ("tests.test_x.T", "tests.test_x.T.test_b", "tests.test_x.T.test_g"))
+        gone = every + [("n4", "k.py", "rule\n", "n4\n", ("tests.test_x.Gone",))]
+        self.assertEqual(mutants.shared((gone, 1, 4), root), ("tests.test_x.Gone",) + tests)
+        # A shard whose share holds no test runs none, and breaks its mutants.
+        calls = []
+
+        def run(work, first=(), only=None):
+            calls.append(only)
+            return PASSES[1:]
+        self.assertEqual(mutants.baseline(every[:1], root, run, 2, (every, 8, 9)), [])
+        self.assertEqual(calls, [])
+        mutants.baseline(every[1:2], root / "gone", run, 2, (every, 0, 2))
+        self.assertEqual(sorted(calls), [("tests.test_x.T", "tests.test_x.T.test_g"), ("tests.test_x.T.test_b",)])
+        # From the front door, a shard runs its share, and a filtered run its own names on FILTER_WORKERS. The names
+        # are this throwaway tree's, which this checkout's check of them could not find.
+        for environ, paths, parts in (({"MUTANTS_SHARD": "1", "MUTANTS_SHARDS": "4"}, [],
+                                       [("tests.test_x.T.test_b",), ("tests.test_x.T.test_f",)]),
+                                      ({}, ["k.py"], [tests[0::2], tests[1::2]])):
+            calls = []
+            with mock.patch("os.cpu_count", return_value=4), mock.patch.object(mutants, "unnamed", return_value=[]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(mutants.front(environ, paths, run, root, every), 1, "every mutant survived")
+            self.assertEqual(sorted(call for call in calls if call), parts, environ)
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(mutants.front({"MUTANTS_SHARD": "1", "MUTANTS_SHARDS": "4"}, [], run, root, every), 1)
+        self.assertIn("4 mutant(s) name no test, or one that does not exist", printed.getvalue(), "refused, not run")
+        # A test red on the unbroken code fails the one shard that holds it, as red, whichever that is; every other
+        # shard goes on to its mutants.
+        for count in (1, 2, 3, 9):
+            held = []
+            for index in range(count):
+                calls = []
+
+                def run(work, first=(), only=None):
+                    if (work / "k.py").read_text() != "rule\n":
+                        return 1, FAILS_A_TEST
+                    calls.append(only)
+                    red = only and any(test.endswith("test_d") for test in ((only,) if isinstance(only, str) else only))
+                    return (1, FAILS_A_TEST) if red else PASSES[1:]
+                with contextlib.redirect_stdout(io.StringIO()) as printed:
+                    code = mutants.main(mutants.shard(every, index, count), root, run, 2, share=(every, index, count))
+                if "the tests fail before anything is broken" in printed.getvalue():
+                    held.append(index)
+                    self.assertEqual(code, 1)
+                else:
+                    self.assertEqual(code, 0, printed.getvalue())
+            self.assertEqual(held, [tests.index("tests.test_x.T.test_d") % count], count)
+
+    def test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit(self):
+        # Issue 398: a mutant whose named tests pass runs the whole suite, which outgrows a run's 600 s. Its tests are
+        # dealt in turn into as few parts as hold at most PART_MOST each, so that slow tests that stand together are
+        # spread among them, each part in the suite's order, the slow modules last; each part is one run held to the
+        # limit, and the next runs only when the last passed.
+        module = "import time\nimport unittest\n\n\nclass T(unittest.TestCase):\n"
+        files = {"tests/test_hooks.py": module + "    def test_a(self):\n        pass\n",
+                 "tests/test_new.py": module + "    def test_a(self):\n        pass\n\n    def test_b(self):\n        pass\n"}
+        where = suite_of("    def test_a(self):\n        pass\n\n    def test_b(self):\n        pass\n", files)
+        real, given = mutants._unittest, []
+
+        def recorded(cwd, timeout, args):
+            given.append((timeout, tuple(args[2:])))
+            return real(cwd, timeout, args)
+        with mock.patch.object(mutants, "PART_MOST", 2), mock.patch.object(mutants, "_unittest", recorded):
+            status, output = mutants.suite(where, 30)
+            self.assertEqual(status, 0, output)
+            dealt = [("tests.test_new.T.test_a", "tests.test_x.T.test_b"),
+                     ("tests.test_new.T.test_b", "tests.test_hooks.T.test_a"), ("tests.test_x.T.test_a",)]
+            self.assertEqual(given, [(30, part) for part in dealt])
+            # A part that fails, or runs out of time, ends the run there, as one run of the whole suite would have.
+            for test, ends in (("        self.fail()\n", 1), ("        time.sleep(60)\n", None)):
+                broken = suite_of("    def test_a(self):\n        pass\n\n    def test_b(self):\n" + test, files)
+                given.clear()
+                status, output = mutants.suite(broken, 5)
+                self.assertEqual((status, len(given)), (ends, 1), test)
+            # The tests a mutant names run first, alone, and the parts after them.
+            given.clear()
+            self.assertEqual(mutants.suite(where, 30, first=("tests.test_x.T.test_b",))[0], 0)
+            self.assertEqual([part for _, part in given], [("tests.test_x.T.test_b",)] + dealt)
+            self.assertEqual(mutants.whole_suite(tree({"k.py": "rule\n"})), [], "a tree with no test runs none")
+            # A module that holds no test runs nothing, alone or whole: unittest run on it alone would say no test ran,
+            # which 3.12 exits 5 for. One whose test is no method by its own id, as a doctest load_tests adds, runs whole.
+            helpers = suite_of("    def test_a(self):\n        pass\n", {
+                "tests/test_helpers.py": "import unittest\n\n\nclass Base(unittest.TestCase):\n    pass\n",
+                "tests/test_doc.py": "import doctest\n\n\ndef f():\n    \"\"\"\n    >>> 1 + 1\n    2\n    \"\"\"\n\n\n"
+                                     "def load_tests(loader, tests, ignore):\n"
+                                     "    tests.addTests(doctest.DocTestSuite(__name__))\n    return tests\n"})
+            self.assertEqual(mutants.whole_suite(helpers), [("tests.test_x.T.test_a",), ("tests.test_doc",)])
+            self.assertEqual(mutants.suite(helpers, 30)[0], 0, "the doctest ran whole, and passed")
+            # A module that cannot be read method by method is a part of its own, after the dealt ones.
+            unread = suite_of("    def test_a(self):\n        pass\n", dict(files, **{
+                "tests/test_bad.py": "import a_module_left_out\n", "tests/test_worse.py": "import another_left_out\n"}))
+            self.assertEqual(mutants.whole_suite(unread), [("tests.test_new.T.test_a", "tests.test_x.T.test_a"),
+                                                           ("tests.test_new.T.test_b", "tests.test_hooks.T.test_a"),
+                                                           ("tests.test_bad",), ("tests.test_worse",)])
+        self.assertEqual(mutants.whole_suite(where), [("tests.test_new.T.test_a", "tests.test_new.T.test_b",
+                                                       "tests.test_x.T.test_a", "tests.test_x.T.test_b",
+                                                       "tests.test_hooks.T.test_a")], "the suite's own parts")
+        self.assertEqual(mutants.PART_MOST, 100)
 
     def test_a_failure_the_mutant_causes_kills_it(self):
         code, lines, calls = self.check({"breaks": (0, 1, FAILS_A_TEST)}, ["breaks"])
@@ -7654,6 +8135,8 @@ class ReaderTrialScript(unittest.TestCase):
     SCRIPT = ROOT / "tools" / "trial_reader_reads.sh"
     CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
               if r != "combsmith/software-factory"][0]
+    GIVEN = (CANARY, "main", "don-petry", "a-writer", "a-triager", "an-outsider")
+    FIRST = "metadata"
     TOKEN = "gh" + "s_" + "R" * 36
     # The stand-in GitHub: each call is logged with its method, URL, body and whether a credential came on stdin; a mint
     # answers a token, a revocation the status in revoke.status, and a read an answer by its path and the token's grant.
@@ -7744,7 +8227,7 @@ esac
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
         env.update({"TMPDIR": str(tmpdir)} if tmpdir else {})
-        given = args or (self.CANARY, "main", "don-petry", "a-writer", "a-triager", "an-outsider")
+        given = args or self.GIVEN
         return subprocess.run(["sh", str(self.SCRIPT), str(out or self.out), str(self.key), *given],
                               cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
 
@@ -7857,7 +8340,7 @@ esac
         held_r, held_w = os.pipe()
         (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
-        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), self.CANARY, "main", "don-petry"],
+        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
                                    cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                                    pass_fds=(told_w, held_r))
         os.close(told_w)
@@ -7888,7 +8371,7 @@ esac
         (self.stand_in / "mint.status").write_text("401\n")
         ran = self.run_script()
         self.assertEqual(ran.returncode, 1)
-        self.assertIn("no token narrowed to metadata was minted (status 401)", ran.stderr)
+        self.assertIn("no token narrowed to %s was minted (status 401)" % self.FIRST, ran.stderr)
         self.assertEqual([c for c in self.calls() if c["method"] == "GET"], [])
         (self.stand_in / "log").unlink()
         (self.stand_in / "mint.status").write_text("201\n")
@@ -7899,6 +8382,114 @@ esac
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
         # The exit trap tried once more to revoke the live token.
         self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
+
+
+class IssueLookupTrial(ReaderTrialScript):
+    """`tools/trial_p54_issue_lookup.sh`, run against the reader trial's stand-ins and never GitHub (issue 342). It is that
+    script held to the Controller's installation and one read, so every test of the reader's that is not about what is
+    read runs over it too, by inheritance: the signal, the cut mint, the transfer that failed, the refused mint and
+    revocation, the scratch directory and OUT inside the repo, and curl's configuration."""
+
+    SCRIPT = ROOT / "tools" / "trial_p54_issue_lookup.sh"
+    CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    GIVEN = (CANARY, "42")
+    FIRST = "issues"
+    # The reader trial's stand-in GitHub, which also answers an issue: to a token narrowed to issues, and to any token
+    # where the repo is public, as a file beside it says. A file beside it puts a proxy's block before the answer.
+    CURL = ReaderTrialScript.CURL.replace('elif "/activity" in url:', '''elif "/issues/" in url:
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    if grant == "issues" or os.path.exists(os.path.join(here, "public")):
+        status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}
+    else:
+        status, answer = 403, {"message": "Resource not accessible by integration"}
+elif "/activity" in url:''', 1).replace('''sys.stdout.write("HTTP/2 %d''', '''if os.path.exists(os.path.join(here, "proxied")):
+    sys.stdout.write("HTTP/1.1 200 Connection established\\r\\n\\r\\n")
+sys.stdout.write("HTTP/2 %d''', 1)
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        for public, metadata in ((False, 403), (True, 200)):
+            with self.subTest(public=public):
+                self.setUp()
+                if public:
+                    (self.stand_in / "public").write_text("")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+                calls = self.calls()
+                mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+                self.assertEqual([m["url"].split("/app/")[1] for m in mints],
+                                 ["installations/%d/access_tokens" % installation] * 2)
+                self.assertEqual([json.loads(m["body"]) for m in mints],
+                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {"issues": "read"}},
+                                  {"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}}])
+                self.assertEqual([c["url"].split("/repos/")[1] for c in calls if c["method"] == "GET"],
+                                 ["%s/issues/42" % self.CANARY] * 2)
+                self.assertEqual(len([c for c in calls if c["method"] == "DELETE"]), 2)
+                self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+                texts = {p.name: p.read_text() for p in self.out.iterdir()}
+                self.assertEqual(sorted(texts), ["clean-1", "clean-2", "ran_at", "redacted-1", "redacted-2", "requests.json"])
+                asked = json.loads(texts["requests.json"])
+                self.assertEqual([(a["narrowed_to"], a["call"], a["status"]) for a in asked if "call" in a],
+                                 [("issues: read", "GET /repos/%s/issues/42" % self.CANARY, 200),
+                                  ("metadata: read", "GET /repos/%s/issues/42" % self.CANARY, metadata)])
+                self.assertEqual([a for a in asked if "revoked" in a],
+                                 [{"revoked": "issues: read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
+                self.assertIn('"number": 42', texts["clean-1"])
+                self.assertIn('"name": "question"', texts["clean-1"])
+                self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+
+    def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
+        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
+                self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's refusal after it is the read's answer.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 403])
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        for given, out, said in (((self.CANARY, "42"), self.out.parent, "exists"),
+                                 ((self.CANARY, "42"), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", "42"), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith/elsewhere", "42"), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith", "42"), None, "is not owner/name"),
+                                 ((self.CANARY, "0"), None, "is not an issue's number"),
+                                 ((self.CANARY, "12a"), None, "is not an issue's number"),
+                                 ((self.CANARY, "-1"), None, "is not an issue's number"),
+                                 ((self.CANARY, "1/../2"), None, "is not an issue's number"),
+                                 ((self.CANARY, ""), None, "is not an issue's number"),
+                                 ((self.CANARY,), None, "usage:"), ((self.CANARY, "42", "43"), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
 
 
 class Rulesets(unittest.TestCase):
