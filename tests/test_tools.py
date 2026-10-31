@@ -3554,12 +3554,16 @@ SHAPED = {
     "base64 of a token": base64.b64encode(("gh" + "p_" + TAIL).encode()).decode(),
     "base64 of a runner's credentials": base64.b64encode(json.dumps({".runner": "x", ".credentials_rsaparams": "k"}).encode()).decode(),
     "anthropic": "sk-" + "ant-oat01-" + "A" * 40,
+    "any other gh prefix": "gh" + "h_" + TAIL, "another gh prefix in a url": "https://example.com/x?scope=gh" + "x_" + TAIL,
+    "another gh prefix after an underscore": "x_gh" + "h_" + TAIL, "another gh prefix in capitals": "GH" + "H_" + TAIL,
     "base64 of a token behind a byte that does not print": base64.b64encode(("\x00gh" + "p_" + TAIL).encode()).decode(),
 }
 # What a fixture keeps: GitHub's ordinary words must not be refused.
 PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.github+json", "MDQ6VXNlcjE=",
          "https://api.github.com/repos/combsmith/x/check-runs/4", "2026-10-15T14:02:11Z", "Requires authentication",
-         "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration"]
+         "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration",
+         # Words that hold gh, a letter and an underscore, after a letter: no prefix of a credential.
+         "right_now", "height_px", "thought_x", "straight_line", "weight_kg", "light_mode", "might_be"]
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
@@ -6779,6 +6783,27 @@ class Redaction(unittest.TestCase):
                          "HTTP/2 200\nContent-Type: text/plain\n\nfine\n")
         self.assertEqual(self.redact("HTTP/2 204\nContent-Type: application/json\n\n")[0],
                          "HTTP/2 204\nContent-Type: application/json\n\n")
+
+    def test_a_vendors_details_lose_their_query_and_githubs_keep_theirs(self):
+        # A check run's link to another site may hold what looks like a credential in its query: the address stays, so a
+        # reader can tell the check, and the query goes, in REST's spelling and GraphQL's, in a capture and a fixture.
+        vendor = "https://app.example.ai/change-stack/o/r/pull/1?scope=gh" + "h_" + "A" * 43
+        github = "https://github.com/o/r/runs/1?check_suite_focus=true"
+        out, said = self.redact(json.dumps({"check_runs": [{"details_url": vendor, "id": 1}, {"details_url": github, "id": 2}]}))
+        self.assertEqual(json.loads(out)["check_runs"], [{"details_url": vendor.split("?")[0], "id": 1}, {"details_url": github, "id": 2}])
+        self.assertEqual(said.splitlines()[0], "removed: check_runs[0].details_url?query")
+        self.assertNotIn("gh" + "h_", out + said)
+        out, _ = self.redact(json.dumps({"nodes": [{"detailsUrl": vendor}]}))
+        self.assertEqual(json.loads(out), {"nodes": [{"detailsUrl": vendor.split("?")[0]}]})
+        out, _ = self.redact(json.dumps({"exchanges": [{"response": {"body": {"details_url": vendor}}}]}))
+        self.assertEqual(json.loads(out)["removed"], ["exchanges[0].response.body.details_url?query"])
+        # Another field's address is not a check run's details: it is judged as any string is, so this one is deleted.
+        out, said = self.redact(json.dumps({"html_url": vendor, "a": 1}))
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: html_url"))
+        # A details address with no query, and one that is no URL, stay as they are.
+        plain = {"details_url": "https://app.example.ai/x", "detailsUrl": "http://[bad?x=1"}
+        self.assertEqual(json.loads(self.redact(json.dumps(plain))[0]), plain)
+        self.assertEqual(redact_trial._no_vendor_query("http://[bad?x=1"), "http://[bad?x=1")
 
     def test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused(self):
         # Issue 406, from the fourth read of PR 404. A string of JSON, an item of a list or a field's, that holds a head or
