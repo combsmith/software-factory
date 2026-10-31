@@ -709,9 +709,22 @@ def asks(root: pathlib.Path = ROOT) -> dict:
     return found
 
 
+# What each fixture was found to hold, by all that finding reads: its name, its text, the schema and the Apps' reach. It is
+# most of a run, and a test that runs the check many times on copies of the tree changes one file in each (issue 438).
+_FOUND = {}
+
+
+def _apps_text(root: pathlib.Path):
+    try:
+        return (root / "config" / "apps.json").read_text()
+    except (OSError, ValueError):       # `_installed` says so, for each fixture that reads it
+        return None
+
+
 def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
     """{path: the fixture} for each valid fixture in trials/; each problem found is recorded."""
     folder, valid = root / "trials", {}
+    told, apps = json.dumps(schema, sort_keys=True), _apps_text(root)
     for path in sorted(folder.iterdir()) if folder.is_dir() else []:
         rel, name = "trials/%s" % path.name, FIXTURE.match(path.name)
         if path.name == "AGENTS.md":
@@ -722,17 +735,22 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
             problems.append("%s: trials/ holds fixtures only, named <trial>.json or <trial>.<what>.json" % rel)
             continue
         try:
-            data = _load(path)
+            key = (rel, path.read_text(), told, apps)
+            data = _load(path) if key not in _FOUND else _FOUND[key][0]
         except (OSError, ValueError) as err:
             problems.append("%s cannot be read: %s" % (rel, hidden(str(err))))
             continue
-        wrong = ["%s: %s" % (rel, hidden(err)) for err in validate(data, schema)]
-        if not wrong and data["trial"] != name.group(1):
-            wrong.append("%s: records trial %s; a fixture is named for its trial" % (rel, data["trial"]))
-        if not wrong:
-            wrong += ["%s: %s" % (rel, problem) for problem in fixture_problems(data, root)]
+        if key not in _FOUND:
+            wrong = ["%s: %s" % (rel, hidden(err)) for err in validate(data, schema)]
+            if not wrong and data["trial"] != name.group(1):
+                wrong.append("%s: records trial %s; a fixture is named for its trial" % (rel, data["trial"]))
+            if not wrong:
+                wrong += ["%s: %s" % (rel, problem) for problem in fixture_problems(data, root)]
+            else:
+                wrong += ["%s: %s %s" % (rel, where, what) for where, what in _credentials(data, "") + _headers(data)]
+            _FOUND[key] = (data, wrong)
         else:
-            wrong += ["%s: %s %s" % (rel, where, what) for where, what in _credentials(data, "") + _headers(data)]
+            wrong = _FOUND[key][1]
         problems += wrong
         if not wrong:
             valid[rel] = data

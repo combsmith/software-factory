@@ -17,4 +17,6 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: make verify
+        timeout-minutes: 1
       - run: python3 -m tools.mutants
+        timeout-minutes: 1
