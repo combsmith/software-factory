@@ -4,6 +4,13 @@
     "login": "don-petry",
     "name": "Don Petry"
   },
+  "openers": [
+    {
+      "login": "don-petry",
+      "id": 36422719,
+      "is": "the Maintainer, the one account that opens a pull request here until a record adds the Factory's App (decision 0102)"
+    }
+  ],
   "protected": [
     {
       "path": "lifecycle/",

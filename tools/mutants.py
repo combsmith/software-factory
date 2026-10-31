@@ -74,6 +74,8 @@ NAMING_TESTS = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_ex
 ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
+OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
+OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
@@ -5491,6 +5493,29 @@ MUTANTS = ISSUE + [
      '    return ""\n', NAMING_TESTS),
     # Issue 204: every commit a pull request carries is the Maintainer's, checked outside the shell.
     # Decision 0087: what the check says is what it holds.
+    # Issue 409: a pull request is opened from this repo by an account the configuration lists (decision 0102).
+    ("the job does not read the opener", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = problems(root, environ)", OPENER_JOB),
+    ("the job does not read the commits", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = opened", OPENER_JOB),
+    ("the job does not say what it read of the opener", "tools/commits_are_the_maintainers.py", "        print(said)\n", "", OPENER_JOB),
+    ("an opener not on the list passes", "tools/commits_are_the_maintainers.py", "    if what is None:\n", "    if False:\n", OPENER_TESTS),
+    ("an opener is read by the login alone", "tools/commits_are_the_maintainers.py", 'what = allowed.get((login, user["id"]))',
+     'what = next((v for k, v in allowed.items() if k[0] == login), None)', OPENER_TESTS),
+    ("an opener is read by the id alone", "tools/commits_are_the_maintainers.py", 'what = allowed.get((login, user["id"]))',
+     'what = next((v for k, v in allowed.items() if k[1] == user["id"]), None)', OPENER_TESTS),
+    ("a refusal does not say who may open one", "tools/commits_are_the_maintainers.py", '"; ".join("%s, %s" % (who[0], is_) for who, is_ in sorted(allowed.items()))', '""', OPENER_TESTS),
+    ("a fork passes", "tools/commits_are_the_maintainers.py", "    if not own or head_repo != own:\n", "    if not own:\n", OPENER_TESTS),
+    ("a base repository that cannot be read agrees", "tools/commits_are_the_maintainers.py", "    if not own or head_repo != own:\n", "    if head_repo != own:\n", OPENER_TESTS),
+    ("the head repository is read from the base", "tools/commits_are_the_maintainers.py", 'head and head["full_name"]', 'base and base["full_name"]', OPENER_TESTS),
+    ("an opener that cannot be read passes", "tools/commits_are_the_maintainers.py", """        return ["the pull request's opener cannot be read: %r" % err], ""\n""", '        return [], ""\n', OPENER_TESTS),
+    ("an event the opener's check does not know is read", "tools/commits_are_the_maintainers.py", '    if event not in ("pull_request", "merge_group"):\n        return ["EVENT', '    if False:\n        return ["EVENT', OPENER_TESTS),
+    ("a merge group's payload is not read", "tools/commits_are_the_maintainers.py", """            if not isinstance(payload.get("merge_group"), dict) or "pull_request" in payload:\n""", "            if False:\n", OPENER_TESTS),
+    ("a payload with no merge group passes as one", "tools/commits_are_the_maintainers.py", """not isinstance(payload.get("merge_group"), dict) or "pull_request" in payload""", '"pull_request" in payload', OPENER_TESTS),
+    ("a pull request's payload passes as a merge group's", "tools/commits_are_the_maintainers.py", """not isinstance(payload.get("merge_group"), dict) or "pull_request" in payload""", 'not isinstance(payload.get("merge_group"), dict)', OPENER_TESTS),
+    ("the list is not the configuration's", "tools/commits_are_the_maintainers.py", 'for o in json.loads((root / "config" / "hooks.json").read_text())["openers"]}', 'for o in [{"login": "ada", "id": 1, "is": "the Maintainer"}]}', OPENER_TESTS),
+    ("this repo's list names another account", "config/hooks.json", '{"login": "don-petry", "id": 36422719,', '{"login": "don-petry", "id": 36422718,', OPENER_TESTS),
+    ("the list is not required", "schemas/hooks.schema.json", '    "maintainer",\n    "openers",\n', '    "maintainer",\n', OPENER_TESTS),
+    ("the list may be empty", "schemas/hooks.schema.json", '    "openers": {\n      "type": "array",\n      "minItems": 1,\n', '    "openers": {\n      "type": "array",\n', OPENER_TESTS),
+    ("an opener needs no reason", "schemas/hooks.schema.json", '          "id",\n          "is"\n', '          "id"\n', OPENER_TESTS),
     ('the check says the commits are the Maintainer\'s', 'tools/commits_are_the_maintainers.py',
      'names the Maintainer as its author, and as its committer where GitHub did not "',
      'is the Maintainer\'s as its author, and as its committer where GitHub did not "', ('tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers',)),

@@ -6,6 +6,7 @@
   "required": [
     "schema",
     "maintainer",
+    "openers",
     "protected",
     "reported",
     "lens_inputs",
@@ -37,6 +38,34 @@
         "email": {
           "type": "string",
           "pattern": "^[^@\\s<>]+@[^@\\s<>]+$"
+        }
+      }
+    },
+    "openers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "login",
+          "id",
+          "is"
+        ],
+        "properties": {
+          "login": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\[bot\\])?$"
+          },
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "is": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },

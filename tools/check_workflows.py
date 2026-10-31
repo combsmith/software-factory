@@ -423,7 +423,8 @@ ALWAYS = "always()"
 JUDGE = "python3 -m tools.needs_passed"
 NEEDS = "${{ toJSON(needs) }}"
 # The job that reads every commit a pull request carries (decision 0041): the base's tool, from a checkout of the base
-# with the whole history, told the base, the head and the event by the expressions below and nothing else.
+# with the whole history, told the base, the head and the event by the expressions below and nothing else. It reads the
+# opener from the payload the runner leaves, so no expression gives it one (decision 0102).
 COMMITS = "python3 -m tools.commits_are_the_maintainers"
 # The mutant shards (issue 180): each leg is told its index and the count by the matrix itself, never by a number
 # written in, so every leg runs its own shard and the count is the matrix's size.
