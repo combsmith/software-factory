@@ -314,7 +314,7 @@ class Apply(unittest.TestCase):
                            ({"status": "failed", "reason": "result_invalid"}, ("item", "result_invalid")),
                            ({"status": "failed", "reason": "task_too_large"}, ("item", "task_too_large")),
                            ({"status": "failed", "reason": "engine_failed"}, ("environment", "engine_failed")),
-                           # No Run has a tool, so nothing of the item runs to hang it (issue 433, until issue 314).
+                           # A timeout cannot tell a slow provider from a slow item (issue 433, until issue 314).
                            ({"status": "failed", "reason": "engine_timeout"}, ("environment", "engine_timeout")),
                            ({"status": "failed", "reason": "credential_missing"}, ("environment", "credential_missing")),
                            ({"status": "incomplete", "reason": "turns_spent"}, ("item", "turns_spent")),
