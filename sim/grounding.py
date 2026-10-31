@@ -69,6 +69,7 @@ RULES = (
     # Contradicted in part by P-35 (trials/P-35.json). GraphQL's file is null for a dynamic run, so a dynamic/ path is read
     # as none, not verbatim. And a check run a job creates through the API reads with the path of the first Actions suite
     # on the head, not the file that ran it. Left unverified, as the fake applies it: changing it is a story of its own.
+    # The fake models that created check by a_job_creates_a_check_in_another_suite, as the port reads it (decision 0104).
     ("a_check_names_the_workflow_that_ran_it", "Every check run GitHub Actions reports is read with the path of the "
      "workflow file that ran it, the path of its check suite's workflow run as GitHub gives it, a dynamic/ one "
      "verbatim, with the permissions the reader and the Controller hold; a check run no workflow ran, as GitHub "

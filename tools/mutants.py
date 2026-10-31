@@ -5515,8 +5515,9 @@ MUTANTS = ISSUE + [
      '    return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"\n',
      '    return ""\n', NAMING_TESTS),
     # Issue 439: a required Lens's check is read only where its details are its own job's (decision 0104).
-    ("a created check keeps its file", "adapters/checks.py", '"workflow": path if own else None,', '"workflow": path,', JOB_PORT),
-    ("a job's own check has no file", "adapters/checks.py", '"workflow": path if own else None,', '"workflow": None,', JOB_PORT),
+    ("a created check keeps its file", "adapters/checks.py", '"workflow": None if app == ACTIONS_APP and not own else path,', '"workflow": path,', JOB_PORT),
+    ("a job's own check has no file", "adapters/checks.py", '"workflow": None if app == ACTIONS_APP and not own else path,', '"workflow": None if app == ACTIONS_APP else path,', JOB_PORT),
+    ("another App's check loses its file", "adapters/checks.py", '"workflow": None if app == ACTIONS_APP and not own else path,', '"workflow": None if not own else path,', JOB_PORT),
     ("the job's form need not be whole", "adapters/checks.py", 'found = JOB.fullmatch(details) if', 'found = JOB.search(details) if', JOB_PORT),
     ("the job's run id is not compared", "adapters/checks.py", '(int(found.group(1)), int(found.group(2))) == (run_id, check_id)', 'int(found.group(2)) == check_id', JOB_PORT),
     ("the job's id is not compared", "adapters/checks.py", '(int(found.group(1)), int(found.group(2))) == (run_id, check_id)', 'int(found.group(1)) == run_id', JOB_PORT),

@@ -17,13 +17,12 @@ import json
 import re
 
 from adapters import artifacts
-from adapters.checks import own_job
+from adapters.checks import ACTIONS_APP, own_job      # GitHub Actions, the one App whose `verify` counts
 from adapters.github import STORED, Unanswered, request
 from harness import eval as eval_gate
 from release import cut
 
 VERIFY = "verify"                   # the check run `verify.yml`'s job reports, on the merge group main took
-ACTIONS_APP = 15368                 # GitHub Actions, the one App whose `verify` counts
 VERIFY_WORKFLOW = ".github/workflows/verify.yml"    # the one workflow whose `verify` counts, as the Kernel's Lens reads it
 EVAL_WORKFLOW = "eval.yml"
 REPORT, MEMBER = "eval-report", "eval-report.json"

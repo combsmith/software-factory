@@ -4,7 +4,7 @@ rollup (design section 3.3; P-32's read gives the shape).
 Every check run the head's rollup lists is given with its name exactly as GitHub gives it, the id of the App that
 reported it, the path of the workflow file that ran it, null where GitHub names none, its conclusion, or its status
 while it has not concluded, in GitHub's own word, lower-cased, and when it completed; the port drops, merges and renames
-none (decisions 0015, 0018, 0022, 0026), and with no file where its details are not its own job's (decision 0104). Whether the rollup itself keeps every check suite's run, and a re-run's alone
+none (decisions 0015, 0018, 0022, 0026), and an Actions check with no file where its details are not its own job's (decision 0104). Whether the rollup itself keeps every check suite's run, and a re-run's alone
 replaces an earlier one, is GitHub's, which P-42 asks. A status context, which is not a check run and names no App, is no
 check. The list is whole only when its last page says there is no next one and every context it counts was read; read
 over more than one page, only when every context carries its own id and none was read twice, since a rollup that moves
@@ -20,6 +20,7 @@ import re
 from adapters.github import Unanswered, request
 
 PAGE = 100
+ACTIONS_APP = 15368     # GitHub Actions, the one App a job's token reports as (P-35)
 JOB = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/runs/([1-9][0-9]{0,18})/job/([1-9][0-9]{0,18})")
 TIME = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 WORD = re.compile(r"[A-Z_]+")
@@ -84,11 +85,12 @@ def check(node: dict) -> dict:
         raise Unanswered("a check run's completion time cannot be read")
     if (conclusion is None) != (done is None):
         raise Unanswered("a check run that concluded with no time, or has a time and no conclusion")
-    # A check not of its own job is read with no file, whatever file its suite names: so it is foreign to a Lens a workflow
-    # runs, and the Kernel leaves that Lens unreadable, for the Maintainer, with no new fact (decision 0104).
+    # A check of GitHub Actions' not of its own job is read with no file, whatever file its suite names: so it is foreign
+    # to a Lens a workflow runs, and the Kernel leaves that Lens unreadable, for the Maintainer, with no new fact. Another
+    # App's keeps what its suite names, so one that names a file stays foreign to a Lens no workflow runs (decision 0104).
     own = own_job(node.get("detailsUrl"), node.get("databaseId"), run.get("databaseId") if run else None)
-    return {"name": name, "app_id": app, "workflow": path if own else None, "conclusion": word.lower(),
-            "completed_at": done}
+    return {"name": name, "app_id": app, "workflow": None if app == ACTIONS_APP and not own else path,
+            "conclusion": word.lower(), "completed_at": done}
 
 
 def read(transport, pull: dict, kept=None) -> dict:

@@ -3443,7 +3443,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(by_name["Analyze (actions)"]["checkSuite"]["workflowRun"]["event"], "dynamic")
         self.assertIsNone(checks.check(by_name["Analyze (actions)"])["workflow"])
 
-    def test_a_forged_success_stands_alone_until_the_real_check_is_listed(self):
+    def test_a_forged_success_is_foreign_before_and_beside_the_real_check(self):
         # P-35: a job posts a success under the names of another workflow's jobs, before one fails and after the other. Each
         # borrows the App and path of the real one, and the Lens's own job fails it, while the forged one, read with no file,
         # leaves it unreadable for a person (decision 0104). Before a job gated by needs starts it has no check run, so the forged
@@ -3541,6 +3541,18 @@ class Contract(unittest.TestCase):
         self.assertIsNone(checks.check(dict(node, detailsUrl=None))["workflow"])
         self.assertIsNone(checks.check(dict(node, databaseId=8))["workflow"])
         self.assertIsNone(checks.check(dict(node, checkSuite={"app": {"databaseId": 15368}, "workflowRun": None}))["workflow"])
+        # Another App's check keeps what its suite names, so one that names a file stays foreign to a Lens no workflow runs:
+        # code scanning, pinned to no file, is not handed it by this rule (the reads of #452).
+        from kernel import derive
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        scanning = next(lens for lens in config["required_lenses"]["deterministic"] if lens["workflow"] is None)
+        evil = ".github/workflows/evil.yml"
+        other = dict(node, name=scanning["check"], detailsUrl="https://github.com/o/r/runs/7",
+                     checkSuite={"app": {"databaseId": scanning["app_id"]}, "workflowRun": {"databaseId": 5, "file": {"path": evil}}})
+        self.assertEqual(checks.check(other)["workflow"], evil)
+        self.assertEqual(derive.foreign_checks([checks.check(other)], config), ["%s:from_workflow:%s" % (scanning["lens"], evil)])
+        self.assertNotEqual(derive.lens_reading([checks.check(other)], scanning, config), "passing")
+        self.assertIsNone(checks.check(dict(other, checkSuite={"app": {"databaseId": scanning["app_id"]}, "workflowRun": None}))["workflow"])
         for field in ("id databaseId name", "completedAt detailsUrl", "workflowRun { databaseId file"):
             self.assertIn(field, checks.QUERY)
 
