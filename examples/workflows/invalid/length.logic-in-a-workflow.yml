@@ -27,4 +27,6 @@ jobs:
           make verify
           make verify
           make verify
+        timeout-minutes: 1
       - run: python3 -m tools.mutants
+        timeout-minutes: 1

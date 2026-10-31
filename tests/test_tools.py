@@ -1759,20 +1759,81 @@ class Workflows(unittest.TestCase):
         self.assertEqual(len(problems), len(check_workflows.RULES))
 
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
-        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 25\n", "")
+        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 28\n", "")
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
                       "examples/workflows/invalid/soft.no-fault.yml": GOOD})
         problems = check_workflows.run(root)
         self.assertTrue(caught(problems, "runner.two-faults.yml: must break the rule 'runner' and no other"))
         self.assertTrue(caught(problems, "soft.no-fault.yml: must break the rule 'soft' and no other, and breaks none"))
 
+    def test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs(self):  # issue 388
+        # A job GitHub stops at its own timeout concludes cancelled, and so does its check run (trials/P-42.json), which
+        # no required check or Run reads as a failure. A step stopped at its own timeout fails, and so does its job
+        # (trials/P-42.step-timeout.json). So each run: step sets its own timeout-minutes, and a job's run: steps are
+        # given fewer minutes together than the job is, so that a step past its limit fails the job before GitHub stops it.
+        # Each run: step of the example, its own limit and its job's.
+        limits = {"make verify": (26, 28), "python3 -m tools.mutants": (27, 30),
+                  "python3 -m tools.commits_are_the_maintainers": (7, 10), "python3 -m tools.needs_passed": (5, 10)}
+        unlimited = GOOD
+        for command, (minutes, _) in limits.items():
+            unlimited = unlimited.replace("      - run: %s\n        timeout-minutes: %d\n" % (command, minutes),
+                                          "      - run: %s\n" % command)
+        self.assertEqual(rules(GOOD), [])
+        self.assertEqual(rules(unlimited), ["timeout"], "no run: step has a limit of its own")
+        for command, (minutes, job) in limits.items():
+            step = "      - run: %s\n        timeout-minutes: %d\n" % (command, minutes)
+            self.assertIn(step, GOOD, command)
+            # The job keeps MARGIN, two minutes, for its other steps: its checkout and set-up, which took 8 s at most.
+            # A limit of 0 is none to the runner; and a digit only Unicode calls one is none to YAML.
+            for given, broken in ((None, True), (job - 2, False), (job - 1, True), (job, True), (600, True),
+                                  ("five", True), (0, True), ("00", True), ("0%d" % (job - 2), True),
+                                  ("\u00b2", True), ("\u0665", True)):
+                text = GOOD.replace(step, "      - run: %s\n" % command + (
+                    "" if given is None else "        timeout-minutes: %s\n" % given))
+                with self.subTest(command=command, given=given):
+                    self.assertEqual(rules(text), ["timeout"] if broken else [], text)
+        problems = check_workflows.lint(unlimited)
+        self.assertIn(("timeout", "a run: step of job checks has no timeout-minutes of its own"), problems)
+        # A uses: step needs none, and a run: step's limit is read wherever among its keys it stands.
+        moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
+                             "      - timeout-minutes: 26\n        run: make verify\n")
+        self.assertEqual(rules(moved), [])
+        # A job's run: steps are counted together: two of 13 under a job of 28 are 26 minutes, and leave it its two.
+        two = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
+                           "      - run: make verify\n        timeout-minutes: 13\n      - run: make fast\n"
+                           "        timeout-minutes: 13\n")
+        self.assertEqual(rules(two), [])
+        more = two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 14\n      - run: make fast")
+        self.assertEqual(rules(more), ["timeout"])
+        self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
+                                  "2 its other steps keep"), check_workflows.lint(more))
+        self.assertEqual(check_workflows.MARGIN, 2)
+        # A job's own limit is held the same way.
+        for job in ("0", "\u00b2"):
+            self.assertIn(("timeout", "job checks has no timeout-minutes"),
+                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job)))
+
+    def test_each_step_limit_holds_what_its_step_needs(self):  # issue 388
+        # The eval job's run step starts no case it cannot end within BUDGET of the plan, so its limit is BUDGET at
+        # least; the Engine's step calls the CLI for its tier's seconds at most, with two reads of its version.
+        from harness.eval import run as eval_run
+        live = ROOT / ".github" / "workflows"
+        limit = re.search(r"      - run: python3 -m harness\.eval\.run\n        timeout-minutes: (\d+)\n",
+                          (live / "eval.yml").read_text())
+        self.assertGreaterEqual(int(limit.group(1)) * 60, eval_run.BUDGET)
+        engine = re.search(r"        timeout-minutes: (\d+)\n        run: python3 -m harness\.run\n",
+                           (live / "run-jobs.yml").read_text())
+        tiers = json.loads((ROOT / "config" / "harness.json").read_text())
+        longest = max(limits["seconds"] for limits in tiers["limits"].values())
+        self.assertGreater(int(engine.group(1)) * 60, longest + eval_run.VERSION_READS)
+
     def test_an_example_in_the_standard_that_has_drifted_is_caught(self):
         root = tree({"examples/workflows/verify.yml": GOOD,
-                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 25", "minutes: 90") + "```\n"})
+                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 28", "minutes: 90") + "```\n"})
         self.assertTrue(caught(check_workflows.run(root), "word for word"))
 
     def test_the_required_check_that_has_drifted_from_its_example_is_caught(self):
-        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 25", "minutes: 45")})
+        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 28", "minutes: 45")})
         self.assertTrue(caught(check_workflows.run(root), "change both together"))
         bumped = GOOD.replace("3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "a" * 40 + " # v8.0.0")
         root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": bumped})
@@ -2361,7 +2422,7 @@ class Workflows(unittest.TestCase):
                      GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
-        outputs = GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    outputs:\n"
+        outputs = GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
@@ -2660,9 +2721,9 @@ class Workflows(unittest.TestCase):
             "a branch filter": (GOOD.replace("  pull_request:\n", "  pull_request:\n    branches:\n      - release\n"), "queue"),
             "an expression in a script": (GOOD.replace(STEP, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n        with:\n          script: ${{ github.event.comment.body }}\n"), "expression"),
             "a checkout in quotes": (GOOD.replace("actions/checkout@", '"actions/checkout@').replace(" # v7.0.1\n        with:\n          persist-credentials: false", '" # v7.0.1'), "credentials"),
-            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 25\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
+            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 28\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
             "windows line ends": (GOOD.replace("\n", "\r\n"), "form"),
-            "a key written twice": (GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    timeout-minutes: 600\n"), "form"),
+            "a key written twice": (GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    timeout-minutes: 600\n"), "form"),
             "a step's key written twice": (GOOD.replace(STEP, "      - run: make verify\n        run: make evil\n"), "form"),
             "nothing at all": ("", "form"),
             # Issue 371: a YAML reader reads each as more of the command, `make verify - ; exit 0`, and runs it whole.
@@ -2700,7 +2761,9 @@ class Workflows(unittest.TestCase):
             "a secret whose name holds the letters": GOOD.replace(STEP, STEP + "        env:\n          K: ${{ secrets.RELAY_DISPATCH_KEY }}\n"),
             "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
             "an off-zero schedule": POLLER.replace('"13 * * * *"', "'17,47 * * * *'"),
-            "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")),
+            # Every indent doubled, a step's keys after its first kept under it, two past its dash.
+            "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")).replace(
+                "\n                timeout-minutes:", "\n              timeout-minutes:"),
             "a list under its key's own indent": GOOD.replace("      - checks\n      - commits\n      - mutants\n",
                                                               "    - checks\n    - commits\n    - mutants\n"),
             "a comment between a list's items": GOOD.replace("      - checks\n", "      - checks\n      # and\n"),
@@ -2728,8 +2791,9 @@ class Workflows(unittest.TestCase):
                                                        .replace("        run: python3 -m harness.run\n",
                                                                 "        run: python3 -m harness.read\n")
                                                        .replace("        run: X\n", "        run: python3 -m harness.run\n"),
-            "a secret in verify": good.replace("          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n        run: python3 -m harness.verify",
-                                               "          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n          K: ${{ secrets.PR_REVIEW_APP_KEY }}\n        run: python3 -m harness.verify"),
+            "a secret in verify": good.replace("          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n        timeout-minutes: 5\n",
+                                               "          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n          K: ${{ secrets.PR_REVIEW_APP_KEY }}\n"
+                                               "        timeout-minutes: 5\n"),
             "a cache in verify": good.replace("      - name: Verify the Result\n",
                                               "      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
                                               "        with:\n          path: x\n          key: y\n      - name: Verify the Result\n"),
@@ -3454,14 +3518,16 @@ GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 
 
 def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
-    """sim/grounding.py with the rule P-18 asks of a killed job grounded by `fixture_path`, a path or a tuple of them
+    """sim/grounding.py with the rule P-18 asks of a Run past its limit grounded by `fixture_path`, a path or a tuple of them
     written as a literal, and asked by `trials`; a P-7 among them quotes its row, as each trial a rule names must."""
-    rule = '("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None)'
-    asked = '"a_killed_job_times_out": {"P-18": "when a job times out or is cancelled?"}'
+    rule = ('("a_run_past_its_limit_fails", "A Run\'s job stopped by a step\'s own timeout-minutes concludes failure, a '
+            'later "\n     "if: always() step still running; one GitHub stops at the job\'s own timeout concludes cancelled", '
+            '("P-18",), None,\n     None)')
+    asked = '"a_run_past_its_limit_fails": {"P-18": "when a job times out or is cancelled?"}'
     assert GROUNDING.count(rule) == 1 and GROUNDING.count(asked) == 1
     literal = fixture_path if fixture_path.startswith("(") else '"%s"' % fixture_path
     quotes = asked[:-1] + (', "P-7": "when an App pushed last"}' if '"P-7"' in trials else "}")
-    return GROUNDING.replace(rule, rule.replace('("P-18",), None, None)', '%s, %s, None)' % (trials, literal))).replace(
+    return GROUNDING.replace(rule, rule.replace('("P-18",), None,\n     None)', '%s, %s, None)' % (trials, literal))).replace(
         asked, quotes)
 
 
@@ -3718,21 +3784,21 @@ class Trials(unittest.TestCase):
 
     def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):
         problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json")}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json does not exist"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: trials/P-18.json does not exist"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json"), "trials/P-18.json": "{}"}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json is not a valid fixture"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: trials/P-18.json is not a valid fixture"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-12.json"), "trials/P-12.json": fixture()}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-12.json records P-12, and P-18 asks this"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: trials/P-12.json records P-12, and P-18 asks this"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("examples/trial.json")}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: examples/trial.json is not a fixture in trials/"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: examples/trial.json is not a fixture in trials/"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json", "()"),
                                            "trials/P-18.json": fixture(trial="P-18")}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: no trial asks this; add one to section 6 first"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: no trial asks this; add one to section 6 first"))
         root = clone({"sim/grounding.py": grounded("trials/P-18.json", '("P-7", "P-18")'),
                       "trials/P-18.json": fixture(trial="P-18")})
         self.assertEqual(check_trials.run(root), [])
-        self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
-        self.assertTrue(caught(check_trials.unverified(), "a_killed_job_times_out"))
+        self.assertFalse(caught(check_trials.unverified(root), "a_run_past_its_limit_fails"))
+        self.assertTrue(caught(check_trials.unverified(), "a_run_past_its_limit_fails"))
 
     def test_a_rule_names_only_a_trial_whose_row_asks_it(self):  # issue 265
         # Each trial a rule names asks it in its row of section 6: the rule quotes, in ASKS, the words of the row's
@@ -3846,18 +3912,18 @@ class Trials(unittest.TestCase):
         root = clone({"sim/grounding.py": both, "trials/P-18.json": fixture(trial="P-18"),
                       "trials/P-18.app.json": fixture(trial="P-18")})
         self.assertEqual(check_trials.run(root), [])
-        self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
+        self.assertFalse(caught(check_trials.unverified(root), "a_run_past_its_limit_fails"))
         problems = check_trials.run(clone({"sim/grounding.py": both, "trials/P-18.json": fixture(trial="P-18")}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.app.json does not exist"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: trials/P-18.app.json does not exist"))
         problems = check_trials.run(clone({"sim/grounding.py": both, "trials/P-18.json": fixture(trial="P-18"),
                                            "trials/P-18.app.json": fixture(trial="P-12")}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.app.json is not a valid fixture"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: trials/P-18.app.json is not a valid fixture"))
         # A valid fixture of another trial, second in the tuple: each fixture must record a trial that asks the rule.
         problems = check_trials.run(clone({"sim/grounding.py": grounded('("trials/P-18.json", "trials/P-12.json")'),
                                            "trials/P-18.json": fixture(trial="P-18"), "trials/P-12.json": fixture()}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-12.json records P-12, and P-18 asks this"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: trials/P-12.json records P-12, and P-18 asks this"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("()"), "trials/P-18.json": fixture(trial="P-18")}))
-        self.assertTrue(caught(problems, "a_killed_job_times_out: an empty tuple grounds nothing; write None"))
+        self.assertTrue(caught(problems, "a_run_past_its_limit_fails: an empty tuple grounds nothing; write None"))
 
     def test_the_approval_trials_ground_the_rules_they_asked(self):
         # The sitting of 2026-10-19: P-7 passed with the App's push and the machine user's approval of it, and P-28
@@ -6739,7 +6805,7 @@ FAILS = {
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
     "check_repo": lambda: check_repo.run(clone({"requirements.txt": "requests\n"})),
-    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 25", "minutes: 45")})),
+    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 28", "minutes: 45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),
