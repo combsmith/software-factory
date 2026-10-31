@@ -35,11 +35,13 @@ jobs:
           persist-credentials: false
       - name: Hand on the commit it checked out, which every later job checks out
         id: commit
+        timeout-minutes: 1
         run: python3 -m harness.steps
       - name: Install the CLI at the Engine's pin
         env:
           CLI_VERSION: "2.1.306"
           CLI_CHECKSUM: "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe"
+        timeout-minutes: 3
         run: |
           url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"
           curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude "${url}"
@@ -53,12 +55,14 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
+        timeout-minutes: 3
         run: python3 -m harness.read
       - name: Run the Engine
         id: engine
         env:
           CLAUDE_CLI: /usr/local/bin/claude
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        timeout-minutes: 20
         run: python3 -m harness.run
       - name: Upload the Result
         id: result
@@ -94,6 +98,7 @@ jobs:
       - name: Verify the Result
         env:
           RUN_DIGEST: ${{ needs.run.outputs.digest }}
+        timeout-minutes: 5
         run: python3 -m harness.verify
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -136,6 +141,7 @@ jobs:
           PASS: ${{ inputs.pass }}
           RUN_DIGEST: ${{ needs.run.outputs.digest }}
           PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}
+        timeout-minutes: 4
         run: python3 -m harness.apply_step
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -147,6 +153,7 @@ jobs:
         if: always()
         env:
           NAME: ${{ inputs.name }}
+        timeout-minutes: 2
         run: python3 -m harness.outcome
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

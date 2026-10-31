@@ -91,6 +91,7 @@
                 "too_large",
                 "unanswered",
                 "not_this_set",
+                "answer_off_rubric",
                 "case_failed"
               ]
             }

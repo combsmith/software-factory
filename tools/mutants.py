@@ -77,6 +77,8 @@ COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_ca
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
+LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
+NEEDED = ("tests.test_tools.Workflows.test_each_step_limit_holds_what_its_step_needs",)
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
 P50 = "tools/trial_p50_linux_sandbox.sh"
@@ -2111,7 +2113,7 @@ MUTANTS = ISSUE + [
      '              and {e["key"] for e in entries if e["path"] == []} <= SCAN_TOP\n', "",
      ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
     ("the secret scan's step may run in another directory", "tools/check_workflows.py",
-     '              and set(steps[3]) <= {"name", "run"})\n', ")\n", ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
+     '              and set(steps[3]) <= {"name", "run", "timeout-minutes"})\n', ")\n", ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
     ("the secret scan's install may be given any environment", "tools/check_workflows.py",
      'given == ({*SCAN_ENV} if "env" in install else set())', "True", ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
     ("a workflow is read with its carriage returns turned into line ends", "tools/check_workflows.py",
@@ -2133,6 +2135,24 @@ MUTANTS = ISSUE + [
      ("tests.test_tools.Context",)),
     ("a yaml block on any standard is not counted toward its page", "tools/check_context.py",
      'COPIED.search(text) if name == "workflows" else None', "COPIED.search(text)", ("tests.test_tools.Context",)),
+    # Issue 388: each run: step stops under a limit of its own, the steps together below their job's.
+    ("a run: step needs no limit of its own", "tools/check_workflows.py",
+     "        if not all(MINUTES.match(minutes) for minutes in given):\n", "        if False:\n", LIMITED),
+    ("run: steps may be given their whole job", "tools/check_workflows.py",
+     'sum(map(int, given)) + MARGIN > int(inside["timeout-minutes"]["value"])',
+     'sum(map(int, given)) > int(inside["timeout-minutes"]["value"])', LIMITED),
+    ("a job keeps a minute for its other steps", "tools/check_workflows.py", "MARGIN = 2\n", "MARGIN = 1\n", LIMITED),
+    ("a job's run: steps are not counted together", "tools/check_workflows.py",
+     'sum(map(int, given)) + MARGIN > int(', 'max(map(int, given)) + MARGIN > int(', LIMITED),
+    ("a limit of none, or of another script's digits, is a limit", "tools/check_workflows.py",
+     'MINUTES = re.compile(r"^[1-9][0-9]*$")', 'MINUTES = re.compile(r"^[0-9]+$")', LIMITED),
+    ("the eval job's run step is cut before its budget", ".github/workflows/eval.yml",
+     "        timeout-minutes: 110\n", "        timeout-minutes: 30\n", NEEDED),
+    ("the Engine's step is cut before its call can end", ".github/workflows/run-jobs.yml",
+     "        timeout-minutes: 20\n", "        timeout-minutes: 15\n", NEEDED),
+    ("a uses: step must have a limit of its own", "tools/check_workflows.py",
+     '                 for s in steps if s["key"] == "run"]', '                 for s in steps if s["key"] in ("run", "uses")]',
+     LIMITED),
     ("a needed job that did not pass passes the required check", "tools/needs_passed.py",
      '        if result != "success":\n', '        if result in ("failure", None):\n', ("tests.test_tools.Workflows.test_the_required_check_fails_unless_every_job_it_needs_passed",)),
     ("needs that name no job pass the required check", "tools/needs_passed.py",
@@ -2284,9 +2304,9 @@ MUTANTS = ISSUE + [
     ("FLAKY is counted as killed", "tools/mutants.py",
      'killed += outcome' ' == "killed"', 'killed += outcome in ("killed", "FLAKY")', FLAKY_TESTS),
     ("the failure line of Python 3.10 and earlier is read as the class", "tools/mutants.py",
-     '            found.add(where' ' + "." + method)\n', "            found.add(where)\n", LINE_TESTS),
+     'method) else where' ' + "." + method\n', 'method) else where\n', LINE_TESTS),
     ("the failure line of Python 3.11 and later is read as 3.10's", "tools/mutants.py",
-     'if method == "setUpClass"' ' or where.endswith("." + method):', 'if method == "setUpClass":', LINE_TESTS),
+     'if method == "setUpClass"' ' or where.endswith("." + method) else', 'if method == "setUpClass" else', LINE_TESTS),
     ("a failure in setUpClass is read as a test", "tools/mutants.py",
      'if method == "setUpClass"' " or ", "if ", LINE_TESTS),
     ("a failure line in a test's own message is read as unittest's", "tools/mutants.py",
@@ -5542,7 +5562,7 @@ MUTANTS = ISSUE + [
     ("the commits job may be told anything", "tools/check_workflows.py",
      '    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:\n', "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job's steps may carry an env:, an if: or another step", "tools/check_workflows.py",
-     '    if keys != [{"uses", "with"}, {"run"}]:\n', "    if False:\n", COMMITS_JOB_TESTS),
+     '    if keys != [{"uses", "with"}, {"run", "timeout-minutes"}]:\n', "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job may check out the head", "tools/check_workflows.py",
      "    if [_with(entries, c) for c in checkouts] != [wanted]:\n", "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job may run another tool", "tools/check_workflows.py",
@@ -5557,7 +5577,8 @@ MUTANTS = ISSUE + [
      '    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:\n'
      '        whys.append("it is granted', '    if False:\n        whys.append("it is granted', JUDGING_SHAPE_TESTS),
     ("the judging step may carry a working-directory, a shell or an env", "tools/check_workflows.py",
-     '    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run"}]:\n', "    if False:\n",
+     '    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run", "timeout-minutes"}]:\n',
+     "    if False:\n",
      JUDGING_SHAPE_TESTS),
     ("a shard may be told its index by a number", "tools/check_workflows.py",
      '        if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "env"]} != {"MUTANTS_SHARD": INDEX,\n',
@@ -6711,6 +6732,34 @@ MUTANTS = ISSUE + [
     ("the eval workflow's shape is not held", 'tools/check_workflows.py',
      '            problems += ["%s: %s" % (path.relative_to(root), p) for p in eval_problems(raw(path), root)]\n',
      '            pass\n', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
+    # Issue 421: a case's expected Finding is as its rubric gives it, read at run time, where the case is.
+    ("a case's expected severity is not held to its rubric", 'tools/eval_result.py',
+     '(want["finding"]["severity"], want["finding"]["category"]) != given[want["criterion"]]',
+     'want["finding"]["category"] != given[want["criterion"]][1]', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ("a case's expected category is not held to its rubric", 'tools/eval_result.py',
+     '(want["finding"]["severity"], want["finding"]["category"]) != given[want["criterion"]]',
+     'want["finding"]["severity"] != given[want["criterion"]][0]', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ("a case is held to another criterion's category", 'tools/eval_result.py',
+     'given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}',
+     'given = {c["id"]: (c["severity_if_violated"], rubric["criteria"][0]["category"]) for c in rubric["criteria"]}', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a case that expects no Finding is read as off its rubric', 'tools/eval_result.py',
+     '    if want["finding"] is None:\n        return False\n',
+     '', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a criterion the rubric lacks is read as off it', 'tools/eval_result.py',
+     'return want["criterion"] in given and (want',
+     'return (want', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a rubric coverage refuses holds a case to it', 'tools/eval_result.py',
+     '    if not readable_rubric(rubric):\n        return True\n',
+     '', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a rubric that cannot be read puts a case off it', 'tools/eval_result.py',
+     '    except (OSError, ValueError):\n        return False\n',
+     '    except (OSError, ValueError):\n        return True\n', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('the scorer passes a case off its rubric', 'tools/eval_result.py',
+     '    if off_rubric(case):\n        return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_off_rubric"]}\n',
+     '', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a case off its rubric is given to the review', 'harness/eval/__init__.py',
+     '        if eval_result.off_rubric(case):\n            assessed[entry["id"]] = ("unreadable", ["answer_off_rubric"])\n            continue\n',
+     '', ("tests.test_evals.EvalJob.test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing",)),
     ('a set of no case is run', 'harness/eval/__init__.py',
      '    if found["count"] == 0:\n        raise Stop("eval_set_empty")\n    place',
      '    place', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
@@ -8481,10 +8530,10 @@ MUTANTS = ISSUE + [
     ('a verify that did not finish is started again', 'tools/hooks/before_stop.py',
      '    if ago is not None:\n', '    if False:\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
     ('a verify that ran out of time is written down as finished', 'tools/hooks/before_stop.py',
-     '    note(record, now, not said.startswith(make.UNFINISHED % ("verify", budget, where)))\n',
+     '    note(record, now, not unfinished_now)\n',
      '    note(record, now, True)\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
     ('a verify that finished is written down as unfinished', 'tools/hooks/before_stop.py',
-     '    note(record, now, not said.startswith(make.UNFINISHED % ("verify", budget, where)))\n',
+     '    note(record, now, not unfinished_now)\n',
      '    note(record, now, False)\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
     ('a verify is written down before it ends', 'tools/hooks/before_stop.py',
      '    budget = max(1, int(TIMEOUT - (time.monotonic() - asked)))\n',
@@ -9278,7 +9327,7 @@ MUTANTS = ISSUE + [
     ("an empty current content supersedes", 'adapters/applied.py',
      'if not isinstance(content_id, str) or not content_id:', 'if not isinstance(content_id, str):', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
     ("the step step takes a with", 'tools/check_workflows.py',
-     '"step": {"run", "env"}}', '"step": {"run", "env", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+     '"step": {"run", "env", "timeout-minutes"}}', '"step": {"run", "env", "timeout-minutes", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     ("a step of text after a step's keys is not read", 'tools/check_workflows.py',
      'if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):', 'if lead < indent or not raw.lstrip(" ").startswith("- "):', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     # Muse's read of #383: the one reader of the list refuses a pattern no path may hold.
@@ -9772,6 +9821,68 @@ MUTANTS = ISSUE + [
      '            key = None if key == COMPACT_EVENT else key\n', '            pass\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("a deeper line after a schedule's compact crons is theirs", 'tools/check_workflows.py',
      '            if key == COMPACT_EVENT and compact:\n                found.append(number)\n', '', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    # Issue 438: a failing baseline names its tests, and a fixture's finding is kept only for all it reads.
+    ("a failing baseline names no test", "tools/mutants.py",
+     'for line in failures([said' ' for _, said in runs]):', 'for line in []:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a failing baseline names every test", "tools/mutants.py",
+     'for line in said[:NAMED' '_MOST]]', 'for line in said]', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a named failure is as wide as it came", "tools/mutants.py",
+     '[line[:NAMED' '_WIDTH] for', '[line for', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("how many more failed is not said", "tools/mutants.py",
+     'if len(said) > NAMED' '_MOST else []', 'if False else []', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("the traceback's first line is read as the error", "tools/mutants.py",
+     ' and not line.startswith("Trace' 'back")', '', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("the next failure's rule is read as the error", "tools/mutants.py",
+     'if line.startswith("=" * 7' '0):', 'if False:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a test that failed twice is named twice", "tools/mutants.py",
+     'named.setdefault(_test_id(*found' '.groups()), error)', 'named[_test_id(*found.groups()) + str(len(named))] = error', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a fixture's finding that was kept finds nothing", "tools/check_trials.py",
+     '            wrong = _FOUND[key][1]\n', '            wrong = []\n', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("apps that cannot be decoded stop the trials check", "tools/check_trials.py",
+     '    except (OSError, ValueError):       # `_installed` says so', '    except OSError:       # `_installed` says so', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("apps that are gone stop the trials check", "tools/check_trials.py",
+     '    except (OSError, ValueError):       # `_installed` says so', '    except ValueError:       # `_installed` says so', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is not kept", "tools/check_trials.py",
+     '            _FOUND[key] = (data, wrong)\n', '            _FOUND.clear()\n            _FOUND[key] = (data, wrong)\n', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a test's docstring or the rule after it is read as its error", "tools/mutants.py",
+     'for line in lines[lines.index("-" * 7' '0) + 1:] if "-" * 70 in lines else []:', 'for line in lines[2:]:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a fixture's finding is kept whatever its text", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, told, apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever its name", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (path.read_text(), told, apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever the schema", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, path.read_text(), apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever the Apps' reach", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, path.read_text(), told)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    # Issue 438: the hooks run the checks alone, and a run that did not finish is no failure.
+    ("make checks runs the whole verify", "Makefile",
+     '\t$(PY) -m tools.verify --checks\n', '\t$(PY) -m tools.verify\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("make checks does nothing", "Makefile",
+     '\t$(PY) -m tools.verify --checks\n', '\t@true\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("any failure of make -n is a target lacking", "tools/hooks/make.py",
+     ' and re.search(r"No rule to make target .%s." % re.escape(target), said) is not None\n', '\n', ('tests.test_hooks.BeforeStop.test_only_a_target_truly_absent_is_lacking',)),
+    ("the stop hook asks after another target", "tools/hooks/before_stop.py",
+     '    if make.lacks("checks", where, env):\n', '    if make.lacks("verify", where, env):\n', ('tests.test_hooks.BeforeStop.test_a_branch_with_no_checks_target_tells_the_person_and_ends',)),
+    ("the edit hook asks after another target", "tools/hooks/after_edit.py",
+     '    if make.lacks("checks", where, env):\n', '    if make.lacks("fast", where, env):\n', ('tests.test_hooks.AfterEdit.test_a_branch_with_no_checks_target_tells_the_person_and_does_not_fail',)),
+    ("with no make a verify's command names a flag", "tools/hooks/make.py",
+     '"" if target == "verify" else " --" + target', '" --" + target', ('tests.test_hooks.AfterEdit.test_with_no_make_the_agent_is_told_the_checks_did_not_run',)),
+    ("the checks are read as failing when they ran out of time after an edit", "tools/hooks/after_edit.py",
+     '    if said.startswith(make.UNFINISHED % ("checks", TIMEOUT, where)):\n', '    if False:\n', ('tests.test_hooks.AfterEdit.test_checks_that_ran_out_of_time_found_nothing_and_say_so',)),
+    ("the checks are read as failing when they ran out of time at a stop", "tools/hooks/before_stop.py",
+     '    if unfinished_now:\n', '    if False:\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
+    ("a branch with no checks target is sent back", "tools/hooks/before_stop.py",
+     '    if make.lacks("checks", where, env):\n', '    if False:\n', ('tests.test_hooks.BeforeStop.test_a_branch_with_no_checks_target_tells_the_person_and_ends',)),
+    ("the edit hook runs the fast tests", "tools/hooks/after_edit.py",
+     '    passed, said = make.make("checks", where, env, TIMEOUT)\n', '    passed, said = make.make("fast", where, env, TIMEOUT)\n', ('tests.test_hooks.AfterEdit.test_a_failing_fast_check_is_shown_to_the_agent',)),
+    ("the stop hook runs the whole verify", "tools/hooks/before_stop.py",
+     '    passed, said = make.make("checks", where, env, budget)\n', '    passed, said = make.make("verify", where, env, budget)\n', ('tests.test_hooks.BeforeStop.test_a_session_does_not_end_while_verify_fails',)),
+    ("make checks runs the tests", "tools/verify.py",
+     '    if "--checks" in argv:\n', '    if False:\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("make checks passes whatever the checks found", "tools/verify.py",
+     '        return 1 if checks_failed else 0\n    print', '        return 0\n    print', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("with no make the checks' own command is not named", "tools/hooks/make.py",
+     '"" if target == "verify" else " --" + target', '""', ('tests.test_hooks.AfterEdit.test_with_no_make_the_agent_is_told_the_checks_did_not_run',)),
 ]
 
 
@@ -9805,6 +9916,9 @@ AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants aga
 # and earlier or its whole id from 3.11, then any subtest. A failure in setUpClass names the class. The rule above
 # tells it from a line of the same form in a test's own message.
 FAILURE_LINE = re.compile(r"^={70}\n(?:FAIL|ERROR): (\w+) \(([\w.]+)\)(?: .*)?$", re.M)
+NAMED_MOST = 20     # the tests a failing baseline names, so that its log stays readable
+NAMED_WIDTH = 200   # the characters of each
+NAMED_SCAN = 200    # the lines after a failure's head its error is looked for in
 # Said of a failure not shown to be the mutant's: one more run of the suite on the mutant decides.
 UNCONFIRMED = "unconfirmed"
 # How a FLAKY's reason ends. FLAKY fails the run as an ERROR does: nobody has shown that a test notices the mutant.
@@ -9940,15 +10054,37 @@ def verdict(status, output: str) -> tuple:
     return "ERROR", "exit status %d and no test failed, ending %r%s" % (status, last, AGAIN)
 
 
+def _test_id(method: str, where: str) -> str:
+    """A failed test's id as unittest takes it, from the two forms the Python versions print."""
+    return where if method == "setUpClass" or where.endswith("." + method) else where + "." + method
+
+
 def failed_test(output: str):
     """The id of the one test that failed in `output`, as unittest takes it to run that test alone; else None."""
-    found = set()
-    for method, where in FAILURE_LINE.findall(output):
-        if method == "setUpClass" or where.endswith("." + method):
-            found.add(where)
-        else:
-            found.add(where + "." + method)
+    found = {_test_id(method, where) for method, where in FAILURE_LINE.findall(output)}
     return found.pop() if len(found) == 1 else None
+
+
+def failures(outputs: list) -> list:
+    """Each test that failed in `outputs`, once, with the first line of its error, for a person to read in a log: at
+    most NAMED_MOST of them, each cut to NAMED_WIDTH characters, and a last line saying how many more (issue 438)."""
+    named = {}
+    for output in outputs:
+        for found in FAILURE_LINE.finditer(output):
+            lines = output[found.end():].split("\n", NAMED_SCAN)[:NAMED_SCAN]
+            error = ""
+            # Past the rule, which a test's docstring may stand before, and the traceback, whose lines stand in, the first
+            # line that stands out.
+            for line in lines[lines.index("-" * 70) + 1:] if "-" * 70 in lines else []:
+                if line.startswith("=" * 70):
+                    break
+                if line and line[0] != " " and not line.startswith("Traceback"):
+                    error = line
+                    break
+            named.setdefault(_test_id(*found.groups()), error)
+    said = ["%s: %s" % (test, error) if error else test for test, error in named.items()]
+    return [line[:NAMED_WIDTH] for line in said[:NAMED_MOST]] + \
+        (["and %d more" % (len(said) - NAMED_MOST)] if len(said) > NAMED_MOST else [])
 
 
 def confirm(output: str, work: pathlib.Path, run, broken, unbroken) -> tuple:
@@ -10225,6 +10361,9 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
         if (status is not None and outcome != "SURVIVED") or (status is None and FAILURE_LINE.search(output)):
             print("the tests fail before anything is broken; a mutant cannot be told from that%s"
                   % (" (%s)" % why if why else ""))
+            # Each part stops at its first failure, so there may be more than these.
+            for line in failures([said for _, said in runs]):
+                print("    " + line)
             return 1
     if any(status is None for status, _ in runs):
         print("the tests the mutants name took longer than %d s before anything was broken, and none that ran failed; no "

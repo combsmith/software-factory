@@ -923,10 +923,15 @@ class World:
     def ending(self, run: dict):
         run["status"] = "completed"
         if self.faults and self.rng.random() < 0.12:
-            # GitHub: a_killed_job_times_out
-            # A killed Run may write no outcome (section 3.10): with none, it is an attempt (issue 286).
-            run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment", None]))
-            self.note("run %s: killed (%s)" % (run["run"], run["outcome"]))
+            # GitHub: a_run_past_its_limit_fails
+            # A Run past a step's own limit fails, its job with it, and apply leaves its outcome, environment: bounded by
+            # the pause and the ceiling, no attempt (issue 433). Its Run may leave another, or none where apply is killed
+            # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
+            if self.rng.random() < 0.8:
+                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
+            else:
+                run.update(conclusion="cancelled", outcome=None)
+            self.note("run %s: killed, %s (%s)" % (run["run"], run["conclusion"], run["outcome"]))
             return
         if self.held() or not self.agreed() or run["content_id"] != self.cid() or self.pr_state != "open":
             # GitHub: a_superseded_run_fails

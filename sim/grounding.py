@@ -151,7 +151,11 @@ RULES = (
     # the list read whole, all 1,873 runs.
     ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing",
      ("P-43",), "trials/P-43.json", None),
-    ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None),
+    # trials/P-42.json and P-42.step-timeout.json show both, but P-42's row asks of a required check, not of a Run's
+    # job: P-18's row asks this, and it stays unverified until P-18 has a fixture.
+    ("a_run_past_its_limit_fails", "A Run's job stopped by a step's own timeout-minutes concludes failure, a later "
+     "if: always() step still running; one GitHub stops at the job's own timeout concludes cancelled", ("P-18",), None,
+     None),
     ("a_superseded_run_fails", "A Run whose apply refuses, or that the Kernel refuses as it starts, concludes failure",
      ("P-18",), None, None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole",
@@ -351,7 +355,7 @@ ASKS = {
         "P-22": "How soon after it is started does a Run appear in the list of run records?",
     },
     "a_run_list_stops_short": {"P-43": "can the list of run records stop short with the oldest Runs missing?"},
-    "a_killed_job_times_out": {"P-18": "when a job times out or is cancelled?"},
+    "a_run_past_its_limit_fails": {"P-18": "when a job times out or is cancelled?"},
     "a_superseded_run_fails": {
         "P-18": "does a job whose step exits non-zero conclude `failure`, whether its Run refused before its work "
               "or after it?",
