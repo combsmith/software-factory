@@ -15,6 +15,7 @@ exits 1, and no traceback, which could quote a case, reaches the log. Results an
 only `eval-report.json`, of hashes, verdicts and codes, is written where the upload finds it."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -176,9 +177,41 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
     return "fetched %d of %d cases" % (len([c for c in why.values() if c is None]), found["count"])
 
 
+# What facts/1 has required since the review Intent's set was made, at d556992, each with what the job gives a case that
+# lacks it, and what that means. The set stays as it is, and a case cannot exercise one of these until it is issued again
+# with it. Applied to a case's facts alone, in this job alone, before anything reads them; the live path never fills.
+# A field made required later fails tests/test_evals.py::test_the_facts_the_set_was_made_with_read_as_todays_once_filled
+# until it has a row here, or the set is issued again (decision 0105).
+FACTS_THE_SET_PREDATES = (
+    ("last_reopened_at", None, "never reopened: a case cannot exercise an approval from before a reopening"),
+    ("expired_reviews", [], "no Lens review past retention: a case cannot exercise one being asked for again"),
+)
+THREAD_FIELDS_THE_SET_PREDATES = (
+    ("ruling", None, "the Lens decided nothing of its Finding: a case cannot exercise a ruling on a thread"),
+)
+
+
+def current_facts(facts):
+    """A copy of a case's `facts`, each field the set predates filled by its row where it is absent, and a field the case
+    gives kept as it is. What is no facts is handed back for the schema to refuse."""
+    if not isinstance(facts, dict):
+        return facts
+    filled = copy.deepcopy(facts)
+    for field, default, _ in FACTS_THE_SET_PREDATES:
+        filled.setdefault(field, copy.deepcopy(default))
+    threads = filled.get("threads")
+    for thread in threads if isinstance(threads, list) else []:
+        for field, default, _ in THREAD_FIELDS_THE_SET_PREDATES:
+            if isinstance(thread, dict):
+                thread.setdefault(field, copy.deepcopy(default))
+    return filled
+
+
 def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
-    one that is no `eval-case/1` of this set's Role and Intent is `unreadable`, `not_this_set`; one whose expected Finding
+    the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
+    `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
+    `unreadable`, `not_this_set`; one whose expected Finding
     is off its rubric is `unreadable`, `answer_off_rubric`; every other is given to `review`, which returns its `result/1`,
     and scored against the case by `tools/eval_result.py`."""
     assessed, interrupted = {}, False
@@ -196,6 +229,11 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
         except (OSError, ValueError, Stop):
             assessed[entry["id"]] = ("unreadable", ["schema"])
             continue
+        if isinstance(case, dict) and "facts" in case:
+            case = dict(case, facts=current_facts(case["facts"]))
+            if _errors(case["facts"], "facts"):
+                assessed[entry["id"]] = ("unreadable", ["facts_not_current"])
+                continue
         if _errors(case, "eval-case") or case["id"] != entry["id"] or \
                 (case["role"], case["intent"]) != (found["role"], found["intent"]):
             assessed[entry["id"]] = ("unreadable", ["not_this_set"])
