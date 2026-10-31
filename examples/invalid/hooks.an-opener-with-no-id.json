@@ -1,0 +1,140 @@
+{
+  "schema": "hooks/1",
+  "maintainer": {
+    "login": "don-petry",
+    "name": "Don Petry",
+    "email": "36422719+don-petry@users.noreply.github.com"
+  },
+  "openers": [
+    {
+      "login": "don-petry",
+      "is": "the Maintainer, the one account that opens a pull request here until a record adds the Factory's App (decision 0102)"
+    }
+  ],
+  "protected": [
+    {
+      "path": "lifecycle/",
+      "is": "the Lifecycle"
+    }
+  ],
+  "reported": [
+    {
+      "path": "docs/decisions/",
+      "is": "a decision record, which is never edited, only replaced"
+    }
+  ],
+  "lens_inputs": [
+    {
+      "lens": "verify",
+      "path": "Makefile",
+      "is": "how verify runs the checks and the tests"
+    }
+  ],
+  "merging": {
+    "branch": "main",
+    "commands": [
+      "pr merge --admin",
+      "repo sync"
+    ],
+    "mutations": [
+      "mergePullRequest",
+      "mergeBranch",
+      "updateRefs",
+      "updateRef",
+      "deleteRef",
+      "createCommitOnBranch"
+    ],
+    "endpoints": [
+      "repos/*/*/pulls/*/merge",
+      "repos/*/*/merges",
+      "repos/*/*/git/refs/**"
+    ]
+  },
+  "sessions": {
+    "programs": [
+      "claude",
+      "claude-code"
+    ],
+    "words": [
+      "--dangerously-skip-permissions",
+      "--allow-dangerously-skip-permissions",
+      "bypassPermissions"
+    ],
+    "environment": [
+      "CLAUDE_CONFIG_DIR",
+      "HOME"
+    ]
+  },
+  "settings": {
+    "commands": [
+      "repo edit",
+      "repo rename",
+      "repo archive",
+      "repo unarchive",
+      "repo delete",
+      "repo deploy-key",
+      "repo autolink",
+      "ruleset",
+      "secret set",
+      "secret delete",
+      "secret remove",
+      "variable set",
+      "variable delete",
+      "variable remove",
+      "workflow enable",
+      "workflow disable"
+    ],
+    "reads": [
+      "ruleset list",
+      "ruleset ls",
+      "ruleset view",
+      "ruleset check",
+      "repo deploy-key list",
+      "repo autolink list",
+      "repo autolink view"
+    ],
+    "mutations": [
+      "updateRepository*",
+      "archiveRepository",
+      "unarchiveRepository",
+      "deleteRepository",
+      "transferRepository",
+      "*RepositoryRuleset",
+      "*BranchProtectionRule",
+      "*Environment",
+      "updateTeamsRepository"
+    ],
+    "endpoints": [
+      "repos/*/*",
+      "repos/*/*/rulesets/**",
+      "repos/*/*/branches/*/protection/**",
+      "repos/*/*/branches/*/rename",
+      "repos/*/*/tags/protection/**",
+      "repos/*/*/actions/permissions/**",
+      "repos/*/*/actions/secrets/**",
+      "repos/*/*/actions/variables/**",
+      "repos/*/*/actions/oidc/**",
+      "repos/*/*/actions/runners/**",
+      "repos/*/*/actions/workflows/*/enable",
+      "repos/*/*/actions/workflows/*/disable",
+      "repos/*/*/environments/**",
+      "repos/*/*/hooks/**",
+      "repos/*/*/collaborators/**",
+      "repos/*/*/invitations/**",
+      "repos/*/*/keys/**",
+      "repos/*/*/dependabot/secrets/**",
+      "repos/*/*/codespaces/secrets/**",
+      "repos/*/*/pages/**",
+      "repos/*/*/autolinks/**",
+      "repos/*/*/properties/**",
+      "repos/*/*/topics",
+      "repos/*/*/transfer",
+      "repos/*/*/vulnerability-alerts",
+      "repos/*/*/automated-security-fixes",
+      "repos/*/*/private-vulnerability-reporting",
+      "repos/*/*/code-scanning/default-setup",
+      "repos/*/*/interaction-limits",
+      "orgs/*/**"
+    ]
+  }
+}

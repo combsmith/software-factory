@@ -13,7 +13,7 @@ Any other spelling is refused. An org standard is cited from combsmith/.github a
 # `checks` runs `make verify`, its simulators on 300 seeds. On 2026-10-21 the runs that finished took 11 to 14.5 minutes, and six runs in three pull requests were cut at its 15-minute timeout with the tests still running, so its timeout was raised to 25 minutes; by 2026-10-29 a run took up to 23, so the job has 28 and its step 26, two kept for the checkout. Raise both before a run nears the step's.
 # About 1,000 mutants, in eight shards of about 126, each kill confirmed by two runs of one test. With six shards of 168 the legs ran 14 to 25 minutes against a 25-minute timeout, and legs were cut at 25:00 in three pull requests, once 22 ms after the last kill had printed. Every mutant names the tests that kill it, which run first; the whole suite, its slow modules last, runs only when they pass ("Mutation run: every mutant names its tests, the slow suites run last, and a builder may break a few", issue 217). Add a shard before a leg nears its timeout.
 # `verify` checks out the base, never the head, and runs the base's tools/needs_passed.py, so a change cannot make its own verdict pass: decision 0023.
-# `commits` checks out the base too and runs the base's tools/commits_are_the_maintainers.py, which reads every commit the pull request carries and refuses unless each names the Maintainer ("Identity: every commit a pull request carries is the Maintainer's, checked outside the shell", issue 204).
+# `commits` checks out the base too and runs the base's tools/commits_are_the_maintainers.py, which reads every commit the pull request carries and refuses unless each names the Maintainer ("Identity: every commit a pull request carries is the Maintainer's, checked outside the shell", issue 204). It reads the event's payload too, and refuses unless an account on the configuration's list opened the pull request from this repo: decision 0102. On a merge group, whose payload names no opener, it reads the pull request the queue's ref names, with this job's read-only token.
 name: factory
 on:
   pull_request:
@@ -64,10 +64,12 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: read
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
       EVENT: ${{ github.event_name }}
+      WORKFLOW_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -196,7 +198,7 @@ on:
 A schedule never fires at minute 0, which is when the platform drops them.
 
 Org standard: ci-standards.md, "Centralization tiers", which says a required check's workflow must run on merge_group, and "Scheduled Workflow Timing". Stricter here: every workflow on pull requests, and no path filter.
-Held by: `examples/workflows/invalid/queue.a-required-check-that-never-reports.yml`, `examples/workflows/invalid/cron.the-top-of-the-hour.yml`, `examples/workflows/invalid/form.no-trigger.yml`
+Held by: `examples/workflows/invalid/queue.a-required-check-that-never-reports.yml`, `examples/workflows/invalid/queue.a-type-left-out.yml`, `examples/workflows/invalid/cron.the-top-of-the-hour.yml`, `examples/workflows/invalid/form.no-trigger.yml`
 
 ## A failure is seen, and a hang ends
 

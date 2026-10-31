@@ -2039,6 +2039,8 @@ class Workflows(unittest.TestCase):
         depth = "          fetch-depth: 0\n          ref: %s\n" % check_workflows.BASE
         self.assertEqual((job.count(reading), job.count(depth)), (1, 1))
         shape = "its job commits's steps are not a checkout"
+        # A list of an event's types is a filter, which the workflow and its counter-example say.
+        self.assertEqual(check_workflows.run(ROOT), [])
         cases = [(GOOD.replace(job, "").replace("      - commits\n", ""), "has no job commits"),
                  (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "has keys other than"),
                  (GOOD.replace(job, job.replace("    env:\n", "    container: ghcr.io/x/y:1\n    env:\n")), "has keys other than"),
@@ -2046,6 +2048,13 @@ class Workflows(unittest.TestCase):
                   "has keys other than"),
                  (GOOD.replace(job, job.replace("    timeout-minutes: 10\n", "")), "has keys other than"),
                  (GOOD.replace(job, job.replace("      contents: read\n", "      contents: write\n")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "      pull-requests: write\n")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "      pull-requests: read\n      actions: read\n")),
+                  "granted other than"),
+                 (GOOD.replace(job, job.replace("      WORKFLOW_TOKEN: ${{ github.token }}\n", "")), "is not told BASE_SHA"),
+                 (GOOD.replace(job, job.replace("      WORKFLOW_TOKEN: ${{ github.token }}\n", "      WORKFLOW_TOKEN: ${{ secrets.X }}\n")),
+                  "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace("      EVENT: ${{ github.event_name }}\n", "")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace("github.event.merge_group.head_sha", "github.sha")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace(depth, "          ref: %s\n" % check_workflows.BASE)), "whole history"),
@@ -2288,17 +2297,199 @@ class Workflows(unittest.TestCase):
         self.assertEqual(len(said(second)), 4, "two commits, each authored and committed by someone else")
         (local / "config" / "hooks.json").write_text("{}")
         self.assertTrue(caught(said(second), "cannot be read"))
-        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
+        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]},
+                                                                 "openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]}))
+        event = local.parent / "event.json"
+        event.write_text(json.dumps({"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": {"full_name": "o/r"}},
+                                                      "base": {"repo": {"full_name": "o/r"}}}}))
         with contextlib.redirect_stdout(io.StringIO()) as printed:
-            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
-                                                               "EVENT": "pull_request"}, local), 0)
-            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
-                                                               "EVENT": "pull_request"}, local), 1)
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "pull_request",
+                                                               "GITHUB_EVENT_PATH": str(event)}, local), 0)
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base, "EVENT": "pull_request",
+                                                               "GITHUB_EVENT_PATH": str(event)}, local), 1)
         # What it says is what it holds: that the commits name the Maintainer, never that they are theirs (decision
         # 0087), and the committer only where GitHub did not commit it.
         self.assertIn("names the Maintainer as its author, and as its committer where GitHub did not commit it",
                       printed.getvalue())
         self.assertNotIn("is the Maintainer's", printed.getvalue())
+
+    def test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows(self):
+        # Issue 409: GitHub writes the opener and the head repository into the event's payload, and the committer writes
+        # neither. Each is read from there, against the list config/hooks.json holds at the base: an account by its login
+        # and its id, since a login can be renamed and taken, and the head by its whole name. The fixture's accounts are
+        # not the repo's, and an App's login is a login: slice 2's App joins the list by a record.
+        root = tree({"config/hooks.json": json.dumps({"openers": [
+            {"login": "ada", "id": 1, "is": "the Maintainer"}, {"login": "sf-dev[bot]", "id": 2, "is": "the App"}]})})
+        where = root / "event.json"
+
+        def said(login="ada", id_=1, head="o/r", base="o/r", event="pull_request", payload=None):
+            told = {"pull_request": {"user": {"login": login, "id": id_}, "head": {"repo": {"full_name": head}},
+                                     "base": {"repo": {"full_name": base}}}}
+            where.write_text(json.dumps(told if payload is None else payload))
+            return commits_are_the_maintainers.opener_problems(root, {"EVENT": event, "GITHUB_EVENT_PATH": str(where)})
+
+        def refused(found, words):
+            self.assertTrue(found and any(words in sentence for sentence in found), found)
+
+        # Each account on the list passes, from the repo itself, and an App's login is read as a person's is.
+        self.assertEqual(said(), [])
+        self.assertEqual(said("sf-dev[bot]", 2), [])
+        # Another account refuses, and says who may. So does a login with another's id, as one renamed and taken is, and
+        # an account on the list under another's login.
+        for words in ("opened by bob", "ada, the Maintainer", "sf-dev[bot], the App"):
+            refused(said("bob", 9), words)
+        refused(said("ada", 9), "opened by ada")
+        refused(said("bob", 1), "opened by bob")
+        refused(said("ada", 2), "opened by ada")
+        # A fork refuses, the Maintainer's own among them, and so does a head repository GitHub no longer names.
+        refused(said(head="ada/r"), "from ada/r")
+        refused(said(head="o/r2"), "from o/r2")
+        refused(said(head=None), "from None")
+        refused(said(head=None, base=None), "from None")
+        # The opener passes, but neither repository is read as agreeing where the base's cannot be read.
+        refused(said(base=""), "from o/r")
+        # A payload that cannot be read refuses, as anything missing from it does.
+        for odd in ([], {}, {"pull_request": None}, {"pull_request": {}}, {"pull_request": {"user": None}},
+                    {"pull_request": {"user": {"login": "ada", "id": 1}}},
+                    {"pull_request": {"user": {"login": "ada", "id": 1}, "head": None, "base": {"repo": {"full_name": "o/r"}}}},
+                    {"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": None}, "base": {"repo": None}}},
+                    {"pull_request": {"user": {"login": ["ada"], "id": 1}, "head": {"repo": {"full_name": "o/r"}},
+                                      "base": {"repo": {"full_name": "o/r"}}}}):
+            refused(said(payload=odd), "")
+        where.write_text("not json")
+        refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}),
+                "cannot be read")
+        refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request",
+                                                                   "GITHUB_EVENT_PATH": str(root / "no-such")}), "cannot be read")
+        refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request"}), "cannot be read")
+        # A merge group's payload names no opener, so the pull request its ref names is read from GitHub, by the base's tool
+        # and list, and held to the same rule. This is what catches a pull request retargeted to main.
+        sha = "a" * 40
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + sha
+        open_on_main = {"number": 44, "state": "open", "user": {"login": "ada", "id": 1}, "base": {"ref": "main", "repo": {"full_name": "o/r"}},
+                        "head": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, status=200, body=None, fails=False):
+                self.status, self.body, self.fails, self.asked = status, open_on_main if body is None else body, fails, []
+
+            def send(self, asked):
+                self.asked.append(asked)
+                if self.fails:
+                    raise commits_are_the_maintainers.Unanswered("no answer")
+                return {"status": self.status, "body": self.body}
+
+        def group(transport=None, head_ref=ref, base_ref="refs/heads/main", token="t", payload=None):
+            told = {"merge_group": {"head_ref": head_ref, "base_ref": base_ref, "head_sha": "b" * 40, "base_sha": sha},
+                    "repository": {"full_name": "o/r"}}
+            where.write_text(json.dumps(told if payload is None else payload))
+            environ = {"EVENT": "merge_group", "GITHUB_EVENT_PATH": str(where)}
+            if token is not None:
+                environ["WORKFLOW_TOKEN"] = token
+            return commits_are_the_maintainers.opener_problems(root, environ, Asked() if transport is None else transport)
+
+        # The pull request it names is read, once, by its number; on the list and from this repo, it passes.
+        read = Asked()
+        self.assertEqual(group(read), [])
+        self.assertEqual([(a["method"], a["path"]) for a in read.asked], [("GET", "/repos/o/r/pulls/44")])
+        self.assertEqual(group(Asked(body=dict(open_on_main, user={"login": "sf-dev[bot]", "id": 2}))), [])
+        # Read from GitHub, the same rule refuses: another account, a retargeted one among them, or a fork.
+        refused(group(Asked(body=dict(open_on_main, user={"login": "bob", "id": 9}))), "opened by bob")
+        refused(group(Asked(body=dict(open_on_main, head={"repo": {"full_name": "bob/r"}}))), "from bob/r")
+        refused(group(Asked(body=dict(open_on_main, head={"repo": None}))), "from None")
+        # A ref that does not name exactly one pull request, on the branch the group merges to, asks nothing and refuses.
+        for odd in ("refs/heads/gh-readonly-queue/main/pr-44", "refs/heads/gh-readonly-queue/main/pr-44-abc", "refs/heads/main",
+                    "gh-readonly-queue/main/pr-44-" + sha, "x" + ref, ref + "x", ref + "\n", None, 44,
+                    "refs/heads/gh-readonly-queue/main/pr-044-" + sha, "refs/heads/gh-readonly-queue/main/pr-0-" + sha,
+                    "refs/heads/gh-readonly-queue/main/pr-44-45-" + sha, "refs/heads/gh-readonly-queue/main/pr-x-" + sha,
+                    "refs/heads/gh-readonly-queue/a/b/pr-44-" + sha, "refs/heads/gh-readonly-queue/other/pr-44-" + sha):
+            read = Asked()
+            refused(group(read, head_ref=odd), "merge_group_ref_unreadable")
+            self.assertEqual(read.asked, [], odd)
+        for odd in ("refs/heads/other", "main", None):
+            refused(group(base_ref=odd), "merge_group_ref_unreadable")
+        # An answer that cannot be read refuses, with its code: none, another status, another pull request, one closed or on
+        # another base, and no token to ask with.
+        refused(group(Asked(fails=True)), "merge_group_pull_unreadable")
+        for transport in (Asked(status=404), Asked(status=500), Asked(body=[]), Asked(body="x"),
+                          Asked(body=dict(open_on_main, number=45)), Asked(body=dict(open_on_main, state="closed")),
+                          Asked(body=dict(open_on_main, base={"ref": "other", "repo": {"full_name": "o/r"}})),
+                          Asked(body=dict(open_on_main, base=None))):
+            refused(group(transport), "merge_group_pull_unreadable")
+        for token in (None, ""):
+            refused(group(token=token), "merge_group_pull_unreadable")
+        refused(group(token="two words", transport=False), "merge_group_pull_unreadable")
+        # An answer with no opener in it cannot be read either, and neither can a repository the payload does not name.
+        for body in ({"number": 44, "state": "open", "base": {"ref": "main"}},):
+            refused(group(Asked(body=body)), "cannot be read")
+        refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}}), "cannot be read")
+        # The payload must be a merge group's: an event that says so of a pull request's refuses, as the other way about.
+        refused(said(event="merge_group"), "merge_group_unreadable")
+        refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}, "pull_request": {}}), "merge_group_unreadable")
+        refused(group(payload={"merge_group": None}), "merge_group_unreadable")
+        refused(group(payload=[]), "cannot be read")
+        refused(said(payload={"merge_group": {}}), "")
+        for event in (None, "push", "pull_request_target"):
+            refused(said(event=event), "must be set")
+        # The list is the configuration's: one that cannot be read refuses every opener, and an empty one allows none.
+        for text in ("{}", "not json", json.dumps({"openers": None}), json.dumps({"openers": [{"login": "ada"}]})):
+            (root / "config" / "hooks.json").write_text(text)
+            refused(said(), "cannot be read")
+        (root / "config" / "hooks.json").write_text(json.dumps({"openers": []}))
+        refused(said(), "opened by ada")
+        # This repo's list holds the Maintainer alone, by the login and the id the configuration gives them elsewhere.
+        hooks = json.loads((ROOT / "config" / "hooks.json").read_text())
+        held = json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]["maintainer"]
+        self.assertEqual([(o["login"], o["id"]) for o in hooks["openers"]], [(hooks["maintainer"]["login"], held["id"])])
+        self.assertEqual(hooks["maintainer"]["login"], held["login"])
+        # The schema requires the list, an account on it and what each is; its counter-examples say so.
+        self.assertEqual(check_examples.run(), [])
+        # And it reads an App's login, so a record adds the Factory's App and changes nothing else.
+        schema = json.loads((ROOT / "schemas" / "hooks.schema.json").read_text())
+        app = {"login": "sf-dev[bot]", "id": 2, "is": "the App"}
+        self.assertEqual(check_examples.validate(dict(hooks, openers=hooks["openers"] + [app]), schema), [])
+
+    def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
+        # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        ours = {"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": {"full_name": "o/r"}},
+                                 "base": {"repo": {"full_name": "o/r"}}}}
+        environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}
+
+        def ended(commits, payload):
+            where.write_text(json.dumps(payload))
+            with mock.patch.object(commits_are_the_maintainers, "problems", return_value=commits), \
+                    contextlib.redirect_stdout(io.StringIO()) as printed:
+                return commits_are_the_maintainers.main(environ, root), printed.getvalue()
+
+        code, printed = ended([], ours)
+        self.assertEqual(code, 0)
+        self.assertIn("names the Maintainer", printed)
+        self.assertIn("opened from o/r by ada, the Maintainer", printed)
+        code, printed = ended(["a commit names another"], ours)
+        self.assertEqual(code, 1)
+        self.assertIn("a commit names another", printed)
+        self.assertNotIn("opened from", printed)
+        code, printed = ended([], {"pull_request": dict(ours["pull_request"], user={"login": "bob", "id": 9})})
+        self.assertEqual(code, 1)
+        self.assertIn("opened by bob", printed)
+        self.assertNotIn("names the Maintainer as", printed)
+        # A merge group's opener is read through the transport main is handed, and refuses or says the same.
+        queue = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40, "base_ref": "refs/heads/main"},
+                 "repository": {"full_name": "o/r"}}
+        where.write_text(json.dumps(queue))
+        answer = dict(ours["pull_request"], number=44, state="open", base={"ref": "main", "repo": {"full_name": "o/r"}})
+
+        class Asked:
+            def send(self, asked):
+                return {"status": 200, "body": answer}
+        with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            told = dict(environ, EVENT="merge_group", WORKFLOW_TOKEN="t")
+            self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 0)
+            self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
+        self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -8412,7 +8603,9 @@ esac
 
     # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
     # lends to the next mutant, so each is removed after the test whether or not it was refused.
-    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "scratch-of-the-reader")
+    # The scratch directory is one a test does make, so it stands where the walk leaves out: a test running beside this one
+    # copies the tree, and a directory that goes while it copies fails that test.
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "__pycache__/scratch-of-the-reader")
 
     def tearDown(self):
         for name in self.INSIDE:
@@ -8499,7 +8692,7 @@ esac
         # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
         # is refused and the directory mktemp made is removed (Codex on PR 298).
         inside = ROOT / self.INSIDE[2]
-        inside.mkdir()
+        inside.mkdir(parents=True)
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
         link.symlink_to(inside)
         for tmpdir in (inside, link):
