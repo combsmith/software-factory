@@ -33,7 +33,8 @@ JSON_TYPE = re.compile(r"content-type\s*:.*\bjson\b", re.I)
 # A status line in any case or indent, wherever a body is read: a head the reading did not find as one.
 ANY_STATUS = re.compile(r"\s*HTTP/[0-9.]+\s+[0-9]{3}\b", re.I)
 # A status line and nothing else: the version, the code and a reason phrase of words alone, as HTTP writes one.
-STATUS_LINE = re.compile(r"HTTP/[0-9.]+ [0-9]{3}(?: [A-Za-z][A-Za-z '-]*)?\s*")
+# The phrase ends in no space, so that it and the trailing space share none: a run of spaces is read in time.
+STATUS_LINE = re.compile(r"HTTP/[0-9.]+ [0-9]{3}(?: [A-Za-z](?:[A-Za-z '-]*[A-Za-z'-])?)?\s*")
 # A quoted name and a colon, as a field of JSON is written inside text: one named for a credential is never kept.
 QUOTED_FIELD = re.compile(r'\\?"([^"\\]{1,64})\\?"\s*:')     # its quotes escaped once, too
 # The same in single quotes, each kind read on its own, so the other quote inside a name is part of it.
