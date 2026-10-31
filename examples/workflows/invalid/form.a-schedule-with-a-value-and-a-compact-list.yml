@@ -1,0 +1,27 @@
+# Must be rejected. A schedule: with a value on its own line is no key whose list follows, so the crons after it
+# are read as an on: written as a list (Codex on #428).
+name: sf-poller
+on:
+  workflow_dispatch:
+  schedule: nightly
+  # three times an hour, off the hour; a comment here is no key
+  - cron: "13 * * * *"
+  - cron: "33 * * * *"
+  - cron: "53 * * * *"
+  workflow_run:
+    workflows:
+    - factory
+    - ci
+    - sf-run
+    types:
+    - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next

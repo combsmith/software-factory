@@ -56,7 +56,8 @@ RULES = {
     "token": "a secret is named one at a time; none is a personal access token, and secrets are never inherited",
     "queue": "a workflow that runs on pull_request also runs on merge_group, and filters neither",
     "cron": "no schedule fires at minute 0, alone or among other minutes",
-    "timeout": "every job that has steps sets timeout-minutes, on the job",
+    "timeout": "every job that has steps sets timeout-minutes, on the job, and each of its run: steps a limit of its "
+               "own, the run: steps' together leaving the job two minutes for its other steps",
     "runner": "the runner and any container image are named by version, never latest",
     "credentials": "every checkout sets persist-credentials: false",
     "soft": "no step or job continues on error",
@@ -158,6 +159,7 @@ jobs:
       - name: Read and decide
         env:
           CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
+        timeout-minutes: 6
         run: python3 -m controller
       - name: Upload the pass record
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -169,6 +171,7 @@ jobs:
         env:
           CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
           WORKFLOW_TOKEN: ${{ github.token }}
+        timeout-minutes: 6
         run: python3 -m adapters.effects
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -213,11 +216,13 @@ jobs:
           persist-credentials: false
       - name: Hand on the commit it checked out, which every later job checks out
         id: commit
+        timeout-minutes: 1
         run: python3 -m harness.steps
       - name: Install the CLI at the Engine's pin
         env:
           CLI_VERSION: "%(version)s"
           CLI_CHECKSUM: "%(checksum)s"
+        timeout-minutes: 3
         run: |
           url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"
           curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude "${url}"
@@ -231,12 +236,14 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
+        timeout-minutes: 3
         run: python3 -m harness.read
       - name: Run the Engine
         id: engine
         env:
           CLAUDE_CLI: /usr/local/bin/claude
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        timeout-minutes: 20
         run: python3 -m harness.run
       - name: Upload the Result
         id: result
@@ -272,6 +279,7 @@ jobs:
       - name: Verify the Result
         env:
           RUN_DIGEST: ${{ needs.run.outputs.digest }}
+        timeout-minutes: 5
         run: python3 -m harness.verify
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -314,6 +322,7 @@ jobs:
           PASS: ${{ inputs.pass }}
           RUN_DIGEST: ${{ needs.run.outputs.digest }}
           PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}
+        timeout-minutes: 4
         run: python3 -m harness.apply_step
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -325,6 +334,7 @@ jobs:
         if: always()
         env:
           NAME: ${{ inputs.name }}
+        timeout-minutes: 2
         run: python3 -m harness.outcome
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -366,6 +376,7 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+        timeout-minutes: 4
         run: python3 -m harness.approve_step
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -377,6 +388,7 @@ jobs:
         if: always()
         env:
           NAME: ${{ inputs.name }}
+        timeout-minutes: 2
         run: python3 -m harness.outcome
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -395,9 +407,15 @@ ACTIONS_APP = 15368
 # A workflow that cannot be written within a rule. It is exempt from the rules named and from no other,
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
-    "ci.yml": (("install",), "d926b2135508f3799b02cfc2741d6017435399f8ec054c3f171dcd79236ba627"),    # the org's secret scan downloads gitleaks
+    "ci.yml": (("install",), "f6eac470f6f955e02f86fb889d311e428298a4ef239ead0fad86509af86a5ded"),    # the org's secret scan downloads gitleaks
 }
 MAX_RUN_LINES = 10
+# The minutes a job keeps beyond its run: steps' limits, for its other steps, which have none: its set-up, each uses: step
+# and each post step. In 116 jobs of the required checks' runs to 2026-10-29 they took at most 8 s together (issue 388).
+MARGIN = 2
+# A limit, of a job or a step: a whole number of minutes above none, in ASCII digits. The runner sets no limit for 0, and
+# int() reads digits a YAML reader does not (issue 388).
+MINUTES = re.compile(r"^[1-9][0-9]*$")
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
 ITEM = re.compile(r"^( *)- (\S.*)$")
 COMMAND = re.compile(r"^(make [\w.-]+|python3 -m [\w.]+)$")
@@ -477,7 +495,7 @@ EVAL_GIVEN = {
                         "retention-days": "90"}},
     "judge": {},
 }
-EVAL_STEP_KEYS = {"uses", "run", "with", "env"}
+EVAL_STEP_KEYS = {"uses", "run", "with", "env", "timeout-minutes"}
 # The release job and its workflow (issue 197's ruling 4′): dispatched by the Maintainer, with the command and its
 # version or target, or on a schedule that cuts only when the repo's FACTORY_RELEASE_AUTO is true and no Pause is set;
 # one job, `release`, on its own environment, whose deployment branches are main's alone, so no other ref's copy of
@@ -526,7 +544,7 @@ RELEASE_GIVEN = {
                      "RELEASE_TO": "${{ inputs.to }}", "RELEASE_CUT_COMMIT": "${{ github.sha }}",
                      "RELEASE_TOKEN": "${{ steps.mint.outputs.token }}"}},
 }
-RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"}, "step": {"run", "env"}}
+RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"}, "step": {"run", "env", "timeout-minutes"}}
 # What names the release job's environment, its key or its token, in a workflow that is not release.yml.
 RELEASE_ONLY = re.compile(r"factory-release|RELEASE_APP_|RELEASE_TOKEN|release\.move", re.I)
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
@@ -753,8 +771,22 @@ def lint(text: str) -> list:
 
     for job in jobs:
         inside = {e["key"]: e for e in under("jobs", job["key"])}
-        if "steps" in inside and not inside.get("timeout-minutes", {}).get("value", "").isdigit():
+        if "steps" in inside and not MINUTES.match(inside.get("timeout-minutes", {}).get("value", "")):
             found.append(("timeout", "job %s has no timeout-minutes" % job["key"]))
+        # A job GitHub stops at its own timeout concludes cancelled, as its check run does, which no required check or
+        # Run reads as a failure; a step stopped at its own fails, and its job with it (trials/P-42.step-timeout.json).
+        # So each run: step has a limit of its own, and the run: steps together leave their job MARGIN minutes for its
+        # other steps, which have none (issue 388).
+        steps = under("jobs", job["key"], "steps")
+        given = [next((e["value"] for e in steps if e["step"] == s["step"] and e["key"] == "timeout-minutes"), "")
+                 for s in steps if s["key"] == "run"]
+        if not all(MINUTES.match(minutes) for minutes in given):
+            found.append(("timeout", "a run: step of job %s has no timeout-minutes of its own" % job["key"]))
+        elif given and MINUTES.match(inside.get("timeout-minutes", {}).get("value", "")) and \
+                sum(map(int, given)) + MARGIN > int(inside["timeout-minutes"]["value"]):
+            found.append(("timeout", "the run: steps of job %s are given %d minutes together, more than its %s less the %d "
+                          "its other steps keep" % (job["key"], sum(map(int, given)), inside["timeout-minutes"]["value"],
+                                                    MARGIN)))
         if "environment" in inside and events != {"workflow_call"}:
             found.append(("shim", "job %s names an environment in a workflow that is not called alone" % job["key"]))
     if events & SHIM_EVENTS:
@@ -926,8 +958,8 @@ def scan_problems(text: str) -> list:
               and {e["key"] for e in entries if e["path"] == ["jobs", jobs[0]]} <= SCAN_JOB
               and all(set(step) <= {"name", "uses", "with"} and _checkout(step.get("uses", {"key": ""}))
                       for step in steps[:2])
-              and set(install) <= {"name", "env", "run"} and given == ({*SCAN_ENV} if "env" in install else set())
-              and set(steps[3]) <= {"name", "run"})
+              and set(install) <= {"name", "env", "run", "timeout-minutes"} and given == ({*SCAN_ENV} if "env" in install else set())
+              and set(steps[3]) <= {"name", "run", "timeout-minutes"})
     if not shaped:
         problems.append("%s does not run, in this order and nothing else, the head's checkout, the base's, the "
                         "install and the scan, with no environment, directory or container of its own: a step could "
@@ -1005,8 +1037,9 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
                     "runs" % (", ".join(sorted(JUDGING_KEYS)), ", ".join(sorted(set(inside) - JUDGING_KEYS))))
     if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:
         whys.append("it is granted other than contents: read")
-    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run"}]:
-        whys.append("its steps are not a checkout with its with: and then one run:, each holding no other key: a "
+    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run", "timeout-minutes"}]:
+        whys.append("its steps are not a checkout with its with: and then one run: with its own timeout-minutes, "
+                    "each holding no other key: a "
                     "working-directory:, a shell:, an env: or an if: on the step would change where or how `%s` runs"
                     % JUDGE)
     return whys
@@ -1038,12 +1071,13 @@ def _shards(entries: list, jobs: list) -> list:
         if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:
             whys.append("has the job %s, which runs the mutants, granted other than contents: read" % job)
         checkouts = [e for e in mine if e["path"] == ["jobs", job, "steps"] and _checkout(e)]
-        held = ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}, {"run"}]
+        held = ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}, {"run", "timeout-minutes"}]
                   and [(e["value"], e["body"] or []) for e in runs] == [(SHARDED, [])]
                   and [_with(entries, c) for c in checkouts] == [{"persist-credentials": "false", "fetch-depth": "0"}])
         if not held:
             whys.append("has the job %s, which runs the mutants, whose steps are not a checkout of the head with the "
-                        "whole history and `%s` on a line of its own, each holding no other key" % (job, SHARDED))
+                        "whole history and `%s` on a line of its own with its own timeout-minutes, each holding no other key"
+                        % (job, SHARDED))
     if not found:
         whys.append("has no job that runs the mutants, so no mutant runs before a merge")
     return whys
@@ -1073,8 +1107,9 @@ def _commits(text: str, entries: list, jobs: list) -> list:
     steps = _steps(entries, "commits")
     keys = [set(step) for step in steps]
     wanted = {"persist-credentials": "false", "fetch-depth": "0", "ref": BASE}
-    if keys != [{"uses", "with"}, {"run"}]:
-        whys.append("its job commits's steps are not a checkout with its with: and then one run:, each holding no "
+    if keys != [{"uses", "with"}, {"run", "timeout-minutes"}]:
+        whys.append("its job commits's steps are not a checkout with its with: and then one run: with its own "
+                    "timeout-minutes, each holding no "
                     "other key: a step's env: or if: would override the job's or skip it, and another step could act "
                     "for it")
     checkouts = [e for e in mine if e["path"] == ["jobs", "commits", "steps"] and _checkout(e)]
@@ -1232,10 +1267,18 @@ def release_problems(text: str) -> list:
     return problems
 
 
+COMPACT_EVENT = "schedule"       # the one event whose value is a list, which may stand at its own key's indent,
+COMPACT_ITEM = re.compile(r"- cron:( |$)")   # each item of it a cron, its key read as the reader reads one (Codex on #428)
+
+
 def _on_items(text: str, on: dict) -> list:
     """The lines of the top-level on: section that are list items where its events stand, keyed or bare: an on:
     written as a list, which `read` keeps only the keyed items of, as entries (Argon's read of #392). A list deeper in,
-    an event's `branches:`, is its own. The items may stand at the key's own indent, YAML's compact form."""
+    an event's `branches:`, is its own. The items may stand at the key's own indent, YAML's compact form. An item at
+    the events' level that follows `schedule:`, the one event whose value is a list, is the compact form of that list,
+    `- cron:`, and is the event's (Muse's read of #416). Any other item there stays an on: written as a list, after
+    another key or under schedule: as anything but a cron: the check allows what it names and refuses what it does not
+    read (the Claude review of #428)."""
     section = []
     for number, raw in enumerate(text.split("\n")[on["line"]:], on["line"] + 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
@@ -1244,9 +1287,26 @@ def _on_items(text: str, on: dict) -> list:
         lead = len(raw) - len(raw.lstrip(" "))
         if lead < on["indent"] or (lead == on["indent"] and not item):
             break       # the next key beside on:, at its own indent however far the root stands in (Muse's read)
-        section.append((lead, number, item))
-    events = min((lead for lead, _, _ in section), default=0)
-    return [number for lead, number, item in section if item and lead == events]
+        section.append((lead, number, item, raw.strip()))
+    events = min((lead for lead, _, _, _ in section), default=0)
+    found, key, compact = [], None, False
+    for lead, number, item, line in section:
+        if lead > events:
+            # A list begun deeper under schedule: is its list, and a compact item after it no part of it; a deeper line
+            # after its compact crons is no part of theirs (Codex on #428).
+            if key == COMPACT_EVENT and compact:
+                found.append(number)
+            key = None if key == COMPACT_EVENT else key
+        elif not item:
+            name, _, rest = line.partition(":")
+            # A key with a value of its own on its line is never one whose list follows (Codex on #428).
+            bare = not rest.strip() or (rest[:1].isspace() and rest.strip().startswith("#"))
+            key = name.strip() if bare else line
+        elif key != COMPACT_EVENT or not COMPACT_ITEM.match(line):
+            found.append(number)
+        else:
+            compact = True
+    return found
 
 
 def _scalar_items(text: str, entries: list, job: str, steps_only: bool = False) -> list:

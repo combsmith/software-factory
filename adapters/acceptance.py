@@ -28,6 +28,13 @@ opens keeps the closing references' reading, which its author writes, so an auth
 removes the ask (decision 0047). Where the Role that opens pull requests is named but its App's account is not known, a
 pull request on a branch of that shape cannot be told for a person's, and is not read whole. No Role opens one in slice 1,
 so none is bound yet.
+
+It is bound by the Run that opened it as well (issue 342): the opening Run's own `applied/1` names the pull request in
+its `open_pull_request` Effect (`adapters/applied.opened`). Where a Run names it, the Run's issue and the branch's must
+agree; two Runs that name it, a Run of another issue that names it, or any opening Run that cannot be read or has not
+finished, of whatever issue, leave it not read whole. Where none names it, the branch alone binds it: the writer,
+`apply`'s open Effect, lands in slice 2 with push, and once it does a pull request no Run names is not whole
+(decision 0097).
 """
 from __future__ import annotations
 
@@ -139,11 +146,12 @@ def labelled(transport, repo: str, number: int) -> bool:
     return any(n["name"] == terms.LABEL_CONTRACT for n in labels)
 
 
-def bound(pull: dict, opener):
-    """The issue a pull request is bound to by its branch: its number where `opener`, the account of the App that opens
-    the Factory's pull requests, authored it; None where another account did, or no Role opens one; False where it
-    cannot be read whole: the opener's on a branch of another shape or another repo, or, with the opener untold, any
-    pull request on a branch of the Factory's shape."""
+def bound(pull: dict, opener, opened=None):
+    """The issue a pull request is bound to by its branch and its opening Run: its number where `opener`, the account of
+    the App that opens the Factory's pull requests, authored it; None where another account did, or no Role opens one;
+    False where it cannot be read whole: the opener's on a branch of another shape or another repo, or, with the opener
+    untold, any pull request on a branch of the Factory's shape, or where `opened`, what the opening Runs recorded, is
+    not whole for it or names it for another issue, or twice."""
     if opener is None:
         return None
     head = pull.get("head") if isinstance(pull.get("head"), dict) else {}
@@ -155,10 +163,20 @@ def bound(pull: dict, opener):
     if (user.get("id"), user.get("type")) != tuple(opener):
         return None
     same = (head.get("repo") or {}).get("full_name") == pull["base"]["repo"]["full_name"]
-    return int(shaped.group(1)) if shaped and same else False
+    if not (shaped and same):
+        return False
+    issue = int(shaped.group(1))
+    # An opening Run that cannot be read, of any issue, may be the one that opened this pull request on another issue's
+    # branch: nothing the opener opened is read whole while one is.
+    if not isinstance(opened, dict) or opened.get("whole") is not True or opened.get("unreadable"):
+        return False
+    named = opened.get("named", {}).get(pull.get("number"), [])
+    if len(named) > 1 or any(served != issue for _, served in named):
+        return False
+    return issue
 
 
-def read(transport, pull: dict, accounts: timeline.Accounts, opener=None) -> tuple:
+def read(transport, pull: dict, accounts: timeline.Accounts, opener=None, opened=None) -> tuple:
     """`(acceptance, whole)`: null and whole where no issue the pull request serves asks for a contract; null and not
     whole where one asks, where the issues cannot be read whole, or where the base is not the default branch, whose
     pull requests carry no closing reference to read. The issue it serves is the one its branch binds it to, where the
@@ -166,7 +184,7 @@ def read(transport, pull: dict, accounts: timeline.Accounts, opener=None) -> tup
     base = pull["base"]
     if not base.get("ref") or base.get("ref") != (base.get("repo") or {}).get("default_branch"):
         return None, False
-    issue = bound(pull, opener)
+    issue = bound(pull, opener, opened)
     if issue is False:
         return None, False
     found, whole = closing(transport, pull)
