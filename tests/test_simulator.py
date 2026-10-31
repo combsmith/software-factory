@@ -706,6 +706,28 @@ class Simulation(unittest.TestCase):
         w.acts, w.last_act = ceiling + 2, "dequeue"
         self.assertRaises(world.Broken, w.invariants)
 
+    def test_the_seeds_create_a_check_under_a_lens_name(self):  # issue 439, decision 0104, P-35
+        # A job's created check is reached in both forms P-35 recorded: beside a Lens's failure, and alone before its job has
+        # a check run. Whatever it concludes no Run or act follows it (the invariant), and the Kernel names it.
+        beside, alone, shown = 0, 0, set()
+
+        def recording(f, r, c, cfg, now):
+            d = decide(f, r, c, cfg, now)
+            if d["reason"] == "check_unreadable":
+                shown.update(":".join(e.split(":")[1:]) for e in d["evidence"] if ":" in e)
+            return d
+
+        with mock.patch.object(world, "decide", recording):
+            for seed in sorted(SEEDS):
+                w = World(seed)
+                for _ in range(250):
+                    w.step()
+                beside += sum("failure, and a job created" in line for line in w.trace)
+                alone += sum("pending, and a job created" in line for line in w.trace)
+        self.assertTrue(beside)
+        self.assertTrue(alone)
+        self.assertIn("from_workflow:unreadable", shown)
+
     def test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause(self):
         # The faults while queued are reached: a dismissed approval, an open gate and a Hold each take one out.
         # So is another App's passing check under the name of a Lens that failed, which no Run or act may follow, and
