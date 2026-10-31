@@ -8682,7 +8682,7 @@ esac
     # lends to the next mutant, so each is removed after the test whether or not it was refused.
     # The scratch directory is one a test does make, so it stands where the walk leaves out: a test running beside this one
     # copies the tree, and a directory that goes while it copies fails that test.
-    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "__pycache__/scratch-of-the-reader")
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link")
 
     def tearDown(self):
         for name in self.INSIDE:
@@ -8768,8 +8768,10 @@ esac
     def test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted(self):
         # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
         # is refused and the directory mktemp made is removed (Codex on PR 298).
-        inside = ROOT / self.INSIDE[2]
-        inside.mkdir(parents=True)
+        # Of its own: this class's clean-up removes what INSIDE names, and a run deals its methods to parts run at once.
+        (ROOT / "__pycache__").mkdir(exist_ok=True)
+        inside = pathlib.Path(tempfile.mkdtemp(dir=str(ROOT / "__pycache__"), prefix="scratch-of-the-reader-"))
+        self.addCleanup(shutil.rmtree, inside, ignore_errors=True)
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
         link.symlink_to(inside)
         for tmpdir in (inside, link):
