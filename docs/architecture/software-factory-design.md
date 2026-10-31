@@ -2968,7 +2968,7 @@ What makes that way of working produce good code:
 | Stories before code | Epics and stories, then a readiness check of PRD, architecture and stories against each other, then one story file per piece of work |
 | Failing tests first | The test-architecture workflow writes the acceptance tests before the implementing session starts, as `qa-lead` will later do by itself |
 | The specification runs | Schemas, invariants and the simulator are in the repo. One command verifies locally exactly what the required check verifies |
-| Hooks hold the line | After each edit, the fast checks run. A session cannot end with the verification failing. A push as the machine user is refused. An edit to a protected path is refused unless the Maintainer asked for it |
+| Hooks hold the line | After each edit, the checks run. A session is sent back once if they fail at its end; the tests are CI's. A push as the machine user is refused. An edit to a protected path is refused unless the Maintainer asked for it |
 | A reader that did not write it | Before a pull request, a fresh context reviews the diff, and a separate pass looks only for security faults. For a change to the Kernel, a second model family reads the diff once and reports. Reviewers report; they do not converse |
 | Tests that can fail | Mutation testing on the Kernel, which is pure functions and so cheap to mutate |
 | Types as the code is written | The required check installs nothing, so neither a type checker nor a linter is a required check: the repo's own checks and the mutation check stand in their place. What an editor shows an agent as it works is the session's own affair (Maintainer, 2026-10-11) |
