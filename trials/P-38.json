@@ -1,0 +1,2147 @@
+{
+  "schema": "trial/1",
+  "trial": "P-38",
+  "question": "When GitHub dismisses an approving review as stale on a push, does the review stay on the commit it approved, readable with that commit and its reviewer; and who does the timeline record as dismissing it?",
+  "pass": "It stays, with its commit, and the dismissal names its actor: the contract a person approved is read at that commit (decision 0025). If it does not stay, the port reads the approval from somewhere that does, before any contract is in force. Written before the run, in the design's row. Pull request 61, the trial-author App's, reopened at its old head with the machine user's approval still on it: the Maintainer approves, then pushes through the contents API. An App's push is P-7's.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-31T00:43:37Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/git/refs, the head branch restored at the pull request's head",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "ref": "refs/heads/trial/p-2f",
+          "sha": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "384",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:43:38 GMT",
+          "etag": "\"0711d313060f662d0ef5947e0eaa1574d01a8068883a68a7cb9ca5b754f1e40a\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-2f",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCD9:29A926:8FE23E:1DD5DD7:6AE539B9",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4770",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "230"
+        },
+        "body": {
+          "ref": "refs/heads/trial/p-2f",
+          "node_id": "REF_kwDOVFD677VyZWZzL2hlYWRzL3RyaWFsL3AtMmY",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-2f",
+          "object": {
+            "sha": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PATCH /repos/combsmith/software-factory-canary/pulls/61, reopened",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "state": "open"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:43:40 GMT",
+          "etag": "W/\"0ee658d2fdb41a1b99d8dd07d84974dfda30783d758c4b19cfe9a51c29c9109f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCDB:1ECA91:AC3DE:23B4DE:6AE539BA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4769",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "231"
+        },
+        "body": {
+          "number": 61,
+          "state": "open"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/pulls/61/reviews, the Maintainer's approval",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "event": "APPROVE",
+          "body": "Trial P-38: the Maintainer approves, then pushes."
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:43:41 GMT",
+          "etag": "W/\"fe6b8c078e73aae233d8335cec509d29698d4e7f7770b48dea2b973441968520\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCDC:24B5EF:8DB0EB:1D54A66:6AE539BC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4768",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "232"
+        },
+        "body": {
+          "id": 5720176566,
+          "node_id": "PRR_kwDOVFD6788AAAABVPL3tg",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?u=2b685cb1cf84123276352bc298bcf679e38f067c&v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "body": "Trial P-38: the Maintainer approves, then pushes.",
+          "state": "APPROVED",
+          "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566",
+          "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+          "author_association": "MEMBER",
+          "_links": {
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566"
+            },
+            "pull_request": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+            }
+          },
+          "is_copilot_code_review": false,
+          "copilot_code_review_effort": null,
+          "submitted_at": "2026-10-31T00:43:40Z",
+          "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/61/reviews",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:43:41 GMT",
+          "etag": "W/\"00dd4400b72c04b8d9261bfeedc61c8b89e9c60cfecc31f8b9986147967dbe54\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCDD:EC17D:8981E6:1C786BF:6AE539BD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4767",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "233"
+        },
+        "body": [
+          {
+            "id": 5677210714,
+            "node_id": "PRR_kwDOVFD6788AAAABUmNcWg",
+            "user": {
+              "login": "donpetry-bot",
+              "id": 281750570,
+              "node_id": "U_kgDOEMssKg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/281750570?u=0fa6568da020ed88a1bda20344b0d694894831a7&v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/donpetry-bot",
+              "html_url": "https://github.com/donpetry-bot",
+              "followers_url": "https://api.github.com/users/donpetry-bot/followers",
+              "following_url": "https://api.github.com/users/donpetry-bot/following{/other_user}",
+              "gists_url": "https://api.github.com/users/donpetry-bot/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/donpetry-bot/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/donpetry-bot/subscriptions",
+              "organizations_url": "https://api.github.com/users/donpetry-bot/orgs",
+              "repos_url": "https://api.github.com/users/donpetry-bot/repos",
+              "events_url": "https://api.github.com/users/donpetry-bot/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/donpetry-bot/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "",
+            "state": "APPROVED",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "author_association": "MEMBER",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "is_copilot_code_review": false,
+            "copilot_code_review_effort": null,
+            "submitted_at": "2026-10-28T02:55:47Z",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          },
+          {
+            "id": 5720176566,
+            "node_id": "PRR_kwDOVFD6788AAAABVPL3tg",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?u=2b685cb1cf84123276352bc298bcf679e38f067c&v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "Trial P-38: the Maintainer approves, then pushes.",
+            "state": "APPROVED",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "author_association": "MEMBER",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "is_copilot_code_review": false,
+            "copilot_code_review_effort": null,
+            "submitted_at": "2026-10-31T00:43:40Z",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/p38/person-pushed.md, the Maintainer's push",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial P-38: the Maintainer pushes after approving",
+          "branch": "trial/p-2f",
+          "content": "the file's text, base64"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2212",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:43:42 GMT",
+          "etag": "\"baa22a1151c52360509403f6828a7caa2b5a5a4e8474d198bd8ad228da069c8e\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCDF:1A248D:8DFC84:1D8278B:6AE539BD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4766",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "234"
+        },
+        "body": {
+          "commit": {
+            "sha": "fc47d40d709c4b263ba31046d2d50d7fe062824a",
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-31T00:43:42Z"
+            },
+            "committer": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-31T00:43:42Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/61/reviews",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:44:03 GMT",
+          "etag": "W/\"ec99cd1a821af75a6ffc3a47add6399de36a1a15b3ac2ab5664fae7e6b9dda61\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCE6:15183D:8A2064:1C9906E:6AE539D3",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4597",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "403"
+        },
+        "body": [
+          {
+            "id": 5677210714,
+            "node_id": "PRR_kwDOVFD6788AAAABUmNcWg",
+            "user": {
+              "login": "donpetry-bot",
+              "id": 281750570,
+              "node_id": "U_kgDOEMssKg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/281750570?u=0fa6568da020ed88a1bda20344b0d694894831a7&v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/donpetry-bot",
+              "html_url": "https://github.com/donpetry-bot",
+              "followers_url": "https://api.github.com/users/donpetry-bot/followers",
+              "following_url": "https://api.github.com/users/donpetry-bot/following{/other_user}",
+              "gists_url": "https://api.github.com/users/donpetry-bot/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/donpetry-bot/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/donpetry-bot/subscriptions",
+              "organizations_url": "https://api.github.com/users/donpetry-bot/orgs",
+              "repos_url": "https://api.github.com/users/donpetry-bot/repos",
+              "events_url": "https://api.github.com/users/donpetry-bot/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/donpetry-bot/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "",
+            "state": "DISMISSED",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "author_association": "MEMBER",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "is_copilot_code_review": false,
+            "copilot_code_review_effort": null,
+            "submitted_at": "2026-10-28T02:55:47Z",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          },
+          {
+            "id": 5720176566,
+            "node_id": "PRR_kwDOVFD6788AAAABVPL3tg",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?u=2b685cb1cf84123276352bc298bcf679e38f067c&v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "Trial P-38: the Maintainer approves, then pushes.",
+            "state": "DISMISSED",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "author_association": "MEMBER",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "is_copilot_code_review": false,
+            "copilot_code_review_effort": null,
+            "submitted_at": "2026-10-31T00:43:40Z",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/61/timeline?per_page=100",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:44:04 GMT",
+          "etag": "W/\"2f88cffccfd75ee4e32375a5a4b6edc1264ccb959d4f79301903b758393de4ee\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCE7:11EC83:B6C35:25D097:6AE539D4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4596",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "404"
+        },
+        "body": [
+          {
+            "sha": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+            "node_id": "C_kwDOVFD679oAKGM3NGNiN2M0MTdmOGQ1Njc1ZjY5ZDBlZWFkOGNkNTFhMmVlNjMyMmI",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+            "author": {
+              "name": "combsmith-sf-trial-author[bot]",
+              "email": "344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com",
+              "date": "2026-10-28T01:11:07Z"
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "date": "2026-10-28T01:11:07Z"
+            },
+            "tree": {
+              "sha": "bd665d6e1c3d44b6dc196efb8854cb077548a0d8",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/bd665d6e1c3d44b6dc196efb8854cb077548a0d8"
+            },
+            "message": "Trial: p2/f.md, added by the trial-author App",
+            "parents": [
+              {
+                "sha": "eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/eaa93d4b4618c9a8e73dffc1381b9f774483e1eb",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/eaa93d4b4618c9a8e73dffc1381b9f774483e1eb"
+              }
+            ],
+            "verification": {
+              "verified": true,
+              "reason": "valid",
+              "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq4UurCRC1aQ7uu5UhlAAAaSAQAGRog+MgfRLWRMv7/LtftA4X\ndkZjhqlqL62rkPGXBr50Ajw+qxzLHLnf3kc06BMPSsgBxUZ0LY7XFPy34DIiaba8\nSZ16GnH08+CTZj/b75FFiV+rfr62SHGalYVGULvheP2tlXohrmSubsLxa5p5qUJ7\nU0AH+TB/ox0Jdhp4OShNycZVFVjyqgoK7SMyzvQKQY5BGVK3zk/vc9k6i6EPQcjM\n+wcjgwMMnc/mIxPOUZxSwiqogso0TYYw9s2FcOCP09MBMYV0O1GoQB/HgYwOk6fb\n6Q3Echk849SENKrmp9sMducD5/HaAHuttgQSY0bmvbDHrK+aQMzZLCRRCW56HFcz\ndG1TZbnP/AmyKIQ267DlIuSw2/kEPF54OiOCkrAU7l4N9gMAIwmLQLd38RY6RqHf\nmssFQi0cchflqQ1ZBsjuCA0vlytbI2ruLPc4pxlEZA6pouoDD1TCPlz6IFVr3/7H\n99rjxtsvx86laWA1vKvPfSYwHvuIunyWfJwsOS5hpqMbfU7PCAf8bCRMDliiAonO\nQjn0HLgzQouG3fyZ9FK79yfOp/DpfHh7GWz+ZlkUYLTCd5EQ4DIR57htTbaRvP+H\nU8FRH+Qpr4lrT4nsudleLbUBLAVMP2B6jfDkBKVdWcEbPpnc9mFWTv5DlheEgV3Y\nzz5CTUVQz3tJgi9cI8T6\n=iE3G\n-----END PGP SIGNATURE-----\n",
+              "payload": "tree bd665d6e1c3d44b6dc196efb8854cb077548a0d8\nparent eaa93d4b4618c9a8e73dffc1381b9f774483e1eb\nauthor combsmith-sf-trial-author[bot] <344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com> 1793149867 -0500\ncommitter GitHub <noreply@github.com> 1793149867 -0500\n\nTrial: p2/f.md, added by the trial-author App",
+              "verified_at": "2026-10-28T01:11:08Z"
+            },
+            "event": "committed"
+          },
+          {
+            "id": 34428581468,
+            "node_id": "RRE_lADOVFD6788AAAABadZgf88AAAAIBBp2XA",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34428581468",
+            "actor": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "review_requested",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-28T01:11:11Z",
+            "review_requester": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "requested_team": {
+              "name": "org-leads",
+              "id": 17372736,
+              "node_id": "T_kwDOD2inqs4BCRZA",
+              "slug": "org-leads",
+              "description": "Code owners team for review enforcement across all org repos (machine user + humans)",
+              "privacy": "closed",
+              "notification_setting": "notifications_enabled",
+              "url": "https://api.github.com/organizations/258516906/team/17372736",
+              "html_url": "https://github.com/orgs/combsmith/teams/org-leads",
+              "members_url": "https://api.github.com/organizations/258516906/team/17372736/members{/member}",
+              "repositories_url": "https://api.github.com/organizations/258516906/team/17372736/repos",
+              "type": "organization",
+              "organization_id": 258516906,
+              "permission": "maintain",
+              "permissions": {
+                "admin": false,
+                "maintain": true,
+                "push": true,
+                "triage": true,
+                "pull": true
+              },
+              "access_source": "organization",
+              "parent": null
+            },
+            "performed_via_github_app": null
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6457959431",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6457959431",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6457959431,
+            "node_id": "IC_kwDOVFD6788AAAABgOykBw",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-28T01:11:17Z",
+            "updated_at": "2026-10-31T00:43:52Z",
+            "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: skip review by coderabbit.ai -->\n\n> [!IMPORTANT]\n> ## Review skipped\n> \n> Bot user detected.\n> \n> To trigger a single review, invoke the `@coderabbitai review` command.\n> \n> <details>\n> <summary><strong><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/cog-dark.svg\"><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/cog.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\"></picture> Run configuration</strong></summary>\n> <dl>\n> <dd>\n> \n> - **Source mode**: Auto\n> - **Repository**: [combsmith/software-factory-canary](<https://github.com/combsmith/software-factory-canary>)\n> - **Branch**: [main](<https://github.com/combsmith/software-factory-canary/tree/main>)\n> - **File**: [.coderabbit.yaml](<https://github.com/combsmith/software-factory-canary/blob/151a66358341cf5f002e04cc392f02417ff82f40/.coderabbit.yaml>)\n> - **Commit**: [151a663](<https://github.com/combsmith/software-factory-canary/commit/151a66358341cf5f002e04cc392f02417ff82f40>)\n> - **Layers**: Repository YAML\n> - **Review profile**: CHILL\n> - **Plan**: Advanced\n> - **Run ID**: `ede85e17-a281-4253-b9eb-b631ad7de29b`\n> \n> </dd>\n> </dl>\n> </details>\n> \n> You can disable this status message by setting the `reviews.review_status` to `false` in the CodeRabbit configuration file.\n> \n> Use the checkbox below for a quick retry:\n> - [ ] <!-- {\"checkboxId\":\"e9bb8d72-00e8-4f67-9cb2-caf3b22574fe\"} --> 🔍 Trigger review\n\n<!-- end of auto-generated comment: skip review by coderabbit.ai -->\n\n<!-- autopilot:start -->\n- [ ] <!-- {\"checkboxId\":\"2708ad07-9f24-4260-9c11-7dc76a49f2e3\"} --> <strong title=\"Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts\">Autofix</strong> · Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts\n<!-- autopilot:end -->\n<!-- tips_start -->\n\n\n\nThanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=combsmith/software-factory-canary&utm_content=61)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.\n\n<details>\n<summary><strong>❤️ Share</strong></summary>\n<dl>\n<dd>\n\n- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)\n- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)\n- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)\n- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)\n\n</dd>\n</dl>\n</details>\n\n\n<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>\n\n<!-- tips_end -->",
+            "author_association": "NONE",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6457959431/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": {
+              "id": 347564,
+              "client_id": "Iv1.6aaafe4fe882736b",
+              "slug": "coderabbitai",
+              "node_id": "A_kwHOB96YWc4ABU2s",
+              "owner": {
+                "login": "coderabbitai",
+                "id": 132028505,
+                "node_id": "O_kgDOB96YWQ",
+                "avatar_url": "https://avatars.githubusercontent.com/u/132028505?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/coderabbitai",
+                "html_url": "https://github.com/coderabbitai",
+                "followers_url": "https://api.github.com/users/coderabbitai/followers",
+                "following_url": "https://api.github.com/users/coderabbitai/following{/other_user}",
+                "gists_url": "https://api.github.com/users/coderabbitai/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/coderabbitai/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/coderabbitai/subscriptions",
+                "organizations_url": "https://api.github.com/users/coderabbitai/orgs",
+                "repos_url": "https://api.github.com/users/coderabbitai/repos",
+                "events_url": "https://api.github.com/users/coderabbitai/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/coderabbitai/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "coderabbitai",
+              "description": "# Transforming Code Reviews with AI\r\n\r\n## Features\r\n\r\n**Automated Reviews**: Continuous reviews of the pull requests including incremental commits. \r\n\r\n**Summarization**: Generates high-level summary and a technical walkthrough of the PR changes. \r\n\r\n**Line-by-line review**: Provides line-by-line suggestions committable with one click.\r\n\r\n**Codebase verification**:  Verifies the impact on the overall codebase and identifies missing changes.\r\n\r\n**Insights into your code**:  Ask any questions on your codebase within the pull request \r\n\r\n**Chat about your code** : Chat with the bot around your code. The more you chat, the smarter it gets.\r\n\r\n**Issue Validation**:  Validates the PR against the linked issues and identifies other related issues \r\n\r\n\r\n\r\n",
+              "external_url": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "created_at": "2023-06-14T15:47:27Z",
+              "updated_at": "2026-10-22T09:20:52Z",
+              "permissions": {
+                "actions": "read",
+                "checks": "write",
+                "contents": "write",
+                "discussions": "read",
+                "issues": "write",
+                "members": "read",
+                "merge_queues": "read",
+                "metadata": "read",
+                "pull_requests": "write",
+                "statuses": "write",
+                "workflows": "write"
+              },
+              "events": [
+                "issues",
+                "issue_comment",
+                "label",
+                "membership",
+                "merge_group",
+                "organization",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "pull_request_review_thread",
+                "release",
+                "repository",
+                "team"
+              ]
+            },
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6457972282",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6457972282",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6457972282,
+            "node_id": "IC_kwDOVFD6788AAAABgOzWOg",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-28T01:12:12Z",
+            "updated_at": "2026-10-28T01:12:12Z",
+            "body": "@coderabbitai review",
+            "author_association": "MEMBER",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6457972282/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": null,
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 34428637748,
+            "node_id": "MEE_lADOVFD6788AAAABadZgf88AAAAIBBtSNA",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34428637748",
+            "actor": {
+              "login": "coderabbitai",
+              "id": 132028505,
+              "node_id": "O_kgDOB96YWQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/132028505?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai",
+              "html_url": "https://github.com/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai/followers",
+              "following_url": "https://api.github.com/users/coderabbitai/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai/repos",
+              "events_url": "https://api.github.com/users/coderabbitai/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "mentioned",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-28T01:12:14Z",
+            "performed_via_github_app": null
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6457973629",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6457973629",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6457973629,
+            "node_id": "IC_kwDOVFD6788AAAABgOzbfQ",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-28T01:12:18Z",
+            "updated_at": "2026-10-28T01:12:24Z",
+            "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: v2:771117f5014edfdbd1f9c90159e98c971a612b5dcea85585459b213df27896a0 -->\n<details>\n<summary>⚠️ Action not completed</summary>\n<dl>\n<dd>\n\nReview skipped.\n\n> Note: CodeRabbit is an incremental review system and does not re-review already reviewed commits. This command is applicable only when automatic reviews are paused.\n\n</dd>\n</dl>\n</details>",
+            "author_association": "NONE",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6457973629/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": {
+              "id": 347564,
+              "client_id": "Iv1.6aaafe4fe882736b",
+              "slug": "coderabbitai",
+              "node_id": "A_kwHOB96YWc4ABU2s",
+              "owner": {
+                "login": "coderabbitai",
+                "id": 132028505,
+                "node_id": "O_kgDOB96YWQ",
+                "avatar_url": "https://avatars.githubusercontent.com/u/132028505?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/coderabbitai",
+                "html_url": "https://github.com/coderabbitai",
+                "followers_url": "https://api.github.com/users/coderabbitai/followers",
+                "following_url": "https://api.github.com/users/coderabbitai/following{/other_user}",
+                "gists_url": "https://api.github.com/users/coderabbitai/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/coderabbitai/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/coderabbitai/subscriptions",
+                "organizations_url": "https://api.github.com/users/coderabbitai/orgs",
+                "repos_url": "https://api.github.com/users/coderabbitai/repos",
+                "events_url": "https://api.github.com/users/coderabbitai/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/coderabbitai/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "coderabbitai",
+              "description": "# Transforming Code Reviews with AI\r\n\r\n## Features\r\n\r\n**Automated Reviews**: Continuous reviews of the pull requests including incremental commits. \r\n\r\n**Summarization**: Generates high-level summary and a technical walkthrough of the PR changes. \r\n\r\n**Line-by-line review**: Provides line-by-line suggestions committable with one click.\r\n\r\n**Codebase verification**:  Verifies the impact on the overall codebase and identifies missing changes.\r\n\r\n**Insights into your code**:  Ask any questions on your codebase within the pull request \r\n\r\n**Chat about your code** : Chat with the bot around your code. The more you chat, the smarter it gets.\r\n\r\n**Issue Validation**:  Validates the PR against the linked issues and identifies other related issues \r\n\r\n\r\n\r\n",
+              "external_url": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "created_at": "2023-06-14T15:47:27Z",
+              "updated_at": "2026-10-22T09:20:52Z",
+              "permissions": {
+                "actions": "read",
+                "checks": "write",
+                "contents": "write",
+                "discussions": "read",
+                "issues": "write",
+                "members": "read",
+                "merge_queues": "read",
+                "metadata": "read",
+                "pull_requests": "write",
+                "statuses": "write",
+                "workflows": "write"
+              },
+              "events": [
+                "issues",
+                "issue_comment",
+                "label",
+                "membership",
+                "merge_group",
+                "organization",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "pull_request_review_thread",
+                "release",
+                "repository",
+                "team"
+              ]
+            },
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6458266712",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6458266712",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6458266712,
+            "node_id": "IC_kwDOVFD6788AAAABgPFUWA",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-28T01:33:14Z",
+            "updated_at": "2026-10-28T01:33:14Z",
+            "body": "@coderabbitai full review",
+            "author_association": "MEMBER",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6458266712/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": null,
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 34429759203,
+            "node_id": "MEE_lADOVFD6788AAAABadZgf88AAAAIBCxu4w",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34429759203",
+            "actor": {
+              "login": "coderabbitai",
+              "id": 132028505,
+              "node_id": "O_kgDOB96YWQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/132028505?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai",
+              "html_url": "https://github.com/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai/followers",
+              "following_url": "https://api.github.com/users/coderabbitai/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai/repos",
+              "events_url": "https://api.github.com/users/coderabbitai/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "mentioned",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-28T01:33:15Z",
+            "performed_via_github_app": null
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6458268023",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6458268023",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6458268023,
+            "node_id": "IC_kwDOVFD6788AAAABgPFZdw",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-28T01:33:19Z",
+            "updated_at": "2026-10-28T01:33:25Z",
+            "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: v2:84b5c0da678b656add519d4915eadf49102297bdc20ed699386022828c077304 -->\n<details>\n<summary>⚠️ Action not completed</summary>\n<dl>\n<dd>\n\nReview skipped.\n\n</dd>\n</dl>\n</details>",
+            "author_association": "NONE",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6458268023/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": {
+              "id": 347564,
+              "client_id": "Iv1.6aaafe4fe882736b",
+              "slug": "coderabbitai",
+              "node_id": "A_kwHOB96YWc4ABU2s",
+              "owner": {
+                "login": "coderabbitai",
+                "id": 132028505,
+                "node_id": "O_kgDOB96YWQ",
+                "avatar_url": "https://avatars.githubusercontent.com/u/132028505?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/coderabbitai",
+                "html_url": "https://github.com/coderabbitai",
+                "followers_url": "https://api.github.com/users/coderabbitai/followers",
+                "following_url": "https://api.github.com/users/coderabbitai/following{/other_user}",
+                "gists_url": "https://api.github.com/users/coderabbitai/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/coderabbitai/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/coderabbitai/subscriptions",
+                "organizations_url": "https://api.github.com/users/coderabbitai/orgs",
+                "repos_url": "https://api.github.com/users/coderabbitai/repos",
+                "events_url": "https://api.github.com/users/coderabbitai/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/coderabbitai/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "coderabbitai",
+              "description": "# Transforming Code Reviews with AI\r\n\r\n## Features\r\n\r\n**Automated Reviews**: Continuous reviews of the pull requests including incremental commits. \r\n\r\n**Summarization**: Generates high-level summary and a technical walkthrough of the PR changes. \r\n\r\n**Line-by-line review**: Provides line-by-line suggestions committable with one click.\r\n\r\n**Codebase verification**:  Verifies the impact on the overall codebase and identifies missing changes.\r\n\r\n**Insights into your code**:  Ask any questions on your codebase within the pull request \r\n\r\n**Chat about your code** : Chat with the bot around your code. The more you chat, the smarter it gets.\r\n\r\n**Issue Validation**:  Validates the PR against the linked issues and identifies other related issues \r\n\r\n\r\n\r\n",
+              "external_url": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "created_at": "2023-06-14T15:47:27Z",
+              "updated_at": "2026-10-22T09:20:52Z",
+              "permissions": {
+                "actions": "read",
+                "checks": "write",
+                "contents": "write",
+                "discussions": "read",
+                "issues": "write",
+                "members": "read",
+                "merge_queues": "read",
+                "metadata": "read",
+                "pull_requests": "write",
+                "statuses": "write",
+                "workflows": "write"
+              },
+              "events": [
+                "issues",
+                "issue_comment",
+                "label",
+                "membership",
+                "merge_group",
+                "organization",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "pull_request_review_thread",
+                "release",
+                "repository",
+                "team"
+              ]
+            },
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6459383903",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6459383903",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6459383903,
+            "node_id": "IC_kwDOVFD6788AAAABgQJgXw",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-28T02:54:12Z",
+            "updated_at": "2026-10-28T02:54:12Z",
+            "body": "A platform trial (P-7.refused): closed, so the machine user's approval of a closed pull request can be asked.",
+            "author_association": "MEMBER",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6459383903/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": null,
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 34433982691,
+            "node_id": "CE_lADOVFD6788AAAABadZgf88AAAAIBGzg4w",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34433982691",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "closed",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-28T02:54:13Z",
+            "state_reason": null,
+            "intent": null,
+            "performed_via_github_app": null
+          },
+          {
+            "id": 5677210714,
+            "node_id": "PRR_kwDOVFD6788AAAABUmNcWg",
+            "user": {
+              "login": "donpetry-bot",
+              "id": 281750570,
+              "node_id": "U_kgDOEMssKg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/281750570?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/donpetry-bot",
+              "html_url": "https://github.com/donpetry-bot",
+              "followers_url": "https://api.github.com/users/donpetry-bot/followers",
+              "following_url": "https://api.github.com/users/donpetry-bot/following{/other_user}",
+              "gists_url": "https://api.github.com/users/donpetry-bot/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/donpetry-bot/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/donpetry-bot/subscriptions",
+              "organizations_url": "https://api.github.com/users/donpetry-bot/orgs",
+              "repos_url": "https://api.github.com/users/donpetry-bot/repos",
+              "events_url": "https://api.github.com/users/donpetry-bot/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/donpetry-bot/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": null,
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+            "state": "dismissed",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "submitted_at": "2026-10-28T02:55:47Z",
+            "updated_at": "2026-10-31T00:43:44Z",
+            "author_association": "MEMBER",
+            "event": "reviewed"
+          },
+          {
+            "id": 34434854258,
+            "node_id": "REE_lADOVFD6788AAAABadZgf88AAAAIBHotcg",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34434854258",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "reopened",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-28T03:11:05Z",
+            "state_reason": null,
+            "performed_via_github_app": null
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6459655041",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6459655041",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6459655041,
+            "node_id": "IC_kwDOVFD6788AAAABgQaDgQ",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-28T03:11:39Z",
+            "updated_at": "2026-10-28T03:11:39Z",
+            "body": "A platform trial (P-7.refused case 4): closed again after reading the reopened state.",
+            "author_association": "MEMBER",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6459655041/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": null,
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 34434884028,
+            "node_id": "CE_lADOVFD6788AAAABadZgf88AAAAIBHqhvA",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34434884028",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "closed",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-28T03:11:40Z",
+            "state_reason": null,
+            "intent": null,
+            "performed_via_github_app": null
+          },
+          {
+            "id": 34468344349,
+            "node_id": "HRDE_lADOVFD6788AAAABadZgf88AAAAIBnkyHQ",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34468344349",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "head_ref_deleted",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-28T11:30:23Z",
+            "performed_via_github_app": null
+          },
+          {
+            "id": 34744496037,
+            "node_id": "HRRE_lADOVFD6788AAAABadZgf88AAAAIFu7vpQ",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34744496037",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "head_ref_restored",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-31T00:43:38Z",
+            "performed_via_github_app": null
+          },
+          {
+            "id": 34744496295,
+            "node_id": "REE_lADOVFD6788AAAABadZgf88AAAAIFu7wpw",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34744496295",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "reopened",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-31T00:43:39Z",
+            "state_reason": null,
+            "performed_via_github_app": null
+          },
+          {
+            "id": 5720176566,
+            "node_id": "PRR_kwDOVFD6788AAAABVPL3tg",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "Trial P-38: the Maintainer approves, then pushes.",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+            "state": "dismissed",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "submitted_at": "2026-10-31T00:43:40Z",
+            "updated_at": "2026-10-31T00:43:44Z",
+            "author_association": "MEMBER",
+            "event": "reviewed"
+          },
+          {
+            "sha": "fc47d40d709c4b263ba31046d2d50d7fe062824a",
+            "node_id": "C_kwDOVFD679oAKGZjNDdkNDBkNzA5YzRiMjYzYmEzMTA0NmQyZDUwZDdmZTA2MjgyNGE",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/fc47d40d709c4b263ba31046d2d50d7fe062824a",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/fc47d40d709c4b263ba31046d2d50d7fe062824a",
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-31T00:43:42Z"
+            },
+            "committer": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-31T00:43:42Z"
+            },
+            "tree": {
+              "sha": "a32c5c54df4a4b12bc43a7f2e6eb251c7b8d85e1",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/a32c5c54df4a4b12bc43a7f2e6eb251c7b8d85e1"
+            },
+            "message": "Trial P-38: the Maintainer pushes after approving",
+            "parents": [
+              {
+                "sha": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/c74cb7c417f8d5675f69d0eead8cd51a2ee6322b",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+              }
+            ],
+            "verification": {
+              "verified": false,
+              "reason": "unsigned",
+              "signature": null,
+              "payload": null,
+              "verified_at": null
+            },
+            "event": "committed"
+          },
+          {
+            "id": 34744499901,
+            "node_id": "RDE_lADOVFD6788AAAABadZgf88AAAAIFu7-vQ",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34744499901",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "review_dismissed",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-31T00:43:44Z",
+            "dismissed_review": {
+              "state": "approved",
+              "review_id": 5720176566,
+              "dismissal_message": null,
+              "dismissal_commit_id": "fc47d40d709c4b263ba31046d2d50d7fe062824a"
+            },
+            "performed_via_github_app": null
+          },
+          {
+            "id": 34744499929,
+            "node_id": "RDE_lADOVFD6788AAAABadZgf88AAAAIFu7-2Q",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34744499929",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "review_dismissed",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-31T00:43:44Z",
+            "dismissed_review": {
+              "state": "approved",
+              "review_id": 5677210714,
+              "dismissal_message": null,
+              "dismissal_commit_id": "fc47d40d709c4b263ba31046d2d50d7fe062824a"
+            },
+            "performed_via_github_app": null
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6536685386",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#issuecomment-6536685386",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/61",
+            "id": 6536685386,
+            "node_id": "IC_kwDOVFD6788AAAABhZ3nSg",
+            "user": {
+              "login": "sonarqubecloud[bot]",
+              "id": 39514782,
+              "node_id": "MDM6Qm90Mzk1MTQ3ODI=",
+              "avatar_url": "https://avatars.githubusercontent.com/in/12526?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D",
+              "html_url": "https://github.com/apps/sonarqubecloud",
+              "followers_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-31T00:43:59Z",
+            "updated_at": "2026-10-31T00:43:59Z",
+            "body": "## [![Quality Gate Passed](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/checks/QualityGateBadge/qg-passed-20px.png 'Quality Gate Passed')](https://sonarcloud.io/dashboard?id=combsmith_software-factory-canary&pullRequest=61) **Quality Gate passed**  \nIssues  \n![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0 New issues](https://sonarcloud.io/project/issues?id=combsmith_software-factory-canary&pullRequest=61&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true)  \n![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/accepted-16px.png '') [0 Accepted issues](https://sonarcloud.io/project/issues?id=combsmith_software-factory-canary&pullRequest=61&issueStatuses=ACCEPTED)\n\nMeasures  \n![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0 Security Hotspots](https://sonarcloud.io/project/security_hotspots?id=combsmith_software-factory-canary&pullRequest=61&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true)  \n![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0.0% Coverage on New Code](https://sonarcloud.io/component_measures?id=combsmith_software-factory-canary&pullRequest=61&metric=new_coverage&view=list)  \n![](https://sonarsource.github.io/sonarcloud-github-static-resources/v2/common/passed-16px.png '') [0.0% Duplication on New Code](https://sonarcloud.io/component_measures?id=combsmith_software-factory-canary&pullRequest=61&metric=new_duplicated_lines_density&view=list)  \n  \n<!-- sqra-placement-anchor -->\n[See analysis details on SonarQube Cloud](https://sonarcloud.io/dashboard?id=combsmith_software-factory-canary&pullRequest=61)\n\n",
+            "author_association": "NONE",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6536685386/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": {
+              "id": 12526,
+              "client_id": "Iv1.dc610988574d1724",
+              "slug": "sonarqubecloud",
+              "node_id": "MDM6QXBwMTI1MjY=",
+              "owner": {
+                "login": "SonarSource",
+                "id": 545988,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjU0NTk4OA==",
+                "avatar_url": "https://avatars.githubusercontent.com/u/545988?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/SonarSource",
+                "html_url": "https://github.com/SonarSource",
+                "followers_url": "https://api.github.com/users/SonarSource/followers",
+                "following_url": "https://api.github.com/users/SonarSource/following{/other_user}",
+                "gists_url": "https://api.github.com/users/SonarSource/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/SonarSource/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/SonarSource/subscriptions",
+                "organizations_url": "https://api.github.com/users/SonarSource/orgs",
+                "repos_url": "https://api.github.com/users/SonarSource/repos",
+                "events_url": "https://api.github.com/users/SonarSource/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/SonarSource/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "SonarQubeCloud",
+              "description": "\r\nSonarQube Cloud (formerly SonarCloud) is a SaaS code analysis tool designed to detect coding issues in 30+ languages, frameworks, and IaC platforms. Your code is checked against an extensive set of rules that cover many attributes of code, such as maintainability, reliability, and security issues, on each merge/pull request.\r\n\r\nFor those requiring US-based hosting, [SonarQube Cloud US](https://sonarqube.us/) offers the perfect alternative. If you need data residency outside the US or within the EU, [SonarQube Cloud](https://sonarcloud.io/) with this GitHub app is the ideal solution.\r\n\r\nSonarQube Cloud integrates seamlessly into your GitHub workflow and provides clear guidance for resolving any code quality and security issues detected. The majority of popular languages can be analyzed automatically; no configuration is required!\r\n\r\nWith [SonarQube Cloud](https://sonarcloud.io/github), you get:\r\n\r\n-   Fast, precise static analysis and feedback on your code\r\n    \r\n-   Support for popular languages, frameworks, and IaC tools\r\n    \r\n-   Free analysis for open-source projects and private projects up to max 50k LoC\r\n    \r\n-   Automatic analysis of pull requests and branches with results reported inline\r\n    \r\n-   IDE Support with [SonarQube for IDE](https://www.sonarsource.com/products/sonarlint/) integration\r\n    \r\n-   Quality Gate (added as a GitHub check) acting at two different levels - first, preventing you from merging pull requests that contain issues - and later, helping you to release only clean, safe code\r\n    \r\n-   Sign up for SonarQube free tier and begin scanning your private and public repositories\r\n    \r\n\r\nA [GitHub Action](https://github.com/marketplace/actions/sonarcloud-scan) is available in the marketplace to make it easy for you (for projects where automatic analysis isn't available). SonarQube Cloud also integrates smoothly with Jenkins, CircleCI, TravisCI, CirrusCI, and many other tools.\r\n\r\nA free tier is available that allows you to explore the benefits of SonarQube Cloud using your public and private repositories. We also provide a no-commitment, [14-day trial](https://www.sonarsource.com/products/sonarcloud/signup/) of SonarQube Cloud Team for unlimited team members, up to 1.9M LoC, AI CodeFix recommendations, and more. No need to speak with a sales rep or request a license key - get automatic code analysis results on your private projects in minutes! Want to see more examples of SonarCloud in action? You can [explore current Open Source projects in SonarCloud](https://sonarcloud.io/explore/projects?sort=-analysis_date) that are using the [Clean as You Code](https://www.sonarsource.com/solutions/our-unique-approach/) methodology.\r\n\r\nWhat are you waiting for? SonarQube Cloud helps you consistently deliver cleaner, secure software that future developers will appreciate and your users will love. Start writing Clean Code. [Now](https://www.sonarsource.com/products/sonarcloud/signup/)!",
+              "external_url": "https://sonarcloud.io",
+              "html_url": "https://github.com/apps/sonarqubecloud",
+              "created_at": "2018-05-22T07:36:37Z",
+              "updated_at": "2026-10-15T11:45:30Z",
+              "permissions": {
+                "checks": "write",
+                "contents": "read",
+                "emails": "read",
+                "members": "read",
+                "metadata": "read",
+                "organization_copilot_seat_management": "read",
+                "pull_requests": "write",
+                "security_events": "write",
+                "statuses": "write"
+              },
+              "events": [
+                "code_scanning_alert",
+                "organization",
+                "pull_request",
+                "push",
+                "repository"
+              ]
+            },
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "sonarqubecloud[bot]",
+              "id": 39514782,
+              "node_id": "MDM6Qm90Mzk1MTQ3ODI=",
+              "avatar_url": "https://avatars.githubusercontent.com/in/12526?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D",
+              "html_url": "https://github.com/apps/sonarqubecloud",
+              "followers_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/sonarqubecloud%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the GraphQL timeline",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query { repository(owner:\"combsmith\", name:\"software-factory-canary\") { pullRequest(number:61) { timelineItems(last: 20, itemTypes:[REVIEW_DISMISSED_EVENT]) { nodes { __typename ... on ReviewDismissedEvent { createdAt actor { login __typename ... on User { databaseId } } previousReviewState dismissalMessage pullRequestCommit { commit { oid } } review { databaseId state author { login } commit { oid } } } } } } } }"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:44:05 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "FCE9:8B48D:8FAF38:1DD274B:6AE539D5",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4835",
+          "x-ratelimit-reset": "1793408961",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "165"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "ReviewDismissedEvent",
+                      "createdAt": "2026-10-31T00:43:44Z",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User",
+                        "databaseId": 36422719
+                      },
+                      "previousReviewState": "APPROVED",
+                      "dismissalMessage": null,
+                      "pullRequestCommit": {
+                        "commit": {
+                          "oid": "fc47d40d709c4b263ba31046d2d50d7fe062824a"
+                        }
+                      },
+                      "review": {
+                        "databaseId": 5720176566,
+                        "state": "DISMISSED",
+                        "author": {
+                          "login": "don-petry"
+                        },
+                        "commit": {
+                          "oid": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+                        }
+                      }
+                    },
+                    {
+                      "__typename": "ReviewDismissedEvent",
+                      "createdAt": "2026-10-31T00:43:44Z",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User",
+                        "databaseId": 36422719
+                      },
+                      "previousReviewState": "APPROVED",
+                      "dismissalMessage": null,
+                      "pullRequestCommit": {
+                        "commit": {
+                          "oid": "fc47d40d709c4b263ba31046d2d50d7fe062824a"
+                        }
+                      },
+                      "review": {
+                        "databaseId": 5677210714,
+                        "state": "DISMISSED",
+                        "author": {
+                          "login": "donpetry-bot"
+                        },
+                        "commit": {
+                          "oid": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PATCH /repos/combsmith/software-factory-canary/pulls/61, closed again",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "state": "closed"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 00:44:06 GMT",
+          "etag": "W/\"c0e12e8a7a58744067578bb052958e07a928c98e83fc4528e817e1c254fd004a\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCEA:17D1EA:9209A7:1E599F7:6AE539D5",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4765",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "235"
+        },
+        "body": {
+          "number": 61,
+          "state": "closed"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "DELETE /repos/combsmith/software-factory-canary/git/refs/heads/trial/p-2f, the branch removed",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "date": "Sat, 31 Oct 2026 00:44:07 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FCEC:1F4F:F5608:33150C:6AE539D7",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4595",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "405"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/61/reviews?per_page=100",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:37:56 GMT",
+          "etag": "W/\"ec99cd1a821af75a6ffc3a47add6399de36a1a15b3ac2ab5664fae7e6b9dda61\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C5B0:47DC4:215A243:6E863FF:6AE54673",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4913",
+          "x-ratelimit-reset": "1793413122",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "87"
+        },
+        "body": [
+          {
+            "id": 5677210714,
+            "node_id": "PRR_kwDOVFD6788AAAABUmNcWg",
+            "user": {
+              "login": "donpetry-bot",
+              "id": 281750570,
+              "node_id": "U_kgDOEMssKg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/281750570?u=0fa6568da020ed88a1bda20344b0d694894831a7&v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/donpetry-bot",
+              "html_url": "https://github.com/donpetry-bot",
+              "followers_url": "https://api.github.com/users/donpetry-bot/followers",
+              "following_url": "https://api.github.com/users/donpetry-bot/following{/other_user}",
+              "gists_url": "https://api.github.com/users/donpetry-bot/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/donpetry-bot/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/donpetry-bot/subscriptions",
+              "organizations_url": "https://api.github.com/users/donpetry-bot/orgs",
+              "repos_url": "https://api.github.com/users/donpetry-bot/repos",
+              "events_url": "https://api.github.com/users/donpetry-bot/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/donpetry-bot/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "",
+            "state": "DISMISSED",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "author_association": "MEMBER",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5677210714"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "is_copilot_code_review": false,
+            "copilot_code_review_effort": null,
+            "submitted_at": "2026-10-28T02:55:47Z",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          },
+          {
+            "id": 5720176566,
+            "node_id": "PRR_kwDOVFD6788AAAABVPL3tg",
+            "user": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?u=2b685cb1cf84123276352bc298bcf679e38f067c&v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "Trial P-38: the Maintainer approves, then pushes.",
+            "state": "DISMISSED",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61",
+            "author_association": "MEMBER",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/61#pullrequestreview-5720176566"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/61"
+              }
+            },
+            "is_copilot_code_review": false,
+            "copilot_code_review_effort": null,
+            "submitted_at": "2026-10-31T00:43:40Z",
+            "commit_id": "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+          }
+        ]
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
