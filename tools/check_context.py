@@ -50,7 +50,10 @@ NUMBERED = re.compile(r"\b(?:[Ii]ssue|[Pp]ull request|PR)(?: number)? #?\d+\b")
 # A title: an opening quote, eight characters or more, and a closing one. Only the first opening quote after a
 # closing one or a line's start is tried, since a later one inside the same run is shorter and fails if it does;
 # trying every one took time in the square of the length of a line of opening quotes left unclosed (issue 369).
-TITLE = re.compile(r"(?:\"|(?:^|(?<=[”\n]))[^\"“”\n]*“)[^\"”\n]{8,}[\"”]")
+# S8786 reads it as super-linear. It is not:
+# tests/test_tools.py::test_a_line_of_unclosed_quotes_is_read_in_time_and_a_title_is_found_as_before
+# holds its CPU linear on the shape it feared.
+TITLE = re.compile(r"(?:\"|(?:^|(?<=[”\n]))[^\"“”\n]*“)[^\"”\n]{8,}[\"”]")  # NOSONAR
 
 
 def _text(path: pathlib.Path) -> str:
