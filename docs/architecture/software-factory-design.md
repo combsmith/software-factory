@@ -923,7 +923,16 @@ Run's jobs stop their own work under a step limit, the steps' together two minut
 a step stopped at its limit concludes `failure`, and its job with it, and a later `if: always()` step
 still runs (`trials/P-42.step-timeout.json`). A Run past its limit is no attempt: `apply` still runs,
 and leaves the outcome `environment`, `run_failed`, for any run job that did not succeed, so the
-automatic pause and the Run ceiling bound it, not the attempts (issue 433). A Run `cancelled`
+automatic pause and the Run ceiling bound it, not the attempts
+(`tests/test_steps.py::test_apply_waits_for_its_jobs`). One the Engine's own limit stops,
+`engine_timeout`, reads `environment` too
+(`tests/test_apply.py::test_a_result_not_the_runs_or_not_completed_writes_nothing`): a timeout cannot
+tell a slow provider from a slow item, and reading `item` would count an outage as an attempt on
+every item. The cost is accepted (issue 433): a Task the model cannot finish in time has up to
+`max_runs_per_item` Runs and not `max_attempts`, its spend unrecorded, and two such items in the
+window can raise the automatic pause, which stops no act. No Run has a tool (decision 0050), so an
+item can slow its Run only by what the model reads. The design that first gives a Run a tool, issue
+314, rules on this again, since an item can then hang its Run. A Run `cancelled`
 with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which
 the records port reads as `cancelled`. Its concurrency group cancels a Run that waits behind another
 as a newer one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not

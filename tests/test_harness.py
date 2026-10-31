@@ -368,6 +368,8 @@ class Engine(unittest.TestCase):
             self.assertEqual((r["status"], r["reason"], cli.calls), ("failed", "credential_missing", []))
 
     def test_the_cli_is_given_no_tool(self):  # section 3.5, P-13 at 2.1.306
+        # A change to this rule rules first on a Run that hangs reading `environment`: with a tool, an item can hang its
+        # Run (section 3.10, issue 433, issue 314).
         cli = CLI()
         engined(cli)
         args = cli.asked()[0]["args"]

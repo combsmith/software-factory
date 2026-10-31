@@ -16,7 +16,7 @@ LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lif
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller", "config/harness.json": "harness",
-        "config/rulesets.json": "rulesets",
+        "config/rulesets.json": "rulesets", "config/credential-ages.json": "credential-ages",
         "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval", "release/rings.json": "rings"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
@@ -37,7 +37,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
-            "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data",
+            "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data", "credential-ages": "data",
             "rings": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
