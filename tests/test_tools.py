@@ -6935,6 +6935,7 @@ class Verify(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
+        self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
 
     def test_every_test_file_is_discovered(self):
         found = set()

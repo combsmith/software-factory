@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import shutil
 import signal
 import subprocess
@@ -143,7 +144,8 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.t
 
 
 def lacks(target: str, where: pathlib.Path, env: dict) -> bool:
-    """Whether make is there and the Makefile in `where` has no such target, as on a branch older than it."""
+    """Whether make is there and the Makefile in `where` has no such target, as on a branch older than it. A Makefile that
+    cannot be read, or a target whose own needs are missing, has the target, and running it says what is wrong."""
     exe = _make(env)
     if exe is None:
         return False
@@ -151,4 +153,5 @@ def lacks(target: str, where: pathlib.Path, env: dict) -> bool:
         done = subprocess.run([exe, "-n", target], cwd=str(where), env=env, capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return done.returncode != 0
+    said = done.stderr.decode(errors="replace")
+    return done.returncode != 0 and re.search(r"No rule to make target .%s." % re.escape(target), said) is not None

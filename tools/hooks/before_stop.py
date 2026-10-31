@@ -27,7 +27,7 @@ from tools.hooks import make  # noqa: E402
 TIMEOUT = 580       # seconds; the settings give the hook 600
 TOLD = 15           # lines of the failure put in front of the person
 RETRY = 3600        # seconds after a run that did not finish before one is started again
-RECORD = "sf-stop-verify.json"   # in the tree's git directory: the last run's start and whether it finished in time
+RECORD = "sf-stop-checks.json"   # in the tree's git directory: the last run's start and whether it finished in time
 
 
 def _git(where: pathlib.Path, env: dict, args: list):

@@ -36,7 +36,8 @@ GOOD_REMOTE = "https://github.com/combsmith/software-factory.git"
 GH_HELPER = "!gh auth git-credential"
 STAND_INS = {
     "gh": 'if [ -n "$FAKE_GH_SLEEP" ]; then exec /bin/sleep "$FAKE_GH_SLEEP"; fi\necho "$FAKE_GH_USER"',
-    "make": 'if [ "$1" = "-n" ]; then exit "${FAKE_MAKE_DRY:-0}"; fi\n'
+    "make": 'if [ "$1" = "-n" ]; then [ "$2" = checks ] || exit 0; [ -n "$FAKE_MAKE_DRY" ] && echo "make: *** No rule to make '
+            'target \'$2\'.  Stop." >&2; exit "${FAKE_MAKE_DRY:-0}"; fi\n'
             'echo "make $* in $(pwd -P)"\nexit "${FAKE_MAKE_EXIT:-0}"',
 }
 PATHS = {}     # made once: a new program's first run is slow on some systems
@@ -1830,21 +1831,24 @@ class AfterEdit(unittest.TestCase):
 
     def test_checks_that_ran_out_of_time_found_nothing_and_say_so(self):  # issue 438
         # A run that did not finish is no failure: the agent is not told the checks fail, and nothing is sent back.
-        payload, env = self.edit(programs("make"))
-        unfinished = make.UNFINISHED % ("checks", after_edit.TIMEOUT, self.project)
-        with unittest.mock.patch.object(after_edit.make, "make", lambda *a: (False, unfinished)):
+        bin_dir = folder()
+        (bin_dir / "make").write_text("#!/bin/sh\nexec /bin/sleep 30\n")
+        (bin_dir / "make").chmod(0o755)
+        payload, env = self.edit(str(bin_dir))
+        with unittest.mock.patch.object(after_edit, "TIMEOUT", 1):
             code, out, err = after_edit.respond(payload, env)
         self.assertEqual((code, err), (0, ""))
         said = json.loads(out)["systemMessage"]
         self.assertIn("did not finish", said)
         self.assertIn("found nothing", said)
-        self.assertNotIn("fail", said)
+        self.assertNotIn("checks fail", said)
 
     def test_with_no_make_the_agent_is_told_the_checks_did_not_run(self):
         code, _, err = after_edit.respond(*self.edit(programs()))
         self.assertEqual(code, 2)
         self.assertIn("make is not on PATH", err)
         self.assertIn("python3 -m tools.verify --checks", err)
+        self.assertIn("as python3 -m tools.verify.", make.make("verify", self.project, environment(programs()), 1)[1])
 
 
 class BeforeStop(unittest.TestCase):
@@ -1882,6 +1886,23 @@ class BeforeStop(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertIn("has no `make checks` target", json.loads(out)["systemMessage"])
 
+    def test_only_a_target_truly_absent_is_lacking(self):  # the security pass on #443
+        # A Makefile that cannot be read, or a target whose needs are missing, is no branch older than the target: running
+        # it says what is wrong, and the session is sent back. Read with the real make.
+        env = dict(os.environ)
+        for text, lacking in (("other:\n\ttrue\n", True), ("", True), ("checks:\n\ttrue\n", False),
+                              ("checks: nothere\n\ttrue\n", False), ("include nothere.mk\nchecks:\n\ttrue\n", False),
+                              ("checks:\n    spaces not a tab\n", False)):
+            where = folder()
+            (where / "Makefile").write_text(text)
+            self.assertEqual(make.lacks("checks", where, env), lacking, text)
+        where = folder()
+        (where / "Makefile").write_text("checks: nothere\n\ttrue\n")
+        payload, env = self.stop(False, str(pathlib.Path(shutil.which("make")).parent) + os.pathsep + "/usr/bin:/bin", where)
+        code, out, err = before_stop.respond(payload, env)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("`make checks` fails", err)
+
     def test_with_nothing_unpushed_verify_is_not_run(self):
         pushed = repo(fresh=True)
         git(pushed, "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -1913,7 +1934,7 @@ class BeforeStop(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertIn("did not finish", json.loads(out)["systemMessage"])
         self.assertIn("found nothing", json.loads(out)["systemMessage"])
-        self.assertNotIn("fail", json.loads(out)["systemMessage"])
+        self.assertNotIn("fails in", json.loads(out)["systemMessage"])
         self.assertEqual(json.loads(record.read_text()), {"started": 1000.0, "finished": False})
         code, out, _ = before_stop.respond(payload, env, clock=lambda: 1100.0)
         self.assertEqual(code, 0)
