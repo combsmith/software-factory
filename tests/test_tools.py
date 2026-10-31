@@ -6921,6 +6921,11 @@ class Verify(unittest.TestCase):
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
             with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+                # `make checks` is the checks alone, whether they pass or not: it runs no test (issue 438).
+                self.assertEqual((verify.main(["--checks"]), ran), (0, {}))
+                verify.failed = lambda checks: True
+                self.assertEqual((verify.main(["--checks"]), ran), (1, {}))
+                verify.failed = lambda checks: False
                 self.assertEqual(verify.main([]), 0)
                 self.assertEqual(ran["modules"], everything)
                 verify.main(["--fast"])

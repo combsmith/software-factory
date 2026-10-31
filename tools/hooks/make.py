@@ -114,7 +114,7 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.t
     exe = _make(env)
     if exe is None:
         return False, ("make is not on PATH, so `make %s` did not run in %s. Put make on PATH; the same checks "
-                       "run without it as python3 -m tools.verify%s." % (target, where, " --fast" if target == "fast" else ""))
+                       "run without it as python3 -m tools.verify%s." % (target, where, "" if target == "verify" else " --" + target))
     asked = time.monotonic()
     sweep(env, clock())
     try:

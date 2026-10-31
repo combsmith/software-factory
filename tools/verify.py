@@ -1,7 +1,8 @@
 """One command: everything the required check will run. `make verify`.
 
-`make fast` runs the same checks and every test but the seeded simulation, which is most of the
-time `make verify` takes. A session runs it after each edit (`tools/hooks/after_edit.py`).
+`make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
+minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
+`tools/hooks/before_stop.py`); the tests are CI's, and each builder's own `make verify`.
 """
 from __future__ import annotations
 
@@ -68,6 +69,8 @@ def suite(fast: bool) -> unittest.TestSuite:
 
 def main(argv: list) -> int:
     checks_failed = failed(CHECKS)
+    if "--checks" in argv:
+        return 1 if checks_failed else 0
     print("%-22s %s" % ("decision base", check_decisions.described()))
     unverified(check_trials.unverified())
     result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv))
