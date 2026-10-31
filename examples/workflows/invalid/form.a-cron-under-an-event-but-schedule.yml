@@ -1,0 +1,22 @@
+# Must be rejected. A cron after an event that is not schedule: is no schedule's: it is read as an on: written as a
+# list, whatever its text (Argon's read of #428).
+name: factory
+on:
+  pull_request:
+  merge_group:
+  push:
+  - cron: "13 * * * *"
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make verify
+      - run: python3 -m tools.mutants
