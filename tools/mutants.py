@@ -9704,6 +9704,12 @@ MUTANTS = ISSUE + [
      'DETAILS = {"details_url", "detailsUrl", "target_url", "targetUrl"}', 'DETAILS = {"details_url", "target_url", "targetUrl"}', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
     ("a query taken from a vendor's details is not said", "tools/redact_trial.py",
      '                removed.append(here + "?query")\n', '', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    # #197: P-39's reach is read for the Apps named, each with its own key.
+    ("P-39's reach takes a name that is no App", "tools/trial_p39_reach.sh", '        controller|pr-review|reader|queue|release) ;;\n', '        *) ;;\n', ('tests.test_tools.ReachScript.test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted',)),
+    ("P-39's reach reads an App twice", "tools/trial_p39_reach.sh", '    case "$named" in *" $app "*)\n', '    case "$named" in "never")\n', ('tests.test_tools.ReachScript.test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted',)),
+    ("P-39's reach takes a pair with no key", "tools/trial_p39_reach.sh", 'if [ "$pair" = "$app" ] || [ ! -r "$key" ]; then', 'if [ ! -r "$key" ]; then', ('tests.test_tools.ReachScript.test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted',)),
+    ("P-39's reach takes a key file it cannot read", "tools/trial_p39_reach.sh", 'if [ "$pair" = "$app" ] || [ ! -r "$key" ]; then', 'if [ "$pair" = "$app" ]; then', ('tests.test_tools.ReachScript.test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted',)),
+    ("P-39's reach cannot read the release App", "tools/trial_p39_reach.sh", '("controller", "pr-review", "reader", "queue", "release")', '("controller", "pr-review", "reader", "queue")', ('tests.test_tools.ReachScript.test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted',)),
     # Issue 369: a title is looked for from the first opening quote of a run alone, so a line of them is read in time.
     ("every opening quote is tried for a title", "tools/check_context.py",
      'TITLE = re.compile(r"(?:\\"|(?:^|(?<=[”\\n]))[^\\"“”\\n]*“)[^\\"”\\n]{8,}[\\"”]")',
