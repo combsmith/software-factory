@@ -2284,9 +2284,9 @@ MUTANTS = ISSUE + [
     ("FLAKY is counted as killed", "tools/mutants.py",
      'killed += outcome' ' == "killed"', 'killed += outcome in ("killed", "FLAKY")', FLAKY_TESTS),
     ("the failure line of Python 3.10 and earlier is read as the class", "tools/mutants.py",
-     '            found.add(where' ' + "." + method)\n', "            found.add(where)\n", LINE_TESTS),
+     'method) else where' ' + "." + method\n', 'method) else where\n', LINE_TESTS),
     ("the failure line of Python 3.11 and later is read as 3.10's", "tools/mutants.py",
-     'if method == "setUpClass"' ' or where.endswith("." + method):', 'if method == "setUpClass":', LINE_TESTS),
+     'if method == "setUpClass"' ' or where.endswith("." + method) else', 'if method == "setUpClass" else', LINE_TESTS),
     ("a failure in setUpClass is read as a test", "tools/mutants.py",
      'if method == "setUpClass"' " or ", "if ", LINE_TESTS),
     ("a failure line in a test's own message is read as unittest's", "tools/mutants.py",
@@ -9749,6 +9749,29 @@ MUTANTS = ISSUE + [
      '        if words[1:] != [CODE_OWNER]:\n', '        if words[1:] and words[1:] != [CODE_OWNER]:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
     ("code owners with no catch-all pass", 'tools/check_rulesets.py',
      '    if not any(words[0] == CATCH_ALL for words in lines):\n', '    if False:\n', ('tests.test_tools.Rulesets.test_the_code_owners_are_the_machine_users_team_on_every_path',)),
+    # Issue 438: a failing baseline names its tests, and a fixture's finding is kept only for all it reads.
+    ("a failing baseline names no test", "tools/mutants.py",
+     'for line in failures([said' ' for _, said in runs]):', 'for line in []:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a failing baseline names every test", "tools/mutants.py",
+     'for line in said[:NAMED' '_MOST]]', 'for line in said]', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a named failure is as wide as it came", "tools/mutants.py",
+     '[line[:NAMED' '_WIDTH] for', '[line for', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("how many more failed is not said", "tools/mutants.py",
+     'if len(said) > NAMED' '_MOST else []', 'if False else []', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("the traceback's first line is read as the error", "tools/mutants.py",
+     ' and not line.startswith("Trace' 'back")', '', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("the next failure's rule is read as the error", "tools/mutants.py",
+     'if line.startswith("=" * 7' '0):', 'if False:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a test that failed twice is named twice", "tools/mutants.py",
+     'named.setdefault(_test_id(*found' '.groups()), error)', 'named[_test_id(*found.groups()) + str(len(named))] = error', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a fixture's finding is kept whatever its text", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, told, apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever its name", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (path.read_text(), told, apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever the schema", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, path.read_text(), apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever the Apps' reach", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, path.read_text(), told)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
 ]
 
 
@@ -9782,6 +9805,9 @@ AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants aga
 # and earlier or its whole id from 3.11, then any subtest. A failure in setUpClass names the class. The rule above
 # tells it from a line of the same form in a test's own message.
 FAILURE_LINE = re.compile(r"^={70}\n(?:FAIL|ERROR): (\w+) \(([\w.]+)\)(?: .*)?$", re.M)
+NAMED_MOST = 20     # the tests a failing baseline names, so that its log stays readable
+NAMED_WIDTH = 200   # the characters of each
+NAMED_SCAN = 200    # the lines after a failure's head its error is looked for in
 # Said of a failure not shown to be the mutant's: one more run of the suite on the mutant decides.
 UNCONFIRMED = "unconfirmed"
 # How a FLAKY's reason ends. FLAKY fails the run as an ERROR does: nobody has shown that a test notices the mutant.
@@ -9917,15 +9943,35 @@ def verdict(status, output: str) -> tuple:
     return "ERROR", "exit status %d and no test failed, ending %r%s" % (status, last, AGAIN)
 
 
+def _test_id(method: str, where: str) -> str:
+    """A failed test's id as unittest takes it, from the two forms the Python versions print."""
+    return where if method == "setUpClass" or where.endswith("." + method) else where + "." + method
+
+
 def failed_test(output: str):
     """The id of the one test that failed in `output`, as unittest takes it to run that test alone; else None."""
-    found = set()
-    for method, where in FAILURE_LINE.findall(output):
-        if method == "setUpClass" or where.endswith("." + method):
-            found.add(where)
-        else:
-            found.add(where + "." + method)
+    found = {_test_id(method, where) for method, where in FAILURE_LINE.findall(output)}
     return found.pop() if len(found) == 1 else None
+
+
+def failures(outputs: list) -> list:
+    """Each test that failed in `outputs`, once, with the first line of its error, for a person to read in a log: at
+    most NAMED_MOST of them, each cut to NAMED_WIDTH characters, and a last line saying how many more (issue 438)."""
+    named = {}
+    for output in outputs:
+        for found in FAILURE_LINE.finditer(output):
+            lines = output[found.end():].split("\n", NAMED_SCAN)[:NAMED_SCAN]
+            error = ""
+            for line in lines[2:]:      # past the rule and the traceback, whose lines stand in, the first that stands out
+                if line.startswith("=" * 70):
+                    break
+                if line and line[0] != " " and not line.startswith("Traceback"):
+                    error = line
+                    break
+            named.setdefault(_test_id(*found.groups()), error)
+    said = ["%s: %s" % (test, error) if error else test for test, error in named.items()]
+    return [line[:NAMED_WIDTH] for line in said[:NAMED_MOST]] + \
+        (["and %d more" % (len(said) - NAMED_MOST)] if len(said) > NAMED_MOST else [])
 
 
 def confirm(output: str, work: pathlib.Path, run, broken, unbroken) -> tuple:
@@ -10202,6 +10248,9 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
         if (status is not None and outcome != "SURVIVED") or (status is None and FAILURE_LINE.search(output)):
             print("the tests fail before anything is broken; a mutant cannot be told from that%s"
                   % (" (%s)" % why if why else ""))
+            # Each part stops at its first failure, so there may be more than these.
+            for line in failures([said for _, said in runs]):
+                print("    " + line)
             return 1
     if any(status is None for status, _ in runs):
         print("the tests the mutants name took longer than %d s before anything was broken, and none that ran failed; no "
