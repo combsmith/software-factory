@@ -32,3 +32,4 @@ forged name gains is no review: main needs none, and only a pull request from ou
 | What the check says when every commit passes is what it holds: the commits name the Maintainer, the committer where GitHub did not commit it | `tests/test_tools.py::test_every_commit_a_pull_request_carries_is_the_maintainers` |
 | The job runs the base's tool, and `verify` needs it | `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base` |
 | Option C is taken by decision 0102: a pull request is opened from this repo by an account the configuration lists | `tests/test_tools.py::test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows` |
+| A pull request retargeted to main is read again, by decision 0102 | `tests/test_tools.py::test_the_commits_job_reads_the_pull_requests_commits_from_the_base` |

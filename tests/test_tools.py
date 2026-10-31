@@ -1882,6 +1882,15 @@ class Workflows(unittest.TestCase):
         depth = "          fetch-depth: 0\n          ref: %s\n" % check_workflows.BASE
         self.assertEqual((job.count(reading), job.count(depth)), (1, 1))
         shape = "its job commits's steps are not a checkout"
+        # A retarget fires `edited` alone: without it a pull request opened against another branch stands green on main
+        # (decision 0102, the security pass on its pull request). A list that leaves out any type is a filter besides.
+        kinds = "    types:\n      - opened\n      - synchronize\n      - reopened\n      - edited\n"
+        self.assertEqual(GOOD.count(kinds), 1)
+        for text in (GOOD.replace(kinds, ""), GOOD.replace(kinds, kinds.replace("      - edited\n", "")),
+                     GOOD.replace(kinds, kinds.replace("      - synchronize\n", ""))):
+            self.assertTrue(caught(self.lens_problems(text), "so a retargeted pull request is not read again"), text[:120])
+        # That list is no filter, and a list that leaves a type out is one: the repo's workflows and counter-examples say so.
+        self.assertEqual(check_workflows.run(ROOT), [])
         cases = [(GOOD.replace(job, "").replace("      - commits\n", ""), "has no job commits"),
                  (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "has keys other than"),
                  (GOOD.replace(job, job.replace("    env:\n", "    container: ghcr.io/x/y:1\n    env:\n")), "has keys other than"),
@@ -2170,8 +2179,8 @@ class Workflows(unittest.TestCase):
         self.assertEqual(said("sf-dev[bot]", 2), [])
         # Another account refuses, and says who may. So does a login with another's id, as one renamed and taken is, and
         # an account on the list under another's login.
-        refused(said("bob", 9), "the Maintainer")
-        refused(said("bob", 9), "opened by bob")
+        for words in ("opened by bob", "ada, the Maintainer", "sf-dev[bot], the App"):
+            refused(said("bob", 9), words)
         refused(said("ada", 9), "opened by ada")
         refused(said("bob", 1), "opened by bob")
         refused(said("ada", 2), "opened by ada")

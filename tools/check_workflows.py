@@ -426,6 +426,9 @@ NEEDS = "${{ toJSON(needs) }}"
 # with the whole history, told the base, the head and the event by the expressions below and nothing else. It reads the
 # opener from the payload the runner leaves, so no expression gives it one (decision 0102).
 COMMITS = "python3 -m tools.commits_are_the_maintainers"
+# GitHub's default types and `edited`, which a retarget fires: the commits and the opener are read again against the new
+# base's list, or a pull request opened against another branch stands green on main (decision 0102).
+READ_ON = ["opened", "synchronize", "reopened", "edited"]
 # The mutant shards (issue 180): each leg is told its index and the count by the matrix itself, never by a number
 # written in, so every leg runs its own shard and the count is the matrix's size.
 SHARDED = "python3 -m tools.mutants"
@@ -703,7 +706,10 @@ def lint(text: str) -> list:
         events.add(top["on"]["value"])
     if events - EVENTS:
         found.append(("target", "runs on %s" % ", ".join(sorted(events - EVENTS))))
-    filtered = [e for e in entries if e["path"][:2] in (["on", "pull_request"], ["on", "merge_group"])]
+    # The one list here that filters nothing: every event that moves the head or the base (decision 0102).
+    filtered = [e for e in entries if e["path"][:2] in (["on", "pull_request"], ["on", "merge_group"])
+                and not (e["path"] == ["on", "pull_request"] and e["key"] == "types"
+                         and _listed(text, e) == READ_ON)]
     if "pull_request" in events and ("merge_group" not in events or filtered):
         found.append(("queue", "runs on pull_request without merge_group, or behind a filter"))
 
@@ -1059,6 +1065,9 @@ def _commits(text: str, entries: list, jobs: list) -> list:
     job's or skip it."""
     if "commits" not in jobs:
         return ["has no job commits, which reads every commit the pull request carries from the base"]
+    told = [e for e in entries if e["path"] == ["on", "pull_request"] and e["key"] == "types"]
+    if [_listed(text, e) for e in told] != [READ_ON]:
+        return ["its pull_request event's types are not %s, so a retargeted pull request is not read again" % ", ".join(READ_ON)]
     mine = [e for e in entries if e["path"][:2] == ["jobs", "commits"]]
     inside = {e["key"]: e for e in mine if e["path"] == ["jobs", "commits"]}
     whys = []

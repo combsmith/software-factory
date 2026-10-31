@@ -5491,8 +5491,6 @@ MUTANTS = ISSUE + [
     ("a function that is no test method is a test", "tools/mutants.py",
      '    return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"\n',
      '    return ""\n', NAMING_TESTS),
-    # Issue 204: every commit a pull request carries is the Maintainer's, checked outside the shell.
-    # Decision 0087: what the check says is what it holds.
     # Issue 409: a pull request is opened from this repo by an account the configuration lists (decision 0102).
     ("the job does not read the opener", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = problems(root, environ)", OPENER_JOB),
     ("the job does not read the commits", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = opened", OPENER_JOB),
@@ -5516,6 +5514,20 @@ MUTANTS = ISSUE + [
     ("the list is not required", "schemas/hooks.schema.json", '    "maintainer",\n    "openers",\n', '    "maintainer",\n', OPENER_TESTS),
     ("the list may be empty", "schemas/hooks.schema.json", '    "openers": {\n      "type": "array",\n      "minItems": 1,\n', '    "openers": {\n      "type": "array",\n', OPENER_TESTS),
     ("an opener needs no reason", "schemas/hooks.schema.json", '          "id",\n          "is"\n', '          "id"\n', OPENER_TESTS),
+    ("a refusal names only one of those who may", "tools/commits_are_the_maintainers.py", 'for who, is_ in sorted(allowed.items()))', 'for who, is_ in sorted(allowed.items())[:1])', OPENER_TESTS),
+    ("a refusal names no login", "tools/commits_are_the_maintainers.py", '"%s, %s" % (who[0], is_) for who', '"%s" % is_ for who', OPENER_TESTS),
+    ("an opener needs no id", "schemas/hooks.schema.json", '          "login",\n          "id",\n          "is"\n', '          "login",\n          "is"\n', OPENER_TESTS),
+    ("an opener needs no login", "schemas/hooks.schema.json", '          "login",\n          "id",\n          "is"\n', '          "id",\n          "is"\n', OPENER_TESTS),
+    ("an opener may be listed twice", "schemas/hooks.schema.json", '      "uniqueItems": true,\n      "items": {\n        "type": "object",\n        "additionalProperties": false,\n        "required": [\n          "login",\n          "id"', '      "items": {\n        "type": "object",\n        "additionalProperties": false,\n        "required": [\n          "login",\n          "id"', OPENER_TESTS),
+    ("an opener's login may be any text", "schemas/hooks.schema.json", '            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\\\[bot\\\\])?$"\n', '            "minLength": 1\n', OPENER_TESTS),
+    ("an opener's id may be text", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "minimum": 1\n          },\n          "is"', OPENER_TESTS),
+    ("an opener's id may be no account's", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "type": "integer"\n          },\n          "is"', OPENER_TESTS),
+    ("a retarget is not read again", "examples/workflows/verify.yml", '      - reopened\n      - edited\n', '      - reopened\n', ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)),
+    ("the commits job's event types are not held", "tools/check_workflows.py", '    if [_listed(text, e) for e in told] != [READ_ON]:\n', '    if False:\n', ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)),
+    ("any list of types is no filter", "tools/check_workflows.py", '                         and _listed(text, e) == READ_ON)]\n', '                         )]\n', ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)),
+    ("the list of types is read as a filter", "tools/check_workflows.py", '                and not (e["path"] == ["on", "pull_request"] and e["key"] == "types"\n                         and _listed(text, e) == READ_ON)]\n', '                ]\n', ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)),
+    # Issue 204: every commit a pull request carries is the Maintainer's, checked outside the shell.
+    # Decision 0087: what the check says is what it holds.
     ('the check says the commits are the Maintainer\'s', 'tools/commits_are_the_maintainers.py',
      'names the Maintainer as its author, and as its committer where GitHub did not "',
      'is the Maintainer\'s as its author, and as its committer where GitHub did not "', ('tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers',)),
