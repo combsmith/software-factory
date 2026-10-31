@@ -195,7 +195,7 @@ class Current(unittest.TestCase):
                 self.assertEqual(current.version(name), ())
         for name in ("factory/v0.1.0", "factory/v0-beta", "factory/v01-next", "factory/v0-", None):
             with self.subTest(name=name):
-                self.assertEqual(current.channel(name), ())
+                self.assertIsNone(current.channel(name))
 
 
 def ref(name, sha=A, kind="commit"):

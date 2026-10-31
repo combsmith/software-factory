@@ -87,7 +87,10 @@ def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: d
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             errors.append("%s: shorter than %d" % (path, schema["minLength"]))
-        if "pattern" in schema and (re.search(schema["pattern"], value) is None or value.endswith("\n")):
+        # A pattern is the schema's own, read from this Release's files, never the value's, and each is held to a limit
+        # on a long value: tests/test_tools.py::test_no_schema_pattern_backtracks_on_a_long_value. S2631 reads a file as
+        # outside data, so it is a false positive here.
+        if "pattern" in schema and (re.search(schema["pattern"], value) is None or value.endswith("\n")):  # NOSONAR
             errors.append("%s: does not match %s" % (path, schema["pattern"]))
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if "minimum" in schema and value < schema["minimum"]:

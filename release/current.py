@@ -25,13 +25,13 @@ def version(name) -> tuple:
     return tuple(int(p) for p in parts)
 
 
-def channel(name) -> tuple:
-    """(MAJOR, "next" or "stable") of a Channel's name, or () for anything that is not one, a Release among them."""
+def channel(name) -> tuple | None:
+    """(MAJOR, "next" or "stable") of a Channel's name, or None for anything that is not one, a Release among them."""
     if not isinstance(name, str) or not name.startswith(PREFIX):
-        return ()
+        return None
     major, gap, ring = name[len(PREFIX):].partition("-")
     if not gap or not _number(major) or ring not in ("next", "stable"):
-        return ()
+        return None
     return int(major), ring
 
 

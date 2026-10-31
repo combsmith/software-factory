@@ -187,6 +187,47 @@ def rules(text: str) -> list:
 
 
 class Validator(unittest.TestCase):
+    LIMIT = 2       # seconds; a search of 4,000 characters takes well under a millisecond unless it backtracks
+
+    def backtracks(self, pattern: str) -> bool:
+        """Whether `pattern` runs past the limit on a long value of the shapes that make a pattern backtrack."""
+        compiled = re.compile(pattern)
+        def over(_signum, _frame):
+            raise TimeoutError
+        before = signal.signal(signal.SIGALRM, over)
+        try:
+            for atom in ("a", "A", "0", ".", "/", "-", "_", " ", "a/", "a b", "a.", "0.", "../", "./", "a-", "--a ", "="):
+                for tail in ("", "!", "\n", "/", " "):
+                    signal.setitimer(signal.ITIMER_REAL, self.LIMIT)
+                    try:
+                        compiled.search(atom * (4000 // len(atom)) + tail)
+                    except TimeoutError:
+                        return True
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+            return False
+        finally:
+            signal.signal(signal.SIGALRM, before)
+
+    def test_no_schema_pattern_backtracks_on_a_long_value(self):
+        # A value may come from outside, a path in a pull request for one; a pattern is the Release's own. So a ReDoS is
+        # a pattern written here that backtracks, and this says so, the check SonarCloud's S2631 stands in for.
+        self.assertTrue(self.backtracks(r"^(a+)+$"))
+        self.assertFalse(self.backtracks(r"^[a-z]+(/[a-z]+)*$"))
+        found = set()
+        def walk(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("pattern"), str):
+                    found.add(node["pattern"])
+                node = list(node.values())
+            if isinstance(node, list):
+                for value in node:
+                    walk(value)
+        for path in (ROOT / "schemas").glob("*.json"):
+            walk(json.loads(path.read_text()))
+        self.assertGreater(len(found), 1)
+        self.assertEqual([pattern for pattern in sorted(found) if self.backtracks(pattern)], [])
+
     def test_rejects_a_schema_it_cannot_enforce(self):
         with self.assertRaises(SchemaError):
             validate({}, {"type": "object", "patternProperties": {}})
