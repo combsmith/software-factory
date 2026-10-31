@@ -6900,6 +6900,19 @@ esac
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
+    def test_a_status_line_of_spaces_is_read_in_time_and_reads_as_before(self):
+        # The phrase's spaces and the trailing ones overlapped, so a status line with a run of them and then what no
+        # status holds took time in its square: a crafted capture could hold the redactor up.
+        line = redact_trial.STATUS_LINE.fullmatch
+        read_in_linear_cpu(self, lambda spaces: line("HTTP/1.1 200 a" + spaces + "!"), " ", 16000)
+        read_in_linear_cpu(self, lambda words: line("HTTP/1.1 200 " + words + "!"), "a ", 16000)
+        for text, reads in (("HTTP/1.1 200", True), ("HTTP/1.1 200 ", True), ("HTTP/2 404 Not Found", True),
+                            ("HTTP/1.1 200 OK  \r", True), ("HTTP/1.1 200 a", True), ("HTTP/1.1 200 a   ", True),
+                            ("HTTP/1.1 200 a -", True), ("HTTP/1.1 200 it's", True), ("HTTP/1.1 200 a '", True),
+                            ("HTTP/1.1 200 OK!", False), ("HTTP/1.1 200 -a", False), ("HTTP/1.1 200  a", False),
+                            ("HTTP/1.1 200 a\nb", False), ("HTTP/1.1 20", False), ("http/1.1 200", False)):
+            self.assertEqual(line(text) is not None, reads, text)
+
     def redact(self, raw: str) -> tuple:
         out, said = io.StringIO(), io.StringIO()
         self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 0)
