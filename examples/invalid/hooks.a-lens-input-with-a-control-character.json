@@ -5,6 +5,13 @@
     "name": "Don Petry",
     "email": "36422719+don-petry@users.noreply.github.com"
   },
+  "openers": [
+    {
+      "login": "don-petry",
+      "id": 36422719,
+      "is": "the Maintainer, the one account that opens a pull request here until a record adds the Factory's App (decision 0102)"
+    }
+  ],
   "protected": [
     {
       "path": "lifecycle/",

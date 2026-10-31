@@ -187,6 +187,51 @@ def rules(text: str) -> list:
 
 
 class Validator(unittest.TestCase):
+    LIMIT = 2       # seconds; a search of 4,000 characters takes well under a millisecond unless it backtracks
+
+    def backtracks(self, pattern: str) -> bool:
+        """Whether `pattern` runs past the limit on a long value of the shapes that make a pattern backtrack, each after
+        the literal text the pattern opens with, so that it reaches a repeat behind that text. It does not reach a repeat
+        behind a class: a guard on patterns the repo writes, not a proof."""
+        compiled = re.compile(pattern)
+        opens = re.match(r"\^?((?:\\[^A-Za-z0-9]|[^\\\[\](){}.*+?|^$])*)", pattern).group(1)
+        opens = re.sub(r"\\(.)", r"\1", opens)
+        def over(_signum, _frame):
+            raise TimeoutError
+        before = signal.signal(signal.SIGALRM, over)
+        try:
+            for atom in ("a", "A", "0", ".", "/", "-", "_", " ", "a/", "a b", "a.", "0.", "../", "./", "a-", "--a ", "="):
+                for tail in ("", "!", "\n", "/", " "):
+                    signal.setitimer(signal.ITIMER_REAL, self.LIMIT)
+                    try:
+                        compiled.search(opens + atom * (4000 // len(atom)) + tail)
+                    except TimeoutError:
+                        return True
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+            return False
+        finally:
+            signal.signal(signal.SIGALRM, before)
+
+    def test_no_schema_pattern_backtracks_on_a_long_value(self):
+        # A value may come from outside, a path in a pull request for one; a pattern is the Release's own. So a ReDoS is
+        # a pattern written here that backtracks, and this says so, the check SonarCloud's S2631 stands in for.
+        # That it notices one is the two mutants' to show, since a pattern that backtracks written here is CodeQL's alert.
+        self.assertFalse(self.backtracks(r"^[a-z]+(/[a-z]+)*$"))
+        found = set()
+        def gather(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("pattern"), str):
+                    found.add(node["pattern"])
+                node = list(node.values())
+            if isinstance(node, list):
+                for value in node:
+                    gather(value)
+        for path in [p for p in walk.files(ROOT, "schemas") if p.suffix == ".json"]:
+            gather(json.loads(path.read_text()))
+        self.assertGreater(len(found), 1)
+        self.assertEqual([pattern for pattern in sorted(found) if self.backtracks(pattern)], [])
+
     def test_rejects_a_schema_it_cannot_enforce(self):
         with self.assertRaises(SchemaError):
             validate({}, {"type": "object", "patternProperties": {}})
@@ -1575,6 +1620,7 @@ class Repo(unittest.TestCase):
             self.assertTrue(caught(check_repo.run(root), "shaped like a credential"), name)
         shapes = ["github_pat_" + "a1B2" * 9, "glpat-" + "a1B2" * 6, "sk-" + "ant-" + "a1B2" * 6, "AKIA" + "A1B2" * 4,
                   "xoxb" + "-1234567890-abc", "-----BEGIN RSA " + "PRIVATE KEY-----"]
+        shapes = shapes + ["gh" + "h_" + "a1B2" * 9]
         for shape in shapes:
             self.assertTrue(caught(check_repo.run(tree({"a.py": "X = '%s'\n" % shape})), "credential"), shape[:6])
 
@@ -1753,6 +1799,101 @@ class Repo(unittest.TestCase):
 class Workflows(unittest.TestCase):
     def test_the_example_passes_and_every_rule_has_been_tripped(self):
         self.assertEqual(check_workflows.run(), [])
+
+    def test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows(self):  # L-37, issue 305
+        # The live workflows and their rows agree; then each way they can part is caught, in a tree of the rows, the
+        # Apps' keys and the workflows' text alone.
+        self.assertEqual(check_workflows.credential_problems(ROOT, sorted((ROOT / ".github" / "workflows").glob("*.yml"))), [])
+
+        def row(name, workflows, kind="write", stored="environment", environment=None):
+            return {"name": name, "kind": kind, "stored": stored, "environment": environment, "workflows": workflows,
+                    "rotated_on": "2026-10-01", "expires_on": None, "rotate_every_days": 90}
+
+        app = {"name": "combsmith-sf-controller", "key": {"environment": "factory-poller", "secret": "CONTROLLER_APP_KEY"},
+               "permissions": {"checks": {"level": "write"}, "metadata": {"level": "read"}}}
+        rows = [row("CONTROLLER_APP_KEY", ["pass.yml"]),
+                row("APPROVER_TOKEN", ["approve-job.yml"], environment="factory-approve"),
+                row("CLAUDE_CODE_OAUTH_TOKEN", ["eval.yml", "run-jobs.yml"], "model", "organisation"),
+                row("HELDOUT_OWNER", ["eval.yml"], "coordinate", environment="factory-eval"),
+                row("SONAR_TOKEN", ["sonarcloud.yml"], "read", "repository")]
+        flows = {"pass.yml": "  KEY: ${{ secrets.CONTROLLER_APP_KEY }}\n  T: ${{ secrets.GITHUB_TOKEN }}\n",
+                 "approve-job.yml": "  T: ${{ secrets['APPROVER_TOKEN'] }}\n",
+                 "eval.yml": "  M: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n  O: ${{ secrets.heldout_owner }}\n",
+                 "run-jobs.yml": "  M: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n",
+                 "sonarcloud.yml": "  S: ${{ secrets.SONAR_TOKEN }}\n"}
+
+        def problems(rows=rows, flows=flows, apps=None):
+            files = {".github/workflows/" + name: text for name, text in flows.items()}
+            files["config/credential-ages.json"] = json.dumps({"schema": "credential-ages/1", "due_within_days": 14,
+                                                           "credentials": rows})
+            files["config/apps.json"] = json.dumps({"apps": {"controller": app} if apps is None else apps})
+            root = tree(files)
+            return check_workflows.credential_problems(root, sorted((root / ".github" / "workflows").glob("*.yml")))
+
+        self.assertEqual(problems(), [])
+        self.assertTrue(caught(problems(flows=dict(flows, **{"release.yml": "  K: ${{ secrets.RELEASE_APP_KEY }}\n"})),
+                               "release.yml names the secret RELEASE_APP_KEY, which config/credential-ages.json has no row for"))
+        self.assertTrue(caught(problems(rows=rows[:1] + rows[2:]), "approve-job.yml names the secret APPROVER_TOKEN"))
+        self.assertTrue(caught(problems(flows=dict(flows, **{"pass.yml": "  K: ${{ secrets.CONTROLLER_APP_KEY }}\n",
+                                                             "other.yml": "  K: ${{ secrets.CONTROLLER_APP_KEY }}\n"})),
+                               "CONTROLLER_APP_KEY lists the workflows ['pass.yml'], and is named by ['other.yml', 'pass.yml']"))
+        self.assertTrue(caught(problems(flows={k: v for k, v in flows.items() if k != "sonarcloud.yml"}),
+                               "SONAR_TOKEN lists the workflows ['sonarcloud.yml'], and is named by none"))
+        self.assertTrue(caught(problems(rows=rows + [row("QUEUE_APP_KEY", ["queue.yml"])]),
+                               "QUEUE_APP_KEY lists the workflows ['queue.yml'], and is named by none"))
+        self.assertEqual(problems(rows=rows + [row("QUEUE_APP_KEY", [], environment="factory-queue")]), [])
+        two = [dict(r, kind="read") if r["name"] == "CLAUDE_CODE_OAUTH_TOKEN" else r for r in rows]
+        self.assertTrue(caught(problems(rows=two), "CLAUDE_CODE_OAUTH_TOKEN is named by 2 workflows"))
+        self.assertTrue(caught(problems(rows=rows + [rows[1]]), "APPROVER_TOKEN has 2 rows"))
+        self.assertTrue(caught(problems(rows=rows + [dict(rows[1], name="approver_token")]), "APPROVER_TOKEN has 2 rows"))
+        # An App's key: kept where config/apps.json says alone, and a write credential if and only if its App writes.
+        keyed = [dict(rows[0], environment="factory-poller")] + rows[1:]
+        self.assertTrue(caught(problems(rows=keyed), "CONTROLLER_APP_KEY is an App's key"))
+        self.assertTrue(caught(problems(rows=[dict(rows[0], stored="repository")] + rows[1:]), "is an App's key"))
+        self.assertTrue(caught(problems(rows=[dict(rows[0], kind="read")] + rows[1:]),
+                               "CONTROLLER_APP_KEY is the key of combsmith-sf-controller, which writes, so its kind is write"))
+        reader = dict(app, permissions={"checks": {"level": "read"}})
+        self.assertTrue(caught(problems(apps={"controller": reader}), "which writes nothing, so its kind is read"))
+        self.assertEqual(problems(rows=[dict(rows[0], kind="read")] + rows[1:], apps={"controller": reader}), [])
+        self.assertTrue(caught(problems(rows=[dict(rows[0], kind="model")] + rows[1:], apps={"controller": reader}),
+                               "which writes nothing, so its kind is read"))      # Argon's read of #427
+        # The model's credential is named only where decision 0053 lets it be (Argon's read of #427).
+        three = dict(flows, **{"other.yml": "  M: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"})
+        model = [dict(r, workflows=["eval.yml", "other.yml", "run-jobs.yml"]) if r["name"] == "CLAUDE_CODE_OAUTH_TOKEN" else r
+                 for r in rows]
+        self.assertTrue(caught(problems(rows=model, flows=three), "CLAUDE_CODE_OAUTH_TOKEN is a model credential, which only"))
+        # A comment names no secret, whole or trailing (Muse's read of #427).
+        for comment in ("# removed: ${{ secrets.SONAR_TOKEN }}\n", "  S: none  # was ${{ secrets.SONAR_TOKEN }}\n"):
+            self.assertTrue(caught(problems(flows=dict(flows, **{"sonarcloud.yml": comment})),
+                                   "SONAR_TOKEN lists the workflows ['sonarcloud.yml'], and is named by none"), comment)
+        queue = dict(app, key={"environment": "factory-queue", "secret": "QUEUE_APP_KEY"})
+        self.assertTrue(caught(problems(apps={"controller": app, "queue": queue}),
+                               "config/apps.json keeps the key QUEUE_APP_KEY, which config/credential-ages.json has no row for"))
+        # Any other secret names its environment if and only if it is stored in one.
+        for bad in (dict(rows[1], environment=None), dict(rows[4], environment="factory-run")):
+            self.assertTrue(caught(problems(rows=[r for r in rows if r["name"] != bad["name"]] + [bad]),
+                                   "%s names its environment if and only if it is stored in one" % bad["name"]), bad)
+        # Rows or Apps that cannot be read check nothing, and say so.
+        for broken in ({"credentials": "x"}, {"credentials": [{"name": 1, "workflows": []}]},
+                       {"credentials": [{"name": "X"}]}, {"credentials": [{"name": "X", "workflows": [["pass.yml"]]}]},
+                       {"credentials": [{"name": "X", "workflows": [1, "pass.yml"]}]}):
+            files = {".github/workflows/pass.yml": flows["pass.yml"], "config/credential-ages.json": json.dumps(broken),
+                     "config/apps.json": json.dumps({"apps": {}})}
+            root = tree(files)
+            self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
+                                   "config/credential-ages.json"), broken)
+        root = tree({".github/workflows/pass.yml": flows["pass.yml"]})
+        self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
+                               "cannot be read, so no workflow's secrets can be checked"))
+        for app_ in ({"key": None}, dict(app, permissions=[])):      # Muse's read of #427: say so, never crash
+            root = tree({".github/workflows/pass.yml": flows["pass.yml"],
+                         "config/credential-ages.json": json.dumps({"credentials": []}),
+                         "config/apps.json": json.dumps({"apps": {"x": app_}})})
+            self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
+                                   "cannot be read, so no workflow's secrets can be checked"), app_)
+        # The rule is run with the workflows, on the live tree alone.
+        root = tree({".github/workflows/pass.yml": flows["pass.yml"], "examples/workflows/verify.yml": GOOD})
+        self.assertTrue(caught(check_workflows.run(root), "cannot be read, so no workflow's secrets can be checked"))
 
     def test_a_rule_with_no_counter_example_is_caught(self):
         problems = check_workflows.run(tree({"examples/workflows/verify.yml": GOOD}))
@@ -1943,6 +2084,8 @@ class Workflows(unittest.TestCase):
         depth = "          fetch-depth: 0\n          ref: %s\n" % check_workflows.BASE
         self.assertEqual((job.count(reading), job.count(depth)), (1, 1))
         shape = "its job commits's steps are not a checkout"
+        # A list of an event's types is a filter, which the workflow and its counter-example say.
+        self.assertEqual(check_workflows.run(ROOT), [])
         cases = [(GOOD.replace(job, "").replace("      - commits\n", ""), "has no job commits"),
                  (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "has keys other than"),
                  (GOOD.replace(job, job.replace("    env:\n", "    container: ghcr.io/x/y:1\n    env:\n")), "has keys other than"),
@@ -1950,6 +2093,13 @@ class Workflows(unittest.TestCase):
                   "has keys other than"),
                  (GOOD.replace(job, job.replace("    timeout-minutes: 10\n", "")), "has keys other than"),
                  (GOOD.replace(job, job.replace("      contents: read\n", "      contents: write\n")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "      pull-requests: write\n")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      pull-requests: read\n", "      pull-requests: read\n      actions: read\n")),
+                  "granted other than"),
+                 (GOOD.replace(job, job.replace("      WORKFLOW_TOKEN: ${{ github.token }}\n", "")), "is not told BASE_SHA"),
+                 (GOOD.replace(job, job.replace("      WORKFLOW_TOKEN: ${{ github.token }}\n", "      WORKFLOW_TOKEN: ${{ secrets.X }}\n")),
+                  "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace("      EVENT: ${{ github.event_name }}\n", "")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace("github.event.merge_group.head_sha", "github.sha")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace(depth, "          ref: %s\n" % check_workflows.BASE)), "whole history"),
@@ -2192,17 +2342,199 @@ class Workflows(unittest.TestCase):
         self.assertEqual(len(said(second)), 4, "two commits, each authored and committed by someone else")
         (local / "config" / "hooks.json").write_text("{}")
         self.assertTrue(caught(said(second), "cannot be read"))
-        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
+        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]},
+                                                                 "openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]}))
+        event = local.parent / "event.json"
+        event.write_text(json.dumps({"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": {"full_name": "o/r"}},
+                                                      "base": {"repo": {"full_name": "o/r"}}}}))
         with contextlib.redirect_stdout(io.StringIO()) as printed:
-            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
-                                                               "EVENT": "pull_request"}, local), 0)
-            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
-                                                               "EVENT": "pull_request"}, local), 1)
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "pull_request",
+                                                               "GITHUB_EVENT_PATH": str(event)}, local), 0)
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base, "EVENT": "pull_request",
+                                                               "GITHUB_EVENT_PATH": str(event)}, local), 1)
         # What it says is what it holds: that the commits name the Maintainer, never that they are theirs (decision
         # 0087), and the committer only where GitHub did not commit it.
         self.assertIn("names the Maintainer as its author, and as its committer where GitHub did not commit it",
                       printed.getvalue())
         self.assertNotIn("is the Maintainer's", printed.getvalue())
+
+    def test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows(self):
+        # Issue 409: GitHub writes the opener and the head repository into the event's payload, and the committer writes
+        # neither. Each is read from there, against the list config/hooks.json holds at the base: an account by its login
+        # and its id, since a login can be renamed and taken, and the head by its whole name. The fixture's accounts are
+        # not the repo's, and an App's login is a login: slice 2's App joins the list by a record.
+        root = tree({"config/hooks.json": json.dumps({"openers": [
+            {"login": "ada", "id": 1, "is": "the Maintainer"}, {"login": "sf-dev[bot]", "id": 2, "is": "the App"}]})})
+        where = root / "event.json"
+
+        def said(login="ada", id_=1, head="o/r", base="o/r", event="pull_request", payload=None):
+            told = {"pull_request": {"user": {"login": login, "id": id_}, "head": {"repo": {"full_name": head}},
+                                     "base": {"repo": {"full_name": base}}}}
+            where.write_text(json.dumps(told if payload is None else payload))
+            return commits_are_the_maintainers.opener_problems(root, {"EVENT": event, "GITHUB_EVENT_PATH": str(where)})
+
+        def refused(found, words):
+            self.assertTrue(found and any(words in sentence for sentence in found), found)
+
+        # Each account on the list passes, from the repo itself, and an App's login is read as a person's is.
+        self.assertEqual(said(), [])
+        self.assertEqual(said("sf-dev[bot]", 2), [])
+        # Another account refuses, and says who may. So does a login with another's id, as one renamed and taken is, and
+        # an account on the list under another's login.
+        for words in ("opened by bob", "ada, the Maintainer", "sf-dev[bot], the App"):
+            refused(said("bob", 9), words)
+        refused(said("ada", 9), "opened by ada")
+        refused(said("bob", 1), "opened by bob")
+        refused(said("ada", 2), "opened by ada")
+        # A fork refuses, the Maintainer's own among them, and so does a head repository GitHub no longer names.
+        refused(said(head="ada/r"), "from ada/r")
+        refused(said(head="o/r2"), "from o/r2")
+        refused(said(head=None), "from None")
+        refused(said(head=None, base=None), "from None")
+        # The opener passes, but neither repository is read as agreeing where the base's cannot be read.
+        refused(said(base=""), "from o/r")
+        # A payload that cannot be read refuses, as anything missing from it does.
+        for odd in ([], {}, {"pull_request": None}, {"pull_request": {}}, {"pull_request": {"user": None}},
+                    {"pull_request": {"user": {"login": "ada", "id": 1}}},
+                    {"pull_request": {"user": {"login": "ada", "id": 1}, "head": None, "base": {"repo": {"full_name": "o/r"}}}},
+                    {"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": None}, "base": {"repo": None}}},
+                    {"pull_request": {"user": {"login": ["ada"], "id": 1}, "head": {"repo": {"full_name": "o/r"}},
+                                      "base": {"repo": {"full_name": "o/r"}}}}):
+            refused(said(payload=odd), "")
+        where.write_text("not json")
+        refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}),
+                "cannot be read")
+        refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request",
+                                                                   "GITHUB_EVENT_PATH": str(root / "no-such")}), "cannot be read")
+        refused(commits_are_the_maintainers.opener_problems(root, {"EVENT": "pull_request"}), "cannot be read")
+        # A merge group's payload names no opener, so the pull request its ref names is read from GitHub, by the base's tool
+        # and list, and held to the same rule. This is what catches a pull request retargeted to main.
+        sha = "a" * 40
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + sha
+        open_on_main = {"number": 44, "state": "open", "user": {"login": "ada", "id": 1}, "base": {"ref": "main", "repo": {"full_name": "o/r"}},
+                        "head": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, status=200, body=None, fails=False):
+                self.status, self.body, self.fails, self.asked = status, open_on_main if body is None else body, fails, []
+
+            def send(self, asked):
+                self.asked.append(asked)
+                if self.fails:
+                    raise commits_are_the_maintainers.Unanswered("no answer")
+                return {"status": self.status, "body": self.body}
+
+        def group(transport=None, head_ref=ref, base_ref="refs/heads/main", token="t", payload=None):
+            told = {"merge_group": {"head_ref": head_ref, "base_ref": base_ref, "head_sha": "b" * 40, "base_sha": sha},
+                    "repository": {"full_name": "o/r"}}
+            where.write_text(json.dumps(told if payload is None else payload))
+            environ = {"EVENT": "merge_group", "GITHUB_EVENT_PATH": str(where)}
+            if token is not None:
+                environ["WORKFLOW_TOKEN"] = token
+            return commits_are_the_maintainers.opener_problems(root, environ, Asked() if transport is None else transport)
+
+        # The pull request it names is read, once, by its number; on the list and from this repo, it passes.
+        read = Asked()
+        self.assertEqual(group(read), [])
+        self.assertEqual([(a["method"], a["path"]) for a in read.asked], [("GET", "/repos/o/r/pulls/44")])
+        self.assertEqual(group(Asked(body=dict(open_on_main, user={"login": "sf-dev[bot]", "id": 2}))), [])
+        # Read from GitHub, the same rule refuses: another account, a retargeted one among them, or a fork.
+        refused(group(Asked(body=dict(open_on_main, user={"login": "bob", "id": 9}))), "opened by bob")
+        refused(group(Asked(body=dict(open_on_main, head={"repo": {"full_name": "bob/r"}}))), "from bob/r")
+        refused(group(Asked(body=dict(open_on_main, head={"repo": None}))), "from None")
+        # A ref that does not name exactly one pull request, on the branch the group merges to, asks nothing and refuses.
+        for odd in ("refs/heads/gh-readonly-queue/main/pr-44", "refs/heads/gh-readonly-queue/main/pr-44-abc", "refs/heads/main",
+                    "gh-readonly-queue/main/pr-44-" + sha, "x" + ref, ref + "x", ref + "\n", None, 44,
+                    "refs/heads/gh-readonly-queue/main/pr-044-" + sha, "refs/heads/gh-readonly-queue/main/pr-0-" + sha,
+                    "refs/heads/gh-readonly-queue/main/pr-44-45-" + sha, "refs/heads/gh-readonly-queue/main/pr-x-" + sha,
+                    "refs/heads/gh-readonly-queue/a/b/pr-44-" + sha, "refs/heads/gh-readonly-queue/other/pr-44-" + sha):
+            read = Asked()
+            refused(group(read, head_ref=odd), "merge_group_ref_unreadable")
+            self.assertEqual(read.asked, [], odd)
+        for odd in ("refs/heads/other", "main", None):
+            refused(group(base_ref=odd), "merge_group_ref_unreadable")
+        # An answer that cannot be read refuses, with its code: none, another status, another pull request, one closed or on
+        # another base, and no token to ask with.
+        refused(group(Asked(fails=True)), "merge_group_pull_unreadable")
+        for transport in (Asked(status=404), Asked(status=500), Asked(body=[]), Asked(body="x"),
+                          Asked(body=dict(open_on_main, number=45)), Asked(body=dict(open_on_main, state="closed")),
+                          Asked(body=dict(open_on_main, base={"ref": "other", "repo": {"full_name": "o/r"}})),
+                          Asked(body=dict(open_on_main, base=None))):
+            refused(group(transport), "merge_group_pull_unreadable")
+        for token in (None, ""):
+            refused(group(token=token), "merge_group_pull_unreadable")
+        refused(group(token="two words", transport=False), "merge_group_pull_unreadable")
+        # An answer with no opener in it cannot be read either, and neither can a repository the payload does not name.
+        for body in ({"number": 44, "state": "open", "base": {"ref": "main"}},):
+            refused(group(Asked(body=body)), "cannot be read")
+        refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}}), "cannot be read")
+        # The payload must be a merge group's: an event that says so of a pull request's refuses, as the other way about.
+        refused(said(event="merge_group"), "merge_group_unreadable")
+        refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}, "pull_request": {}}), "merge_group_unreadable")
+        refused(group(payload={"merge_group": None}), "merge_group_unreadable")
+        refused(group(payload=[]), "cannot be read")
+        refused(said(payload={"merge_group": {}}), "")
+        for event in (None, "push", "pull_request_target"):
+            refused(said(event=event), "must be set")
+        # The list is the configuration's: one that cannot be read refuses every opener, and an empty one allows none.
+        for text in ("{}", "not json", json.dumps({"openers": None}), json.dumps({"openers": [{"login": "ada"}]})):
+            (root / "config" / "hooks.json").write_text(text)
+            refused(said(), "cannot be read")
+        (root / "config" / "hooks.json").write_text(json.dumps({"openers": []}))
+        refused(said(), "opened by ada")
+        # This repo's list holds the Maintainer alone, by the login and the id the configuration gives them elsewhere.
+        hooks = json.loads((ROOT / "config" / "hooks.json").read_text())
+        held = json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]["maintainer"]
+        self.assertEqual([(o["login"], o["id"]) for o in hooks["openers"]], [(hooks["maintainer"]["login"], held["id"])])
+        self.assertEqual(hooks["maintainer"]["login"], held["login"])
+        # The schema requires the list, an account on it and what each is; its counter-examples say so.
+        self.assertEqual(check_examples.run(), [])
+        # And it reads an App's login, so a record adds the Factory's App and changes nothing else.
+        schema = json.loads((ROOT / "schemas" / "hooks.schema.json").read_text())
+        app = {"login": "sf-dev[bot]", "id": 2, "is": "the App"}
+        self.assertEqual(check_examples.validate(dict(hooks, openers=hooks["openers"] + [app]), schema), [])
+
+    def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
+        # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        ours = {"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": {"full_name": "o/r"}},
+                                 "base": {"repo": {"full_name": "o/r"}}}}
+        environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}
+
+        def ended(commits, payload):
+            where.write_text(json.dumps(payload))
+            with mock.patch.object(commits_are_the_maintainers, "problems", return_value=commits), \
+                    contextlib.redirect_stdout(io.StringIO()) as printed:
+                return commits_are_the_maintainers.main(environ, root), printed.getvalue()
+
+        code, printed = ended([], ours)
+        self.assertEqual(code, 0)
+        self.assertIn("names the Maintainer", printed)
+        self.assertIn("opened from o/r by ada, the Maintainer", printed)
+        code, printed = ended(["a commit names another"], ours)
+        self.assertEqual(code, 1)
+        self.assertIn("a commit names another", printed)
+        self.assertNotIn("opened from", printed)
+        code, printed = ended([], {"pull_request": dict(ours["pull_request"], user={"login": "bob", "id": 9})})
+        self.assertEqual(code, 1)
+        self.assertIn("opened by bob", printed)
+        self.assertNotIn("names the Maintainer as", printed)
+        # A merge group's opener is read through the transport main is handed, and refuses or says the same.
+        queue = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40, "base_ref": "refs/heads/main"},
+                 "repository": {"full_name": "o/r"}}
+        where.write_text(json.dumps(queue))
+        answer = dict(ours["pull_request"], number=44, state="open", base={"ref": "main", "repo": {"full_name": "o/r"}})
+
+        class Asked:
+            def send(self, asked):
+                return {"status": 200, "body": answer}
+        with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            told = dict(environ, EVENT="merge_group", WORKFLOW_TOKEN="t")
+            self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 0)
+            self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
+        self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -3554,12 +3886,20 @@ SHAPED = {
     "base64 of a token": base64.b64encode(("gh" + "p_" + TAIL).encode()).decode(),
     "base64 of a runner's credentials": base64.b64encode(json.dumps({".runner": "x", ".credentials_rsaparams": "k"}).encode()).decode(),
     "anthropic": "sk-" + "ant-oat01-" + "A" * 40,
+    "any other gh prefix": "gh" + "h_" + TAIL, "another gh prefix in a url": "https://example.com/x?scope=gh" + "x_" + TAIL,
+    "another gh prefix, short": "gh" + "h_abc", "after an underscore, short": "x_gh" + "h_abc", "after a digit, short": "1gh" + "h_abc",
+    "after a hyphen, short": "x-gh" + "h_abc", "another gh prefix in capitals": "GH" + "H_" + TAIL,
+    # After a letter, where only the long run tells it from a word: a percent escape's, a written escape's, a word's.
+    "after a percent escape's letter": "scope%3Dgh" + "h_" + TAIL, "after another": "%2Fgh" + "h_" + TAIL,
+    "after a written newline": "a\\ngh" + "h_" + TAIL, "after a word": "scopegh" + "h_" + TAIL,
     "base64 of a token behind a byte that does not print": base64.b64encode(("\x00gh" + "p_" + TAIL).encode()).decode(),
 }
 # What a fixture keeps: GitHub's ordinary words must not be refused.
 PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.github+json", "MDQ6VXNlcjE=",
          "https://api.github.com/repos/combsmith/x/check-runs/4", "2026-10-15T14:02:11Z", "Requires authentication",
-         "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration"]
+         "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration",
+         # Words that hold gh, a letter and an underscore, after a letter: no prefix of a credential.
+         "right_now", "height_px", "thought_x", "straight_line", "weight_kg", "light_mode", "might_be"]
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
@@ -6605,6 +6945,38 @@ esac
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
+    def test_base64_nested_inside_keys_is_read_in_time_and_a_credential_inside_is_still_seen(self):
+        # A key was read twice at each level, and each reading reads what it decodes, so the work doubled per level
+        # while the text grew by a third. Sixteen levels, 5,600 characters, took four seconds of CPU and more.
+        def nested(inner: str, levels: int) -> str:
+            for _ in range(levels):
+                inner = base64.b64encode(json.dumps({inner: 1}).encode()).decode()
+            return inner
+        text = nested("abcdefghijklmnopqrstuvwxyz", 16)
+        with support.Spent() as spent:
+            self.assertEqual(check_trials._credentials({"body": text}, "$"), [])
+        self.assertLess(spent.cpu, 1.0)
+        # One level is read through, at any place: its key is a credential's shape.
+        hidden = nested("ghp_" + "a" * 36, 1)
+        self.assertTrue(check_trials.shaped(hidden))
+        said = check_trials._credentials({hidden: 1}, "$")
+        self.assertEqual(said, [("$.%s" % check_trials.KEY_SHAPED,
+                                 "is a key shaped like a credential; leave it out, and list where in removed")])
+
+    def test_a_status_line_of_spaces_is_read_in_time_and_reads_as_before(self):
+        # The phrase's spaces and the trailing ones overlapped, so a status line with a run of them and then what no
+        # status holds took time in its square: a crafted capture could hold the redactor up.
+        line = redact_trial.STATUS_LINE.fullmatch
+        read_in_linear_cpu(self, lambda spaces: line("HTTP/1.1 200 a" + spaces + "!"), " ", 16000)
+        read_in_linear_cpu(self, lambda words: line("HTTP/1.1 200 " + words + "!"), "a ", 16000)
+        for text, reads in (("HTTP/1.1 200", True), ("HTTP/1.1 200 ", True), ("HTTP/2 404 Not Found", True),
+                            ("HTTP/1.1 200 OK  \r", True), ("HTTP/1.1 200 a", True), ("HTTP/1.1 200 a   ", True),
+                            ("HTTP/1.1 200 a -", True), ("HTTP/1.1 200 it's", True), ("HTTP/1.1 200 a '", True),
+                            ("HTTP/1.1 203 Non-Authoritative Information", True), ("HTTP/1.1 207 Multi-Status", True),
+                            ("HTTP/1.1 200 OK!", False), ("HTTP/1.1 200 -a", False), ("HTTP/1.1 200  a", False),
+                            ("HTTP/1.1 200 a\nb", False), ("HTTP/1.1 20", False), ("http/1.1 200", False)):
+            self.assertEqual(line(text) is not None, reads, text)
+
     def redact(self, raw: str) -> tuple:
         out, said = io.StringIO(), io.StringIO()
         self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 0)
@@ -6779,6 +7151,39 @@ class Redaction(unittest.TestCase):
                          "HTTP/2 200\nContent-Type: text/plain\n\nfine\n")
         self.assertEqual(self.redact("HTTP/2 204\nContent-Type: application/json\n\n")[0],
                          "HTTP/2 204\nContent-Type: application/json\n\n")
+
+    def test_a_vendors_details_lose_their_query_and_githubs_keep_theirs(self):
+        # A check run's link to another site may hold what looks like a credential in its query: the address stays, so a
+        # reader can tell the check, and the query goes, in REST's spelling and GraphQL's, in a capture and a fixture.
+        vendor = "https://app.example.ai/change-stack/o/r/pull/1?scope=gh" + "h_" + "A" * 43
+        github = "https://github.com/o/r/runs/1?check_suite_focus=true"
+        out, said = self.redact(json.dumps({"check_runs": [{"details_url": vendor, "id": 1}, {"details_url": github, "id": 2}]}))
+        self.assertEqual(json.loads(out)["check_runs"], [{"details_url": vendor.split("?")[0], "id": 1}, {"details_url": github, "id": 2}])
+        self.assertEqual(said.splitlines()[0], "removed: check_runs[0].details_url?query")
+        self.assertNotIn("gh" + "h_", out + said)
+        out, _ = self.redact(json.dumps({"nodes": [{"detailsUrl": vendor}]}))
+        self.assertEqual(json.loads(out), {"nodes": [{"detailsUrl": vendor.split("?")[0]}]})
+        out, _ = self.redact(json.dumps({"exchanges": [{"response": {"body": {"details_url": vendor}}}]}))
+        self.assertEqual(json.loads(out)["removed"], ["exchanges[0].response.body.details_url?query"])
+        # Another field's address is not a check run's details: it is judged as any string is, so this one is deleted.
+        out, said = self.redact(json.dumps({"html_url": vendor, "a": 1}))
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: html_url"))
+        # A fragment goes as a query does, whichever comes first, and GitHub's own keeps its.
+        for url in ("https://example.ai/x#access_to" + "ken=abc", "https://example.ai/x#a?b", "https://example.ai/x?a#b"):
+            self.assertEqual(json.loads(self.redact(json.dumps({"details_url": url}))[0]), {"details_url": "https://example.ai/x"}, url)
+        self.assertEqual(redact_trial._no_vendor_query("https://github.com/o/r/runs/1#step:1:1"), "https://github.com/o/r/runs/1#step:1:1")
+        # A host that resembles GitHub's is another site, and a commit status's link is read as a check run's.
+        for url in ("https://notgithub.com/x?a=b", "https://github.com.example.ai/x?a=b", "https://example.ai/github.com?a=b"):
+            self.assertEqual(json.loads(self.redact(json.dumps({"details_url": url}))[0]), {"details_url": url.split("?")[0]}, url)
+        for field in ("target_url", "targetUrl"):
+            self.assertEqual(json.loads(self.redact(json.dumps({field: "https://example.ai/x?a=b"}))[0]), {field: "https://example.ai/x"})
+        # A details address with no query, one that is no URL, and one that names no host stay as they are. So one of those
+        # is judged as any string is, and a credential in it takes the field.
+        plain = {"details_url": "https://app.example.ai/x", "detailsUrl": "http://[bad?x=1", "target_url": "not a url?x=1"}
+        self.assertEqual(json.loads(self.redact(json.dumps(plain))[0]), plain)
+        self.assertEqual(redact_trial._no_vendor_query("http://[bad?x=1"), "http://[bad?x=1")
+        out, said = self.redact(json.dumps({"details_url": "not a url?scope=gh" + "h_" + "A" * 43, "a": 1}))
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: details_url"))
 
     def test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused(self):
         # Issue 406, from the fourth read of PR 404. A string of JSON, an item of a list or a field's, that holds a head or
@@ -8275,7 +8680,9 @@ esac
 
     # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
     # lends to the next mutant, so each is removed after the test whether or not it was refused.
-    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "scratch-of-the-reader")
+    # The scratch directory is one a test does make, so it stands where the walk leaves out: a test running beside this one
+    # copies the tree, and a directory that goes while it copies fails that test.
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link")
 
     def tearDown(self):
         for name in self.INSIDE:
@@ -8361,8 +8768,10 @@ esac
     def test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted(self):
         # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
         # is refused and the directory mktemp made is removed (Codex on PR 298).
-        inside = ROOT / self.INSIDE[2]
-        inside.mkdir()
+        # Of its own: this class's clean-up removes what INSIDE names, and a run deals its methods to parts run at once.
+        (ROOT / "__pycache__").mkdir(exist_ok=True)
+        inside = pathlib.Path(tempfile.mkdtemp(dir=str(ROOT / "__pycache__"), prefix="scratch-of-the-reader-"))
+        self.addCleanup(shutil.rmtree, inside, ignore_errors=True)
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
         link.symlink_to(inside)
         for tmpdir in (inside, link):

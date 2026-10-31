@@ -5,6 +5,9 @@
     "name": "Don Petry",
     "email": "36422719+don-petry@users.noreply.github.com"
   },
+  "openers": [
+    {"login": "don-petry", "id": 36422719, "is": "the Maintainer, the one account that opens a pull request here until a record adds the Factory's App (decision 0102)"}
+  ],
   "protected": [
     {"path": "lifecycle/", "is": "the Lifecycle"},
     {"path": "config/authority.json", "is": "the authority table"},
@@ -13,6 +16,7 @@
     {"path": "config/defaults.json", "is": "the brakes' limits, the required Lenses and the approver"},
     {"path": "config/feed.json", "is": "who acts next and what is asked of a person, from a Decision's codes"},
     {"path": "config/controller.json", "is": "what tells the start of a pass, the chain's gaps, the automatic pause and the thresholds"},
+    {"path": "config/credential-ages.json", "is": "each stored credential's dates, which decide whether its alert is raised"},
     {"path": "kernel/brakes.py", "is": "the brakes: the Pause, the Run ceiling and the loop counts"},
     {"path": "kernel/gate.py", "is": "the gate: the gate function and the severities that gate"},
     {"path": "kernel/coverage.py", "is": "coverage: whether a reviewing Result reports on every criterion of its rubric that applies"},

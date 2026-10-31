@@ -372,7 +372,7 @@
             "minimum": 1
           },
           "workflow": {
-            "description": "The path of the workflow file that ran the check, as GitHub gives it for the workflow run of the check run's check suite (its `path`, such as .github/workflows/verify.yml), passed on verbatim, a dynamic/ one too; null only for a check no workflow ran, as one GitHub Advanced Security reports. GitHub Actions is one App for every job in the repo, so a required Lens that it runs is read only from the path the configuration names for it. The path is text from outside: a Decision shows it only in the configuration's form",
+            "description": "The path of the workflow file that ran the check, as GitHub gives it for the workflow run of the check run's check suite (its `path`, such as .github/workflows/verify.yml), passed on verbatim, a dynamic/ one too; null for a check no workflow ran, as one GitHub Advanced Security reports, and for one of GitHub Actions' whose details are not its own job's, which is not the job its suite's file ran (decision 0104). GitHub Actions is one App for every job in the repo, so a required Lens that it runs is read only from the path the configuration names for it. The path is text from outside: a Decision shows it only in the configuration's form",
             "type": [
               "string",
               "null"

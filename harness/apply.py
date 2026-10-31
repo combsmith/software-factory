@@ -8,8 +8,8 @@ under the Run (`superseded`); then the Result: not this Run's or this Release's,
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, or a Finding where it has no place; a
 Disposition that gives neither half or both, or the half this Run's Role may not make; a `security` Finding accepted
-before its author's proposal can be read. Each is the Role's (`item`), but an uncovered Result whose rubric cannot be
-read is the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
+before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
+`THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
 `requests(...)` is what is written, in `effect/1`'s order, each with what `apply`, never the Result, decides: a review

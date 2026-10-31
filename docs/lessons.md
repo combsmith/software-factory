@@ -216,7 +216,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-37 One person's token served seven purposes
 **Failure.** The owner account's token was named 70 times and served seven purposes, and nine workflows passed every secret to whatever they called. Its rotation would show only as a refusal on the next run.
 **Rule.** No workflow names a personal access token, and none inherits secrets. The age of each credential is read, and one near its limit raises one alert.
-**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `adapters/settings.py`
+**Check.** `examples/workflows/invalid/token.a-persons-token.yml`, `tests/test_controller.py::test_a_credential_near_its_limit_raises_one_alert`, `tests/test_tools.py::test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows`
 
 ### L-38 A gate was allowed to fail
 **Failure.** The eval gate ran only with its failure ignored, and the release never looked at its result.

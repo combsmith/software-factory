@@ -1186,6 +1186,15 @@ class World:
         if pending:
             # GitHub: a_check_reports_on_its_own
             lens, roll = self.pick(pending), self.rng.random()
+            if self.faults and WORKFLOWS[lens] is not None and roll < 0.02:
+                # GitHub: a_job_creates_a_check_in_another_suite
+                # Before a job gated by needs starts it has no check run, so a created success stands alone. Its details are
+                # not its own job's, so the port reads it with no file (decision 0104).
+                self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
+                                       "conclusion": "success", "completed_at": self.now()})
+                self.note("check %s: pending, and a job created a passing one under its name, alone" % lens)
+                self.caused(self.by_of(IMPOSTOR))
+                return
             self.checks[lens] = "success" if roll < 0.85 else "failure"
             self.completed[lens] = self.now()
             self.moves()
@@ -1196,7 +1205,12 @@ class World:
             self.caused("human" if lens in self.rerun else "lens")
             self.rerun.discard(lens)
             if self.faults and roll < 0.87 and self.checks[lens] == "failure":
-                if WORKFLOWS[lens] is not None and roll < 0.86:
+                if WORKFLOWS[lens] is not None and roll < 0.855:
+                    # GitHub: a_job_creates_a_check_in_another_suite
+                    self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
+                                           "conclusion": "success", "completed_at": self.now()})
+                    self.note("check %s: failure, and a job created a passing one under its name, in its suite" % lens)
+                elif WORKFLOWS[lens] is not None and roll < 0.86:
                     # GitHub: actions_runs_a_job_under_any_name
                     self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": IMPOSTOR_WORKFLOW,
                                            "conclusion": "success", "completed_at": self.now()})

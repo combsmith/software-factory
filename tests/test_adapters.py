@@ -30,6 +30,11 @@ def exchanges(name: str) -> list:
     return json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())["exchanges"]
 
 
+def rollup(name: str, at: int) -> list:
+    """The check runs of a head, as a fixture's GraphQL read of its status rollup gave them."""
+    return body(name, at)["data"]["repository"]["object"]["statusCheckRollup"]["contexts"]["nodes"]
+
+
 def body(name: str, at: int):
     return copy.deepcopy(exchanges(name)[at]["response"]["body"])
 
@@ -1706,8 +1711,14 @@ class Checks(unittest.TestCase):
         # trials/P-32.json: pull request 216's 18 checks, as GitHub's rollup gave them; a check no workflow file names,
         # CodeQL's default set-up, has none, and the port passes that on.
         node = p32_pull()
-        got = checks.read(github.Replay([checks_answer(node)]), as_pull(node))
         nodes = node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+        # P-32 asked for no job's details, which a read now holds a file to (decision 0104), so each job's are given here.
+        for i, n in enumerate(nodes, 1):
+            run = (n.get("checkSuite") or {}).get("workflowRun")
+            if run:
+                run["databaseId"], n["databaseId"] = 1000 + i, i
+                n["detailsUrl"] = "https://github.com/combsmith/software-factory/actions/runs/%d/job/%d" % (1000 + i, i)
+        got = checks.read(github.Replay([checks_answer(node)]), as_pull(node))
         self.assertEqual(len(got["checks"]), len([n for n in nodes if n["__typename"] == "CheckRun"]))
         self.assertEqual(got["checks"][0], {"name": "Analyze (actions)", "app_id": 15368, "workflow": None,
                                             "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z"})
@@ -3188,6 +3199,8 @@ REFUSALS = {
     # The queue App's enqueues refused for a pull request's state, and a dequeue of one not queued; no port makes them
     # until the queue App's acts are built (P-2.queue-app, issue 381).
     ("P-2.queue-app", 9): None, ("P-2.queue-app", 14): None, ("P-2.queue-app", 36): None, ("P-2.queue-app", 41): None,
+    # Three uploads GitHub would not process, under default setup; no port uploads, and the lint refuses the permission.
+    ("P-36", 6): None, ("P-36", 7): None, ("P-36", 8): None,
     ("P-27", 15): "dispatch",          # a dispatch GitHub refused: the effects port reads it as a write that failed
     ("P-8", 1): "graphql",             # a GraphQL read over the resource limits, answered 200 with errors
     ("P-27", 21): None,                # an org membership read, which no port asks
@@ -3209,6 +3222,25 @@ REFUSALS = {
 
 
 class Contract(unittest.TestCase):
+    def p38_reviews(self) -> list:
+        pull = {"number": 61, "base": {"repo": {"full_name": canary()}}}
+        events, _ = timeline.events(replay("P-38", 6), pull)
+        router = Router(replay("P-38", 10), {"don-petry": "admin", APPROVER: "write"},
+                        {"c74cb7c417f8d5675f69d0eead8cd51a2ee6322b": "diff --git a/x b/x\n"})
+        return timeline.reviews(router, pull, events, timeline.Accounts(router, canary(), MACHINE, {}), BASE_HEAD)[0]
+
+    def persons_push_read(self) -> bool:
+        read = self.p38_reviews()
+        return (len(read) == 2 and {r["dismissed_from"] for r in read} == {"approved"}
+                and {r["dismissed_by"]["name"] for r in read} == {"don-petry"}
+                and {r["dismissed_by"]["kind"] for r in read} == {"human"})
+
+    def job_under_a_lens_name_read(self) -> bool:
+        read = [checks.check(n) for n in rollup("P-35", 7)]
+        named = [c for c in read if c["name"] == "p2-queue-check"]
+        return ({c["app_id"] for c in named} == {15368}
+                and {c["workflow"] for c in named} == {".github/workflows/p2-queue.yml", ".github/workflows/p35-lens-name.yml"})
+
     def reads(self) -> dict:
         """Each grounded rule the port reads, from the fixture that grounds it, as the rule states it: the fixtures it
         replays, and whether the port's reading holds the rule."""
@@ -3281,6 +3313,9 @@ class Contract(unittest.TestCase):
                                  and {e["action"] for e in p41_labels} == {"labeled", "unlabeled"}
                                  and all(e["by"] == P41_CONTROLLER and e["label"] == "factory:hold"
                                          for e in p41_labels)),
+            "a_persons_push_names_the_person_as_dismisser": ({"P-38"}, self.persons_push_read()),
+            "actions_runs_a_job_under_any_name": ({"P-35"}, self.job_under_a_lens_name_read()),
+            "a_job_creates_a_check_in_another_suite": ({"P-35"}, self.created_check_read()),
             # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
             "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
@@ -3348,6 +3383,13 @@ class Contract(unittest.TestCase):
                 == body("P-7", 20)["head"]["sha"]),
         }
 
+    def created_check_read(self) -> bool:
+        """P-35: a job's created check borrows the name, App and file of the real one, and only the real one is its job's,
+        so the port reads the created one with no file."""
+        read = [checks.check(n) for n in rollup("P-35", self.p35_at("as the port reads them, gate"))
+                if n["name"] == "p35-gated-lens"]
+        return {(c["app_id"], c["workflow"]) for c in read} == {(15368, ".github/workflows/p35-gate.yml"), (15368, None)}
+
     def test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it(self):
         # L-51 and sim/AGENTS.md: each rule of the fake GitHub a fixture grounds is read by the port from that same
         # fixture as the rule states it, or is named in NOT_READ with why. The fake is not run here: it answers no
@@ -3362,6 +3404,227 @@ class Contract(unittest.TestCase):
             fixtures = grounded[code] if isinstance(grounded[code], tuple) else (grounded[code],)
             self.assertEqual({pathlib.PurePath(f).stem for f in fixtures}, replayed, code)
             self.assertTrue(holds, code)
+
+    def test_a_check_a_job_creates_reads_as_the_first_suites_and_only_a_jobs_own_details_say_otherwise(self):
+        # P-35: on a head with two workflows and no CodeQL, each job's created check run reads with the path of the first
+        # suite, one of them another workflow's. A job's external id can be forged; its details URL was not, on the one try.
+        landing = {n["name"]: n for n in rollup("P-35", 14)}
+        borrowed = landing["p35-as-a-lens-from-p35-landing-b"]
+        self.assertEqual(borrowed["checkSuite"]["workflowRun"]["file"]["path"], ".github/workflows/p35-landing-a.yml")
+        self.assertIsNone(checks.check(borrowed)["workflow"])     # decision 0104: not its job's, so no file is read
+        self.assertEqual(checks.check(landing["p35-landing-b"])["workflow"], ".github/workflows/p35-landing-b.yml")
+        forged = {n["name"]: n for n in rollup("P-35", 22)}
+        self.assertEqual(forged["p35-forged"]["externalId"], "ddce8ea8-5774-5163-b239-eb677c691bcc")     # as the job asked
+        made = forged["p35-forged"]["detailsUrl"].rsplit("/", 2)
+        self.assertEqual(made[1:], ["runs", str(forged["p35-forged"]["databaseId"])])
+        for name in ("p35-forge-a", "p35-forge-b"):
+            run, job = forged[name]["checkSuite"]["workflowRun"]["databaseId"], forged[name]["databaseId"]
+            self.assertTrue(forged[name]["detailsUrl"].endswith("/actions/runs/%d/job/%d" % (run, job)), name)
+        # And it can be posted to another branch's head, from a branch with no pull request, and reads with that head's path.
+        other = {n["name"]: n for n in rollup("P-35", self.p35_at("as the port reads them, other"))}
+        self.assertEqual(other["p35-from-elsewhere"]["checkSuite"]["workflowRun"]["file"]["path"], ".github/workflows/p35-other.yml")
+        self.assertIsNone(checks.check(other["p35-from-elsewhere"])["workflow"])
+        self.assertEqual(checks.check(other["p35-from-elsewhere"])["app_id"], 15368)
+        self.assertIn("/runs/", other["p35-from-elsewhere"]["detailsUrl"])
+        self.assertNotIn("/job/", other["p35-from-elsewhere"]["detailsUrl"])
+        # A job cannot give its own created check a job's details: asked at the post and by PATCH, it stays /runs/{id}.
+        own = rollup("P-35", self.p35_at("as the port reads them, self"))
+        made = [n for n in own if n["name"].startswith("p35-self-") and n["name"] not in ("p35-self-a", "p35-self-b")]
+        self.assertEqual(len(made), 4)
+        for n in made:
+            self.assertTrue(n["detailsUrl"].endswith("/runs/%d" % n["databaseId"]), n["name"])
+        said = [e for e in exchanges("P-35") if e["request"]["via"] == "cli" and "p35-self-b" in e["request"]["call"]][0]["response"]["body"]
+        self.assertEqual(len([line for line in said if " patch to run " in line and "HTTP/2.0 200" in line]), 4)
+        self.assertEqual(len([line for line in said if "posted with a job's details: HTTP/2.0 201" in line]), 2)
+        self.assertEqual({n["checkSuite"]["workflowRun"]["file"]["path"] for n in made}, {".github/workflows/p35-self-a.yml"})
+        # CodeQL's check has no workflow run, and a dynamic run's file is null where the port reads it.
+        by_name = {n["name"]: n for n in rollup("P-35", 7)}
+        self.assertIsNone(by_name["CodeQL"]["checkSuite"]["workflowRun"])
+        self.assertEqual(by_name["Analyze (actions)"]["checkSuite"]["workflowRun"]["event"], "dynamic")
+        self.assertIsNone(checks.check(by_name["Analyze (actions)"])["workflow"])
+
+    def test_a_forged_success_is_foreign_before_and_beside_the_real_check(self):
+        # P-35: a job posts a success under the names of another workflow's jobs, before one fails and after the other. Each
+        # borrows the App and path of the real one, and the Lens's own job fails it, while the forged one, read with no file,
+        # leaves it unreadable for a person (decision 0104). Before a job gated by needs starts it has no check run, so the forged
+        # one stands alone, and it no longer reads as passing. A forged check landing in a dynamic suite reads with no path, which makes its Lens unreadable, for the
+        # Maintainer (decision 0026).
+        from kernel import derive
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        found = exchanges("P-35")
+        at = [i for i, e in enumerate(found) if e["request"]["call"].endswith("as the port reads them, hide")][0]
+        read = [checks.check(n) for n in rollup("P-35", at)]
+        for name in ("p35-hide-early", "p35-hide-late"):
+            lens = {"lens": "a-lens", "check": name, "app_id": 15368, "workflow": ".github/workflows/p35-hide-a.yml"}
+            under = [c for c in read if c["name"] == name]
+            self.assertEqual(sorted(c["conclusion"] for c in under), ["failure", "success"], name)
+            self.assertEqual({(c["app_id"], c["workflow"]) for c in under}, {(15368, lens["workflow"]), (15368, None)}, name)
+            self.assertEqual(derive.lens_reading(read, lens, config), "failing", name)
+            self.assertEqual(derive.foreign_checks(read, dict(config, required_lenses={"deterministic": [lens]})),
+                             ["a-lens:from_workflow:unreadable"], name)
+        early = {c["conclusion"]: c["completed_at"] for c in read if c["name"] == "p35-hide-early"}
+        late = {c["conclusion"]: c["completed_at"] for c in read if c["name"] == "p35-hide-late"}
+        self.assertLess(early["success"], early["failure"])
+        self.assertLess(late["failure"], late["success"])
+        # A job gated by needs has no check run until it starts: the forged success alone is no verdict, then the job fails.
+        gate = self.p35_at("as the port reads them, gate")
+        said = [e for e in found if e["request"]["via"] == "cli" and "p35-more" in e["request"]["call"]][0]["response"]["body"]
+        self.assertNotIn("p35-gated-lens", [line for line in said if "P35 names before:" in line][0])
+        lens = {"lens": "a-lens", "check": "p35-gated-lens", "app_id": 15368, "workflow": ".github/workflows/p35-gate.yml"}
+        nodes = [n for n in rollup("P-35", gate) if n["name"] == "p35-gated-lens"]
+        made = [checks.check(n) for n in nodes if "/job/" not in n["detailsUrl"]]
+        self.assertEqual([(c["app_id"], c["workflow"], c["conclusion"]) for c in made], [(15368, None, "success")])
+        self.assertEqual(derive.foreign_checks(made, dict(config, required_lenses={"deterministic": [lens]})),
+                         ["a-lens:from_workflow:unreadable"])
+        self.assertEqual(derive.lens_reading(made, lens, config), "pending")
+        self.assertEqual(derive.lens_reading([checks.check(n) for n in nodes], lens, config), "failing")
+        created = [checks.check(n) for n in rollup("P-35", 7) if n["name"] == "p35-created"][0]
+        self.assertIsNone(created["workflow"])
+        lens = {"lens": "a-lens", "check": "p35-created", "app_id": 15368, "workflow": ".github/workflows/p35-token-check.yml"}
+        self.assertEqual(derive.foreign_checks([created], dict(config, required_lenses={"deterministic": [lens]})),
+                         ["a-lens:from_workflow:unreadable"])
+
+    def p35_at(self, ending: str) -> int:
+        return [i for i, e in enumerate(exchanges("P-35")) if e["request"]["call"].endswith(ending)][0]
+
+    def test_a_created_check_under_a_lens_name_does_not_pass(self):
+        # Issue 439: a created check's details are not its own job's, so it does not make the Lens pass, alone or beside
+        # a real one. The port reads the real job's as its own.
+        from kernel import derive
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        nodes = rollup("P-35", self.p35_at("as the port reads them, gate"))
+        forged = [n for n in nodes if n["name"] == "p35-gated-lens" and "/job/" not in n["detailsUrl"]]
+        self.assertTrue(forged)
+        path = ".github/workflows/p35-gate.yml"
+        self.assertEqual({n["checkSuite"]["workflowRun"]["file"]["path"] for n in forged}, {path})
+        self.assertEqual({checks.check(n)["workflow"] for n in forged}, {None})
+        real = [n for n in nodes if n["name"] == "p35-gated-lens" and "/job/" in n["detailsUrl"]]
+        self.assertEqual({checks.check(n)["workflow"] for n in real}, {path})
+        lens = {"lens": "a-lens", "check": "p35-gated-lens", "app_id": 15368, "workflow": path}
+        read = [checks.check(n) for n in forged]
+        self.assertNotEqual(derive.lens_reading(read, lens, config), "passing")
+        self.assertEqual(derive.foreign_checks(read, dict(config, required_lenses={"deterministic": [lens]})),
+                         ["a-lens:from_workflow:unreadable"])
+        # So what the Kernel reads is what it already reads of any foreign check: a person looks, and no new fact carries it.
+        given = dict(config, required_lenses={"deterministic": [lens]})
+        self.assertEqual(derive.foreign_checks([checks.check(n) for n in real], given), [])
+
+    def test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids(self):
+        # Issue 439: the job's form, whole, its run's id and its own. That is what one forging attempt showed and no promise
+        # of GitHub's, so everything else is not its own, a URL or an id that cannot be read among them.
+        form = "https://github.com/o/r/actions/runs/%s/job/%s"
+        self.assertIs(checks.own_job(form % (5, 7), 7, 5), True)
+        self.assertIs(checks.own_job("https://github.com/o-1/r_2.x/actions/runs/5/job/7", 7, 5), True)
+        for details, check_id, run_id in ((form % (5, 7), 8, 5), (form % (5, 7), 7, 6), (form % (7, 5), 7, 5),
+                                          ("https://github.com/o/r/runs/7", 7, 5), ("https://github.com/o/r/runs/7", 7, None),
+                                          (None, 7, 5), (7, 7, 5), ("", 7, 5), (form % (5, 7) + "?pr=1", 7, 5),
+                                          (form % (5, 7) + "/", 7, 5), (form % (5, 7) + "\n", 7, 5),
+                                          ("x" + form % (5, 7), 7, 5),
+                                          (form.replace("https", "http") % (5, 7), 7, 5),
+                                          (form.replace("github.com", "github.com.evil.example") % (5, 7), 7, 5),
+                                          (form.replace("/o/r", "/o") % (5, 7), 7, 5), (form % ("05", 7), 7, 5),
+                                          (form % (5, "07"), 7, 5), (form % (0, 0), 0, 0), (form % (5, 7), "7", 5),
+                                          (form % (5, 7), 7, "5"), (form % (5, 7), None, 5), (form % (5, 7), 7, None),
+                                          ("https://github.com/o/r/pull/9/actions/runs/5/job/7", 7, 5),
+                                          ("https://github.com/o/r x/actions/runs/5/job/7", 7, 5),
+                                          (form % ("1" * 5000, 7), 7, 5), (form % (5, "1" * 5000), 7, 5),
+                                          (form % ("1" * 20, 7), 7, int("1" * 20)),
+                                          (form % (5, "1" * 20), int("1" * 20), 5),
+                                          (form % (1, 1), True, True), (form % (5, 7), 7.0, 5)):
+            self.assertIs(checks.own_job(details, check_id, run_id), False, (details, check_id, run_id))
+        # A check keeps its file only where its details are its own job's; the read asks for all three.
+        node = {"name": "verify", "conclusion": "SUCCESS", "completedAt": "2026-10-20T01:01:25Z", "databaseId": 7,
+                "detailsUrl": form % (5, 7), "checkSuite": {"app": {"databaseId": 15368},
+                                                            "workflowRun": {"databaseId": 5, "file": {"path": "x.yml"}}}}
+        self.assertEqual(checks.check(node)["workflow"], "x.yml")
+        self.assertNotIn("own_job", checks.check(node))     # no new fact: decision 0104
+        self.assertIsNone(checks.check(dict(node, detailsUrl=None))["workflow"])
+        self.assertIsNone(checks.check(dict(node, databaseId=8))["workflow"])
+        self.assertIsNone(checks.check(dict(node, checkSuite={"app": {"databaseId": 15368}, "workflowRun": None}))["workflow"])
+        # Another App's check keeps what its suite names, so one that names a file stays foreign to a Lens no workflow runs:
+        # code scanning, pinned to no file, is not handed it by this rule (the reads of #452).
+        from kernel import derive
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        scanning = next(lens for lens in config["required_lenses"]["deterministic"] if lens["workflow"] is None)
+        evil = ".github/workflows/evil.yml"
+        other = dict(node, name=scanning["check"], detailsUrl="https://github.com/o/r/runs/7",
+                     checkSuite={"app": {"databaseId": scanning["app_id"]}, "workflowRun": {"databaseId": 5, "file": {"path": evil}}})
+        self.assertEqual(checks.check(other)["workflow"], evil)
+        self.assertEqual(derive.foreign_checks([checks.check(other)], config), ["%s:from_workflow:%s" % (scanning["lens"], evil)])
+        self.assertNotEqual(derive.lens_reading([checks.check(other)], scanning, config), "passing")
+        self.assertIsNone(checks.check(dict(other, checkSuite={"app": {"databaseId": scanning["app_id"]}, "workflowRun": None}))["workflow"])
+        for field in ("id databaseId name", "completedAt detailsUrl", "workflowRun { databaseId file"):
+            self.assertIn(field, checks.QUERY)
+
+    def test_a_jobs_token_changes_no_verdict_name_or_details_of_another_jobs_check(self):
+        # P-35: status and conclusion are refused; name and details answer 200 and stay; external id and title do change.
+        found = exchanges("P-35")
+        said = [e for e in found if e["request"]["via"] == "cli" and "p35-token-check" in e["request"]["call"]][0]["response"]["body"]
+        self.assertEqual(len([line for line in said if "P35 update status: HTTP/2.0 403" in line]), 2)
+        self.assertEqual([line.split("after: ")[1].split("status=")[1] for line in said if "P35 after:" in line][0].split()[0], "queued")
+        said = [e for e in found if e["request"]["via"] == "cli" and "p35-rename-b" in e["request"]["call"]][0]["response"]["body"]
+        patched = [line for line in said if " patch " in line]
+        then = [line for line in said if " then: " in line]
+        self.assertEqual(len(patched), 6)
+        self.assertTrue(all("HTTP/2.0 200" in line for line in patched))
+        self.assertEqual(len(then), 6)
+        for line in then:
+            self.assertIn("name=p35-rename-real", line)
+            self.assertIn("/job/", line)
+        self.assertIn("conclusion=failure", then[-1])
+        listed = [e["response"]["body"]["check_runs"] for e in found if "check-runs" in e["request"]["call"]
+                  and "p35-rename-real" in json.dumps(e["response"]["body"])][0]
+        real = [c for c in listed if c["name"] == "p35-rename-real"][0]
+        self.assertEqual((real["external_id"], real["conclusion"]), ("forged", "failure"))
+        self.assertIn("/job/", real["details_url"])
+
+    def test_an_approval_a_persons_push_dismissed_stays_on_its_commit_with_its_reviewer(self):
+        # P-38: both approvals, on the commit each approved, by each reviewer; and the push's commit is another.
+        old = "c74cb7c417f8d5675f69d0eead8cd51a2ee6322b"
+        read = self.p38_reviews()
+        self.assertEqual({r["commit"] for r in read}, {old})
+        self.assertEqual({r["state"] for r in read}, {"dismissed"})
+        self.assertEqual(sorted(r["by"]["name"] for r in read), sorted(["don-petry", APPROVER]))
+        pushed = body("P-38", 4)["commit"]["sha"]
+        self.assertNotEqual(pushed, old)
+        nodes = body("P-38", 7)["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"]
+        self.assertEqual({n["pullRequestCommit"]["commit"]["oid"] for n in nodes}, {pushed})
+        self.assertEqual({n["review"]["commit"]["oid"] for n in nodes}, {old})
+
+    def test_an_upload_turns_codeqls_verdict_neutral_though_it_failed_to_process(self):
+        # P-36: the same check run, before and after, on each pull request. The lint's refusal is the rule.
+        from kernel import derive
+        found = exchanges("P-36")
+        for at, sarif in ((3, 6), (5, 8)):
+            said = found[at]["response"]["body"]
+            before = [line for line in said if "P36 before:" in line][0]
+            after = [line for line in said if "P36 after-merge-ref:" in line][0]
+            self.assertIn("conclusion=success", before)
+            self.assertIn("conclusion=neutral", after)
+            self.assertEqual(before.split(" id=")[1].split()[0], after.split(" id=")[1].split()[0])
+            self.assertEqual(found[sarif]["response"]["body"]["processing_status"], "failed")
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(derive.check_reading({"conclusion": "neutral"}, config), "unreadable")
+
+    def test_a_merge_groups_base_is_the_head_of_the_group_ahead_and_the_parent_of_its_own(self):
+        # P-37: read from the factory's own queue. Every group's head has one parent, the commit its branch names; and
+        # each group built while the one ahead still ran says the same in the event's own base_sha.
+        found = exchanges("P-37")
+        runs = found[0]["response"]["body"]["workflow_runs"]
+        parents = found[1]["response"]["body"]["parents"]
+        heads = {r["head_sha"]: r for r in runs}
+        for r in runs:
+            self.assertEqual(parents[r["head_sha"]], r["head_branch"].rsplit("-", 1)[1], r["id"])
+        by_id = {r["id"]: r for r in runs}
+        read = found[2]["response"]["body"]["read"]
+        self.assertEqual(len(read), 35)
+        for row in read:
+            run = by_id[row["run"]]
+            base = row["BASE_SHA"][0]
+            self.assertEqual(row["EVENT"], ["merge_group"])
+            self.assertEqual(row["HEAD_SHA"], [run["head_sha"]])
+            self.assertEqual(base, parents[run["head_sha"]])
+            self.assertGreater(heads[base]["updated_at"], run["created_at"], "the group ahead had finished")
 
     def test_a_recorded_refusal_is_no_answer(self):
         # FR-56: every refusal a trial recorded is placed, and each a port asks is read as no answer: a list of runs

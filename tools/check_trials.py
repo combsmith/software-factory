@@ -124,6 +124,9 @@ HEADERS = {"accept", "age", "cache-control", "content-length", "if-none-match", 
 # What a credential looks like inside any string, at any length and in any case.
 SHAPES = re.compile("|".join((
     r"gh[opsur]_[a-z0-9]",                          # a token GitHub issues, wherever it starts
+    # Any other prefix of that form, whatever issues it. Not after a letter, where right_now and height_px are ordinary
+    # words, unless a long run follows, as after a percent escape's letter or a word run into it.
+    r"(?<![a-z])gh[a-z]_[a-z0-9]", r"gh[a-z]_[a-z0-9]{20,}",
     r"github_pat_", r"ghsat[0-9a-z]", r"sk-ant-",
     r"\b(token|basic|bearer)\s+\S{8,}", r"\bbearer\s+\S",
     # A signed token, eyJ and on to a dot. A run that holds eyJ is read once, from its start: trying each eyJ in it
@@ -204,11 +207,14 @@ def _credentials(value, where: str) -> list:
     out = []
     if isinstance(value, dict):
         for key, item in value.items():
-            shown = KEY_SHAPED if shaped(key) else key     # a place is never named by a credential
+            # Read once: shaped reads what it decodes through this function, so a second reading doubled the work at each
+            # level of base64 inside a key, and a capture of a few kilobytes held up the redactor for a minute.
+            key_is_shaped = shaped(key)
+            shown = KEY_SHAPED if key_is_shaped else key     # a place is never named by a credential
             here = "%s.%s" % (where, shown) if where else shown
             if refused_key(key):
                 out.append((here, "is a field for a credential; leave it out, and list where in removed"))
-            elif shaped(key):
+            elif key_is_shaped:
                 out.append((here, "is a key shaped like a credential; leave it out, and list where in removed"))
             out += _credentials(item, here)
     elif isinstance(value, list):
@@ -871,18 +877,18 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         fixtures = fixture if isinstance(fixture, tuple) else (fixture,)
         if not fixtures:
             problems.append("sim/grounding.py: %s: an empty tuple grounds nothing; write None" % code)
-        for fixture in fixtures:
-            if not isinstance(fixture, str) or not fixture.startswith("trials/"):
-                problems.append("sim/grounding.py: %s: %s is not a fixture in trials/" % (code, fixture))
-            elif not (root / fixture).is_file():
-                problems.append("sim/grounding.py: %s: %s does not exist" % (code, fixture))
-            elif fixture not in valid:
-                problems.append("sim/grounding.py: %s: %s is not a valid fixture" % (code, fixture))
+        for one in fixtures:
+            if not isinstance(one, str) or not one.startswith("trials/"):
+                problems.append("sim/grounding.py: %s: %s is not a fixture in trials/" % (code, one))
+            elif not (root / one).is_file():
+                problems.append("sim/grounding.py: %s: %s does not exist" % (code, one))
+            elif one not in valid:
+                problems.append("sim/grounding.py: %s: %s is not a valid fixture" % (code, one))
             elif not trials:
                 problems.append("sim/grounding.py: %s: no trial asks this; add one to section 6 first" % code)
-            elif valid[fixture]["trial"] not in trials:
+            elif valid[one]["trial"] not in trials:
                 problems.append("sim/grounding.py: %s: %s records %s, and %s asks this"
-                                % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
+                                % (code, one, valid[one]["trial"], " or ".join(trials)))
     # A quote is of a trial its rule names, and of no other.
     for code, by_trial in sorted((quoted or {}).items(), key=lambda kv: str(kv[0])):
         for trial in sorted(set(by_trial) - set(named.get(code) or ()), key=str):
