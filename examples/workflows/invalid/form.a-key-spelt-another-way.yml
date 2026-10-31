@@ -14,4 +14,6 @@ jobs:
     steps:
       - "uses": evil/action@main
       - run: make verify
+        timeout-minutes: 1
       - run: python3 -m tools.mutants
+        timeout-minutes: 1

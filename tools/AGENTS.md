@@ -1,7 +1,7 @@
 # tools/
 
 The checks, `verify.py` which runs them all, `mutants.py` which breaks the Kernel on purpose, a shard to a job in CI, and `needs_passed.py`, which fails the required check unless every job it needs passed, and `commits_are_the_maintainers.py`, which fails it
-unless every commit the pull request carries names the Maintainer. `walk.py` lists this working tree's files, and nothing in another nested inside it, for all of them. It skips local output, Python's caches and the corpus, only while git's index does not hold
+unless each commit names the Maintainer and a listed account opened it. `walk.py` lists this working tree's files, and nothing in another nested inside it. It skips local output, Python's caches and the corpus, only while git's index does not hold
 it, and reads the index as a file, so no git is needed. CI checks out the commit afresh, so there all else is committed; an export, with no `.git`, cannot tell, and skips it all. `make_corpus.py` records every decision the Kernel makes, under a directory git
 ignores, to hold another implementation to this one; the required check does not depend on it. `hooks/` holds the session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell command as words for any of them. `eval_result.py` scores one Result
 against one held-out case, where the case is, and is no check; `context_eval.sh` runs the context's test at the Maintainer's terminal and `context_eval.py` records a run, and neither is a check.
@@ -21,7 +21,7 @@ and `rulesets_drift.py` compares what is left with `config/rulesets.json`; it is
 | An index the walk cannot read is a problem, and skips nothing | `tests/test_tools.py::test_an_index_that_cannot_be_read_is_a_problem_and_skips_nothing` |
 | A check fails closed: what it does not understand is a problem, and it allows what is named instead of refusing what is known | `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way` |
 | A workflow rule has a counter-example that breaks it and nothing else | `tests/test_tools.py::test_a_rule_with_no_counter_example_is_caught` |
-| `make fast` is `make verify` without the test modules in `SLOW`, and is what runs after each edit | `tests/test_tools.py::test_make_fast_is_verify_without_the_seeded_simulation` |
+| `make fast` is `make verify` without the test modules in `SLOW`; `make checks` is the checks alone, what the hooks run | `tests/test_tools.py::test_make_fast_is_verify_without_the_seeded_simulation` |
 | A session hook is a module in `hooks/` with a `main()`, wired to its event in `.claude/settings.json` and run as `python3 -I`, so no file where it runs can shadow the standard library | `tests/test_hooks.py::test_every_hook_is_wired_to_its_event` |
 | A hook runs make only in the project, or in a worktree the project holds | `tests/test_hooks.py::test_an_edit_outside_the_project_runs_nothing` |
 | A hook never hands its own git an option taken from the command, and shows no credential | `tests/test_hooks.py::test_a_push_names_no_option_to_the_hooks_own_git`, `tests/test_hooks.py::test_a_credential_is_never_shown` |

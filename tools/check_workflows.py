@@ -56,7 +56,8 @@ RULES = {
     "token": "a secret is named one at a time; none is a personal access token, and secrets are never inherited",
     "queue": "a workflow that runs on pull_request also runs on merge_group, and filters neither",
     "cron": "no schedule fires at minute 0, alone or among other minutes",
-    "timeout": "every job that has steps sets timeout-minutes, on the job",
+    "timeout": "every job that has steps sets timeout-minutes, on the job, and each of its run: steps a limit of its "
+               "own, the run: steps' together leaving the job two minutes for its other steps",
     "runner": "the runner and any container image are named by version, never latest",
     "credentials": "every checkout sets persist-credentials: false",
     "soft": "no step or job continues on error",
@@ -158,6 +159,7 @@ jobs:
       - name: Read and decide
         env:
           CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
+        timeout-minutes: 6
         run: python3 -m controller
       - name: Upload the pass record
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -169,6 +171,7 @@ jobs:
         env:
           CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
           WORKFLOW_TOKEN: ${{ github.token }}
+        timeout-minutes: 6
         run: python3 -m adapters.effects
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -213,11 +216,13 @@ jobs:
           persist-credentials: false
       - name: Hand on the commit it checked out, which every later job checks out
         id: commit
+        timeout-minutes: 1
         run: python3 -m harness.steps
       - name: Install the CLI at the Engine's pin
         env:
           CLI_VERSION: "%(version)s"
           CLI_CHECKSUM: "%(checksum)s"
+        timeout-minutes: 3
         run: |
           url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"
           curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude "${url}"
@@ -231,12 +236,14 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
+        timeout-minutes: 3
         run: python3 -m harness.read
       - name: Run the Engine
         id: engine
         env:
           CLAUDE_CLI: /usr/local/bin/claude
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        timeout-minutes: 20
         run: python3 -m harness.run
       - name: Upload the Result
         id: result
@@ -272,6 +279,7 @@ jobs:
       - name: Verify the Result
         env:
           RUN_DIGEST: ${{ needs.run.outputs.digest }}
+        timeout-minutes: 5
         run: python3 -m harness.verify
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -314,6 +322,7 @@ jobs:
           PASS: ${{ inputs.pass }}
           RUN_DIGEST: ${{ needs.run.outputs.digest }}
           PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}
+        timeout-minutes: 4
         run: python3 -m harness.apply_step
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -325,6 +334,7 @@ jobs:
         if: always()
         env:
           NAME: ${{ inputs.name }}
+        timeout-minutes: 2
         run: python3 -m harness.outcome
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -366,6 +376,7 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+        timeout-minutes: 4
         run: python3 -m harness.approve_step
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -377,6 +388,7 @@ jobs:
         if: always()
         env:
           NAME: ${{ inputs.name }}
+        timeout-minutes: 2
         run: python3 -m harness.outcome
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -395,9 +407,15 @@ ACTIONS_APP = 15368
 # A workflow that cannot be written within a rule. It is exempt from the rules named and from no other,
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
-    "ci.yml": (("install",), "d926b2135508f3799b02cfc2741d6017435399f8ec054c3f171dcd79236ba627"),    # the org's secret scan downloads gitleaks
+    "ci.yml": (("install",), "f6eac470f6f955e02f86fb889d311e428298a4ef239ead0fad86509af86a5ded"),    # the org's secret scan downloads gitleaks
 }
 MAX_RUN_LINES = 10
+# The minutes a job keeps beyond its run: steps' limits, for its other steps, which have none: its set-up, each uses: step
+# and each post step. In 116 jobs of the required checks' runs to 2026-10-29 they took at most 8 s together (issue 388).
+MARGIN = 2
+# A limit, of a job or a step: a whole number of minutes above none, in ASCII digits. The runner sets no limit for 0, and
+# int() reads digits a YAML reader does not (issue 388).
+MINUTES = re.compile(r"^[1-9][0-9]*$")
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
 ITEM = re.compile(r"^( *)- (\S.*)$")
 COMMAND = re.compile(r"^(make [\w.-]+|python3 -m [\w.]+)$")
@@ -423,7 +441,9 @@ ALWAYS = "always()"
 JUDGE = "python3 -m tools.needs_passed"
 NEEDS = "${{ toJSON(needs) }}"
 # The job that reads every commit a pull request carries (decision 0041): the base's tool, from a checkout of the base
-# with the whole history, told the base, the head and the event by the expressions below and nothing else.
+# with the whole history, told the base, the head and the event by the expressions below and nothing else. It reads the
+# opener from the payload the runner leaves, so no expression gives it one, and on a merge group with the job's own
+# token, read-only, which it is given by name (decision 0102).
 COMMITS = "python3 -m tools.commits_are_the_maintainers"
 # The mutant shards (issue 180): each leg is told its index and the count by the matrix itself, never by a number
 # written in, so every leg runs its own shard and the count is the matrix's size.
@@ -433,6 +453,7 @@ TOTAL = "${{ strategy.job-total }}"
 JUDGING_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "env", "steps"}
 SHARD_KEYS = {"runs-on", "timeout-minutes", "permissions", "strategy", "env", "steps"}
 HEAD = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
+JOB_TOKEN = "${{ github.token }}"
 EVENT = "${{ github.event_name }}"
 # The commit a pull request, or a merge-queue entry, is judged against (decision 0023). A judging job checks out this and
 # nothing else; the secret scan, which also runs on a push to main, falls back to the commit pushed.
@@ -477,7 +498,7 @@ EVAL_GIVEN = {
                         "retention-days": "90"}},
     "judge": {},
 }
-EVAL_STEP_KEYS = {"uses", "run", "with", "env"}
+EVAL_STEP_KEYS = {"uses", "run", "with", "env", "timeout-minutes"}
 # The release job and its workflow (issue 197's ruling 4′): dispatched by the Maintainer, with the command and its
 # version or target, or on a schedule that cuts only when the repo's FACTORY_RELEASE_AUTO is true and no Pause is set;
 # one job, `release`, on its own environment, whose deployment branches are main's alone, so no other ref's copy of
@@ -526,7 +547,7 @@ RELEASE_GIVEN = {
                      "RELEASE_TO": "${{ inputs.to }}", "RELEASE_CUT_COMMIT": "${{ github.sha }}",
                      "RELEASE_TOKEN": "${{ steps.mint.outputs.token }}"}},
 }
-RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"}, "step": {"run", "env"}}
+RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"}, "step": {"run", "env", "timeout-minutes"}}
 # What names the release job's environment, its key or its token, in a workflow that is not release.yml.
 RELEASE_ONLY = re.compile(r"factory-release|RELEASE_APP_|RELEASE_TOKEN|release\.move", re.I)
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
@@ -753,8 +774,22 @@ def lint(text: str) -> list:
 
     for job in jobs:
         inside = {e["key"]: e for e in under("jobs", job["key"])}
-        if "steps" in inside and not inside.get("timeout-minutes", {}).get("value", "").isdigit():
+        if "steps" in inside and not MINUTES.match(inside.get("timeout-minutes", {}).get("value", "")):
             found.append(("timeout", "job %s has no timeout-minutes" % job["key"]))
+        # A job GitHub stops at its own timeout concludes cancelled, as its check run does, which no required check or
+        # Run reads as a failure; a step stopped at its own fails, and its job with it (trials/P-42.step-timeout.json).
+        # So each run: step has a limit of its own, and the run: steps together leave their job MARGIN minutes for its
+        # other steps, which have none (issue 388).
+        steps = under("jobs", job["key"], "steps")
+        given = [next((e["value"] for e in steps if e["step"] == s["step"] and e["key"] == "timeout-minutes"), "")
+                 for s in steps if s["key"] == "run"]
+        if not all(MINUTES.match(minutes) for minutes in given):
+            found.append(("timeout", "a run: step of job %s has no timeout-minutes of its own" % job["key"]))
+        elif given and MINUTES.match(inside.get("timeout-minutes", {}).get("value", "")) and \
+                sum(map(int, given)) + MARGIN > int(inside["timeout-minutes"]["value"]):
+            found.append(("timeout", "the run: steps of job %s are given %d minutes together, more than its %s less the %d "
+                          "its other steps keep" % (job["key"], sum(map(int, given)), inside["timeout-minutes"]["value"],
+                                                    MARGIN)))
         if "environment" in inside and events != {"workflow_call"}:
             found.append(("shim", "job %s names an environment in a workflow that is not called alone" % job["key"]))
     if events & SHIM_EVENTS:
@@ -926,8 +961,8 @@ def scan_problems(text: str) -> list:
               and {e["key"] for e in entries if e["path"] == ["jobs", jobs[0]]} <= SCAN_JOB
               and all(set(step) <= {"name", "uses", "with"} and _checkout(step.get("uses", {"key": ""}))
                       for step in steps[:2])
-              and set(install) <= {"name", "env", "run"} and given == ({*SCAN_ENV} if "env" in install else set())
-              and set(steps[3]) <= {"name", "run"})
+              and set(install) <= {"name", "env", "run", "timeout-minutes"} and given == ({*SCAN_ENV} if "env" in install else set())
+              and set(steps[3]) <= {"name", "run", "timeout-minutes"})
     if not shaped:
         problems.append("%s does not run, in this order and nothing else, the head's checkout, the base's, the "
                         "install and the scan, with no environment, directory or container of its own: a step could "
@@ -1005,8 +1040,9 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
                     "runs" % (", ".join(sorted(JUDGING_KEYS)), ", ".join(sorted(set(inside) - JUDGING_KEYS))))
     if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:
         whys.append("it is granted other than contents: read")
-    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run"}]:
-        whys.append("its steps are not a checkout with its with: and then one run:, each holding no other key: a "
+    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run", "timeout-minutes"}]:
+        whys.append("its steps are not a checkout with its with: and then one run: with its own timeout-minutes, "
+                    "each holding no other key: a "
                     "working-directory:, a shell:, an env: or an if: on the step would change where or how `%s` runs"
                     % JUDGE)
     return whys
@@ -1038,12 +1074,13 @@ def _shards(entries: list, jobs: list) -> list:
         if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:
             whys.append("has the job %s, which runs the mutants, granted other than contents: read" % job)
         checkouts = [e for e in mine if e["path"] == ["jobs", job, "steps"] and _checkout(e)]
-        held = ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}, {"run"}]
+        held = ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}, {"run", "timeout-minutes"}]
                   and [(e["value"], e["body"] or []) for e in runs] == [(SHARDED, [])]
                   and [_with(entries, c) for c in checkouts] == [{"persist-credentials": "false", "fetch-depth": "0"}])
         if not held:
             whys.append("has the job %s, which runs the mutants, whose steps are not a checkout of the head with the "
-                        "whole history and `%s` on a line of its own, each holding no other key" % (job, SHARDED))
+                        "whole history and `%s` on a line of its own with its own timeout-minutes, each holding no other key"
+                        % (job, SHARDED))
     if not found:
         whys.append("has no job that runs the mutants, so no mutant runs before a merge")
     return whys
@@ -1051,9 +1088,9 @@ def _shards(entries: list, jobs: list) -> list:
 
 def _commits(text: str, entries: list, jobs: list) -> list:
     """Why the workflow's job `commits` would not read every commit the pull request carries from the base (decision
-    0041). Its shape is closed: the keys runs-on, timeout-minutes, permissions (contents: read), env and steps and no
-    other, so no container, strategy, if: or default can change what runs; env: exactly BASE_SHA, HEAD_SHA and EVENT as
-    the expressions name them; two steps, a checkout of the base with the whole history and persist-credentials: false,
+    0041). Its shape is closed: the keys runs-on, timeout-minutes, permissions (contents: read, pull-requests: read, and
+    nothing else), env and steps and no other, so no container, strategy, if: or default can change what runs; env:
+    exactly BASE_SHA, HEAD_SHA, EVENT and the job's own token as the expressions name them; two steps, a checkout of the base with the whole history and persist-credentials: false,
     and `COMMITS` on a line of its own, each step holding no other key, since a step's env: or if: would override the
     job's or skip it."""
     if "commits" not in jobs:
@@ -1064,17 +1101,19 @@ def _commits(text: str, entries: list, jobs: list) -> list:
     if set(inside) != {"runs-on", "timeout-minutes", "permissions", "env", "steps"}:
         whys.append("its job commits has keys other than runs-on, timeout-minutes, permissions, env and steps, or lacks "
                     "one: a container, a strategy, an if: or a default could change what runs")
-    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} != {"contents": "read"}:
-        whys.append("its job commits is granted other than contents: read")
+    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} \
+            != {"contents": "read", "pull-requests": "read"}:
+        whys.append("its job commits is granted other than contents: read and pull-requests: read")
     given = {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "env"]}
-    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:
-        whys.append("its job commits is not told BASE_SHA: %s, HEAD_SHA: %s and EVENT: %s in its own env:, and "
-                    "nothing else" % (BASE, HEAD, EVENT))
+    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT, "WORKFLOW_TOKEN": JOB_TOKEN}:
+        whys.append("its job commits is not told BASE_SHA: %s, HEAD_SHA: %s, EVENT: %s and WORKFLOW_TOKEN: %s in its own "
+                    "env:, and nothing else" % (BASE, HEAD, EVENT, JOB_TOKEN))
     steps = _steps(entries, "commits")
     keys = [set(step) for step in steps]
     wanted = {"persist-credentials": "false", "fetch-depth": "0", "ref": BASE}
-    if keys != [{"uses", "with"}, {"run"}]:
-        whys.append("its job commits's steps are not a checkout with its with: and then one run:, each holding no "
+    if keys != [{"uses", "with"}, {"run", "timeout-minutes"}]:
+        whys.append("its job commits's steps are not a checkout with its with: and then one run: with its own "
+                    "timeout-minutes, each holding no "
                     "other key: a step's env: or if: would override the job's or skip it, and another step could act "
                     "for it")
     checkouts = [e for e in mine if e["path"] == ["jobs", "commits", "steps"] and _checkout(e)]
@@ -1475,6 +1514,74 @@ def lens_workflows(root: pathlib.Path) -> list:
     return problems
 
 
+# The one token GitHub mints for each run: never stored, so it has no row in config/credential-ages.json.
+MINTED = {"GITHUB_TOKEN"}
+MODEL_KIND = "model"
+
+
+def credential_problems(root: pathlib.Path, live: list) -> list:
+    """Every secret a workflow names has a row in `config/credential-ages.json`, and each row's secret is named by exactly
+    the workflow files its row lists: one, but the model's credential, which two name (decision 0053), and none for a
+    key whose workflow is not built yet (L-37, issue 305), and the model's only by the workflows that may name it. An
+    App's key is kept where `config/apps.json` says alone (decision 0009), and is `write` if its App writes anything,
+    `read` if not. GitHub reads a secret's name in any case; a comment names none. What cannot be read checks nothing,
+    and says so."""
+    try:
+        rows = json.loads((root / "config" / "credential-ages.json").read_text())["credentials"]
+        apps = json.loads((root / "config" / "apps.json").read_text())["apps"]
+        keys = {app["key"]["secret"].upper(): app for app in apps.values()}
+        if not all(isinstance(app.get("permissions", {}), dict) for app in keys.values()):
+            raise TypeError("an App's permissions are not a mapping")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as err:
+        return ["config/credential-ages.json or config/apps.json cannot be read, so no workflow's secrets can be checked "
+                "against them: %r" % err]
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and isinstance(r.get("name"), str)
+                                             and isinstance(r.get("workflows"), list)
+                                             and all(isinstance(w, str) for w in r["workflows"]) for r in rows):
+        return ["config/credential-ages.json: its credentials are not rows each naming a secret and its workflows"]
+    named = {}
+    for path in live:
+        for line in _uncommented(raw(path)).split("\n"):
+            for found in SECRET.finditer(line.partition(" #")[0]):     # a trailing comment names nothing either
+                name = (found.group(2) or found.group(3) or "").upper()
+                if name and name not in MINTED:
+                    named.setdefault(name, set()).add(path.name)
+    problems, held = [], {}
+    for row in rows:
+        held.setdefault(row["name"].upper(), []).append(row)
+    for name in sorted(set(named) - set(held)):
+        problems.append("%s names the secret %s, which config/credential-ages.json has no row for"
+                        % (", ".join(sorted(named[name])), name))
+    for name, found in sorted(held.items()):
+        where = "config/credential-ages.json: %s" % name
+        if len(found) > 1:
+            problems.append("%s has %d rows; give it one" % (where, len(found)))
+        row = found[0]
+        if set(row["workflows"]) != named.get(name, set()):
+            problems.append("%s lists the workflows %s, and is named by %s" % (where, sorted(row["workflows"]) or "none",
+                                                                             sorted(named.get(name, ())) or "none"))
+        if len(row["workflows"]) > 1 and row.get("kind") != MODEL_KIND:
+            problems.append("%s is named by %d workflows; a secret is named by one, but the model's credential "
+                            "(decision 0053)" % (where, len(row["workflows"])))
+        if row.get("kind") == MODEL_KIND and not set(row["workflows"]) <= MODEL_WORKFLOWS:
+            problems.append("%s is a model credential, which only %s may name" % (where, " and ".join(sorted(MODEL_WORKFLOWS))))
+        app = keys.get(name)
+        if app is not None:
+            writes = any(isinstance(g, dict) and g.get("level") == "write" for g in app.get("permissions", {}).values())
+            if row.get("stored") != "environment" or row.get("environment") is not None:
+                problems.append("%s is an App's key: it is stored in an environment that config/apps.json alone names, "
+                                "so its environment here is null" % where)
+            if row.get("kind") != ("write" if writes else "read"):
+                problems.append("%s is the key of %s, which %s, so its kind is %s"
+                                % (where, app.get("name"), "writes" if writes else "writes nothing",
+                                   "write" if writes else "read"))
+        elif (row.get("stored") == "environment") != isinstance(row.get("environment"), str):
+            problems.append("%s names its environment if and only if it is stored in one" % where)
+    for name in sorted(set(keys) - set(held)):
+        problems.append("config/apps.json keeps the key %s, which config/credential-ages.json has no row for" % name)
+    return problems
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = lens_workflows(root)
     live = sorted((root / ".github" / "workflows").glob("*.y*ml"))
@@ -1524,6 +1631,8 @@ def run(root: pathlib.Path = ROOT) -> list:
                 if RELEASE_ONLY.search(line):
                     problems.append("%s: line %d names the release job's environment, its key, its token or its step, "
                                     "which are release.yml's alone" % (path.relative_to(root), number))
+    if live:
+        problems += credential_problems(root, live)
     for folder in sorted((root / ".github").glob("actions*")):
         problems.append("%s: a local action is not read by this check; write a reusable workflow"
                         % folder.relative_to(root))

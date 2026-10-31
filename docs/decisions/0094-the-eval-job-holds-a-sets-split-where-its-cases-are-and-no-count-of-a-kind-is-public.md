@@ -1,6 +1,6 @@
 # 0094. The eval job holds a set's split where its cases are, and no count of a kind is public
 
-Status: accepted. The Factory Builder's ruling of 2026-10-30 on issue 365, "Evals: the held-out manifest holds its Finding and right-change counts, so the cutover's split is held": no count of a kind is public, in place of the counts that issue's checklist asks the manifest to hold, after the reads of an earlier shape of this pull request. The Maintainer may overturn it in review. It adds to `docs/decisions/0078-a-held-out-case-is-reviewed-by-the-task-and-the-engine-a-live-run-and-its-report-tells-nothing-it-expected.md`, whose job and public report it extends, and holds the split that `docs/decisions/0010-built-greenfield-cut-over-one-family-at-a-time.md`'s cutover waits on.
+Status: replaced by `docs/decisions/0099-the-eval-job-holds-a-sets-split-where-its-cases-are-since-the-repo-cannot-hold-the-counts-true.md`.
 
 ## Decision
 

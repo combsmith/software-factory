@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "What the session hooks are told: whose name a commit or a push in this repo carries, and what is asked of the person.",
+  "title": "What the session hooks are told: whose name a commit or a push in this repo carries, and what is asked of the person; and what the commits job reads: who may open a pull request.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema",
     "maintainer",
+    "openers",
     "protected",
     "reported",
     "lens_inputs",
@@ -37,6 +38,35 @@
         "email": {
           "type": "string",
           "pattern": "^[^@\\s<>]+@[^@\\s<>]+$"
+        }
+      }
+    },
+    "openers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "login",
+          "id",
+          "is"
+        ],
+        "properties": {
+          "login": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\[bot\\])?$"
+          },
+          "id": {
+            "$comment": "The account's id, as the event's payload gives it in user.id: for an App, its bot account's, never the App's own.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "is": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },

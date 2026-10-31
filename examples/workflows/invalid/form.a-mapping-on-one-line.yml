@@ -17,3 +17,4 @@ jobs:
           persist-credentials: false
       - {run: make verify, continue-on-error: true}
       - run: python3 -m tools.mutants
+        timeout-minutes: 1

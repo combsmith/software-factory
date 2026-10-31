@@ -19,7 +19,8 @@ import unittest.mock
 
 from adapters import acceptance, github, records
 import controller.__main__ as entry
-from controller import pass_, shared
+from controller import configuration, pass_, shared
+from controller import credentials as credentials_
 from kernel.decide import decide
 from tests import support
 from tests import test_apply, test_issue
@@ -30,6 +31,8 @@ NOW = support.NOW                       # 2026-10-11T13:00:00Z
 REPO = support.ITEM["repo"]
 OTHER_REPO = "combsmith/markets"
 CONTROLLER = json.loads((ROOT / "config" / "controller.json").read_text())
+# Each stored credential's dates, as a table would hold them with none near its limit at NOW (issue 305).
+CREDENTIALS = json.loads((ROOT / "examples" / "credential-ages.json").read_text())
 TOKEN = {"id": 41898282, "type": "Bot"}       # the workflow's own token's account, as a configuration would hold it
 RELAY = {"id": 900001, "type": "User"}        # a relay's account, as one would be held once the relay exists
 APP_ACCOUNT = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"}  # the Controller App's, as a trial would record it
@@ -38,7 +41,7 @@ ROLE_ACCOUNT = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[b
 
 def config(**controller) -> dict:
     """What a pass is given: the Kernel's configuration, with issues served, each Work item's Lifecycle, the feed's
-    table, the Controller's own, here with both accounts known, and the Release."""
+    table, the Controller's own, here with both accounts known, the Release, and the credentials' dates."""
     c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY),
                                                       controller=dict(APP_ACCOUNT),
                                                       roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
@@ -48,7 +51,8 @@ def config(**controller) -> dict:
     return {"kernel": kernel, "release": "factory/v0.3.1", "controller": c,
             "feed": json.loads((ROOT / "config" / "feed.json").read_text()),
             "lifecycles": {"pull_request": json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()),
-                           "issue": json.loads((ROOT / "lifecycle" / "issue.json").read_text())}}
+                           "issue": json.loads((ROOT / "lifecycle" / "issue.json").read_text())},
+            "credentials": copy.deepcopy(CREDENTIALS)}
 
 
 class Mint:
@@ -531,6 +535,95 @@ class Feed(unittest.TestCase):
                              (reads(pulls=[], records_=False), ["capacity_unreadable", "reconciliation_unreadable",
                                                                  "run_unidentified"])):
             self.assertEqual(passed(read)["alerts"], raised, raised)
+
+    def test_a_credential_near_its_limit_raises_one_alert(self):  # L-37, issue 305
+        # A credential's limit is the earlier of its expiry and its last rotation plus its period, at the start of that
+        # day in UTC; within due_within_days of it, it is due, and with neither it never is (the Maintainer's choice:
+        # expiry alone). However many are due, the alert is one, and the pass record and the health view name each by
+        # its secret's name; the first pass after the row is updated clears it.
+        def table(*rows, within=14):
+            return {"schema": "credential-ages/1", "due_within_days": within, "credentials": [dict(r) if isinstance(r, dict) else r for r in rows]}
+
+        def row(name="APPROVER_TOKEN", kind="write", rotated="2026-10-01", expires=None, every=90, expiring="given"):
+            return {"name": name, "kind": kind, "stored": "environment", "environment": "factory-approve",
+                    "workflows": ["approve-job.yml"], "rotated_on": rotated,
+                    "expires": expires is not None if expiring == "given" else expiring, "expires_on": expires,
+                    "rotate_every_days": every}
+
+        due = credentials_.due
+        # The edge: 2026-10-25 is fourteen days after midnight on the 11th, and a second more is not.
+        self.assertEqual(due(table(row(expires="2026-10-25", every=None)), "2026-10-11T00:00:00Z"), (True, ["APPROVER_TOKEN"]))
+        self.assertEqual(due(table(row(expires="2026-10-25", every=None)), "2026-10-10T23:59:59Z"), (False, []))
+        self.assertEqual(due(table(row(rotated="2026-09-25", every=30)), "2026-10-11T00:00:00Z"), (True, ["APPROVER_TOKEN"]))
+        self.assertEqual(due(table(row(rotated="2026-09-25", every=30)), "2026-10-10T23:59:59Z"), (False, []))
+        self.assertEqual(due(table(row(rotated="2026-09-25", every=30), within=13), "2026-10-11T00:00:00Z"), (False, []))
+        # A rotation at the very start of the day the pass reads is no rotation after it (the Claude review on #427).
+        self.assertEqual(due(table(row(rotated="2026-10-11", every=90)), "2026-10-11T00:00:00Z"), (False, []))
+        # The earlier limit governs, whichever it is.
+        self.assertEqual(due(table(row(rotated="2026-10-01", expires="2026-10-20", every=90)), NOW), (True, ["APPROVER_TOKEN"]))
+        self.assertEqual(due(table(row(rotated="2026-07-20", expires="2027-10-20", every=90)), NOW), (True, ["APPROVER_TOKEN"]))
+        self.assertEqual(due(table(row(rotated="2026-10-01", expires="2027-10-20", every=90)), NOW), (False, []))
+        # With neither an expiry nor a period, a credential never falls due by age, and its last rotation, a record
+        # alone, is not read: a date is read only where it can bring the credential due.
+        self.assertEqual(due(table(row(rotated="2016-10-01", every=None)), NOW), (False, []))
+        self.assertEqual(due(table(row(rotated="2016-10-01", every=None)), "9999-12-31T23:59:59Z"), (False, []))
+        for rotated in (None, "2026-10-12", "2026-02-30", "1 October 2026"):
+            self.assertEqual(due(table(row(rotated=rotated, every=None)), NOW), (False, []), rotated)
+            self.assertEqual(due(table(row(rotated=rotated, expires="2027-10-20", every=None)), NOW), (False, []), rotated)
+        # A coordinate has no age; one given a date is a credential mislabelled, and due.
+        coordinate = row("HELDOUT_OWNER", "coordinate", None, None, None)
+        self.assertEqual(due(table(coordinate), NOW), (False, []))
+        for field, value in (("rotated_on", "2026-10-01"), ("expires_on", "2027-01-01"), ("rotate_every_days", 90),
+                             ("expires", True), ("expires", None)):
+            self.assertEqual(due(table(dict(coordinate, **{field: value})), NOW), (True, ["HELDOUT_OWNER"]), field)
+        self.assertEqual(due(table({k: v for k, v in coordinate.items() if k != "expires_on"}), NOW), (True, ["HELDOUT_OWNER"]))
+        for kind in ("admin", None):     # a row with no dates is skipped only as a coordinate (the Claude review on #427)
+            self.assertEqual(due(table(dict(coordinate, kind=kind)), NOW), (True, ["HELDOUT_OWNER"]), kind)
+        # A row that cannot be read is due, by its name where it has one.
+        # One that expires and whose expiry is not given is such a row: it is due until the Maintainer gives the day.
+        for bad in (row(rotated=None), row(rotated="2026-10-12"), row(rotated="2026-02-30"), row(rotated="1 October 2026"),
+                    row(expires="2027-13-01"), row(expires=20271001), row(every=0), row(every=True), row(every=90.0),
+                    row(every="90"), row(kind="admin"), row(kind=None), row(expiring=True), row(expiring=True, every=None),
+                    row(expires="2027-10-20", expiring=False), row(expiring=None), row(expiring="yes"),
+                    row(expires="2027-1-5"), row(rotated="2026-1-5"),
+                    {k: v for k, v in row().items() if k != "expires"}):
+            self.assertEqual(due(table(bad, row("CONTROLLER_APP_KEY")), NOW), (True, ["APPROVER_TOKEN"]), bad)
+        self.assertEqual(due(table(row(), row()), NOW), (True, ["APPROVER_TOKEN"]))
+        # A period or a nearness past the calendar's end is unreadable, never a fault that stops the pass (the security
+        # pass on #427).
+        self.assertEqual(due(table(row(every=3000000), row("CONTROLLER_APP_KEY")), NOW), (True, ["APPROVER_TOKEN"]))
+        self.assertEqual(due(table(row(), within=1000000000), NOW), (True, []))
+        for nameless in (row(name=None), row(name="approver_token"), row(name="APPROVER TOKEN"), "APPROVER_TOKEN", None):
+            self.assertEqual(due(table(nameless, row("CONTROLLER_APP_KEY")), NOW), (True, []), nameless)
+        # A table that cannot be read is due whole; so is a moment that is none.
+        for bad in (None, [], "credential-ages/1", table(), dict(table(row()), schema="credentials/2"),
+                    dict(table(row()), due_within_days=0), dict(table(row()), due_within_days=True),
+                    dict(table(row()), due_within_days="14"), {"schema": "credential-ages/1", "due_within_days": 14},
+                    dict(table(row()), credentials={"APPROVER_TOKEN": row()})):
+            self.assertEqual(due(bad, NOW), (True, []), bad)
+        self.assertEqual(due(table(row()), "2026-10-11"), (True, []))
+        # Through the pass: one alert however many are due, each named, in the record and the view; cleared after.
+        cfg = config()
+        cfg["credentials"] = table(row(rotated="2026-07-20"), row("CONTROLLER_APP_KEY", rotated=None),
+                                   row("READER_APP_KEY"))
+        out = passed(cfg=cfg)
+        self.assertEqual((out["alerts"], out["record"]["alerts"], out["view"]["health"]["alerts"]),
+                         (["credential_due"], ["credential_due"], ["credential_due"]))
+        self.assertEqual((out["record"]["credentials_due"], out["view"]["health"]["credentials_due"]),
+                         (["APPROVER_TOKEN", "CONTROLLER_APP_KEY"], ["APPROVER_TOKEN", "CONTROLLER_APP_KEY"]))
+        self.assertEqual(passed(cfg=dict(cfg, credentials=None))["alerts"], ["credential_due"])
+        cleared = passed(cfg=config(), previous=[out["record"]])
+        self.assertEqual((cleared["alerts"], cleared["record"]["credentials_due"], cleared["view"]["health"]["credentials_due"]),
+                         ([], [], []))
+        self.assertEqual(passed(cfg={k: v for k, v in config().items() if k != "credentials"})["alerts"], ["credential_due"])
+        # The table the Release holds is read, and one that cannot be read is read as none.
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "config").mkdir()
+            self.assertIsNone(configuration._readable(pathlib.Path(d), "config", "credential-ages.json"))
+            (pathlib.Path(d) / "config" / "credential-ages.json").write_text("{not json")
+            self.assertIsNone(configuration._readable(pathlib.Path(d), "config", "credential-ages.json"))
+        self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["credentials"],
+                         json.loads((ROOT / "config" / "credential-ages.json").read_text()))
 
     def test_a_write_no_effect_recorded_raises_one_alert_and_is_named_in_the_view(self):  # I-33, decision 0061
         # The pass reconciles what each Factory identity wrote with what the Factory recorded: one alert however many

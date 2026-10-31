@@ -9,11 +9,11 @@ except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standard
 ## Verify
 
 ```
-make verify                  # every check and every test, half a minute; SIM_SEEDS=40 is quicker
-python3 -m tools.mutants     # breaks each Kernel rule, one to a CPU; a test must notice. Half a minute
+make verify                  # every check and every test: 15 minutes on CI, 40 on a busy desk; SIM_SEEDS=40 is quicker
+python3 -m tools.mutants     # breaks each rule, one to a CPU; a test must notice. Over an hour; CI runs 8 shards of 10 to 15 minutes
 ```
 
-Both must pass before a change is finished. Python 3.9 or later; nothing to install. Hooks in `.claude/settings.json` check after an edit and before a stop, refuse a commit not the Maintainer's, and ask before a protected edit or a merge, not in bypass mode.
+Both must pass before a change is finished. Python 3.9 or later; nothing to install. Hooks run the checks alone after an edit and before a stop, refuse a commit not the Maintainer's, and ask before a protected edit or a merge, not in bypass mode.
 
 ## The rules that are never broken
 
@@ -31,7 +31,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 | Every Kernel rule has a boundary test, and a mutant that the test kills | `tools/mutants.py` |
 | The invariants hold under injected faults, on fixed seeds | `tests/test_simulator.py` |
 | Nothing is installed or fetched; no secret is written down | `tools/check_repo.py` |
-| A workflow is pinned, least-privileged and holds no logic; every commit a pull request carries names the Maintainer as its author and committer | `tools/check_workflows.py`, `tools/commits_are_the_maintainers.py` |
+| A workflow is pinned, least-privileged and holds no logic; every commit a pull request carries names the Maintainer, and a listed account opened it from this repo | `tools/check_workflows.py`, `tools/commits_are_the_maintainers.py` |
 | Every rule, lesson and decision names its check; this file stays short | `tools/check_context.py` |
 
 ## Changing the Kernel

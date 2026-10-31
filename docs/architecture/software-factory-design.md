@@ -365,6 +365,12 @@ GitHub's GraphQL gives it in capitals (`SUCCESS`, `IN_PROGRESS`); the port lower
 nothing else. The configuration's `check_conclusions` says what each word means for a required
 check. `success` alone is passing. `failure` and `timed_out` are failing: the content goes back to
 the author, because a hung test usually belongs to the content and attempts bound the fixes (L-39).
+GitHub concludes a job it stops at its own `timeout-minutes` `cancelled`, not `timed_out`, and its
+check run with it (P-42). So each job the Factory writes stops its own work first: each `run:` step
+has a `timeout-minutes` of its own, the steps' together two minutes fewer than the job's, kept for
+its checkout and other steps, and a step stopped at its limit concludes `failure`, its job and check
+run with it (`tools/check_workflows.py`, issue 388). A Lens whose work runs too long is then a
+failing check, not one with no verdict, while its other steps keep within those two minutes.
 `queued`, `in_progress`, `pending`, `waiting`, `requested` and `expected`, and a required check that
 has not reported at all, are pending: a normal wait that ends on its own, so the item waits in
 `verifying`. `neutral`, `skipped`, `cancelled`, `stale`, `action_required`, `startup_failure` and
@@ -911,9 +917,23 @@ cost is not known exactly; its duration is the estimate.
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
 outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,
 whatever other Runs are failing as (decision 0049, issue 286): the facts give no window to judge an
-outage by, and the automatic pause stops admission on the Runs that did write `environment`. That a
-job killed at its timeout concludes `timed_out` waits on P-18. A Run `cancelled` with no outcome is
-no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which
+outage by, and the automatic pause stops admission on the Runs that did write `environment`. A job
+GitHub stops at its own `timeout-minutes` concludes `cancelled`, not `timed_out` (P-42), so the
+Run's jobs stop their own work under a step limit, the steps' together two minutes below the job's:
+a step stopped at its limit concludes `failure`, and its job with it, and a later `if: always()` step
+still runs (`trials/P-42.step-timeout.json`). A Run past its limit is no attempt: `apply` still runs,
+and leaves the outcome `environment`, `run_failed`, for any run job that did not succeed, so the
+automatic pause and the Run ceiling bound it, not the attempts
+(`tests/test_steps.py::test_apply_waits_for_its_jobs`). One the Engine's own limit stops,
+`engine_timeout`, reads `environment` too
+(`tests/test_apply.py::test_a_result_not_the_runs_or_not_completed_writes_nothing`): a timeout cannot
+tell a slow provider from a slow item, and reading `item` would count an outage as an attempt on
+every item. The cost is accepted (issue 433): a Task the model cannot finish in time has up to
+`max_runs_per_item` Runs and not `max_attempts`, its spend unrecorded, and two such items in the
+window can raise the automatic pause, which stops no act. No Run has a tool (decision 0050), so an
+item can slow its Run only by what the model reads. The design that first gives a Run a tool, issue
+314, rules on this again, since an item can then hang its Run. A Run `cancelled`
+with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which
 the records port reads as `cancelled`. Its concurrency group cancels a Run that waits behind another
 as a newer one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
 the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
@@ -1829,7 +1849,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, unless it changes a protected path or a Lens's input, and a person's thread, or a model Lens's Finding already raised, still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo nothing is installed, so every update changes `.github/`: every model Lens reviews its head, and the machine user approves it as any item (I-45) |
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1). The Hold is a reading: after a conflict, the Factory's fix Run pushes, the Role's App becomes the last pusher, and the Hold ends with no person, since GitHub would then count the approval (§4.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
-| A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
+| A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A job GitHub stops at its own timeout concludes `cancelled` (P-42), so each job the Factory writes stops its own work under a step limit and concludes `failure` (§4.2). A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
 | A check under a required Lens's check name from another App or another workflow file, or two from the Lens's own App and file that disagree | The first leaves the Lens unreadable, reason `check_unreadable` with the evidence `<lens>:from_app:<id>` or `<lens>:from_workflow:<path>`, for the Maintainer to see, whatever any Lens's own check says, a failure among them; it moves nothing either. A check run cannot be deleted, so it stays on that head for good, and only a push clears it. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
 | An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held. One that fails for any other fault, such as an expired token, counts toward the Run ceiling (§3.10) |
@@ -2152,7 +2172,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-15 | Do the retained Advisory reviewers review a pull request authored by an App? | Each one does, or is not counted as a Lens on such pull requests |
 | P-16 | How long are run records, logs and artifacts kept in a public repo? | 90 days |
 | P-17 | Is a run's name set when the run is created, and visible for a run whose job never started? Can recent runs of one workflow be listed and matched by name within the request budget? | Yes to both. **Failed** on 2026-10-18 (`trials/P-17.json`): listed at once, named within 3.7 s; decision 0036 covers the window |
-| P-18 | Does a final step still run, and upload partial usage, when a job times out or is cancelled? And does a job whose step exits non-zero conclude `failure`, whether its Run refused before its work or after it? | Yes, or duration is the only estimate; a job whose step fails concludes `failure` |
+| P-18 | Does a final step still run, and upload partial usage, when a job times out or is cancelled? And does a job whose step exits non-zero conclude `failure`, whether its Run refused before its work or after it? | Yes, or duration is the only estimate; a job whose step fails concludes `failure`. P-42 answered a part: a job GitHub stops at its own timeout concludes `cancelled`, not `timed_out` (`trials/P-42.json`), and a step stopped at its own `timeout-minutes` concludes `failure`, its job with it, a later `if: always()` step still running (`trials/P-42.step-timeout.json`). Whether that step uploads partial usage, and the rest of this row, are still asked |
 | P-19 | Can a static page in a separate public repo be published from files the Controller writes? | Yes |
 | P-20 | Does an event that anyone may cause, such as starring a repo, still start a workflow, and how often may it? | Yes, often enough for a tick every minute or two. **Passed** on 2026-10-21 (`trials/P-20.json`): ten stars a minute apart started ten runs, each within two seconds |
 | P-26 | Can the model CLI's sandbox stop a tool reading the parent process's environment, and limit where it connects? | Yes to both, or the first and third layers of §4.9 carry the weight. **Failed** on 2026-10-21 (`trials/P-26.json`), at 2.1.306: in both configurations the sandbox limited connections by name, the denied host refused at CONNECT and, around its proxy, neither host's name was looked up (curl exit 6); a connection to an address with no name looked up was not tried, and the script now tries one, but the tool's shell held the parent's environment: with the scrub the listed marker was gone and the unlisted one stayed, the environment three lines shorter, the names not recorded. The sandbox would not run `ps` (exit 126), so no process was read, not even the probe's own; Linux's /proc is P-50's |
@@ -2957,7 +2977,7 @@ What makes that way of working produce good code:
 | Stories before code | Epics and stories, then a readiness check of PRD, architecture and stories against each other, then one story file per piece of work |
 | Failing tests first | The test-architecture workflow writes the acceptance tests before the implementing session starts, as `qa-lead` will later do by itself |
 | The specification runs | Schemas, invariants and the simulator are in the repo. One command verifies locally exactly what the required check verifies |
-| Hooks hold the line | After each edit, the fast checks run. A session cannot end with the verification failing. A push as the machine user is refused. An edit to a protected path is refused unless the Maintainer asked for it |
+| Hooks hold the line | After each edit, the checks run. A session is sent back once if they fail at its end; the tests are CI's. A push as the machine user is refused. An edit to a protected path is refused unless the Maintainer asked for it |
 | A reader that did not write it | Before a pull request, a fresh context reviews the diff, and a separate pass looks only for security faults. For a change to the Kernel, a second model family reads the diff once and reports. Reviewers report; they do not converse |
 | Tests that can fail | Mutation testing on the Kernel, which is pure functions and so cheap to mutate |
 | Types as the code is written | The required check installs nothing, so neither a type checker nor a linter is a required check: the repo's own checks and the mutation check stand in their place. What an editor shows an agent as it works is the session's own affair (Maintainer, 2026-10-11) |

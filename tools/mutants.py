@@ -74,9 +74,13 @@ NAMING_TESTS = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_ex
 ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
+OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
+OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
+LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
+NEEDED = ("tests.test_tools.Workflows.test_each_step_limit_holds_what_its_step_needs",)
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
 P50 = "tools/trial_p50_linux_sandbox.sh"
@@ -2111,7 +2115,7 @@ MUTANTS = ISSUE + [
      '              and {e["key"] for e in entries if e["path"] == []} <= SCAN_TOP\n', "",
      ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
     ("the secret scan's step may run in another directory", "tools/check_workflows.py",
-     '              and set(steps[3]) <= {"name", "run"})\n', ")\n", ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
+     '              and set(steps[3]) <= {"name", "run", "timeout-minutes"})\n', ")\n", ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
     ("the secret scan's install may be given any environment", "tools/check_workflows.py",
      'given == ({*SCAN_ENV} if "env" in install else set())', "True", ("tests.test_tools.Workflows.test_the_secret_scan_reads_the_bases_configuration",)),
     ("a workflow is read with its carriage returns turned into line ends", "tools/check_workflows.py",
@@ -2133,6 +2137,24 @@ MUTANTS = ISSUE + [
      ("tests.test_tools.Context",)),
     ("a yaml block on any standard is not counted toward its page", "tools/check_context.py",
      'COPIED.search(text) if name == "workflows" else None', "COPIED.search(text)", ("tests.test_tools.Context",)),
+    # Issue 388: each run: step stops under a limit of its own, the steps together below their job's.
+    ("a run: step needs no limit of its own", "tools/check_workflows.py",
+     "        if not all(MINUTES.match(minutes) for minutes in given):\n", "        if False:\n", LIMITED),
+    ("run: steps may be given their whole job", "tools/check_workflows.py",
+     'sum(map(int, given)) + MARGIN > int(inside["timeout-minutes"]["value"])',
+     'sum(map(int, given)) > int(inside["timeout-minutes"]["value"])', LIMITED),
+    ("a job keeps a minute for its other steps", "tools/check_workflows.py", "MARGIN = 2\n", "MARGIN = 1\n", LIMITED),
+    ("a job's run: steps are not counted together", "tools/check_workflows.py",
+     'sum(map(int, given)) + MARGIN > int(', 'max(map(int, given)) + MARGIN > int(', LIMITED),
+    ("a limit of none, or of another script's digits, is a limit", "tools/check_workflows.py",
+     'MINUTES = re.compile(r"^[1-9][0-9]*$")', 'MINUTES = re.compile(r"^[0-9]+$")', LIMITED),
+    ("the eval job's run step is cut before its budget", ".github/workflows/eval.yml",
+     "        timeout-minutes: 110\n", "        timeout-minutes: 30\n", NEEDED),
+    ("the Engine's step is cut before its call can end", ".github/workflows/run-jobs.yml",
+     "        timeout-minutes: 20\n", "        timeout-minutes: 15\n", NEEDED),
+    ("a uses: step must have a limit of its own", "tools/check_workflows.py",
+     '                 for s in steps if s["key"] == "run"]', '                 for s in steps if s["key"] in ("run", "uses")]',
+     LIMITED),
     ("a needed job that did not pass passes the required check", "tools/needs_passed.py",
      '        if result != "success":\n', '        if result in ("failure", None):\n', ("tests.test_tools.Workflows.test_the_required_check_fails_unless_every_job_it_needs_passed",)),
     ("needs that name no job pass the required check", "tools/needs_passed.py",
@@ -2284,9 +2306,9 @@ MUTANTS = ISSUE + [
     ("FLAKY is counted as killed", "tools/mutants.py",
      'killed += outcome' ' == "killed"', 'killed += outcome in ("killed", "FLAKY")', FLAKY_TESTS),
     ("the failure line of Python 3.10 and earlier is read as the class", "tools/mutants.py",
-     '            found.add(where' ' + "." + method)\n', "            found.add(where)\n", LINE_TESTS),
+     'method) else where' ' + "." + method\n', 'method) else where\n', LINE_TESTS),
     ("the failure line of Python 3.11 and later is read as 3.10's", "tools/mutants.py",
-     'if method == "setUpClass"' ' or where.endswith("." + method):', 'if method == "setUpClass":', LINE_TESTS),
+     'if method == "setUpClass"' ' or where.endswith("." + method) else', 'if method == "setUpClass" else', LINE_TESTS),
     ("a failure in setUpClass is read as a test", "tools/mutants.py",
      'if method == "setUpClass"' " or ", "if ", LINE_TESTS),
     ("a failure line in a test's own message is read as unittest's", "tools/mutants.py",
@@ -5489,6 +5511,56 @@ MUTANTS = ISSUE + [
     ("a function that is no test method is a test", "tools/mutants.py",
      '    return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"\n',
      '    return ""\n', NAMING_TESTS),
+    # Issue 409: a pull request is opened from this repo by an account the configuration lists (decision 0102).
+    ("the job does not read the opener", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = problems(root, environ)", OPENER_JOB),
+    ("the job does not read the commits", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = opened", OPENER_JOB),
+    ("the job does not say what it read of the opener", "tools/commits_are_the_maintainers.py", "        print(said)\n", "", OPENER_JOB),
+    ("an opener not on the list passes", "tools/commits_are_the_maintainers.py", "    if what is None:\n", "    if False:\n", OPENER_TESTS),
+    ("an opener is read by the login alone", "tools/commits_are_the_maintainers.py", 'what = allowed.get((login, user["id"]))',
+     'what = next((v for k, v in allowed.items() if k[0] == login), None)', OPENER_TESTS),
+    ("an opener is read by the id alone", "tools/commits_are_the_maintainers.py", 'what = allowed.get((login, user["id"]))',
+     'what = next((v for k, v in allowed.items() if k[1] == user["id"]), None)', OPENER_TESTS),
+    ("a refusal does not say who may open one", "tools/commits_are_the_maintainers.py", '"; ".join("%s, %s" % (who[0], is_) for who, is_ in sorted(allowed.items()))', '""', OPENER_TESTS),
+    ("a fork passes", "tools/commits_are_the_maintainers.py", "    if not own or head_repo != own:\n", "    if not own:\n", OPENER_TESTS),
+    ("a base repository that cannot be read agrees", "tools/commits_are_the_maintainers.py", "    if not own or head_repo != own:\n", "    if head_repo != own:\n", OPENER_TESTS),
+    ("the head repository is read from the base", "tools/commits_are_the_maintainers.py", 'head and head["full_name"]', 'base and base["full_name"]', OPENER_TESTS),
+    ("an opener that cannot be read passes", "tools/commits_are_the_maintainers.py", """        return ["the pull request's opener cannot be read: %r" % err], ""\n""", '        return [], ""\n', OPENER_TESTS),
+    ("an event the opener's check does not know is read", "tools/commits_are_the_maintainers.py", '    if event not in ("pull_request", "merge_group"):\n        return ["EVENT', '    if False:\n        return ["EVENT', OPENER_TESTS),
+    ("a merge group is read as a pull request's event", "tools/commits_are_the_maintainers.py", '        if event == "merge_group":\n', '        if False:\n', OPENER_TESTS),
+    ("a merge group's refusal is not one", "tools/commits_are_the_maintainers.py", '            if why:\n                return [why], ""\n', '            if why:\n                return [], ""\n', OPENER_TESTS),
+    ("a payload with no merge group passes as one", "tools/commits_are_the_maintainers.py", 'if not isinstance(group, dict) or "pull_request" in payload:', 'if "pull_request" in payload:', OPENER_TESTS),
+    ("a pull request's payload passes as a merge group's", "tools/commits_are_the_maintainers.py", 'if not isinstance(group, dict) or "pull_request" in payload:', 'if not isinstance(group, dict):', OPENER_TESTS),
+    ("a ref need not be whole", "tools/commits_are_the_maintainers.py", 'QUEUED.fullmatch(group["head_ref"])', 'QUEUED.search(group["head_ref"])', OPENER_TESTS),
+    ("a ref of no text is read", "tools/commits_are_the_maintainers.py", 'QUEUED.fullmatch(group["head_ref"]) if isinstance(group.get("head_ref"), str) else None', 'QUEUED.fullmatch(group.get("head_ref"))', OPENER_TESTS),
+    ("a ref may name a pull request of no number", "tools/commits_are_the_maintainers.py", '/pr-([1-9][0-9]*)-[0-9a-f]{40}', '/pr-([0-9]+)-[0-9a-f]{40}', OPENER_TESTS),
+    ("a ref may name a commit of no form", "tools/commits_are_the_maintainers.py", '/pr-([1-9][0-9]*)-[0-9a-f]{40}', '/pr-([1-9][0-9]*)-[0-9a-f]*', OPENER_TESTS),
+    ("a ref may name another branch than the group's", "tools/commits_are_the_maintainers.py", 'if named is None or group.get("base_ref") != "refs/heads/" + named.group(1):', 'if named is None:', OPENER_TESTS),
+    ("a merge group asks with no token", "tools/commits_are_the_maintainers.py", '    if not token:\n        return None, "merge_group_pull_unreadable: the job\'s token was not given"\n', '', OPENER_TESTS),
+    ("a read never answered passes", "tools/commits_are_the_maintainers.py", '        return None, "merge_group_pull_unreadable: pull request %d was not answered: %s" % (number, type(err).__name__)\n', '        return {}, None\n', OPENER_TESTS),
+    ("another status is read", "tools/commits_are_the_maintainers.py", 'if answer["status"] != 200 or not isinstance(pull, dict)', 'if not isinstance(pull, dict)', OPENER_TESTS),
+    ("an answer of no object is read", "tools/commits_are_the_maintainers.py", 'if answer["status"] != 200 or not isinstance(pull, dict) or pull.get("number") != number:', 'if answer["status"] != 200 or pull.get("number") != number:', OPENER_TESTS),
+    ("another pull request answers", "tools/commits_are_the_maintainers.py", ' or pull.get("number") != number:', ':', OPENER_TESTS),
+    ("a closed pull request is read", "tools/commits_are_the_maintainers.py", 'if pull.get("state") != "open" or (pull.get("base")', 'if (pull.get("base")', OPENER_TESTS),
+    ("a pull request on another base is read", "tools/commits_are_the_maintainers.py", ' or (pull.get("base") or {}).get("ref") != named.group(1):', ':', OPENER_TESTS),
+    ("the read is of another pull request", "tools/commits_are_the_maintainers.py", '"/repos/%s/pulls/%d" % (payload["repository"]["full_name"], number)', '"/repos/%s/pulls/%d" % (payload["repository"]["full_name"], 1)', OPENER_TESTS),
+    ("the transport is not the one handed", "tools/commits_are_the_maintainers.py", '    opened, said = opener(root, environ, transport)\n', '    opened, said = opener(root, environ)\n', OPENER_JOB),
+    ("the commits job may read another thing", "tools/check_workflows.py", '            != {"contents": "read", "pull-requests": "read"}:\n', '            not in ({"contents": "read", "pull-requests": "read"}, {"contents": "read", "pull-requests": "read", "actions": "read"}):\n', ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)),
+    ("the commits job may write pull requests", "tools/check_workflows.py", '            != {"contents": "read", "pull-requests": "read"}:\n', '            not in ({"contents": "read", "pull-requests": "read"}, {"contents": "read", "pull-requests": "write"}):\n', ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)),
+    ("the commits job needs no token", "tools/check_workflows.py", '"EVENT": EVENT, "WORKFLOW_TOKEN": JOB_TOKEN}:', '"EVENT": EVENT}:', ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)),
+    ("the list is not the configuration's", "tools/commits_are_the_maintainers.py", 'for o in json.loads((root / "config" / "hooks.json").read_text())["openers"]}', 'for o in [{"login": "ada", "id": 1, "is": "the Maintainer"}]}', OPENER_TESTS),
+    ("this repo's list names another account", "config/hooks.json", '{"login": "don-petry", "id": 36422719,', '{"login": "don-petry", "id": 36422718,', OPENER_TESTS),
+    ("the list is not required", "schemas/hooks.schema.json", '    "maintainer",\n    "openers",\n', '    "maintainer",\n', OPENER_TESTS),
+    ("the list may be empty", "schemas/hooks.schema.json", '    "openers": {\n      "type": "array",\n      "minItems": 1,\n', '    "openers": {\n      "type": "array",\n', OPENER_TESTS),
+    ("an opener needs no reason", "schemas/hooks.schema.json", '          "id",\n          "is"\n', '          "id"\n', OPENER_TESTS),
+    ("a refusal names only one of those who may", "tools/commits_are_the_maintainers.py", 'for who, is_ in sorted(allowed.items()))', 'for who, is_ in sorted(allowed.items())[:1])', OPENER_TESTS),
+    ("a refusal names no login", "tools/commits_are_the_maintainers.py", '"%s, %s" % (who[0], is_) for who', '"%s" % is_ for who', OPENER_TESTS),
+    ("an opener needs no id", "schemas/hooks.schema.json", '          "login",\n          "id",\n          "is"\n', '          "login",\n          "is"\n', OPENER_TESTS),
+    ("an opener needs no login", "schemas/hooks.schema.json", '          "login",\n          "id",\n          "is"\n', '          "id",\n          "is"\n', OPENER_TESTS),
+    ("an opener may be listed twice", "schemas/hooks.schema.json", '      "uniqueItems": true,\n      "items": {\n        "type": "object",\n        "additionalProperties": false,\n        "required": [\n          "login",\n          "id"', '      "items": {\n        "type": "object",\n        "additionalProperties": false,\n        "required": [\n          "login",\n          "id"', OPENER_TESTS),
+    ("an App's login is no opener's", "schemas/hooks.schema.json", '(?:\\\\[bot\\\\])?$"', '$"', OPENER_TESTS),
+    ("an opener's login may be any text", "schemas/hooks.schema.json", '            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\\\[bot\\\\])?$"\n', '            "minLength": 1\n', OPENER_TESTS),
+    ("an opener's id may be text", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "minimum": 1\n          },\n          "is"', OPENER_TESTS),
+    ("an opener's id may be no account's", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "type": "integer"\n          },\n          "is"', OPENER_TESTS),
     # Issue 204: every commit a pull request carries is the Maintainer's, checked outside the shell.
     # Decision 0087: what the check says is what it holds.
     ('the check says the commits are the Maintainer\'s', 'tools/commits_are_the_maintainers.py',
@@ -5537,12 +5609,12 @@ MUTANTS = ISSUE + [
      '    if set(inside) != {"runs-on", "timeout-minutes", "permissions", "env", "steps"}:\n', "    if False:\n",
      COMMITS_JOB_TESTS),
     ("the commits job may be granted more", "tools/check_workflows.py",
-     '    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} != {"contents": "read"}:\n',
+     '    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} \\\n            != {"contents": "read", "pull-requests": "read"}:\n',
      "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job may be told anything", "tools/check_workflows.py",
-     '    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:\n', "    if False:\n", COMMITS_JOB_TESTS),
+     '    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT, "WORKFLOW_TOKEN": JOB_TOKEN}:\n', "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job's steps may carry an env:, an if: or another step", "tools/check_workflows.py",
-     '    if keys != [{"uses", "with"}, {"run"}]:\n', "    if False:\n", COMMITS_JOB_TESTS),
+     '    if keys != [{"uses", "with"}, {"run", "timeout-minutes"}]:\n', "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job may check out the head", "tools/check_workflows.py",
      "    if [_with(entries, c) for c in checkouts] != [wanted]:\n", "    if False:\n", COMMITS_JOB_TESTS),
     ("the commits job may run another tool", "tools/check_workflows.py",
@@ -5557,7 +5629,8 @@ MUTANTS = ISSUE + [
      '    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:\n'
      '        whys.append("it is granted', '    if False:\n        whys.append("it is granted', JUDGING_SHAPE_TESTS),
     ("the judging step may carry a working-directory, a shell or an env", "tools/check_workflows.py",
-     '    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run"}]:\n', "    if False:\n",
+     '    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run", "timeout-minutes"}]:\n',
+     "    if False:\n",
      JUDGING_SHAPE_TESTS),
     ("a shard may be told its index by a number", "tools/check_workflows.py",
      '        if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "env"]} != {"MUTANTS_SHARD": INDEX,\n',
@@ -6711,6 +6784,34 @@ MUTANTS = ISSUE + [
     ("the eval workflow's shape is not held", 'tools/check_workflows.py',
      '            problems += ["%s: %s" % (path.relative_to(root), p) for p in eval_problems(raw(path), root)]\n',
      '            pass\n', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
+    # Issue 421: a case's expected Finding is as its rubric gives it, read at run time, where the case is.
+    ("a case's expected severity is not held to its rubric", 'tools/eval_result.py',
+     '(want["finding"]["severity"], want["finding"]["category"]) != given[want["criterion"]]',
+     'want["finding"]["category"] != given[want["criterion"]][1]', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ("a case's expected category is not held to its rubric", 'tools/eval_result.py',
+     '(want["finding"]["severity"], want["finding"]["category"]) != given[want["criterion"]]',
+     'want["finding"]["severity"] != given[want["criterion"]][0]', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ("a case is held to another criterion's category", 'tools/eval_result.py',
+     'given = {c["id"]: (c["severity_if_violated"], c["category"]) for c in rubric["criteria"]}',
+     'given = {c["id"]: (c["severity_if_violated"], rubric["criteria"][0]["category"]) for c in rubric["criteria"]}', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a case that expects no Finding is read as off its rubric', 'tools/eval_result.py',
+     '    if want["finding"] is None:\n        return False\n',
+     '', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a criterion the rubric lacks is read as off it', 'tools/eval_result.py',
+     'return want["criterion"] in given and (want',
+     'return (want', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a rubric coverage refuses holds a case to it', 'tools/eval_result.py',
+     '    if not readable_rubric(rubric):\n        return True\n',
+     '', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a rubric that cannot be read puts a case off it', 'tools/eval_result.py',
+     '    except (OSError, ValueError):\n        return False\n',
+     '    except (OSError, ValueError):\n        return True\n', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('the scorer passes a case off its rubric', 'tools/eval_result.py',
+     '    if off_rubric(case):\n        return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_off_rubric"]}\n',
+     '', ("tests.test_evals.Scoring.test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing",)),
+    ('a case off its rubric is given to the review', 'harness/eval/__init__.py',
+     '        if eval_result.off_rubric(case):\n            assessed[entry["id"]] = ("unreadable", ["answer_off_rubric"])\n            continue\n',
+     '', ("tests.test_evals.EvalJob.test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing",)),
     ('a set of no case is run', 'harness/eval/__init__.py',
      '    if found["count"] == 0:\n        raise Stop("eval_set_empty")\n    place',
      '    place', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
@@ -7037,6 +7138,9 @@ MUTANTS = ISSUE + [
     ("a failed Engine is the Role's fault", 'harness/apply.py',
      '"item" if reason in THE_ROLES or result["status"] != "failed" else "environment"',
      '"item"', ('tests.test_apply.Apply.test_a_result_not_the_runs_or_not_completed_writes_nothing',)),
+    ("an Engine past its time is the item's fault", 'harness/apply.py',
+     'THE_ROLES = ("result_invalid", "task_too_large")',
+     'THE_ROLES = ("result_invalid", "task_too_large", "engine_timeout")', ('tests.test_apply.Apply.test_a_result_not_the_runs_or_not_completed_writes_nothing',)),
     ('an uncovered Result is written', 'harness/apply.py',
      '        if said != "covered":\n',
      '        if said == "unreadable":\n', ('tests.test_apply.Apply.test_an_uncovered_result_writes_nothing',)),
@@ -8114,6 +8218,9 @@ MUTANTS = ISSUE + [
     ('apply writes whatever run and verify did', 'harness/apply_step.py',
      '    why = needs_met(environ.get("NEEDS"))\n    if why is not None:\n        return _ended(parts["run"], release, why)\n',
      '', ('tests.test_steps.Apply.test_apply_waits_for_its_jobs',)),
+    ("a run job that did not succeed is the item's fault", 'harness/apply_step.py',
+     'return "environment", "%s_failed" % job', 'return "item", "%s_failed" % job',
+     ('tests.test_steps.Apply.test_apply_waits_for_its_jobs',)),
     ('a job that did not succeed is read as one that did', 'harness/apply_step.py',
      'said[job].get("result") != "success"',
      'False', ('tests.test_steps.Apply.test_apply_waits_for_its_jobs',)),
@@ -8481,10 +8588,10 @@ MUTANTS = ISSUE + [
     ('a verify that did not finish is started again', 'tools/hooks/before_stop.py',
      '    if ago is not None:\n', '    if False:\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
     ('a verify that ran out of time is written down as finished', 'tools/hooks/before_stop.py',
-     '    note(record, now, not said.startswith(make.UNFINISHED % ("verify", budget, where)))\n',
+     '    note(record, now, not unfinished_now)\n',
      '    note(record, now, True)\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
     ('a verify that finished is written down as unfinished', 'tools/hooks/before_stop.py',
-     '    note(record, now, not said.startswith(make.UNFINISHED % ("verify", budget, where)))\n',
+     '    note(record, now, not unfinished_now)\n',
      '    note(record, now, False)\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
     ('a verify is written down before it ends', 'tools/hooks/before_stop.py',
      '    budget = max(1, int(TIMEOUT - (time.monotonic() - asked)))\n',
@@ -9278,7 +9385,7 @@ MUTANTS = ISSUE + [
     ("an empty current content supersedes", 'adapters/applied.py',
      'if not isinstance(content_id, str) or not content_id:', 'if not isinstance(content_id, str):', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
     ("the step step takes a with", 'tools/check_workflows.py',
-     '"step": {"run", "env"}}', '"step": {"run", "env", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
+     '"step": {"run", "env", "timeout-minutes"}}', '"step": {"run", "env", "timeout-minutes", "with"}}', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     ("a step of text after a step's keys is not read", 'tools/check_workflows.py',
      'if lead < indent or (lead == indent and not raw.lstrip(" ").startswith("- ")):', 'if lead < indent or not raw.lstrip(" ").startswith("- "):', ('tests.test_release_workflow.Shape.test_each_counter_example_is_refused_for_its_one_fault',)),
     # Muse's read of #383: the one reader of the list refuses a pattern no path may hold.
@@ -9552,6 +9659,45 @@ MUTANTS = ISSUE + [
     ("the trial-author App reads a failed mktemp as where it stands", "tools/trial_as_app.sh",
      '''made=$(mktemp -d)\nout=$(cd "$made" && pwd -P)''', '''out=$(cd "$(mktemp -d)" && pwd -P)''',
      ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
+    # A gh prefix of any letter is a credential's shape, and a vendor's details lose their query.
+    ("a gh prefix of another letter is not a credential's shape", "tools/check_trials.py",
+     'r"(?<![a-z])gh[a-z]_[a-z0-9]", r"gh[a-z]_', 'r"gh[a-z]_', ('tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught',)),
+    ("a word that holds gh, a letter and an underscore is a credential's shape", "tools/check_trials.py",
+     'r"(?<![a-z])gh[a-z]_[a-z0-9]"', 'r"gh[a-z]_[a-z0-9]"', ('tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught',)),
+    ("a gh prefix is not seen after an underscore or a digit", "tools/check_trials.py",
+     'r"(?<![a-z])gh[a-z]_[a-z0-9]"', 'r"(?<![a-z0-9_])gh[a-z]_[a-z0-9]"', ('tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught',)),
+    ("a gh prefix after a letter is never a credential's shape", "tools/check_trials.py",
+     ' r"gh[a-z]_[a-z0-9]{20,}",\n', '\n', ('tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught',)),
+    ("a gh prefix is not seen after a digit", "tools/check_trials.py",
+     'r"(?<![a-z])gh[a-z]_[a-z0-9]"', 'r"(?<![a-z0-9])gh[a-z]_[a-z0-9]"', ('tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught',)),
+    ("a gh prefix is not seen after a hyphen", "tools/check_trials.py",
+     'r"(?<![a-z])gh[a-z]_[a-z0-9]"', 'r"(?<![a-z-])gh[a-z]_[a-z0-9]"', ('tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught',)),
+    ("the repo's scan knows GitHub's five prefixes alone", "tools/check_repo.py",
+     'r"gh[a-z]_[A-Za-z0-9]{30,}"', 'r"gh[pousr]_[A-Za-z0-9]{30,}"', ('tests.test_tools.Repo.test_something_shaped_like_a_credential_is_caught',)),
+    ("a host that resembles GitHub's keeps its details' query", "tools/redact_trial.py",
+     'host and host != "github.com" else url', 'host and "github.com" not in host else url', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("a host that ends like GitHub's keeps its details' query", "tools/redact_trial.py",
+     'host and host != "github.com" else url', 'host and not host.endswith("github.com") else url', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("a string with no host loses what follows its question mark", "tools/redact_trial.py",
+     '(parts.query or parts.fragment) and host and host', '(parts.query or parts.fragment) and host', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("a commit status's link keeps its query", "tools/redact_trial.py",
+     'DETAILS = {"details_url", "detailsUrl", "target_url", "targetUrl"}', 'DETAILS = {"details_url", "detailsUrl", "targetUrl"}', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("GraphQL's commit status link keeps its query", "tools/redact_trial.py",
+     'DETAILS = {"details_url", "detailsUrl", "target_url", "targetUrl"}', 'DETAILS = {"details_url", "detailsUrl", "target_url"}', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("a vendor's details keep their fragment", "tools/redact_trial.py",
+     'if (parts.query or parts.fragment) and host', 'if parts.query and host', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("a fragment before a query is kept with it", "tools/redact_trial.py",
+     're.split(r"[?#]", url, maxsplit=1)[0]', 're.split(r"[?]", url, maxsplit=1)[0]', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("a vendor's details keep their query", "tools/redact_trial.py",
+     '            if key in DETAILS and isinstance(item, str) and _no_vendor_query(item) != item:\n', '            if False:\n', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("GitHub's own details lose their query", "tools/redact_trial.py",
+     'if (parts.query or parts.fragment) and host and host != "github.com" else url', 'if (parts.query or parts.fragment) and host else url', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("every field's address loses its query", "tools/redact_trial.py",
+     '            if key in DETAILS and isinstance(item, str) and', '            if isinstance(item, str) and', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("GraphQL's details keep their query", "tools/redact_trial.py",
+     'DETAILS = {"details_url", "detailsUrl", "target_url", "targetUrl"}', 'DETAILS = {"details_url", "target_url", "targetUrl"}', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
+    ("a query taken from a vendor's details is not said", "tools/redact_trial.py",
+     '                removed.append(here + "?query")\n', '', ('tests.test_tools.Redaction.test_a_vendors_details_lose_their_query_and_githubs_keep_theirs',)),
     # Issue 369: a title is looked for from the first opening quote of a run alone, so a line of them is read in time.
     ("every opening quote is tried for a title", "tools/check_context.py",
      'TITLE = re.compile(r"(?:\\"|(?:^|(?<=[”\\n]))[^\\"“”\\n]*“)[^\\"”\\n]{8,}[\\"”]")',
@@ -9772,6 +9918,177 @@ MUTANTS = ISSUE + [
      '            key = None if key == COMPACT_EVENT else key\n', '            pass\n', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
     ("a deeper line after a schedule's compact crons is theirs", 'tools/check_workflows.py',
      '            if key == COMPACT_EVENT and compact:\n                found.append(number)\n', '', ('tests.test_tools.Workflows.test_the_example_passes_and_every_rule_has_been_tripped',)),
+    # Issue 438: a failing baseline names its tests, and a fixture's finding is kept only for all it reads.
+    ("a failing baseline names no test", "tools/mutants.py",
+     'for line in failures([said' ' for _, said in runs]):', 'for line in []:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a failing baseline names every test", "tools/mutants.py",
+     'for line in said[:NAMED' '_MOST]]', 'for line in said]', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a named failure is as wide as it came", "tools/mutants.py",
+     '[line[:NAMED' '_WIDTH] for', '[line for', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("how many more failed is not said", "tools/mutants.py",
+     'if len(said) > NAMED' '_MOST else []', 'if False else []', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("the traceback's first line is read as the error", "tools/mutants.py",
+     ' and not line.startswith("Trace' 'back")', '', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("the next failure's rule is read as the error", "tools/mutants.py",
+     'if line.startswith("=" * 7' '0):', 'if False:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a test that failed twice is named twice", "tools/mutants.py",
+     'named.setdefault(_test_id(*found' '.groups()), error)', 'named[_test_id(*found.groups()) + str(len(named))] = error', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a fixture's finding that was kept finds nothing", "tools/check_trials.py",
+     '            wrong = _FOUND[key][1]\n', '            wrong = []\n', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("apps that cannot be decoded stop the trials check", "tools/check_trials.py",
+     '    except (OSError, ValueError):       # `_installed` says so', '    except OSError:       # `_installed` says so', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("apps that are gone stop the trials check", "tools/check_trials.py",
+     '    except (OSError, ValueError):       # `_installed` says so', '    except ValueError:       # `_installed` says so', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is not kept", "tools/check_trials.py",
+     '            _FOUND[key] = (data, wrong)\n', '            _FOUND.clear()\n            _FOUND[key] = (data, wrong)\n', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a test's docstring or the rule after it is read as its error", "tools/mutants.py",
+     'for line in lines[lines.index("-" * 7' '0) + 1:] if "-" * 70 in lines else []:', 'for line in lines[2:]:', ("tests.test_tools.Mutants.test_a_baseline_that_fails_names_each_test_with_the_first_line_of_its_error",)),
+    ("a fixture's finding is kept whatever its text", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, told, apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever its name", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (path.read_text(), told, apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever the schema", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, path.read_text(), apps)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    ("a fixture's finding is kept whatever the Apps' reach", "tools/check_trials.py",
+     'key = (rel, path.read_text(), told, apps)', 'key = (rel, path.read_text(), told)', ("tests.test_tools.Trials.test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads",)),
+    # Issue 438: the hooks run the checks alone, and a run that did not finish is no failure.
+    ("make checks runs the whole verify", "Makefile",
+     '\t$(PY) -m tools.verify --checks\n', '\t$(PY) -m tools.verify\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("make checks does nothing", "Makefile",
+     '\t$(PY) -m tools.verify --checks\n', '\t@true\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("any failure of make -n is a target lacking", "tools/hooks/make.py",
+     ' and re.search(r"No rule to make target .%s." % re.escape(target), said) is not None\n', '\n', ('tests.test_hooks.BeforeStop.test_only_a_target_truly_absent_is_lacking',)),
+    ("the stop hook asks after another target", "tools/hooks/before_stop.py",
+     '    if make.lacks("checks", where, env):\n', '    if make.lacks("verify", where, env):\n', ('tests.test_hooks.BeforeStop.test_a_branch_with_no_checks_target_tells_the_person_and_ends',)),
+    ("the edit hook asks after another target", "tools/hooks/after_edit.py",
+     '    if make.lacks("checks", where, env):\n', '    if make.lacks("fast", where, env):\n', ('tests.test_hooks.AfterEdit.test_a_branch_with_no_checks_target_tells_the_person_and_does_not_fail',)),
+    ("with no make a verify's command names a flag", "tools/hooks/make.py",
+     '"" if target == "verify" else " --" + target', '" --" + target', ('tests.test_hooks.AfterEdit.test_with_no_make_the_agent_is_told_the_checks_did_not_run',)),
+    ("the checks are read as failing when they ran out of time after an edit", "tools/hooks/after_edit.py",
+     '    if said.startswith(make.UNFINISHED % ("checks", TIMEOUT, where)):\n', '    if False:\n', ('tests.test_hooks.AfterEdit.test_checks_that_ran_out_of_time_found_nothing_and_say_so',)),
+    ("the checks are read as failing when they ran out of time at a stop", "tools/hooks/before_stop.py",
+     '    if unfinished_now:\n', '    if False:\n', ('tests.test_hooks.BeforeStop.test_a_verify_that_did_not_finish_is_not_started_again_for_a_while',)),
+    ("a branch with no checks target is sent back", "tools/hooks/before_stop.py",
+     '    if make.lacks("checks", where, env):\n', '    if False:\n', ('tests.test_hooks.BeforeStop.test_a_branch_with_no_checks_target_tells_the_person_and_ends',)),
+    ("the edit hook runs the fast tests", "tools/hooks/after_edit.py",
+     '    passed, said = make.make("checks", where, env, TIMEOUT)\n', '    passed, said = make.make("fast", where, env, TIMEOUT)\n', ('tests.test_hooks.AfterEdit.test_a_failing_fast_check_is_shown_to_the_agent',)),
+    ("the stop hook runs the whole verify", "tools/hooks/before_stop.py",
+     '    passed, said = make.make("checks", where, env, budget)\n', '    passed, said = make.make("verify", where, env, budget)\n', ('tests.test_hooks.BeforeStop.test_a_session_does_not_end_while_verify_fails',)),
+    ("make checks runs the tests", "tools/verify.py",
+     '    if "--checks" in argv:\n', '    if False:\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("make checks passes whatever the checks found", "tools/verify.py",
+     '        return 1 if checks_failed else 0\n    print', '        return 0\n    print', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("with no make the checks' own command is not named", "tools/hooks/make.py",
+     '"" if target == "verify" else " --" + target', '""', ('tests.test_hooks.AfterEdit.test_with_no_make_the_agent_is_told_the_checks_did_not_run',)),
+    # Issue 305: each stored credential's age read, and one alert near its limit (L-37).
+    ('a credential fourteen days from its limit is not due', 'controller/credentials.py',
+     'ends - at <= within', 'ends - at < within', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential row that cannot be read is not due', 'controller/credentials.py',
+     'if ends is None or ends - at <= within:', 'if ends is not None and ends - at <= within:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a credential's later limit governs", 'controller/credentials.py',
+     'return min(ends) if ends else NEVER', 'return max(ends) if ends else NEVER', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential with neither expiry nor period is always due', 'controller/credentials.py',
+     'return min(ends) if ends else NEVER', 'return min(ends) if ends else None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential rotated after now is read', 'controller/credentials.py',
+     'if not _count(every) or last is None or last > at:', 'if not _count(every) or last is None:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a last rotation is read without a period', 'controller/credentials.py',
+     '    if every is not None:\n        last = _day(rotated)\n', '    if _day(rotated) is None:\n        return None\n    if every is not None:\n        last = _day(rotated)\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a credential's expiry that is not given, or names no day, is read", 'controller/credentials.py',
+     '        if expiry is None:\n            return None\n', '', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('an expiry a credential is said not to have is read', 'controller/credentials.py',
+     'elif row.get("expires") is False and ends_on is None:', 'elif row.get("expires") is False:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential that says nothing of its expiry is read', 'controller/credentials.py',
+     'elif row.get("expires") is False and', 'elif row.get("expires") is not True and', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a coordinate that expires is never due', 'controller/credentials.py',
+     'row.get("kind") == COORDINATE and row.get("expires") is False \\\n', 'row.get("kind") == COORDINATE \\\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('the health view names no credential due', 'controller/health.py',
+     '"credentials_due": record.get("credentials_due", []),', '"credentials_due": [],', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a credential's period that is no count is read", 'controller/credentials.py',
+     'if not _count(every) or last is None or last > at:', 'if last is None or last > at:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a credential's period may be true", 'controller/credentials.py',
+     'return isinstance(value, int) and not isinstance(value, bool) and value >= 1', 'return isinstance(value, int) and value >= 1', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a day that is not on the calendar is read', 'controller/credentials.py',
+     '        return datetime.datetime.strptime(value, "%Y-%m-%d")\n    except ValueError:\n        return None', '        return datetime.datetime(int(value[:4]), 1, 1)\n    except ValueError:\n        return None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a coordinate given a date is never due', 'controller/credentials.py',
+     'all(field in row and row[field] is None for field in DATES)', 'True', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a coordinate missing a date's field is never due", 'controller/credentials.py',
+     'all(field in row and row[field] is None for field in DATES)', 'all(row.get(field) is None for field in DATES)', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential named twice is read', 'controller/credentials.py',
+     ' and names.count(name) == 1', '', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential of a kind not known is read', 'controller/credentials.py',
+     'if readable and row.get("kind") in KINDS else None', 'if readable and row.get("kind") != COORDINATE else None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential named in lower case is named', 'controller/credentials.py',
+     '            if isinstance(name, str) and NAME.fullmatch(name):\n', '            if isinstance(name, str):\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a table of another schema is read', 'controller/credentials.py',
+     ' or table.get("schema") != "credential-ages/1" \\\n', ' \\\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a table of no credentials is read', 'controller/credentials.py',
+     'or not table["credentials"]:', 'or False:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a table's nearness may be true", 'controller/credentials.py',
+     'or not _count(table.get("due_within_days"))', 'or not isinstance(table.get("due_within_days"), int)', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('the pass reads no credentials', 'controller/pass_.py',
+     'due, names_due = credentials_.due(config.get("credentials"), now)', 'due, names_due = False, []', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('the pass names no credential due', 'controller/pass_.py',
+     '    record["credentials_due"] = names_due\n', '    record["credentials_due"] = []\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a credential due raises no alert', 'controller/health.py',
+     '    causes |= {"credential_due"} if credentials else set()\n', '', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('credentials that are not JSON stop the pass', 'controller/configuration.py',
+     '    except (OSError, ValueError):\n        return None', '    except OSError:\n        return None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a pass is told no credentials', 'controller/configuration.py',
+     '            "credentials": _readable(root, "config", "credential-ages.json")}', '            "credentials": None}', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a secret no row holds passes', 'tools/check_workflows.py',
+     '    for name in sorted(set(named) - set(held)):\n', '    for name in []:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a row may list a workflow that does not name it', 'tools/check_workflows.py',
+     'if set(row["workflows"]) != named.get(name, set()):', 'if named.get(name, set()) - set(row["workflows"]):', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a row may leave out a workflow that names it', 'tools/check_workflows.py',
+     'if set(row["workflows"]) != named.get(name, set()):', 'if set(row["workflows"]) - named.get(name, set()):', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('any secret may be named by two workflows', 'tools/check_workflows.py',
+     'if len(row["workflows"]) > 1 and row.get("kind") != MODEL_KIND:', 'if False:', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a secret may have two rows', 'tools/check_workflows.py',
+     '        if len(found) > 1:\n', '        if False:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("a secret's name is read in its case", 'tools/check_workflows.py',
+     'name = (found.group(2) or found.group(3) or "").upper()', 'name = found.group(2) or found.group(3) or ""', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a whole-line comment names a secret', 'tools/check_workflows.py',
+     '        for line in _uncommented(raw(path)).split("\\n"):\n', '        for line in raw(path).split("\\n"):\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a trailing comment names a secret', 'tools/check_workflows.py',
+     'SECRET.finditer(line.partition(" #")[0])', 'SECRET.finditer(line)', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a model credential may be named anywhere', 'tools/check_workflows.py',
+     '        if row.get("kind") == MODEL_KIND and not set(row["workflows"]) <= MODEL_WORKFLOWS:\n', '        if False:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a workflow that is no name is read', 'tools/check_workflows.py',
+     '\n                                             and all(isinstance(w, str) for w in r["workflows"]) for r in rows):', ' for r in rows):', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("an App's permissions that are no mapping are read", 'tools/check_workflows.py',
+     '        if not all(isinstance(app.get("permissions", {}), dict) for app in keys.values()):\n', '        if False:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("a row's name is read in its case", 'tools/check_workflows.py',
+     '        held.setdefault(row["name"].upper(), []).append(row)\n', '        held.setdefault(row["name"], []).append(row)\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("an App's key may name its environment", 'tools/check_workflows.py',
+     'if row.get("stored") != "environment" or row.get("environment") is not None:', 'if row.get("stored") != "environment":', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("an App's key may be stored outside an environment", 'tools/check_workflows.py',
+     'if row.get("stored") != "environment" or row.get("environment") is not None:', 'if row.get("environment") is not None:', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("an App's key may be of any kind", 'tools/check_workflows.py',
+     '            if row.get("kind") != ("write" if writes else "read"):\n', '            if False:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("an App's key that writes nothing may be a model's", 'tools/check_workflows.py',
+     'if row.get("kind") != ("write" if writes else "read"):', 'if (row.get("kind") == "write") != writes:', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('an App that reads alone has a write key', 'tools/check_workflows.py',
+     'writes = any(isinstance(g, dict) and g.get("level") == "write" for g in app.get("permissions", {}).values())', 'writes = True', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a key apps.json keeps needs no row', 'tools/check_workflows.py',
+     '    for name in sorted(set(keys) - set(held)):\n', '    for name in []:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('a secret need not name its environment', 'tools/check_workflows.py',
+     '        elif (row.get("stored") == "environment") != isinstance(row.get("environment"), str):\n', '        elif False:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('the minted token needs a row', 'tools/check_workflows.py',
+     '            if name and name not in MINTED:\n', '            if name:\n', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('the credentials are not checked with the workflows', 'tools/check_workflows.py',
+     '    if live:\n        problems += credential_problems(root, live)\n', '', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ('rows that are not rows are read', 'tools/check_workflows.py',
+     '        return ["config/credential-ages.json: its credentials are not rows each naming a secret and its workflows"]', '        return []', ('tests.test_tools.Workflows.test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows',)),
+    ("a period past the calendar's end stops the pass", 'controller/credentials.py',
+     '        try:\n            ends.append(last + datetime.timedelta(days=every))\n        except OverflowError:', '        if True:\n            ends.append(last + datetime.timedelta(days=every))\n        else:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a nearness past the calendar's end stops the pass", 'controller/credentials.py',
+     '    try:\n        within = datetime.timedelta(days=table["due_within_days"])\n    except OverflowError:', '    if True:\n        within = datetime.timedelta(days=table["due_within_days"])\n    else:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ("a rotation at the start of the pass's day is after it", 'controller/credentials.py',
+     'if not _count(every) or last is None or last > at:', 'if not _count(every) or last is None or last >= at:', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('a day not written in full is read', 'controller/credentials.py',
+     '    if not isinstance(value, str) or not DAY.fullmatch(value):\n', '    if not isinstance(value, str):\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    ('any row with no dates is skipped', 'controller/credentials.py',
+     '        if readable and row.get("kind") == COORDINATE and row.get("expires") is False \\\n', '        if readable and row.get("expires") is False \\\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
 ]
 
 
@@ -9805,6 +10122,9 @@ AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants aga
 # and earlier or its whole id from 3.11, then any subtest. A failure in setUpClass names the class. The rule above
 # tells it from a line of the same form in a test's own message.
 FAILURE_LINE = re.compile(r"^={70}\n(?:FAIL|ERROR): (\w+) \(([\w.]+)\)(?: .*)?$", re.M)
+NAMED_MOST = 20     # the tests a failing baseline names, so that its log stays readable
+NAMED_WIDTH = 200   # the characters of each
+NAMED_SCAN = 200    # the lines after a failure's head its error is looked for in
 # Said of a failure not shown to be the mutant's: one more run of the suite on the mutant decides.
 UNCONFIRMED = "unconfirmed"
 # How a FLAKY's reason ends. FLAKY fails the run as an ERROR does: nobody has shown that a test notices the mutant.
@@ -9940,15 +10260,37 @@ def verdict(status, output: str) -> tuple:
     return "ERROR", "exit status %d and no test failed, ending %r%s" % (status, last, AGAIN)
 
 
+def _test_id(method: str, where: str) -> str:
+    """A failed test's id as unittest takes it, from the two forms the Python versions print."""
+    return where if method == "setUpClass" or where.endswith("." + method) else where + "." + method
+
+
 def failed_test(output: str):
     """The id of the one test that failed in `output`, as unittest takes it to run that test alone; else None."""
-    found = set()
-    for method, where in FAILURE_LINE.findall(output):
-        if method == "setUpClass" or where.endswith("." + method):
-            found.add(where)
-        else:
-            found.add(where + "." + method)
+    found = {_test_id(method, where) for method, where in FAILURE_LINE.findall(output)}
     return found.pop() if len(found) == 1 else None
+
+
+def failures(outputs: list) -> list:
+    """Each test that failed in `outputs`, once, with the first line of its error, for a person to read in a log: at
+    most NAMED_MOST of them, each cut to NAMED_WIDTH characters, and a last line saying how many more (issue 438)."""
+    named = {}
+    for output in outputs:
+        for found in FAILURE_LINE.finditer(output):
+            lines = output[found.end():].split("\n", NAMED_SCAN)[:NAMED_SCAN]
+            error = ""
+            # Past the rule, which a test's docstring may stand before, and the traceback, whose lines stand in, the first
+            # line that stands out.
+            for line in lines[lines.index("-" * 70) + 1:] if "-" * 70 in lines else []:
+                if line.startswith("=" * 70):
+                    break
+                if line and line[0] != " " and not line.startswith("Traceback"):
+                    error = line
+                    break
+            named.setdefault(_test_id(*found.groups()), error)
+    said = ["%s: %s" % (test, error) if error else test for test, error in named.items()]
+    return [line[:NAMED_WIDTH] for line in said[:NAMED_MOST]] + \
+        (["and %d more" % (len(said) - NAMED_MOST)] if len(said) > NAMED_MOST else [])
 
 
 def confirm(output: str, work: pathlib.Path, run, broken, unbroken) -> tuple:
@@ -10225,6 +10567,9 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
         if (status is not None and outcome != "SURVIVED") or (status is None and FAILURE_LINE.search(output)):
             print("the tests fail before anything is broken; a mutant cannot be told from that%s"
                   % (" (%s)" % why if why else ""))
+            # Each part stops at its first failure, so there may be more than these.
+            for line in failures([said for _, said in runs]):
+                print("    " + line)
             return 1
     if any(status is None for status, _ in runs):
         print("the tests the mutants name took longer than %d s before anything was broken, and none that ran failed; no "
