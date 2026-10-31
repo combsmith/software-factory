@@ -1754,6 +1754,101 @@ class Workflows(unittest.TestCase):
     def test_the_example_passes_and_every_rule_has_been_tripped(self):
         self.assertEqual(check_workflows.run(), [])
 
+    def test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows(self):  # L-37, issue 305
+        # The live workflows and their rows agree; then each way they can part is caught, in a tree of the rows, the
+        # Apps' keys and the workflows' text alone.
+        self.assertEqual(check_workflows.credential_problems(ROOT, sorted((ROOT / ".github" / "workflows").glob("*.yml"))), [])
+
+        def row(name, workflows, kind="write", stored="environment", environment=None):
+            return {"name": name, "kind": kind, "stored": stored, "environment": environment, "workflows": workflows,
+                    "rotated_on": "2026-10-01", "expires_on": None, "rotate_every_days": 90}
+
+        app = {"name": "combsmith-sf-controller", "key": {"environment": "factory-poller", "secret": "CONTROLLER_APP_KEY"},
+               "permissions": {"checks": {"level": "write"}, "metadata": {"level": "read"}}}
+        rows = [row("CONTROLLER_APP_KEY", ["pass.yml"]),
+                row("APPROVER_TOKEN", ["approve-job.yml"], environment="factory-approve"),
+                row("CLAUDE_CODE_OAUTH_TOKEN", ["eval.yml", "run-jobs.yml"], "model", "organisation"),
+                row("HELDOUT_OWNER", ["eval.yml"], "coordinate", environment="factory-eval"),
+                row("SONAR_TOKEN", ["sonarcloud.yml"], "read", "repository")]
+        flows = {"pass.yml": "  KEY: ${{ secrets.CONTROLLER_APP_KEY }}\n  T: ${{ secrets.GITHUB_TOKEN }}\n",
+                 "approve-job.yml": "  T: ${{ secrets['APPROVER_TOKEN'] }}\n",
+                 "eval.yml": "  M: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n  O: ${{ secrets.heldout_owner }}\n",
+                 "run-jobs.yml": "  M: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n",
+                 "sonarcloud.yml": "  S: ${{ secrets.SONAR_TOKEN }}\n"}
+
+        def problems(rows=rows, flows=flows, apps=None):
+            files = {".github/workflows/" + name: text for name, text in flows.items()}
+            files["config/credential-ages.json"] = json.dumps({"schema": "credential-ages/1", "due_within_days": 14,
+                                                           "credentials": rows})
+            files["config/apps.json"] = json.dumps({"apps": {"controller": app} if apps is None else apps})
+            root = tree(files)
+            return check_workflows.credential_problems(root, sorted((root / ".github" / "workflows").glob("*.yml")))
+
+        self.assertEqual(problems(), [])
+        self.assertTrue(caught(problems(flows=dict(flows, **{"release.yml": "  K: ${{ secrets.RELEASE_APP_KEY }}\n"})),
+                               "release.yml names the secret RELEASE_APP_KEY, which config/credential-ages.json has no row for"))
+        self.assertTrue(caught(problems(rows=rows[:1] + rows[2:]), "approve-job.yml names the secret APPROVER_TOKEN"))
+        self.assertTrue(caught(problems(flows=dict(flows, **{"pass.yml": "  K: ${{ secrets.CONTROLLER_APP_KEY }}\n",
+                                                             "other.yml": "  K: ${{ secrets.CONTROLLER_APP_KEY }}\n"})),
+                               "CONTROLLER_APP_KEY lists the workflows ['pass.yml'], and is named by ['other.yml', 'pass.yml']"))
+        self.assertTrue(caught(problems(flows={k: v for k, v in flows.items() if k != "sonarcloud.yml"}),
+                               "SONAR_TOKEN lists the workflows ['sonarcloud.yml'], and is named by none"))
+        self.assertTrue(caught(problems(rows=rows + [row("QUEUE_APP_KEY", ["queue.yml"])]),
+                               "QUEUE_APP_KEY lists the workflows ['queue.yml'], and is named by none"))
+        self.assertEqual(problems(rows=rows + [row("QUEUE_APP_KEY", [], environment="factory-queue")]), [])
+        two = [dict(r, kind="read") if r["name"] == "CLAUDE_CODE_OAUTH_TOKEN" else r for r in rows]
+        self.assertTrue(caught(problems(rows=two), "CLAUDE_CODE_OAUTH_TOKEN is named by 2 workflows"))
+        self.assertTrue(caught(problems(rows=rows + [rows[1]]), "APPROVER_TOKEN has 2 rows"))
+        self.assertTrue(caught(problems(rows=rows + [dict(rows[1], name="approver_token")]), "APPROVER_TOKEN has 2 rows"))
+        # An App's key: kept where config/apps.json says alone, and a write credential if and only if its App writes.
+        keyed = [dict(rows[0], environment="factory-poller")] + rows[1:]
+        self.assertTrue(caught(problems(rows=keyed), "CONTROLLER_APP_KEY is an App's key"))
+        self.assertTrue(caught(problems(rows=[dict(rows[0], stored="repository")] + rows[1:]), "is an App's key"))
+        self.assertTrue(caught(problems(rows=[dict(rows[0], kind="read")] + rows[1:]),
+                               "CONTROLLER_APP_KEY is the key of combsmith-sf-controller, which writes, so its kind is write"))
+        reader = dict(app, permissions={"checks": {"level": "read"}})
+        self.assertTrue(caught(problems(apps={"controller": reader}), "which writes nothing, so its kind is read"))
+        self.assertEqual(problems(rows=[dict(rows[0], kind="read")] + rows[1:], apps={"controller": reader}), [])
+        self.assertTrue(caught(problems(rows=[dict(rows[0], kind="model")] + rows[1:], apps={"controller": reader}),
+                               "which writes nothing, so its kind is read"))      # Argon's read of #427
+        # The model's credential is named only where decision 0053 lets it be (Argon's read of #427).
+        three = dict(flows, **{"other.yml": "  M: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"})
+        model = [dict(r, workflows=["eval.yml", "other.yml", "run-jobs.yml"]) if r["name"] == "CLAUDE_CODE_OAUTH_TOKEN" else r
+                 for r in rows]
+        self.assertTrue(caught(problems(rows=model, flows=three), "CLAUDE_CODE_OAUTH_TOKEN is a model credential, which only"))
+        # A comment names no secret, whole or trailing (Muse's read of #427).
+        for comment in ("# removed: ${{ secrets.SONAR_TOKEN }}\n", "  S: none  # was ${{ secrets.SONAR_TOKEN }}\n"):
+            self.assertTrue(caught(problems(flows=dict(flows, **{"sonarcloud.yml": comment})),
+                                   "SONAR_TOKEN lists the workflows ['sonarcloud.yml'], and is named by none"), comment)
+        queue = dict(app, key={"environment": "factory-queue", "secret": "QUEUE_APP_KEY"})
+        self.assertTrue(caught(problems(apps={"controller": app, "queue": queue}),
+                               "config/apps.json keeps the key QUEUE_APP_KEY, which config/credential-ages.json has no row for"))
+        # Any other secret names its environment if and only if it is stored in one.
+        for bad in (dict(rows[1], environment=None), dict(rows[4], environment="factory-run")):
+            self.assertTrue(caught(problems(rows=[r for r in rows if r["name"] != bad["name"]] + [bad]),
+                                   "%s names its environment if and only if it is stored in one" % bad["name"]), bad)
+        # Rows or Apps that cannot be read check nothing, and say so.
+        for broken in ({"credentials": "x"}, {"credentials": [{"name": 1, "workflows": []}]},
+                       {"credentials": [{"name": "X"}]}, {"credentials": [{"name": "X", "workflows": [["pass.yml"]]}]},
+                       {"credentials": [{"name": "X", "workflows": [1, "pass.yml"]}]}):
+            files = {".github/workflows/pass.yml": flows["pass.yml"], "config/credential-ages.json": json.dumps(broken),
+                     "config/apps.json": json.dumps({"apps": {}})}
+            root = tree(files)
+            self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
+                                   "config/credential-ages.json"), broken)
+        root = tree({".github/workflows/pass.yml": flows["pass.yml"]})
+        self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
+                               "cannot be read, so no workflow's secrets can be checked"))
+        for app_ in ({"key": None}, dict(app, permissions=[])):      # Muse's read of #427: say so, never crash
+            root = tree({".github/workflows/pass.yml": flows["pass.yml"],
+                         "config/credential-ages.json": json.dumps({"credentials": []}),
+                         "config/apps.json": json.dumps({"apps": {"x": app_}})})
+            self.assertTrue(caught(check_workflows.credential_problems(root, [root / ".github/workflows/pass.yml"]),
+                                   "cannot be read, so no workflow's secrets can be checked"), app_)
+        # The rule is run with the workflows, on the live tree alone.
+        root = tree({".github/workflows/pass.yml": flows["pass.yml"], "examples/workflows/verify.yml": GOOD})
+        self.assertTrue(caught(check_workflows.run(root), "cannot be read, so no workflow's secrets can be checked"))
+
     def test_a_rule_with_no_counter_example_is_caught(self):
         problems = check_workflows.run(tree({"examples/workflows/verify.yml": GOOD}))
         self.assertEqual(len(problems), len(check_workflows.RULES))
@@ -7222,6 +7317,11 @@ class Verify(unittest.TestCase):
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
             with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+                # `make checks` is the checks alone, whether they pass or not: it runs no test (issue 438).
+                self.assertEqual((verify.main(["--checks"]), ran), (0, {}))
+                verify.failed = lambda checks: True
+                self.assertEqual((verify.main(["--checks"]), ran), (1, {}))
+                verify.failed = lambda checks: False
                 self.assertEqual(verify.main([]), 0)
                 self.assertEqual(ran["modules"], everything)
                 verify.main(["--fast"])
@@ -7231,6 +7331,7 @@ class Verify(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
+        self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
 
     def test_every_test_file_is_discovered(self):
         found = set()

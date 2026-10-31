@@ -198,7 +198,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-61 A hook killed for its time filled the disk
 **Failure.** The stop hook's `make verify` outlasted the hook's time under four builders' load and was killed at every stop, so the suite's temporary folders, each holding the run's copies of the repo, were never removed. They filled the Maintainer's disk, and every builder's checks then failed for want of space.
-**Rule.** A hook's run leaves nothing behind, killed or not: it runs in a process group and a temporary folder of its own, both ended when it ends. A test's copy of the repo goes when the test ends. A verify that could not finish is not started again for a while; CI runs it.
+**Rule.** A hook's run leaves nothing behind, killed or not: it runs in a process group and a temporary folder of its own, both ended when it ends. A test's copy of the repo goes when the test ends. A run that could not finish is not started again for a while, and sends no session back; CI runs it.
 **Check.** `tests/test_hooks.py::test_a_run_killed_for_its_time_leaves_the_temporary_folder_as_it_found_it`, `tests/test_hooks.py::test_a_verify_that_did_not_finish_is_not_started_again_for_a_while`, `tests/test_tools.py::test_a_copy_of_the_repo_is_removed_when_the_test_that_made_it_ends`
 
 ## Workflows
@@ -216,7 +216,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-37 One person's token served seven purposes
 **Failure.** The owner account's token was named 70 times and served seven purposes, and nine workflows passed every secret to whatever they called. Its rotation would show only as a refusal on the next run.
 **Rule.** No workflow names a personal access token, and none inherits secrets. The age of each credential is read, and one near its limit raises one alert.
-**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `adapters/settings.py`
+**Check.** `examples/workflows/invalid/token.a-persons-token.yml`, `tests/test_controller.py::test_a_credential_near_its_limit_raises_one_alert`, `tests/test_tools.py::test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows`
 
 ### L-38 A gate was allowed to fail
 **Failure.** The eval gate ran only with its failure ignored, and the release never looked at its result.

@@ -59,13 +59,14 @@ def thresholds(window: list, usage, rule: dict) -> dict:
 
 
 def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bool, not_run: bool, unnamed: dict,
-           reconciled=()) -> list:
+           reconciled=(), credentials: bool = False) -> list:
     """Each cause once, however many items it defers (L-48). A cause that holds the whole scope is raised from the
     context as well as from the Decisions, so that it is raised with no item to defer. The automatic pause defers as
     `capacity` does, and is the one cause `environment` unless a capacity fault holds too. Facts left out are one cause,
     and so is six hours with no pass. `unnamed` is the Kernel's `unnamed_scope`: an unnamed Run inside the window
     defers, and past `max_unnamed_runs` of them past it every Run does (issue 270). `reconciled` is reconciliation's
-    alerts: a write no Effect recorded, and a reconciliation that was short (decision 0061)."""
+    alerts: a write no Effect recorded, and a reconciliation that was short (decision 0061). `credentials` is whether a
+    stored credential is near its limit or cannot be read (issue 305)."""
     causes = set(reasons) & t.SCOPE_DEFERRALS
     causes |= {"paused"} if context["paused"] is True else set()
     causes |= {"pause_unreadable"} if context["paused"] is None else set()
@@ -79,6 +80,7 @@ def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bo
     causes |= {"facts_unreadable"} if left_out else set()
     causes |= {"not_run"} if not_run else set()
     causes |= set(reconciled)
+    causes |= {"credential_due"} if credentials else set()
     return sorted(causes)
 
 
@@ -107,6 +109,6 @@ def health(record: dict, before: list, pause: tuple, automatic: bool, alerts: li
            "chain": {"since": record["context"]["passes_since"], "started_by": record["started_by"],
                      "successors": successors},
            "starts": {code: len([r for r in window if r["started_by"] == code]) for code in STARTS},
-           "faults": faults, "alerts": alerts,
+           "faults": faults, "alerts": alerts, "credentials_due": record.get("credentials_due", []),
            "thresholds": thresholds(window, usage, rules["thresholds"])}
     return checked(doc, "health")
