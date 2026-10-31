@@ -40,6 +40,7 @@ from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
+GOOD_ON = "on:\n  pull_request:\n    types:\n      - opened\n      - synchronize\n      - reopened\n      - edited\n  merge_group:\n"
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
 POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n      - sf-run\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n'
 STEP = "      - run: make verify\n"
@@ -2020,7 +2021,7 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(text, GOOD)
             self.assertTrue(caught(self.lens_problems(text), empty), event)
         for event in ("push", "workflow_dispatch"):
-            text = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: %s\n" % event)
+            text = GOOD.replace(GOOD_ON, "on: %s\n" % event)
             self.assertNotEqual(text, GOOD)
             self.assertTrue(caught(self.lens_problems(text), "its workflow runs on %s, where there is no base" % event),
                             event)
@@ -2230,6 +2231,10 @@ class Workflows(unittest.TestCase):
         self.assertEqual(hooks["maintainer"]["login"], held["login"])
         # The schema requires the list, an account on it and what each is; its counter-examples say so.
         self.assertEqual(check_examples.run(), [])
+        # And it reads an App's login, so a record adds the Factory's App and changes nothing else.
+        schema = json.loads((ROOT / "schemas" / "hooks.schema.json").read_text())
+        app = {"login": "sf-dev[bot]", "id": 2, "is": "the App"}
+        self.assertEqual(check_examples.validate(dict(hooks, openers=hooks["openers"] + [app]), schema), [])
 
     def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
         # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.
@@ -2335,14 +2340,14 @@ class Workflows(unittest.TestCase):
             self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, why)
         # Each of the three events makes a shim alone: a dispatch, a schedule and another's end.
         for event in ("  workflow_dispatch:\n", "  schedule:\n    - cron: '17 3 * * *'\n", "  workflow_run:\n"):
-            alone = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n" + event)
+            alone = GOOD.replace(GOOD_ON, "on:\n" + event)
             self.assertIn("shim", {rule for rule, _ in check_workflows.lint(alone)}, event)
         passed_on = POLLER + "    with:\n      item: ${{ inputs.item }}\n"
         self.assertEqual([r for r, _ in check_workflows.lint(passed_on) if r == "shim"], [])
         # An environment is a called workflow's alone: named on a push's job or a pull request's, it is refused.
         pushed = GOOD.replace("  checks:\n", "  checks:\n    environment: factory-run\n", 1)
         self.assertIn("shim", {rule for rule, _ in check_workflows.lint(pushed)})
-        called = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  workflow_call:\n").replace(
+        called = GOOD.replace(GOOD_ON, "on:\n  workflow_call:\n").replace(
             "  checks:\n", "  checks:\n    environment: factory-run\n", 1)
         self.assertNotIn("shim", {rule for rule, _ in check_workflows.lint(called)})
         # Called and something else: the something else runs the file with the key too.
@@ -2362,7 +2367,7 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(problems, "poller.yml: a shim is held word for word"), problems)
         held = hashlib.sha256(check_workflows.PIN.sub("@PIN", POLLER).encode()).hexdigest()
         # A shim's events written as one scalar are its events still: such a file is held too.
-        scalar = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: workflow_dispatch\n")
+        scalar = GOOD.replace(GOOD_ON, "on: workflow_dispatch\n")
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/x.yml": scalar}))),
                                "x.yml: a shim is held word for word"))
         # Only the Run's shim names its run.
@@ -2761,7 +2766,7 @@ class Workflows(unittest.TestCase):
             "two spaces after the dash": (GOOD.replace(STEP, "      -  uses: actions/checkout@v7\n"), "form"),
             "a quoted key": (GOOD.replace("    runs-on:", '    "runs-on":'), "form"),
             # An on: with no event under it at all, which no list item stands in (#416's mutant run).
-            "an on: with nothing under it": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n"), "form"),
+            "an on: with nothing under it": (GOOD.replace(GOOD_ON, "on:\n"), "form"),
             "a colon set apart": (GOOD.replace(STEP, "      - uses : evil/action@main\n"), "form"),
             "an escaped event name": (GOOD.replace("  merge_group:\n", '  merge_group:\n  "pull_request\\x5ftarget":\n'), "form"),
             "a list on one line": (GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule: [{cron: '0 * * * *'}]\n"), "form"),
@@ -2806,7 +2811,7 @@ class Workflows(unittest.TestCase):
             "a line break inside a comment": (GOOD.replace(STEP, STEP + "        # c\u0085        shell: bash\n"), "form"),
             "a quote not closed on its line": (GOOD.replace(STEP, STEP + '        name: "0\n        id: x # "\n'), "form"),
             "text after a quote's close": (GOOD.replace(STEP, STEP + '        name: "a" b\n'), "form"),
-            "on: as a list": (GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  - pull_request_target\n"),
+            "on: as a list": (GOOD.replace(GOOD_ON, "on:\n  - pull_request_target\n"),
                               "form"),
         }
         for name, (text, rule) in ways.items():

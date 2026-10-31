@@ -5519,6 +5519,7 @@ MUTANTS = ISSUE + [
     ("an opener needs no id", "schemas/hooks.schema.json", '          "login",\n          "id",\n          "is"\n', '          "login",\n          "is"\n', OPENER_TESTS),
     ("an opener needs no login", "schemas/hooks.schema.json", '          "login",\n          "id",\n          "is"\n', '          "id",\n          "is"\n', OPENER_TESTS),
     ("an opener may be listed twice", "schemas/hooks.schema.json", '      "uniqueItems": true,\n      "items": {\n        "type": "object",\n        "additionalProperties": false,\n        "required": [\n          "login",\n          "id"', '      "items": {\n        "type": "object",\n        "additionalProperties": false,\n        "required": [\n          "login",\n          "id"', OPENER_TESTS),
+    ("an App's login is no opener's", "schemas/hooks.schema.json", '(?:\\\\[bot\\\\])?$"', '$"', OPENER_TESTS),
     ("an opener's login may be any text", "schemas/hooks.schema.json", '            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\\\[bot\\\\])?$"\n', '            "minLength": 1\n', OPENER_TESTS),
     ("an opener's id may be text", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "minimum": 1\n          },\n          "is"', OPENER_TESTS),
     ("an opener's id may be no account's", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "type": "integer"\n          },\n          "is"', OPENER_TESTS),
