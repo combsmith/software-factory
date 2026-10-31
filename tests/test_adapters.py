@@ -1893,16 +1893,45 @@ class Acceptance(unittest.TestCase):
     OPENED = dict(PULL, user={"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"},
                   head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/r"}})
 
-    def read(self, *found, pull=None, opener=None):
+    def read(self, *found, pull=None, opener=None, opened=None):
         router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
-        return acceptance.read(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener)
+        return acceptance.read(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener,
+                               opened if opened is not None else NOT_OPENED)
 
-    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER):
-        """What the pull request the opener's App opened on branch `ref` reads as."""
+    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER, made=None):
+        """What the pull request the opener's App opened on branch `ref` reads as, its opening Runs' records `made`."""
         pull = dict(self.OPENED, head={"ref": ref, "repo": {"full_name": repo}})
         if user is not None:
             pull["user"] = user
-        return self.read(*found, pull=pull, opener=opener)
+        return self.read(*found, pull=pull, opener=opener, opened=made)
+
+    def test_the_role_that_opens_pull_requests_is_the_configurations(self):  # issue 342
+        # The opening Runs are read for the Role the configuration names for open-pull-request: none in slice 1.
+        kernel = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertIsNone(facts.opener_role(kernel))
+        named = dict(kernel, issues=dict(kernel["issues"], intents=dict(kernel["issues"]["intents"], **{
+            "open-pull-request": {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}})))
+        self.assertEqual(facts.opener_role(named), "dev-lead")
+
+    def test_a_pull_request_the_factory_opens_is_bound_by_its_opening_run_as_well(self):  # issue 342
+        # The opening Run's own applied/1 names the pull request it opened. Where one names it, the Run's issue and the
+        # branch's must agree; where none names it, the branch alone binds it, since the writer lands in slice 2.
+        made = lambda named=(), unreadable=(), whole=True: {"named": {26: list(named)}, "unreadable": set(unreadable),
+                                                           "whole": whole}
+        reads = (closing_answer("o/r", 26, []), issue_answer("o/r", 36), issue_timeline("o/r", 36, []))
+        for given in (made(), made([("r_01JA7Q", 36)]), dict(made(), named={27: [("r_01JA7Q", 37)]})):
+            self.assertEqual(self.opened(*reads, made=given), (None, True), given)
+        # The other side, each not read whole: a Run of another issue names it, or two Runs do; an opening Run that
+        # cannot be read or has not finished, of the branch's issue or any other, since it may be the one that opened
+        # this pull request on another issue's branch; a list of them not read whole.
+        for given in (made([("r_01JA7Q", 37)]), made([("r_01JA7Q", 36), ("r_01JA7R", 36)]), made(unreadable=[36]),
+                      made(unreadable=[7]), made([("r_01JA7Q", 36)], unreadable=[7]), made(whole=False)):
+            self.assertEqual(self.opened(made=given), (None, False), given)
+        # With no record handed in at all, the opener's pull request is never bound: a caller cannot leave it out.
+        self.assertIs(acceptance.bound(dict(self.OPENED, head={"ref": "factory-work/issue-36-1",
+                                                               "repo": {"full_name": "o/r"}}), self.OPENER), False)
+        # A person's pull request is read by its closing references, whatever the opening Runs recorded.
+        self.assertEqual(self.read(closing_answer("o/r", 26, []), opened=made([("r_01JA7Q", 37)])), (None, True))
 
     def test_the_bound_issues_lookup_is_read_under_the_controllers_grant(self):
         # P-54: the token narrowed to issues: read reads the lookup, GitHub names that permission as what it accepts, and
@@ -2111,6 +2140,7 @@ def thread_node(ident: str, opened=PERSON, at: str = "2026-10-21T16:18:57Z", res
 
 
 NOTHING = ({}, True)      # no Lens recorded a thread on the pull request (adapters/applied.recorded)
+NOT_OPENED = {"named": {}, "unreadable": set(), "whole": True}    # no opening Run recorded a pull request (issue 342)
 
 
 def threads_answer(repo: str, number: int, nodes: list, total=None, after=None, cursor=None) -> dict:
@@ -2456,6 +2486,60 @@ class Recorded(unittest.TestCase):
         self.assertEqual(self.recorded(listed_runs(lens_run(self.RUN)), *applied_stored("o/r", 39100000000, "x"),
                                        numbers=(26, 27)), {26: ({}, False), 27: ({}, True)})
 
+    def test_what_an_opening_run_recorded_names_the_pull_request_it_opened(self):  # issue 342
+        # An opening Run's own applied/1 names the pull request it opened, in a landed open_pull_request Effect keyed
+        # by its number; the run-name's item is the issue it serves.
+        def opening(run, number=36, **over):
+            return dict({"run": run, "item": {"repo": "o/r", "type": "issue", "number": number},
+                         "intent": "open-pull-request", "role": "dev-lead", "content_id": None, "status": "completed",
+                         "conclusion": "success", "outcome": None, "started_at": "2026-10-21T16:00:00Z"}, **over)
+
+        def record(run, *keys, state="applied"):
+            return dict(lens_applied(run), findings=[], effects=[
+                {"id": "e%d" % (i + 1), "type": "open_pull_request", "state": state, "key": key, "reason": None}
+                for i, key in enumerate(keys)])
+
+        def read(runs, *exchanges, role="dev-lead"):
+            return applied.opened(github.Replay(list(exchanges)), "o/r", runs, role)
+        one = applied_stored("o/r", 39100000000, record(self.RUN, "26"))
+        self.assertEqual(read(listed_runs(opening(self.RUN)), *one),
+                         {"named": {26: [(self.RUN, 36)]}, "unreadable": set(), "whole": True})
+        # One that opened none, or whose open Effect did not land, names none.
+        for done in (record(self.RUN), record(self.RUN, "26", state="failed")):
+            self.assertEqual(read(listed_runs(opening(self.RUN)), *applied_stored("o/r", 39100000000, done)),
+                             {"named": {}, "unreadable": set(), "whole": True})
+        # Nor does one whose record is past retention, which is read as recording nothing and blocks no binding.
+        self.assertEqual(read(listed_runs(opening(self.RUN)),
+                              *applied_stored("o/r", 39100000000, record(self.RUN, "26"), expired=True)[:1]),
+                         {"named": {}, "unreadable": set(), "whole": True})
+        # The other side, its issue unreadable: two pull requests named, a number that is none, a record that cannot be
+        # read or is another Run's, a successful Run that lists no record (deleted), a read never answered, a Run named
+        # by two GitHub runs though one of them answers, or a Run not yet finished.
+        stored = lambda done: applied_stored("o/r", 39100000000, done)
+        alone = listed_runs(opening(self.RUN))
+        twice = listed_runs(opening(self.RUN), ids={self.RUN: [39100000000, 39100000001]})
+        for runs, exchanges in ((alone, stored(record(self.RUN, "26", "27"))), (alone, stored(record(self.RUN, "026"))),
+                                (alone, stored(record(self.RUN, "x"))), (alone, stored(record("r_01JA7Z", "26"))),
+                                (alone, stored(None)), (alone, []), (twice, stored(record(self.RUN, "26"))),
+                                (listed_runs(opening(self.RUN, status="in_progress", conclusion=None)), [])):
+            got = read(runs, *exchanges)
+            self.assertEqual((got["named"], got["unreadable"], got["whole"]), ({}, {36}, True), runs)
+        # A run list not read whole is not whole, nor is one that lists a Run before its name, which may be an opening
+        # Run (decision 0036); with no Role that opens pull requests, nothing is read.
+        self.assertIs(read(listed_runs(opening(self.RUN), complete=False))["whole"], False)
+        unnamed = dict(listed_runs(opening(self.RUN)), unidentified=[{"run": "39100000009", "status": "completed",
+                                                                     "created_at": "2026-10-21T16:00:00Z"}])
+        self.assertIs(read(unnamed)["whole"], False)
+        self.assertIs(read(dict(listed_runs(opening(self.RUN)), unidentified="x"))["whole"], False)
+        self.assertEqual(read(listed_runs(opening(self.RUN)), role=None),
+                         {"named": {}, "unreadable": set(), "whole": True})
+        # A Run of another Role, another Intent, or on a pull request or in another repo, is not read: the replay holds
+        # no answer, so a read would fail.
+        for run in (opening(self.RUN, role="qa-lead"), opening(self.RUN, intent="review-change"),
+                    opening(self.RUN, item={"repo": "o/r", "type": "pull_request", "number": 36}),
+                    opening(self.RUN, item={"repo": "o/x", "type": "issue", "number": 36})):
+            self.assertEqual(read(listed_runs(run)), {"named": {}, "unreadable": set(), "whole": True}, run)
+
     def joined(self, *findings) -> dict:
         """What one Lens Run recorded on pull request 26's thread PRRT_7."""
         got = self.recorded(listed_runs(lens_run(self.RUN)),
@@ -2738,7 +2822,8 @@ class Snapshot(unittest.TestCase):
     def read(self, reread: int):
         router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {})
-        return facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=NOTHING)
+        return facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=NOTHING,
+                opened=NOT_OPENED)
 
     def test_a_snapshot_tells_the_threads_its_content_so_a_later_review_supersedes(self):  # issue 347
         # A thread a Lens recorded is gone; a later review of that Lens is on the snapshot's own content. The snapshot
@@ -2750,7 +2835,8 @@ class Snapshot(unittest.TestCase):
                 True, [old, fresh])
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {})
-        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=gone)
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=gone,
+                opened=NOT_OPENED)
         self.assertEqual((got["content_id"], got["complete"]["threads"]), (content, True))
 
     def test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them(self):
@@ -2770,7 +2856,7 @@ class Snapshot(unittest.TestCase):
     def test_a_snapshot_hands_back_its_head(self):  # #193's ruling 10
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         got, title, head = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
-                                          True, lambda: self.NOW, with_head=True, recorded=NOTHING)
+                                          True, lambda: self.NOW, with_head=True, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual(head, self.sequence(1)[0]["response"]["body"]["head"]["sha"])
         self.assertNotIn(head, json.dumps(got))
 
@@ -2780,7 +2866,7 @@ class Snapshot(unittest.TestCase):
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         kept = {}
         facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                       lambda: self.NOW, kept, recorded=NOTHING)
+                       lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual(sorted(kept), ["check_runs", "events", "reviews", "threads"])
         self.assertTrue(all(isinstance(v[0], list) and v[1] is True for v in kept.values()))
         self.assertEqual(kept["events"][0], exchanges("P-28")[4]["response"]["body"])
@@ -2790,7 +2876,7 @@ class Snapshot(unittest.TestCase):
         kept = {}
         with self.assertRaises(facts.Moved):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                           lambda: self.NOW, kept, recorded=NOTHING)
+                           lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual(kept, {})
 
     def test_a_snapshot_holds_when_the_pull_request_was_last_reopened(self):  # issue 378
@@ -2803,7 +2889,7 @@ class Snapshot(unittest.TestCase):
         seq[5]["response"]["body"] = seq[5]["response"]["body"] + [reopening]
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING)
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual(got["last_reopened_at"], reopening["created_at"])
 
     def test_a_snapshot_names_each_lens_run_whose_record_is_past_retention(self):  # issue 346
@@ -2817,7 +2903,7 @@ class Snapshot(unittest.TestCase):
                  "started_at": "2026-10-21T15:00:00Z", "reviewed": True}]
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=({}, True, gone))
+                                lambda: self.NOW, opened=NOT_OPENED, recorded=({}, True, gone))
         self.assertEqual(got["expired_reviews"], ["r_01JA9B"])
 
     def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
@@ -2826,7 +2912,7 @@ class Snapshot(unittest.TestCase):
         seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [label_event("labeled")])]
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING)
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
@@ -2836,8 +2922,18 @@ class Snapshot(unittest.TestCase):
         seq = [e for e in self.sequence(1) if "/graphql" not in e["request"]["call"] or "Closing" not in json.dumps(e)]
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING)
+                                lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING,
+                                        opened=NOT_OPENED)
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
+        # What the opening Runs recorded is handed to the acceptance read as it was given (issue 342).
+        made, handed = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}, []
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        with mock.patch.object(facts.acceptance, "read",
+                               lambda transport, pull_, accounts, opener=None, opened=None: handed.append(opened)
+                               or (None, True)):
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING, opened=made)
+        self.assertIs(handed[0], made)
 
     def test_the_bases_head_and_a_pushs_time_are_read_or_refused(self):
         self.assertEqual(pull.base(replay("P-29.base", 9), body("P-29.base", 1))["head"],
@@ -2872,13 +2968,13 @@ class Snapshot(unittest.TestCase):
         entry["after"] = body("P-29.base", 1)["head"]["sha"]
         router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING)
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["last_pusher"], got["last_push_at"]), ("don-petry", entry["timestamp"]))
         entry["timestamp"] = "yesterday"
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         with self.assertRaises(github.Unanswered):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                           lambda: self.NOW, recorded=NOTHING)
+                           lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
 
     def test_a_snapshot_holds_every_thread_read_and_says_whether_they_were_read_whole(self):
         seq = self.sequence(1)
@@ -2889,17 +2985,21 @@ class Snapshot(unittest.TestCase):
         for recorded_, want in ((found, (True, "functional")), ((found[0], False), (False, "functional"))):
             router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
             accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
-            got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=recorded_)
+            got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW,
+                    recorded=recorded_,
+                    opened=NOT_OPENED)
             self.assertEqual((got["complete"]["threads"], got["threads"][1]["category"]), want)
         router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
-        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, False, lambda: self.NOW, recorded=NOTHING)
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, False, lambda: self.NOW, recorded=NOTHING,
+                opened=NOT_OPENED)
         self.assertEqual([(t["id"], t["category"]) for t in got["threads"]], [("PRRT_1", "human"), ("PRRT_2", None)])
         self.assertEqual((got["complete"]["threads"], got["complete"]["runs"]), (True, False))
         seq[9]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 3
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
-        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=NOTHING)
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=NOTHING,
+                opened=NOT_OPENED)
         self.assertIs(got["complete"]["threads"], False)
 
     def test_only_a_required_lenss_own_apps_open_thread_defers(self):
@@ -2914,7 +3014,8 @@ class Snapshot(unittest.TestCase):
                                                thread_node("PRRT_3", APP), thread_node("PRRT_4", PERSON)])
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit", role[1:]: "pr-review"})
-        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=NOTHING)
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=NOTHING,
+                opened=NOT_OPENED)
         self.assertEqual(config["required_lenses"]["model"], ["pr-review"])
         self.assertEqual(derive.unreadable_threads(got, dict(config, approver=APPROVER)), ["PRRT_2"])
 
@@ -2923,7 +3024,7 @@ class Snapshot(unittest.TestCase):
         router = Router(replay, {"don-petry": "admin"})
         left = []
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: left.append(len(replay._left)) or self.NOW, recorded=NOTHING)
+                                lambda: left.append(len(replay._left)) or self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((left, got["read_at"]), ([0], self.NOW))
 
     def test_a_snapshot_that_does_not_hold_to_the_schema_is_refused(self):
@@ -2931,7 +3032,7 @@ class Snapshot(unittest.TestCase):
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         with self.assertRaises(github.Unanswered):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                           lambda: "2026-10-18T24:00:00Z", recorded=NOTHING)
+                           lambda: "2026-10-18T24:00:00Z", recorded=NOTHING, opened=NOT_OPENED)
 
 
 class ChecksAsked(unittest.TestCase):
