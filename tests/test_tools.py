@@ -3930,6 +3930,15 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
 
 
 class Trials(unittest.TestCase):
+    def test_the_relays_host_is_asked_before_the_relay_and_not_before_the_first_approval(self):  # decision 0043
+        # Section 6.1's batch 2 is what stands before the first approval. W-2 rests on the relay alone, and the first
+        # approval does not need it, so the relay's own trial is the relay's.
+        section = (ROOT / check_trials.DESIGN).read_text().split("### 6.1 ")[1].split("\n### ")[0]
+        batch = next(line for line in section.split("\n") if line.startswith("| **2. Before the first approval**"))
+        self.assertNotIn("P-31", batch)
+        self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3",
+                      section)
+
     def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438
         # The check keeps each fixture's finding between runs in one process, by its name, its text, the schema and the
         # Apps' reach; a change to any of them is read afresh, and what a run finds is what a first run would.
