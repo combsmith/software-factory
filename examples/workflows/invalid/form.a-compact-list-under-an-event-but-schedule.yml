@@ -1,0 +1,23 @@
+# Must be rejected. A list at the events' level after an event that is not schedule: is read as an on: written as a
+# list, though YAML would make it that event's value: no event but schedule: takes one (the Claude review of #428).
+name: factory
+on:
+  pull_request:
+  merge_group:
+  - pull_request_target
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make verify
+        timeout-minutes: 1
+      - run: python3 -m tools.mutants
+        timeout-minutes: 1

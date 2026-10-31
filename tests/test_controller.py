@@ -851,7 +851,7 @@ class Entry(unittest.TestCase):
 
         whos = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded):
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded, opened):
             handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener,
                            recorded))
             whos.append(who)
@@ -869,6 +869,20 @@ class Entry(unittest.TestCase):
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
                                    (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None, ({}, True, []))])
+        # What the opening Runs recorded is read once a pass, for the Role the configuration names, and handed to each
+        # snapshot as it was read (issue 342).
+        made, seen, got = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}, [], []
+
+        def read_opened(transport, repo, runs, role):
+            seen.append((repo, role))
+            return made
+        with unittest.mock.patch.object(entry.facts_, "snapshot",
+                                        lambda *a, **k: got.append(k["opened"]) or snapshot(*a, **k)), \
+                unittest.mock.patch.object(entry.applied, "opened", read_opened), \
+                unittest.mock.patch.object(entry.facts_, "opener_role", lambda kernel: "dev-lead"):
+            self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual((seen, got), ([(self.HOME, "dev-lead")], [made]))
+        self.assertIs(got[0], made)
         # The queue App's account, as the configuration holds it, is told to the account reader (issue 389).
         self.assertIsNone(whos[0].queue)
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \

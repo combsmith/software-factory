@@ -19,6 +19,7 @@
     "label_events",
     "last_push_at",
     "last_reopened_at",
+    "expired_reviews",
     "last_writer_action_at",
     "reviews",
     "threads",
@@ -163,6 +164,14 @@
     },
     "last_push_at": {
       "$ref": "#/$defs/time"
+    },
+    "expired_reviews": {
+      "description": "The pull request's Lens Runs whose applied/1 is past the artifact retention, by run id: what each recorded can no longer be read, so its Lens's review is asked for again, of the current content, after it (issue 346)",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^r_[0-9A-Z]{6,26}$"
+      }
     },
     "last_reopened_at": {
       "description": "When the pull request was last reopened, from its timeline's `reopened` event (trials/P-7.reopened.json), or null if it never was. An approval submitted before it does not stand (issue 378)",

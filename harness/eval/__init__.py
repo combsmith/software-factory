@@ -34,7 +34,7 @@ COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
 CASE_FAILED = "case_failed"
 # How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
-# held here, where the cases are, and written nowhere public (decision 0094).
+# held here, where the cases are, since the repo cannot hold a count of them true (decision 0099).
 KIND_LEAST = 20
 
 
@@ -220,9 +220,9 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
             continue
         said = eval_result.score(case, result)
-        # What the scorer says of a case that did not pass would tell anyone who reads the report what the case
-        # expected, and the report is public: across dispatches it would give the answer key. It is one code, the
-        # same whatever the scorer said, and the scorer's own codes never leave this step (decision 0078).
+        # What the scorer says of a case that did not pass could tell anyone who reads the report the category, severity
+        # or place it expects, which are its content, and the report is public. It is one code, the same whatever the
+        # scorer said, and the scorer's own codes never leave this step (decisions 0078 and 0099).
         assessed[entry["id"]] = (PASS, []) if said["verdict"] == PASS and not said["reasons"] else ("fail", [CASE_FAILED])
     return assessed
 
@@ -235,8 +235,8 @@ def eval_result_codes() -> set:
 
 def split_ok(found: dict, place: pathlib.Path):
     """Whether the set's cases, as fetched into the scratch, hold KIND_LEAST of each kind: one word of the whole set,
-    never how many of either, since a public count and the ids a change adds or removes would tell each case's kind
-    (decision 0094). None where a case was not read, or its answer is no kind: such a run fails by that case."""
+    never how many of either: the gate needs no more (decision 0099). None where a case was not read, or its answer is no
+    kind: such a run fails by that case."""
     counted = {"finding": 0, "met": 0}
     for entry in found["cases"]:
         try:

@@ -2,9 +2,7 @@
 
 What this repo holds of each held-out eval set: one manifest a directory, `<role>/cases.json`, with the Role, the Intent, the count of cases and each case's id and sha256.
 The cases themselves live in a private repo under a different owner (design §3.13), read only by the eval job (§4.9), and never here, in a pull request, an issue or a note.
-No count of a kind is written here or anywhere public (decision 0094). The review set's split was public on a pull request for a
-time and cannot be fully erased, so its current ids are treated as having a known split: the next change to the set re-ids
-every case in the home, the Maintainer's act when it comes.
+No count of a kind is written here, since a session here cannot read a case to hold it true: the eval job holds the split (decision 0099).
 `tools/eval_result.py` scores one `result/1` against one case, at run time, where the case is. `context/task.json` is the
 context's test (issue 8, "The context's test: a fresh agent adds a rule to the Kernel without being told how"): one task
 sentence, the sha256 of its held-out answer, and each run of a fresh agent on it, made by `tools/context_eval.sh` at the

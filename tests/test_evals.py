@@ -400,8 +400,8 @@ class TheSet(unittest.TestCase):
         # Decision 0010: an Intent family is cut over only after its eval set exists. The cases are written in the
         # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
         # with a Finding and as many of a change that was right: forty at least. The manifest keeps no count of a kind,
-        # since a public count and the ids a change adds or removes would tell each case's kind; the eval job holds the
-        # split where the cases are (decision 0094).
+        # since a session here cannot read a case to hold it true; the eval job holds the split where the cases are
+        # (decision 0099).
         manifest = json.loads(SET.read_text())
         self.assertGreaterEqual(manifest["count"], 40)
 
@@ -536,10 +536,9 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
-        # Decision 0094: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. No file
-        # here holds either count: a public count and the ids a change adds or removes would tell each case's kind. A set
-        # short of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set,
-        # which `verdict`, the Release's gate too, refuses.
+        # Decision 0099: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
+        # of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set, which
+        # `verdict`, the Release's gate too, refuses. Neither says how many of a kind.
         from harness import eval as job
         self.assertEqual(job.KIND_LEAST, 0, "as these fixtures set it")
         result = load("examples/result.json")
