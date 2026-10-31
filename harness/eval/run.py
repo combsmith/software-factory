@@ -36,8 +36,8 @@ def run_id() -> str:
 
 def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
     """The review Intent, as `assess` asks it: a case's `result/1`, or Stop with the code that says why there is none.
-    Its Task is the case's, built as a live Run's; a case whose facts do not name the content its diff is
-    (`content_id`, the sha256 of the diff), or of no review, is `not_this_set`, and nothing is asked of the model. The
+    Its Task is the case's, built as a live Run's; a case its Task is refused for is `not_this_set`, and one whose diff is
+    over the bound `diff_not_whole`, and nothing is asked of the model: `harness.eval.case_fault` has told the rest apart. The
     configuration and the manifest are the checkout's own, the Release's, as a live Run's are. `began` is when `plan`
     was made, by `clock`, the runner's own: no case is started once less time is left of BUDGET than it may take."""
     config = dict(live.configuration(), release=release)

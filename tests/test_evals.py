@@ -645,14 +645,16 @@ class EvalJob(unittest.TestCase):
         cases = {next(iter(self.cases)): (json.dumps(other) + "\n").encode(), "poc-two": b"not json",
                  "poc-three": (json.dumps(dict(stray, id="poc-four")) + "\n").encode(),
                  "poc-five": (json.dumps(bare) + "\n").encode(),
-                 "poc-six": (json.dumps(dict(stray, id="poc-six", role="devops-lead")) + "\n").encode()}
+                 "poc-six": (json.dumps(dict(stray, id="poc-six", role="devops-lead")) + "\n").encode(),
+                 # JSON that is no object is one of the set's no more than text is: none of them ends the step.
+                 "poc-seven": b"3", "poc-eight": b'"facts"', "poc-nine": b"null", "poc-ten": b"true", "poc-eleven": b"[]"}
         self.set(cases)
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))
         self.step(job.score, lambda case: self.fail("no case of this set is reviewed"))
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([c["reasons"] for c in written["cases"]],
-                         [["not_this_set"], ["schema"], ["not_this_set"], ["not_this_set"], ["not_this_set"]])
+                         [["not_this_set"], ["schema"], ["not_this_set"], ["not_this_set"], ["not_this_set"]] + [["not_this_set"]] * 5)
 
     def test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing(self):  # issue 421
         # Where the cases are, at run time: a case whose expected Finding is not as its criterion gives it asks nothing of
@@ -803,6 +805,11 @@ class EvalJob(unittest.TestCase):
         for odd in (None, [], "facts", dict(then, threads="none"), dict(then, threads=None), dict(then, threads=[None])):
             self.assertEqual(job.current_facts(odd) if not isinstance(odd, dict) else job.current_facts(odd)["threads"],
                              odd if not isinstance(odd, dict) else odd["threads"], odd)
+        # Nested past what can be copied, facts are handed back for the schema to refuse, and the report is still written.
+        deep = dict(then, item=[])
+        for _ in range(2000):
+            deep["item"] = [deep["item"]]
+        self.assertIs(job.current_facts(deep), deep)
         # Through the job as the workflow runs it: a case of the set's time reaches the review, filled, and is scored.
         case, live = self.reviewed()
         old = copy.deepcopy(case)
@@ -848,6 +855,9 @@ class EvalJob(unittest.TestCase):
         self.step(job.score, lambda case: given.append(case) or load("examples/result.json"))
         self.assertEqual(len(given), 1, "the case is read as filled")
         self.assertIsNone(given[0]["facts"]["last_reopened_at"])
+        # And the scorer reads the filled case too: raw, it would be refused by its schema, and every case would fail.
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in json.loads((self.work / job.REPORT).read_text())["cases"]],
+                         [("pass", [])])
         # What the scratch holds is what the manifest hashed: the fill is of a copy in memory.
         kept = self.temp / "heldout" / "cases" / ("%s.json" % first)
         self.assertEqual(kept.read_bytes(), bytes_of)
@@ -888,6 +898,8 @@ class EvalJob(unittest.TestCase):
         for code, case in faults:
             self.assertEqual(job.case_fault(case), code, code)
         self.assertIsNone(job.case_fault(changed(last_pusher="coderabbitai[bot]")))
+        # As task/1's own reader holds it: a login that ends in a new line is none.
+        self.assertEqual(job.case_fault(changed(last_pusher="bob\n")), "pusher_unnamed")
         # Each read first: facts read short and an unnamed pusher, on a diff that is also not its content, say the first.
         self.assertEqual(job.case_fault(dict(short, diff=base["diff"] + "x")), "facts_read_short")
         self.assertEqual(job.case_fault(dict(unnamed, diff=base["diff"] + "x")), "diff_not_content")
@@ -918,6 +930,17 @@ class EvalJob(unittest.TestCase):
             with self.assertRaises(job.Stop) as stopped:
                 step.reviewer(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("diff_not_whole", []))
+        # And the code reaches the report, not `unanswered`, as the job writes it.
+        first = next(iter(self.cases))
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+
+        def over_the_bound(asked):
+            raise job.Stop("diff_not_whole")
+        self.step(job.score, over_the_bound)
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["diff_not_whole"])
 
     def test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone(self):  # decision 0105
         # A case whose facts fail the schema after the fill is told from one of another set, or none: a code of its own,

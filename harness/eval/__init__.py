@@ -193,10 +193,13 @@ THREAD_FIELDS_THE_SET_PREDATES = (
 
 def current_facts(facts):
     """A copy of a case's `facts`, each field the set predates filled by its row where it is absent, and a field the case
-    gives kept as it is. What is no facts is handed back for the schema to refuse."""
+    gives kept as it is. What is no facts, or nested past what can be copied, is handed back for the schema to refuse."""
     if not isinstance(facts, dict):
         return facts
-    filled = copy.deepcopy(facts)
+    try:
+        filled = copy.deepcopy(facts)
+    except RecursionError:
+        return facts
     for field, default, _ in FACTS_THE_SET_PREDATES:
         filled.setdefault(field, copy.deepcopy(default))
     threads = filled.get("threads")
@@ -224,7 +227,7 @@ def case_fault(case: dict):
         return "diff_not_content"
     # The Task's text names who pushed it, a login, where facts/1 also allows null or any string.
     source = eval_result.schemas(ROOT)["task"]["properties"]["texts"]["items"]["properties"]["source"]["pattern"]
-    if not (isinstance(facts["last_pusher"], str) and re.search(source, facts["last_pusher"])):
+    if not (isinstance(facts["last_pusher"], str) and re.fullmatch(source, facts["last_pusher"])):
         return "pusher_unnamed"
     return None
 
