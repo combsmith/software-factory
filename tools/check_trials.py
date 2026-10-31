@@ -877,18 +877,18 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         fixtures = fixture if isinstance(fixture, tuple) else (fixture,)
         if not fixtures:
             problems.append("sim/grounding.py: %s: an empty tuple grounds nothing; write None" % code)
-        for fixture in fixtures:
-            if not isinstance(fixture, str) or not fixture.startswith("trials/"):
-                problems.append("sim/grounding.py: %s: %s is not a fixture in trials/" % (code, fixture))
-            elif not (root / fixture).is_file():
-                problems.append("sim/grounding.py: %s: %s does not exist" % (code, fixture))
-            elif fixture not in valid:
-                problems.append("sim/grounding.py: %s: %s is not a valid fixture" % (code, fixture))
+        for one in fixtures:
+            if not isinstance(one, str) or not one.startswith("trials/"):
+                problems.append("sim/grounding.py: %s: %s is not a fixture in trials/" % (code, one))
+            elif not (root / one).is_file():
+                problems.append("sim/grounding.py: %s: %s does not exist" % (code, one))
+            elif one not in valid:
+                problems.append("sim/grounding.py: %s: %s is not a valid fixture" % (code, one))
             elif not trials:
                 problems.append("sim/grounding.py: %s: no trial asks this; add one to section 6 first" % code)
-            elif valid[fixture]["trial"] not in trials:
+            elif valid[one]["trial"] not in trials:
                 problems.append("sim/grounding.py: %s: %s records %s, and %s asks this"
-                                % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
+                                % (code, one, valid[one]["trial"], " or ".join(trials)))
     # A quote is of a trial its rule names, and of no other.
     for code, by_trial in sorted((quoted or {}).items(), key=lambda kv: str(kv[0])):
         for trial in sorted(set(by_trial) - set(named.get(code) or ()), key=str):

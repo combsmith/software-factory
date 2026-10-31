@@ -31,11 +31,10 @@ RULES = (
     ("an_approval_is_dismissed_by_a_push", "Under a ruleset that dismisses stale approvals on a push, a push dismisses "
      "each standing approval, and the timeline names an App that pushed as its dismisser", ("P-7",),
      "trials/P-7.json", None),
-    # P-7 saw only an App's push dismiss an approval as stale: the Maintainer's dismissal there was his own, with a
-    # message and no commit. Who a person's push is named, P-38 asks.
+    # trials/P-38.json: the Maintainer's push dismissed two approvals, his own and the machine user's, each named to him.
     ("a_persons_push_names_the_person_as_dismisser", "Under a ruleset that dismisses stale approvals on a push, the "
      "timeline names a person who pushed, as that person, the dismisser of each approval the push dismissed",
-     ("P-38",), None, None),
+     ("P-38",), "trials/P-38.json", None),
     ("an_approval_stands_without_stale_dismissal", "Under a ruleset that does not dismiss stale approvals, a push leaves "
      "an earlier approval in place", ("P-1",), None, None),
     # trials/P-41.json: canary pull requests 64 (a request, a push, two dismissals) and 66 (the controller's labels).
@@ -67,13 +66,18 @@ RULES = (
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
      "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
      None),
+    # Contradicted in part by P-35 (trials/P-35.json). GraphQL's file is null for a dynamic run, so a dynamic/ path is read
+    # as none, not verbatim. And a check run a job creates through the API reads with the path of the first Actions suite
+    # on the head, not the file that ran it. Left unverified, as the fake applies it: changing it is a story of its own.
     ("a_check_names_the_workflow_that_ran_it", "Every check run GitHub Actions reports is read with the path of the "
      "workflow file that ran it, the path of its check suite's workflow run as GitHub gives it, a dynamic/ one "
      "verbatim, with the permissions the reader and the Controller hold; a check run no workflow ran, as GitHub "
      "Advanced Security's, is read with none", ("P-35",), None, None),
     ("actions_runs_a_job_under_any_name", "GitHub Actions reports every job in the repo as one App, 15368, one a pull "
      "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
-     "names that file", ("P-35",), None, None),
+     "names that file", ("P-35",), "trials/P-35.json", None),
+    # Contradicted by P-36 (trials/P-36.json): an upload that failed processing turned CodeQL's success to neutral, on the
+    # same check run, twice. Overturning a failure is not shown. Left unverified, as the fake applies it.
     ("only_codeql_gives_the_code_scanning_verdict", "Only CodeQL's own analysis gives the conclusion of the check run "
      "CodeQL that GitHub Advanced Security, 57789, reports: an upload to code scanning under CodeQL's tool and "
      "category, by an identity holding security_events: write, cannot replace that verdict on the head",
@@ -194,11 +198,14 @@ RULES = (
      "its retention", ("P-16",), None, None),
     ("a_criterion_can_have_a_result_from_each_check_suite", "A criterion can have a result from each check suite that "
      "ran its check on one content, and they can disagree", ("P-42",), None, None),
+    # P-35 shows a check's path can be another workflow's, so a result is not fully read with its reporter's file.
     ("an_acceptance_result_names_its_reporter", "Each result for a criterion is read with the check that reported it: "
      "the check run's name, the id of its App and the path of its workflow file, as a check is read",
      ("P-35", "P-42"), None, None),
     ("any_app_gives_a_result_for_any_criterion", "Any App with checks: write, and any job GitHub Actions runs, can give "
      "a result for any criterion of the contract, one only a person passes among them", ("P-42",), None, None),
+    # P-38 shows an approval a person's push dismissed stays on its commit, and P-7 one an App's push dismissed. An App
+    # dismissing an approval that is not stale is not shown: P-41's App dismissed a request for changes. Left unverified.
     ("a_contract_approval_stays_on_its_commit", "The contract a person approved is read at the commit of the newest "
      "approving review by a person; an approval an App dismisses, as stale or not, stays on its commit, and the "
      "timeline says who dismissed it", ("P-38",), None, None),

@@ -1,0 +1,965 @@
+{
+  "schema": "trial/1",
+  "trial": "P-36",
+  "question": "Can an upload to code scanning under CodeQL's tool and category, on a pull request's head, by an identity holding `security_events: write` but not CodeQL's own analysis, change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports?",
+  "pass": "It cannot. If it can, no identity but CodeQL's own analysis may hold `security_events: write`: for the Factory's Apps `tools/check_apps.py` holds that, and for the live workflows the workflow lint, which refuses `security-events: write` on any job; for a third-party App installed on a served repo it waits on the readiness check (§3.12). Written before the run, in the design's row. Run on two canary pull requests with default setup on. The second added a file meant to make CodeQL's own verdict fail. CodeQL's analysis recorded two results there and its check still concluded success, so an upload overturning a failing verdict is not shown.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-31T00:42:00Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p36-sarif.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-36 (combsmith/software-factory#186): can an upload to code scanning under CodeQL's tool and category,",
+            "# by an identity holding security_events: write, change the conclusion of the check run CodeQL? It waits for CodeQL's own",
+            "# verdict, uploads one made-up finding for the merge ref and then for the head, and reads the check after each.",
+            "name: p36-sarif",
+            "on:",
+            "  pull_request:",
+            "    branches: [main]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  upload:",
+            "    name: p36-upload",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 35",
+            "    permissions:",
+            "      checks: read",
+            "      security-events: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+            "      MERGE_SHA: ${{ github.sha }}",
+            "      PR: ${{ github.event.pull_request.number }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Wait for CodeQL's own verdict",
+            "        run: |",
+            "          for i in $(seq 1 48); do",
+            "            state=$(gh api \"repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100\" --jq '[.check_runs[]|select(.name==\"CodeQL\")][0].status // \"none\"')",
+            "            [ \"$state\" = completed ] && break",
+            "            sleep 15",
+            "          done",
+            "          echo \"P36 CodeQL state after the wait: $state\"",
+            "      - name: Upload under CodeQL's tool and category, and read the check after each",
+            "        run: |",
+            "          read_check() {",
+            "            gh api \"repos/$REPO/commits/$HEAD_SHA/check-runs?filter=all&per_page=100\" --jq \".check_runs[]|select(.name==\\\"CodeQL\\\")|\\\"P36 $1: id=\\(.id) app=\\(.app.id) suite=\\(.check_suite.id) status=\\(.status) conclusion=\\(.conclusion) completed=\\(.completed_at)\\\"\"",
+            "          }",
+            "          upload() {  # REF COMMIT",
+            "            python3 - \"$1\" \"$2\" > body.json <<'PY'",
+            "          import base64, gzip, json, sys",
+            "          sarif = {\"$schema\": \"https://json.schemastore.org/sarif-2.1.0.json\", \"version\": \"2.1.0\", \"runs\": [{",
+            "              \"tool\": {\"driver\": {\"name\": \"CodeQL\", \"semanticVersion\": \"2.0.0\", \"rules\": [{",
+            "                  \"id\": \"p36/made-up\", \"name\": \"MadeUp\", \"shortDescription\": {\"text\": \"A platform trial's made-up finding\"},",
+            "                  \"defaultConfiguration\": {\"level\": \"error\"},",
+            "                  \"properties\": {\"security-severity\": \"9.8\", \"tags\": [\"security\"], \"precision\": \"high\", \"problem.severity\": \"error\"}}]}},",
+            "              \"automationDetails\": {\"id\": \"/language:actions/\"},",
+            "              \"results\": [{\"ruleId\": \"p36/made-up\", \"level\": \"error\", \"message\": {\"text\": \"A platform trial's made-up finding\"},",
+            "                           \"partialFingerprints\": {\"primaryLocationLineHash\": \"p36-trial\"},",
+            "                           \"locations\": [{\"physicalLocation\": {\"artifactLocation\": {\"uri\": \".github/workflows/p36-sarif.yml\"},",
+            "                                                               \"region\": {\"startLine\": 1}}}]}]}]}",
+            "          packed = base64.b64encode(gzip.compress(json.dumps(sarif).encode())).decode()",
+            "          print(json.dumps({\"commit_sha\": sys.argv[2], \"ref\": sys.argv[1], \"sarif\": packed}))",
+            "          PY",
+            "            id=$(gh api -X POST \"repos/$REPO/code-scanning/sarifs\" --input body.json --jq .id)",
+            "            echo \"P36 upload for $1: id=$id\"",
+            "            sleep 60",
+            "            gh api \"repos/$REPO/code-scanning/sarifs/$id\" --jq '\"P36 processing: \\(.processing_status) errors=\\(.errors)\"'",
+            "          }",
+            "          read_check before",
+            "          upload \"refs/pull/$PR/merge\" \"$MERGE_SHA\"",
+            "          sleep 240",
+            "          read_check after-merge-ref",
+            "          upload \"refs/pull/$PR/head\" \"$HEAD_SHA\"",
+            "          sleep 240",
+            "          read_check after-head"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p36-failing-verdict.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-36 (combsmith/software-factory#186): a file CodeQL should find fault with, so that its check fails.",
+            "# Nothing runs it: pull_request_target reads the base branch's copy, which has no such file, and this never merges.",
+            "name: p36-failing-verdict",
+            "on:",
+            "  pull_request_target:",
+            "    branches: [main]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  build:",
+            "    runs-on: ubuntu-latest",
+            "    steps:",
+            "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+            "        with:",
+            "          ref: ${{ github.event.pull_request.head.sha }}",
+            "      - run: ./p36/never-run.sh",
+            "      - run: echo \"${{ github.event.pull_request.title }}\""
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/1d5b9664cb83feee4612fb2e114bf926b02b192a/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:20 GMT",
+          "etag": "W/\"3da414060b568f0338cf73ffbf2db862ae5ccdcd04003d83ce240515346f7ed6\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C180:1B33C3:3C437B5:C5C1EC7:6AE53E94",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4498",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "502"
+        },
+        "body": {
+          "total_count": 10,
+          "check_runs": [
+            {
+              "id": 124389765720,
+              "name": "CodeQL",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-31T00:44:30Z",
+              "completed_at": "2026-10-31T00:44:32Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124389765720",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 111554012683
+              },
+              "output": {
+                "title": "Error when processing the SARIF file"
+              }
+            },
+            {
+              "id": 124389465410,
+              "name": "p35-created",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-31T00:43:26Z",
+              "completed_at": "2026-10-31T00:43:27Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124389465410",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553949695
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389399334,
+              "name": "SonarCloud",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:12Z",
+              "completed_at": "2026-10-31T00:43:15Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124389399334",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 111554012683
+              },
+              "output": {
+                "title": "No new alerts in code changed by this pull request"
+              }
+            },
+            {
+              "id": 124389398944,
+              "name": "SonarCloud Code Analysis",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:03Z",
+              "completed_at": "2026-10-31T00:43:10Z",
+              "details_url": "https://sonarcloud.io/dashboard?id=combsmith_software-factory-canary&pullRequest=75",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 12526,
+                "slug": "sonarqubecloud"
+              },
+              "check_suite": {
+                "id": 111553941966
+              },
+              "output": {
+                "title": "Quality Gate passed"
+              }
+            },
+            {
+              "id": 124389387792,
+              "name": "CodeRabbit",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:09Z",
+              "completed_at": "2026-10-31T00:46:47Z",
+              "details_url": "https://app.coderabbit.ai/change-stack/combsmith/software-factory-canary/pull/75?(its query left out)",
+              "external_id": "coderabbit-review-progress-v1:96be7ef53054138cb40885c7715fa72bbd4c77a8d3bd0a2c6edac73fdbf08f33",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 111553940261
+              },
+              "output": {
+                "title": "Finished"
+              }
+            },
+            {
+              "id": 124389332665,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:45Z",
+              "completed_at": "2026-10-31T00:44:49Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658876/job/124389332665",
+              "external_id": "0ac0ec81-d3c6-5977-b757-02f1986e5f89",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553959068
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389332270,
+              "name": "p36-upload",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:43Z",
+              "completed_at": "2026-10-31T00:54:50Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658914/job/124389332270",
+              "external_id": "ba425845-da94-504e-aab5-c3b1a0cb811a",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553959132
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389332255,
+              "name": "p35-token",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:25Z",
+              "completed_at": "2026-10-31T00:44:36Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658883/job/124389332255",
+              "external_id": "3b1f9610-bd38-5655-be9a-42ab2ed3ab61",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553959071
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389332117,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:41Z",
+              "completed_at": "2026-10-31T00:44:44Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658833/job/124389332117",
+              "external_id": "813a41e8-83b5-5647-9777-a4d008bc7259",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553958971
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389324695,
+              "name": "Analyze (actions)",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:03Z",
+              "completed_at": "2026-10-31T00:44:40Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151655137/job/124389324695",
+              "external_id": "50954788-7587-519c-b6d7-038baa83648f",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553949695
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41151658914 --log, of the log of .github/workflows/p36-sarif.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T00:44:45.3353932Z P36 CodeQL state after the wait: completed",
+          "2026-10-31T00:44:46.0852657Z P36 before: id=124389765720 app=57789 suite=111554012683 status=completed conclusion=success completed=2026-10-31T00:44:32Z",
+          "2026-10-31T00:44:46.6465561Z P36 upload for refs/pull/75/merge: id=45233512-d4c4-11f1-8cdd-d4103663b844",
+          "2026-10-31T00:45:46.9916327Z P36 processing: failed errors=[\"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled\"]",
+          "2026-10-31T00:49:47.5523421Z P36 after-merge-ref: id=124389765720 app=57789 suite=111554012683 status=completed conclusion=neutral completed=2026-10-31T00:44:32Z",
+          "2026-10-31T00:49:48.1604369Z P36 upload for refs/pull/75/head: id=f8d97620-d4c4-11f1-89eb-f39e15d75576",
+          "2026-10-31T00:50:48.4850747Z P36 processing: failed errors=[\"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled\"]",
+          "2026-10-31T00:54:49.0704475Z P36 after-head: id=124389765720 app=57789 suite=111554012683 status=completed conclusion=neutral completed=2026-10-31T00:44:32Z"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/5169c3a4214973a9095b12fe1708f494f8b6f256/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:36 GMT",
+          "etag": "W/\"f31388fda091439aa214bae6684cdc3ec697381c558f3bf3a2fb36ce698da390\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C194:83EDA:37A3542:B6C2F8A:6AE53EA3",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4482",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "518"
+        },
+        "body": {
+          "total_count": 7,
+          "check_runs": [
+            {
+              "id": 124393359667,
+              "name": "CodeQL",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-31T00:57:46Z",
+              "completed_at": "2026-10-31T00:57:51Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124393359667",
+              "external_id": "",
+              "head_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 111557126215
+              },
+              "output": {
+                "title": "Error when processing the SARIF file"
+              }
+            },
+            {
+              "id": 124393294952,
+              "name": "SonarCloud",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-31T00:57:30Z",
+              "completed_at": "2026-10-31T00:57:36Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124393294952",
+              "external_id": "",
+              "head_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 111557126215
+              },
+              "output": {
+                "title": "2 new alerts including 2 high severity security vulnerabilities"
+              }
+            },
+            {
+              "id": 124393293719,
+              "name": "SonarCloud Code Analysis",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-31T00:57:22Z",
+              "completed_at": "2026-10-31T00:57:29Z",
+              "details_url": "https://sonarcloud.io/dashboard?id=combsmith_software-factory-canary&pullRequest=76",
+              "external_id": "",
+              "head_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+              "app": {
+                "id": 12526,
+                "slug": "sonarqubecloud"
+              },
+              "check_suite": {
+                "id": 111557063117
+              },
+              "output": {
+                "title": "Quality Gate failed"
+              }
+            },
+            {
+              "id": 124393264643,
+              "name": "CodeRabbit",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-31T00:57:23Z",
+              "completed_at": "2026-10-31T00:57:23Z",
+              "details_url": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github",
+              "external_id": "coderabbit-review-progress-v1:0374f579e80fe2993994bf63a897301098f2b7863e824a62f3b9cefb3ed10b2f",
+              "head_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 111557061808
+              },
+              "output": {
+                "title": "Review rate limited"
+              }
+            },
+            {
+              "id": 124393252817,
+              "name": "p36-upload",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:57:22Z",
+              "completed_at": "2026-10-31T01:02:57Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41152905104/job/124393252817",
+              "external_id": "8a9853f8-f1b9-5543-9984-d795adebaac2",
+              "head_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111557090426
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124393252343,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:57:22Z",
+              "completed_at": "2026-10-31T00:57:28Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41152904902/job/124393252343",
+              "external_id": "ec4bb6cc-bfa4-5962-9436-81f6b1ab835c",
+              "head_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111557089879
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124393235482,
+              "name": "Analyze (actions)",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:57:18Z",
+              "completed_at": "2026-10-31T00:57:55Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41152899367/job/124393235482",
+              "external_id": "0c6c35d9-2124-5d02-8306-3c4dbe802136",
+              "head_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111557074310
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41152905104 --log, of the log of .github/workflows/p36-sarif.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T00:57:54.8771599Z P36 CodeQL state after the wait: completed",
+          "2026-10-31T00:57:55.3054913Z P36 before: id=124393359667 app=57789 suite=111557126215 status=completed conclusion=success completed=2026-10-31T00:57:51Z",
+          "2026-10-31T00:57:55.8074682Z P36 upload for refs/pull/76/merge: id=1b833598-d4c6-11f1-813b-91c3e121b22b",
+          "2026-10-31T00:58:56.0637420Z P36 processing: failed errors=[\"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled\"]",
+          "2026-10-31T01:02:56.4956691Z P36 after-merge-ref: id=124393359667 app=57789 suite=111557126215 status=completed conclusion=neutral completed=2026-10-31T00:57:51Z"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/code-scanning/sarifs/45233512-d4c4-11f1-8cdd-d4103663b844",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:41 GMT",
+          "etag": "W/\"2e2df500216e339a706391181260d3548264a4b36926207000140ff0e41c658f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "admin:repo_hook, delete_repo, read:repo_hook, repo, repo:invite, repo:status, repo_deployment, security_events, write:repo_hook",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C19E:3DF45E:160A458:48A064B:6AE53EA9",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4720",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "280"
+        },
+        "body": {
+          "processing_status": "failed",
+          "errors": [
+            "CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/code-scanning/sarifs/f8d97620-d4c4-11f1-89eb-f39e15d75576",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:42 GMT",
+          "etag": "W/\"2e2df500216e339a706391181260d3548264a4b36926207000140ff0e41c658f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "admin:repo_hook, delete_repo, read:repo_hook, repo, repo:invite, repo:status, repo_deployment, security_events, write:repo_hook",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C1A0:1CEBF3:3BADA7D:C37E52A:6AE53EAA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4719",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "281"
+        },
+        "body": {
+          "processing_status": "failed",
+          "errors": [
+            "CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/code-scanning/sarifs/1b833598-d4c6-11f1-813b-91c3e121b22b",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:43 GMT",
+          "etag": "W/\"2e2df500216e339a706391181260d3548264a4b36926207000140ff0e41c658f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "admin:repo_hook, delete_repo, read:repo_hook, repo, repo:invite, repo:status, repo_deployment, security_events, write:repo_hook",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C1A1:3E79CD:16EF9EA:4BBBBE5:6AE53EAA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4718",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "282"
+        },
+        "body": {
+          "processing_status": "failed",
+          "errors": [
+            "CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/code-scanning/default-setup",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:43 GMT",
+          "etag": "W/\"047f06ecaa707104ce5100c40a543170b34004c0b9d746083c246f0cb18a52f2\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "admin:repo_hook, delete_repo, read:repo_hook, repo, repo:invite, repo:status, repo_deployment, security_events, write:repo_hook",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C1A2:1802F4:17E631D:4ECD6C9:6AE53EAB",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4717",
+          "x-ratelimit-reset": "1793410473",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "283"
+        },
+        "body": {
+          "state": "configured",
+          "languages": [
+            "actions"
+          ],
+          "query_suite": "extended",
+          "threat_model": "remote",
+          "updated_at": "2026-10-18T00:31:18Z",
+          "schedule": "weekly",
+          "runner_type": "standard",
+          "runner_label": ""
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/code-scanning/analyses?ref=refs/pull/75/head&per_page=10",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:44 GMT",
+          "etag": "W/\"6408da559cee2e505fa9e5ad81335204bc339bd74db9b18b68eaaf82ab3948af\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "admin:repo_hook, delete_repo, read:repo_hook, repo, repo:invite, repo:status, repo_deployment, security_events, write:repo_hook",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C1A3:F921C:38E6EE9:BB0D608:6AE53EAC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4475",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "525"
+        },
+        "body": [
+          {
+            "ref": "refs/pull/75/head",
+            "commit_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+            "analysis_key": "dynamic/github-code-scanning/codeql:analyze",
+            "environment": "{\"build-mode\":\"none\",\"category\":\"/language:actions\",\"language\":\"actions\",\"runner\":\"[\\\"ubuntu-latest\\\"]\"}",
+            "category": "/language:actions",
+            "error": "",
+            "created_at": "2026-10-31T00:44:31Z",
+            "results_count": 0,
+            "rules_count": 23,
+            "id": 2066663066,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/code-scanning/analyses/2066663066",
+            "sarif_id": "3bd2a790-d4c4-11f1-91a6-6a589d316562",
+            "tool": {
+              "name": "CodeQL",
+              "guid": null,
+              "version": "2.27.3"
+            },
+            "deletable": true,
+            "warning": ""
+          },
+          {
+            "ref": "refs/pull/75/head",
+            "commit_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+            "analysis_key": "(default)",
+            "environment": "{}",
+            "category": "",
+            "error": "",
+            "created_at": "2026-10-31T00:43:13Z",
+            "results_count": 0,
+            "rules_count": 0,
+            "id": 2066658960,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/code-scanning/analyses/2066658960",
+            "sarif_id": "0cea1b2a-d4c4-11f1-9399-74e28f3badac",
+            "tool": {
+              "name": "SonarCloud",
+              "guid": null,
+              "version": null
+            },
+            "deletable": true,
+            "warning": ""
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/code-scanning/analyses?ref=refs/pull/76/head&per_page=10",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:45 GMT",
+          "etag": "W/\"0cfb1c1b70d0f8bf725bee51f4e68cc5b30774ea288ec20055c2c23e6f5132a7\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "admin:repo_hook, delete_repo, read:repo_hook, repo, repo:invite, repo:status, repo_deployment, security_events, write:repo_hook",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C1A4:511C:170A951:4BC5C76:6AE53EAD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4474",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "526"
+        },
+        "body": [
+          {
+            "ref": "refs/pull/76/head",
+            "commit_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+            "analysis_key": "dynamic/github-code-scanning/codeql:analyze",
+            "environment": "{\"build-mode\":\"none\",\"category\":\"/language:actions\",\"language\":\"actions\",\"runner\":\"[\\\"ubuntu-latest\\\"]\"}",
+            "category": "/language:actions",
+            "error": "",
+            "created_at": "2026-10-31T00:57:47Z",
+            "results_count": 2,
+            "rules_count": 23,
+            "id": 2066702514,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/code-scanning/analyses/2066702514",
+            "sarif_id": "162a8614-d4c6-11f1-9818-27b4382b8ebe",
+            "tool": {
+              "name": "CodeQL",
+              "guid": null,
+              "version": "2.27.3"
+            },
+            "deletable": true,
+            "warning": ""
+          },
+          {
+            "ref": "refs/pull/76/head",
+            "commit_sha": "5169c3a4214973a9095b12fe1708f494f8b6f256",
+            "analysis_key": "(default)",
+            "environment": "{}",
+            "category": "",
+            "error": "",
+            "created_at": "2026-10-31T00:57:31Z",
+            "results_count": 2,
+            "rules_count": 2,
+            "id": 2066701776,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/code-scanning/analyses/2066701776",
+            "sarif_id": "0ca3b6f6-d4c6-11f1-952c-f103e5c6fbd7",
+            "tool": {
+              "name": "SonarCloud",
+              "guid": null,
+              "version": null
+            },
+            "deletable": true,
+            "warning": ""
+          }
+        ]
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}

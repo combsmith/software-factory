@@ -187,6 +187,51 @@ def rules(text: str) -> list:
 
 
 class Validator(unittest.TestCase):
+    LIMIT = 2       # seconds; a search of 4,000 characters takes well under a millisecond unless it backtracks
+
+    def backtracks(self, pattern: str) -> bool:
+        """Whether `pattern` runs past the limit on a long value of the shapes that make a pattern backtrack, each after
+        the literal text the pattern opens with, so that it reaches a repeat behind that text. It does not reach a repeat
+        behind a class: a guard on patterns the repo writes, not a proof."""
+        compiled = re.compile(pattern)
+        opens = re.match(r"\^?((?:\\[^A-Za-z0-9]|[^\\\[\](){}.*+?|^$])*)", pattern).group(1)
+        opens = re.sub(r"\\(.)", r"\1", opens)
+        def over(_signum, _frame):
+            raise TimeoutError
+        before = signal.signal(signal.SIGALRM, over)
+        try:
+            for atom in ("a", "A", "0", ".", "/", "-", "_", " ", "a/", "a b", "a.", "0.", "../", "./", "a-", "--a ", "="):
+                for tail in ("", "!", "\n", "/", " "):
+                    signal.setitimer(signal.ITIMER_REAL, self.LIMIT)
+                    try:
+                        compiled.search(opens + atom * (4000 // len(atom)) + tail)
+                    except TimeoutError:
+                        return True
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+            return False
+        finally:
+            signal.signal(signal.SIGALRM, before)
+
+    def test_no_schema_pattern_backtracks_on_a_long_value(self):
+        # A value may come from outside, a path in a pull request for one; a pattern is the Release's own. So a ReDoS is
+        # a pattern written here that backtracks, and this says so, the check SonarCloud's S2631 stands in for.
+        # That it notices one is the two mutants' to show, since a pattern that backtracks written here is CodeQL's alert.
+        self.assertFalse(self.backtracks(r"^[a-z]+(/[a-z]+)*$"))
+        found = set()
+        def gather(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("pattern"), str):
+                    found.add(node["pattern"])
+                node = list(node.values())
+            if isinstance(node, list):
+                for value in node:
+                    gather(value)
+        for path in [p for p in walk.files(ROOT, "schemas") if p.suffix == ".json"]:
+            gather(json.loads(path.read_text()))
+        self.assertGreater(len(found), 1)
+        self.assertEqual([pattern for pattern in sorted(found) if self.backtracks(pattern)], [])
+
     def test_rejects_a_schema_it_cannot_enforce(self):
         with self.assertRaises(SchemaError):
             validate({}, {"type": "object", "patternProperties": {}})

@@ -1,0 +1,4155 @@
+{
+  "schema": "trial/1",
+  "trial": "P-35",
+  "question": "Where does each check run's workflow file come from, and in what form? Can it be read as the `path` of the check run's check suite's workflow run, with the permissions the reader and the Controller hold, in the one read of the facts, and does that `path` ever carry a ref suffix or take a `dynamic/` form, which the port passes on verbatim, never as null? Does the check run `CodeQL` that GitHub Advanced Security reports have a workflow run at all? Where does a check run created through the API with `GITHUB_TOKEN` and `checks: write` land, in which check suite and under which workflow path, and can that token update a check run of another workflow's run? And does a job a pull request adds in a file of its own, under a required Lens's check name, report under GitHub Actions with that file's path?",
+  "pass": "Each answered and recorded; the path readable within the budget P-8 measures; CodeQL's check with no workflow run; a check created with `GITHUB_TOKEN` under its own workflow's path and unable to change another's. Written before the run, in the design's row. The check runs of seven heads: a pull request's, where CodeQL's suite is first; a push's with two workflows and no CodeQL; a push whose job tries to forge a job's details; a push where a job posts a success under the names of another workflow's failing jobs, before one fails and after the other; a push with a job gated on another, a job trying to change another's check, and a post to another branch's head; a push trying each field of another job's check alone; and a push whose job tries to give its own created check a job's details. The Controller's half stands on the reader's read, by the orchestrator's ruling of 2026-10-31: the reader read the path in P-8, and each permission it holds the Controller holds too (config/apps.json); no token of the Controller's asked it. A fork's token is read-only by GitHub's documents, not tried here.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-31T00:42:00Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-lens-name.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): a job a pull request adds in a file of its own, under a required",
+            "# check's name. Does it report under GitHub Actions, with this file's path?",
+            "name: p35-lens-name",
+            "on:",
+            "  pull_request:",
+            "    branches: [main]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  check:",
+            "    name: p2-queue-check",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: echo \"This job is not the queue's check. It only carries that check's name.\""
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-token-check.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): where a check run created with GITHUB_TOKEN and checks: write",
+            "# lands, and whether that token can update a check run of another workflow's run. Every answer goes to this job's log.",
+            "name: p35-token-check",
+            "on:",
+            "  pull_request:",
+            "    branches: [main]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  token:",
+            "    name: p35-token",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 15",
+            "    permissions:",
+            "      actions: read",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Create a check run, and update it",
+            "        run: |",
+            "          created=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=p35-created -f head_sha=\"$HEAD_SHA\" -f status=in_progress --jq .id)",
+            "          echo \"created=$created\" >> \"$GITHUB_ENV\"",
+            "          echo \"P35 created: $created\"",
+            "          gh api \"repos/$REPO/check-runs/$created\" --jq '\"P35 read: name=\\(.name) status=\\(.status) suite=\\(.check_suite.id) app=\\(.app.id)\"'",
+            "          gh api -X PATCH \"repos/$REPO/check-runs/$created\" -f status=completed -f conclusion=neutral --jq '\"P35 own update: status=\\(.status) conclusion=\\(.conclusion)\"'",
+            "      - name: Try to update a check run of another workflow's run, and CodeQL's",
+            "        run: |",
+            "          suite=$(gh api \"repos/$REPO/check-runs/$created\" --jq .check_suite.id)",
+            "          for i in $(seq 1 40); do",
+            "            other=$(gh api \"repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100\" --jq \"[.check_runs[]|select(.app.id==15368 and .check_suite.id!=$suite)][0].id // empty\")",
+            "            codeql=$(gh api \"repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100\" --jq '[.check_runs[]|select(.name==\"CodeQL\")][0].id // empty')",
+            "            [ -n \"$other\" ] && [ -n \"$codeql\" ] && break",
+            "            sleep 15",
+            "          done",
+            "          for target in \"$other\" \"$codeql\"; do",
+            "            [ -n \"$target\" ] || continue",
+            "            gh api \"repos/$REPO/check-runs/$target\" --jq '\"P35 target: id=\\(.id) name=\\(.name) app=\\(.app.id) suite=\\(.check_suite.id) status=\\(.status) conclusion=\\(.conclusion)\"'",
+            "            gh api -i -X PATCH \"repos/$REPO/check-runs/$target\" -f status=completed -f conclusion=failure 2>&1 | sed -n -e '1s/^/P35 update status: /p' -e '$s/^/P35 update answer: /p' | cut -c1-300",
+            "            gh api \"repos/$REPO/check-runs/$target\" --jq '\"P35 after: id=\\(.id) status=\\(.status) conclusion=\\(.conclusion)\"'",
+            "          done"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-landing-a.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): with no CodeQL suite on the head, where does a check run created",
+            "# with GITHUB_TOKEN land? Two workflows on one push each create one, and each says which suite is its own.",
+            "name: p35-landing-a",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-landing]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  post:",
+            "    name: p35-landing-a",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 10",
+            "    permissions:",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Create a check run under the name of a required check",
+            "        run: |",
+            "          id=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=p35-as-a-lens-from-p35-landing-a -f head_sha=\"$GITHUB_SHA\" -f status=completed -f conclusion=success --jq .id)",
+            "          gh api \"repos/$REPO/check-runs/$id\" --jq '\"P35 created: id=\\(.id) name=\\(.name) suite=\\(.check_suite.id) conclusion=\\(.conclusion)\"'",
+            "          sleep 60"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-landing-b.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): with no CodeQL suite on the head, where does a check run created",
+            "# with GITHUB_TOKEN land? Two workflows on one push each create one, and each says which suite is its own.",
+            "name: p35-landing-b",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-landing]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  post:",
+            "    name: p35-landing-b",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 10",
+            "    permissions:",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Create a check run under the name of a required check",
+            "        run: |",
+            "          id=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=p35-as-a-lens-from-p35-landing-b -f head_sha=\"$GITHUB_SHA\" -f status=completed -f conclusion=success --jq .id)",
+            "          gh api \"repos/$REPO/check-runs/$id\" --jq '\"P35 created: id=\\(.id) name=\\(.name) suite=\\(.check_suite.id) conclusion=\\(.conclusion)\"'",
+            "          sleep 60"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-forge-a.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): the workflow whose suite a created check run lands in.",
+            "name: p35-forge-a",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-forge]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  real:",
+            "    name: p35-forge-a",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: sleep 90"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-forge-b.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): can a job forge what tells a job's check run from a created one?",
+            "# It posts check runs that name another run's job as their details and an external id of a job's shape, and reads them.",
+            "name: p35-forge-b",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-forge]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  forge:",
+            "    name: p35-forge-b",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    permissions:",
+            "      actions: read",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      REPO: ${{ github.repository }}",
+            "      RUN: ${{ github.run_id }}",
+            "    steps:",
+            "      - name: Post with a job's details_url and external_id",
+            "        run: |",
+            "          sleep 20",
+            "          url=\"https://github.com/$REPO/actions/runs/$RUN/job/1\"",
+            "          id=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=p35-forged -f head_sha=\"$GITHUB_SHA\" -f status=completed -f conclusion=success -f details_url=\"$url\" -f external_id=ddce8ea8-5774-5163-b239-eb677c691bcc --jq .id)",
+            "          gh api \"repos/$REPO/check-runs/$id\" --jq '\"P35 forged: id=\\(.id) suite=\\(.check_suite.id) details=\\(.details_url) external=\\(.external_id)\"'"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/1d5b9664cb83feee4612fb2e114bf926b02b192a/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:20 GMT",
+          "etag": "W/\"3da414060b568f0338cf73ffbf2db862ae5ccdcd04003d83ce240515346f7ed6\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C180:1B33C3:3C437B5:C5C1EC7:6AE53E94",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4498",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "502"
+        },
+        "body": {
+          "total_count": 10,
+          "check_runs": [
+            {
+              "id": 124389765720,
+              "name": "CodeQL",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-31T00:44:30Z",
+              "completed_at": "2026-10-31T00:44:32Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124389765720",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 111554012683
+              },
+              "output": {
+                "title": "Error when processing the SARIF file"
+              }
+            },
+            {
+              "id": 124389465410,
+              "name": "p35-created",
+              "status": "completed",
+              "conclusion": "neutral",
+              "started_at": "2026-10-31T00:43:26Z",
+              "completed_at": "2026-10-31T00:43:27Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124389465410",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553949695
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389399334,
+              "name": "SonarCloud",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:12Z",
+              "completed_at": "2026-10-31T00:43:15Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124389399334",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 57789,
+                "slug": "github-advanced-security"
+              },
+              "check_suite": {
+                "id": 111554012683
+              },
+              "output": {
+                "title": "No new alerts in code changed by this pull request"
+              }
+            },
+            {
+              "id": 124389398944,
+              "name": "SonarCloud Code Analysis",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:03Z",
+              "completed_at": "2026-10-31T00:43:10Z",
+              "details_url": "https://sonarcloud.io/dashboard?id=combsmith_software-factory-canary&pullRequest=75",
+              "external_id": "",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 12526,
+                "slug": "sonarqubecloud"
+              },
+              "check_suite": {
+                "id": 111553941966
+              },
+              "output": {
+                "title": "Quality Gate passed"
+              }
+            },
+            {
+              "id": 124389387792,
+              "name": "CodeRabbit",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:09Z",
+              "completed_at": "2026-10-31T00:46:47Z",
+              "details_url": "https://app.coderabbit.ai/change-stack/combsmith/software-factory-canary/pull/75?(its query left out)",
+              "external_id": "coderabbit-review-progress-v1:96be7ef53054138cb40885c7715fa72bbd4c77a8d3bd0a2c6edac73fdbf08f33",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 347564,
+                "slug": "coderabbitai"
+              },
+              "check_suite": {
+                "id": 111553940261
+              },
+              "output": {
+                "title": "Finished"
+              }
+            },
+            {
+              "id": 124389332665,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:45Z",
+              "completed_at": "2026-10-31T00:44:49Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658876/job/124389332665",
+              "external_id": "0ac0ec81-d3c6-5977-b757-02f1986e5f89",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553959068
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389332270,
+              "name": "p36-upload",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:43Z",
+              "completed_at": "2026-10-31T00:54:50Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658914/job/124389332270",
+              "external_id": "ba425845-da94-504e-aab5-c3b1a0cb811a",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553959132
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389332255,
+              "name": "p35-token",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:43:25Z",
+              "completed_at": "2026-10-31T00:44:36Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658883/job/124389332255",
+              "external_id": "3b1f9610-bd38-5655-be9a-42ab2ed3ab61",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553959071
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389332117,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:41Z",
+              "completed_at": "2026-10-31T00:44:44Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658833/job/124389332117",
+              "external_id": "813a41e8-83b5-5647-9777-a4d008bc7259",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553958971
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124389324695,
+              "name": "Analyze (actions)",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:44:03Z",
+              "completed_at": "2026-10-31T00:44:40Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41151655137/job/124389324695",
+              "external_id": "50954788-7587-519c-b6d7-038baa83648f",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111553949695
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, 75",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "1d5b9664cb83feee4612fb2e114bf926b02b192a"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:11:55 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C2BA:242B6:3BE69B8:C4E4DE2:6AE5405B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4990",
+          "x-ratelimit-reset": "1793412562",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "10"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124389324695,
+                        "name": "Analyze (actions)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:44:40Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41151655137/job/124389324695",
+                        "externalId": "50954788-7587-519c-b6d7-038baa83648f",
+                        "checkSuite": {
+                          "databaseId": 111553949695,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41151655137,
+                            "event": "dynamic",
+                            "workflow": {
+                              "name": "CodeQL"
+                            },
+                            "file": null
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124389332665,
+                        "name": "p2-queue-check",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:44:49Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658876/job/124389332665",
+                        "externalId": "0ac0ec81-d3c6-5977-b757-02f1986e5f89",
+                        "checkSuite": {
+                          "databaseId": 111553959068,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41151658876,
+                            "event": "pull_request",
+                            "workflow": {
+                              "name": "p2-queue"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p2-queue.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124389332117,
+                        "name": "p2-queue-check",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:44:44Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658833/job/124389332117",
+                        "externalId": "813a41e8-83b5-5647-9777-a4d008bc7259",
+                        "checkSuite": {
+                          "databaseId": 111553958971,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41151658833,
+                            "event": "pull_request",
+                            "workflow": {
+                              "name": "p35-lens-name"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-lens-name.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124389332255,
+                        "name": "p35-token",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:44:36Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658883/job/124389332255",
+                        "externalId": "3b1f9610-bd38-5655-be9a-42ab2ed3ab61",
+                        "checkSuite": {
+                          "databaseId": 111553959071,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41151658883,
+                            "event": "pull_request",
+                            "workflow": {
+                              "name": "p35-token-check"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-token-check.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124389332270,
+                        "name": "p36-upload",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:54:50Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41151658914/job/124389332270",
+                        "externalId": "ba425845-da94-504e-aab5-c3b1a0cb811a",
+                        "checkSuite": {
+                          "databaseId": 111553959132,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41151658914,
+                            "event": "pull_request",
+                            "workflow": {
+                              "name": "p36-sarif"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p36-sarif.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124389765720,
+                        "name": "CodeQL",
+                        "status": "COMPLETED",
+                        "conclusion": "NEUTRAL",
+                        "completedAt": "2026-10-31T00:44:32Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124389765720",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111554012683,
+                          "app": {
+                            "databaseId": 57789
+                          },
+                          "workflowRun": null
+                        }
+                      },
+                      {
+                        "databaseId": 124389465410,
+                        "name": "p35-created",
+                        "status": "COMPLETED",
+                        "conclusion": "NEUTRAL",
+                        "completedAt": "2026-10-31T00:43:27Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124389465410",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111553949695,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41151655137,
+                            "event": "dynamic",
+                            "workflow": {
+                              "name": "CodeQL"
+                            },
+                            "file": null
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124389399334,
+                        "name": "SonarCloud",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:43:15Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124389399334",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111554012683,
+                          "app": {
+                            "databaseId": 57789
+                          },
+                          "workflowRun": null
+                        }
+                      },
+                      {
+                        "databaseId": 124389387792,
+                        "name": "CodeRabbit",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:46:47Z",
+                        "detailsUrl": "https://app.coderabbit.ai/change-stack/combsmith/software-factory-canary/pull/75?(its query left out)",
+                        "externalId": "coderabbit-review-progress-v1:96be7ef53054138cb40885c7715fa72bbd4c77a8d3bd0a2c6edac73fdbf08f33",
+                        "checkSuite": {
+                          "databaseId": 111553940261,
+                          "app": {
+                            "databaseId": 347564
+                          },
+                          "workflowRun": null
+                        }
+                      },
+                      {
+                        "databaseId": 124389398944,
+                        "name": "SonarCloud Code Analysis",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:43:10Z",
+                        "detailsUrl": "https://sonarcloud.io/dashboard?id=combsmith_software-factory-canary&pullRequest=75",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111553941966,
+                          "app": {
+                            "databaseId": 12526
+                          },
+                          "workflowRun": null
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=1d5b9664cb83feee4612fb2e114bf926b02b192a&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:23 GMT",
+          "etag": "W/\"2a2c387e95c1beabf209adc6b8b0b030b0697752f127c65afad6cdcced722c65\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C183:63F03:36E467B:B4782C2:6AE53E96",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4496",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "504"
+        },
+        "body": {
+          "total_count": 5,
+          "workflow_runs": [
+            {
+              "id": 41151658914,
+              "name": "p36-sarif",
+              "path": ".github/workflows/p36-sarif.yml",
+              "event": "pull_request",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111553959132
+            },
+            {
+              "id": 41151658883,
+              "name": "p35-token-check",
+              "path": ".github/workflows/p35-token-check.yml",
+              "event": "pull_request",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111553959071
+            },
+            {
+              "id": 41151658833,
+              "name": "p35-lens-name",
+              "path": ".github/workflows/p35-lens-name.yml",
+              "event": "pull_request",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111553958971
+            },
+            {
+              "id": 41151658876,
+              "name": "p2-queue",
+              "path": ".github/workflows/p2-queue.yml",
+              "event": "pull_request",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111553959068
+            },
+            {
+              "id": 41151655137,
+              "name": "PR #75",
+              "path": "dynamic/github-code-scanning/codeql",
+              "event": "dynamic",
+              "head_sha": "1d5b9664cb83feee4612fb2e114bf926b02b192a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111553949695
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41151658883/jobs (of each job, its ids, name, state and check run are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:26 GMT",
+          "etag": "W/\"e493a64a3b7f6ade03474f2427bb553239cedb07b559a06740ac705ef5943cd6\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C187:2371CA:10046B5:34E7E2C:6AE53E9A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4493",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "507"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 124389332255,
+              "run_id": 41151658883,
+              "name": "p35-token",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124389332255"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41151658883 --log, of the log of .github/workflows/p35-token-check.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T00:43:27.0982924Z P35 created: 124389465410",
+          "2026-10-31T00:43:27.3882769Z P35 read: name=p35-created status=in_progress suite=111553949695 app=15368",
+          "2026-10-31T00:43:27.8757267Z P35 own update: status=completed conclusion=neutral",
+          "2026-10-31T00:44:33.8764062Z P35 target: id=124389332665 name=p2-queue-check app=15368 suite=111553959068 status=queued conclusion=null",
+          "2026-10-31T00:44:34.2434967Z P35 update status: HTTP/2.0 403 Forbidden",
+          "2026-10-31T00:44:34.2437258Z P35 update answer: {\"message\":\"Check run status and conclusions can only be updated internally by GitHub Actions. Please see https://github.blog/changelog/2025-02-12-notice-of-upcoming-deprecations-and-breaking-changes-for-github-actions/#changes-to-check-run-status-modification\",\"documentation_url\"",
+          "2026-10-31T00:44:34.5290926Z P35 after: id=124389332665 status=queued conclusion=null",
+          "2026-10-31T00:44:34.7957897Z P35 target: id=124389765720 name=CodeQL app=57789 suite=111554012683 status=completed conclusion=success",
+          "2026-10-31T00:44:35.0690253Z P35 update status: HTTP/2.0 403 Forbidden",
+          "2026-10-31T00:44:35.0693566Z P35 update answer: {\"message\":\"Invalid app_id `57789` - check run can only be modified by the GitHub App that created it.\",\"documentation_url\":\"https://docs.github.com/rest/checks/runs#update-a-check-run\",\"status\":\"403\"}gh: Invalid app_id `57789` - check run can only be modified by the GitHub App th",
+          "2026-10-31T00:44:35.2982454Z P35 after: id=124389765720 status=completed conclusion=success"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41151658833/jobs (of each job, its ids, name, state and check run are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:28 GMT",
+          "etag": "W/\"ddf9e4db3573a95bd067484c3a75b0f78ad3fab9112c4bc155dd8008d5f9cd97\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C189:90F35:15CB0C0:47CDB1F:6AE53E9B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4491",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "509"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 124389332117,
+              "run_id": 41151658833,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124389332117"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41151658876/jobs (of each job, its ids, name, state and check run are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:28 GMT",
+          "etag": "W/\"97a968c0e0f333a275f60350605028dde679cd4ae0231df325a9f903506c84aa\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C18A:1ED2:1714536:4C060A0:6AE53E9C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4490",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "510"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 124389332665,
+              "run_id": 41151658876,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124389332665"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:29 GMT",
+          "etag": "W/\"a9dbbd439df7b88f71ee65150f1db8e9f12c5ed0aa013c4497bd67b190ef9cc4\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C18B:2371CA:10057C6:34EB6A5:6AE53E9D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4489",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "511"
+        },
+        "body": {
+          "total_count": 4,
+          "check_runs": [
+            {
+              "id": 124393224768,
+              "name": "p35-as-a-lens-from-p35-landing-b",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:57:13Z",
+              "completed_at": "2026-10-31T00:57:13Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124393224768",
+              "external_id": "",
+              "head_sha": "ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111557054277
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124393223228,
+              "name": "p35-as-a-lens-from-p35-landing-a",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:57:13Z",
+              "completed_at": "2026-10-31T00:57:13Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124393223228",
+              "external_id": "",
+              "head_sha": "ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111557054277
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124393209657,
+              "name": "p35-landing-b",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:57:12Z",
+              "completed_at": "2026-10-31T00:58:15Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41152891789/job/124393209657",
+              "external_id": "740c8f01-957b-587f-9713-e1e41d2cfff7",
+              "head_sha": "ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111557054566
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124393209075,
+              "name": "p35-landing-a",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T00:57:11Z",
+              "completed_at": "2026-10-31T00:58:15Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41152891672/job/124393209075",
+              "external_id": "ddce8ea8-5774-5163-b239-eb677c691bcc",
+              "head_sha": "ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111557054277
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, landing",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:11:56 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C2BB:1F73A7:17910C7:4DFB9AD:6AE5405B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4989",
+          "x-ratelimit-reset": "1793412562",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "11"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124393209075,
+                        "name": "p35-landing-a",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:58:15Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41152891672/job/124393209075",
+                        "externalId": "ddce8ea8-5774-5163-b239-eb677c691bcc",
+                        "checkSuite": {
+                          "databaseId": 111557054277,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41152891672,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-landing-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-landing-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124393209657,
+                        "name": "p35-landing-b",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:58:15Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41152891789/job/124393209657",
+                        "externalId": "740c8f01-957b-587f-9713-e1e41d2cfff7",
+                        "checkSuite": {
+                          "databaseId": 111557054566,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41152891789,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-landing-b"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-landing-b.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124393223228,
+                        "name": "p35-as-a-lens-from-p35-landing-a",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:57:13Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124393223228",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111557054277,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41152891672,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-landing-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-landing-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124393224768,
+                        "name": "p35-as-a-lens-from-p35-landing-b",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T00:57:13Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124393224768",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111557054277,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41152891672,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-landing-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-landing-a.yml"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:31 GMT",
+          "etag": "W/\"1f44f71f4aaf4dd4945eec9dba42a49193e69eab6e1730c39008deb37cad5fb3\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C18E:2B9244:1709D45:4BFFC2B:6AE53E9F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4487",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "513"
+        },
+        "body": {
+          "total_count": 2,
+          "workflow_runs": [
+            {
+              "id": 41152891672,
+              "name": "p35-landing-a",
+              "path": ".github/workflows/p35-landing-a.yml",
+              "event": "push",
+              "head_sha": "ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111557054277
+            },
+            {
+              "id": 41152891789,
+              "name": "p35-landing-b",
+              "path": ".github/workflows/p35-landing-b.yml",
+              "event": "push",
+              "head_sha": "ef66efcb7ac4e7e1a586faee3baf9b72e55deaa5",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111557054566
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41152891672/jobs (of each job, its ids, name, state and check run are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:32 GMT",
+          "etag": "W/\"9ddb9f996eb0849b1146508ebe47bb1556d7fb293123c44a127923c6d9e122e3\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C18F:3EA374:16754C1:4A28880:6AE53E9F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4486",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "514"
+        },
+        "body": {
+          "total_count": 3,
+          "jobs": [
+            {
+              "id": 124393209075,
+              "run_id": 41152891672,
+              "name": "p35-landing-a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124393209075"
+            },
+            {
+              "id": 124393223228,
+              "run_id": 41152891672,
+              "name": "p35-as-a-lens-from-p35-landing-a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124393223228"
+            },
+            {
+              "id": 124393224768,
+              "run_id": 41152891672,
+              "name": "p35-as-a-lens-from-p35-landing-b",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124393224768"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41152891672 --log, of the log of .github/workflows/p35-landing-a.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T00:57:13.6878186Z P35 created: id=124393223228 name=p35-as-a-lens-from-p35-landing-a suite=111557054277 conclusion=success"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41152891789/jobs (of each job, its ids, name, state and check run are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:34 GMT",
+          "etag": "W/\"ce5511e2554922519a2281363c331a90f6fd7fcdc0d6bfe941c2425bf4b11b47\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C192:1A8129:15031A7:454C5FD:6AE53EA2",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4484",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "516"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 124393209657,
+              "run_id": 41152891789,
+              "name": "p35-landing-b",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124393209657"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41152891789 --log, of the log of .github/workflows/p35-landing-b.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T00:57:14.2023087Z P35 created: id=124393224768 name=p35-as-a-lens-from-p35-landing-b suite=111557054277 conclusion=success"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41152904902/jobs (of each job, its ids, name, state and check run are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:04:39 GMT",
+          "etag": "W/\"c9769e4e153af6de5c962a86100aa5b9a9be49c2117b7190c6ae0ea2ddc6b209\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C19A:3A3F85:4056648:D1ADE78:6AE53EA7",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4478",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "522"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 124393252343,
+              "run_id": 41152904902,
+              "name": "p2-queue-check",
+              "status": "completed",
+              "conclusion": "success",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/124393252343"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/edc176fd3df614d40aa1e3ef85cbfea38842bf18/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:07:38 GMT",
+          "etag": "W/\"150643ca86a95441225131f4459b2d947c3a97395ee722295263751ac5b19721\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C274:DD8A9:1EE25F1:6678822:6AE53F5A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4461",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "539"
+        },
+        "body": {
+          "total_count": 3,
+          "check_runs": [
+            {
+              "id": 124395484188,
+              "name": "p35-forged",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:05:47Z",
+              "completed_at": "2026-10-31T01:05:47Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124395484188",
+              "external_id": "ddce8ea8-5774-5163-b239-eb677c691bcc",
+              "head_sha": "edc176fd3df614d40aa1e3ef85cbfea38842bf18",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111558891339
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124395383903,
+              "name": "p35-forge-b",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:05:25Z",
+              "completed_at": "2026-10-31T01:05:49Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41153593626/job/124395383903",
+              "external_id": "0b045f8a-e4fd-5dba-9c52-8a5466d2eece",
+              "head_sha": "edc176fd3df614d40aa1e3ef85cbfea38842bf18",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111558891717
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124395383020,
+              "name": "p35-forge-a",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:05:25Z",
+              "completed_at": "2026-10-31T01:06:58Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41153593475/job/124395383020",
+              "external_id": "31b8f00f-1a3f-511b-b1a4-b03c8a4ad1c0",
+              "head_sha": "edc176fd3df614d40aa1e3ef85cbfea38842bf18",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111558891339
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, forge",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "edc176fd3df614d40aa1e3ef85cbfea38842bf18"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:11:57 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C2BD:9D3BC:3CA59A1:C6B8FB8:6AE5405D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4987",
+          "x-ratelimit-reset": "1793412562",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "13"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124395383020,
+                        "name": "p35-forge-a",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:06:58Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41153593475/job/124395383020",
+                        "externalId": "31b8f00f-1a3f-511b-b1a4-b03c8a4ad1c0",
+                        "checkSuite": {
+                          "databaseId": 111558891339,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41153593475,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-forge-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-forge-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124395383903,
+                        "name": "p35-forge-b",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:05:49Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41153593626/job/124395383903",
+                        "externalId": "0b045f8a-e4fd-5dba-9c52-8a5466d2eece",
+                        "checkSuite": {
+                          "databaseId": 111558891717,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41153593626,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-forge-b"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-forge-b.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124395484188,
+                        "name": "p35-forged",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:05:47Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124395484188",
+                        "externalId": "ddce8ea8-5774-5163-b239-eb677c691bcc",
+                        "checkSuite": {
+                          "databaseId": 111558891339,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41153593475,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-forge-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-forge-a.yml"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=edc176fd3df614d40aa1e3ef85cbfea38842bf18&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:07:40 GMT",
+          "etag": "W/\"09d0de741e38e35a8bd63a2cb435ea8b05e9b1643c5442c58bdf12665147ae21\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C276:4D0FB:1F8F49F:6879303:6AE53F5B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4460",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "540"
+        },
+        "body": {
+          "total_count": 2,
+          "workflow_runs": [
+            {
+              "id": 41153593626,
+              "name": "p35-forge-b",
+              "path": ".github/workflows/p35-forge-b.yml",
+              "event": "push",
+              "head_sha": "edc176fd3df614d40aa1e3ef85cbfea38842bf18",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111558891717
+            },
+            {
+              "id": 41153593475,
+              "name": "p35-forge-a",
+              "path": ".github/workflows/p35-forge-a.yml",
+              "event": "push",
+              "head_sha": "edc176fd3df614d40aa1e3ef85cbfea38842bf18",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111558891339
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41153593626 --log, of the log of .github/workflows/p35-forge-b.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T01:05:47.6175967Z P35 forged: id=124395484188 suite=111558891339 details=https://github.com/combsmith/software-factory-canary/runs/124395484188 external=ddce8ea8-5774-5163-b239-eb677c691bcc"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-hide-a.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): real jobs that fail, under names another workflow's job posts a",
+            "# success under. p35-hide-late fails before the created check run; p35-hide-early fails after it.",
+            "name: p35-hide-a",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-hide]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  late:",
+            "    name: p35-hide-late",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: exit 1",
+            "  early:",
+            "    name: p35-hide-early",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: |",
+            "          sleep 120",
+            "          exit 1"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-hide-b.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): a job posts a success under the names of another workflow's jobs,",
+            "# one after the real job has failed and one before it does.",
+            "name: p35-hide-b",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-hide]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  post:",
+            "    name: p35-hide-b",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    permissions:",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Post a success under each name",
+            "        run: |",
+            "          sleep 20",
+            "          id=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=p35-hide-early -f head_sha=\"$GITHUB_SHA\" -f status=completed -f conclusion=success --jq .id)",
+            "          gh api \"repos/$REPO/check-runs/$id\" --jq '\"P35 posted: id=\\(.id) name=\\(.name) suite=\\(.check_suite.id) conclusion=\\(.conclusion)\"'",
+            "          sleep 70",
+            "          id=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=p35-hide-late -f head_sha=\"$GITHUB_SHA\" -f status=completed -f conclusion=success --jq .id)",
+            "          gh api \"repos/$REPO/check-runs/$id\" --jq '\"P35 posted: id=\\(.id) name=\\(.name) suite=\\(.check_suite.id) conclusion=\\(.conclusion)\"'"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:16:13 GMT",
+          "etag": "W/\"34c348d6a977e558ea078a5c9c8083be4467468ff7b2e68e1460446628694dfa\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C30D:30014C:1F86331:6889AF1:6AE5415C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4426",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "574"
+        },
+        "body": {
+          "total_count": 5,
+          "check_runs": [
+            {
+              "id": 124397920236,
+              "name": "p35-hide-late",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:15:00Z",
+              "completed_at": "2026-10-31T01:15:00Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124397920236",
+              "external_id": "",
+              "head_sha": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111560624842
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124397620534,
+              "name": "p35-hide-early",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:13:49Z",
+              "completed_at": "2026-10-31T01:13:49Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124397620534",
+              "external_id": "",
+              "head_sha": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111560624842
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124397514185,
+              "name": "p35-hide-late",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-31T01:13:27Z",
+              "completed_at": "2026-10-31T01:13:30Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41154275057/job/124397514185",
+              "external_id": "c2ac4c00-ac8c-5681-9546-3359bea015cc",
+              "head_sha": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111560624842
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124397513998,
+              "name": "p35-hide-early",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-31T01:13:28Z",
+              "completed_at": "2026-10-31T01:15:31Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41154275057/job/124397513998",
+              "external_id": "18cd391a-9693-5613-820e-71aad6bfad66",
+              "head_sha": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111560624842
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124397513898,
+              "name": "p35-hide-b",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:13:28Z",
+              "completed_at": "2026-10-31T01:15:03Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41154275079/job/124397513898",
+              "external_id": "c1c9d037-b606-596e-806b-2eb9fd255d2e",
+              "head_sha": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111560624890
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, hide",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:16:13 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C30E:30014C:1F865FD:688A49B:6AE5415D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4969",
+          "x-ratelimit-reset": "1793412562",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "31"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124397514185,
+                        "name": "p35-hide-late",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                        "completedAt": "2026-10-31T01:13:30Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41154275057/job/124397514185",
+                        "externalId": "c2ac4c00-ac8c-5681-9546-3359bea015cc",
+                        "checkSuite": {
+                          "databaseId": 111560624842,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41154275057,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-hide-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-hide-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124397513898,
+                        "name": "p35-hide-b",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:15:03Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41154275079/job/124397513898",
+                        "externalId": "c1c9d037-b606-596e-806b-2eb9fd255d2e",
+                        "checkSuite": {
+                          "databaseId": 111560624890,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41154275079,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-hide-b"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-hide-b.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124397513998,
+                        "name": "p35-hide-early",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                        "completedAt": "2026-10-31T01:15:31Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41154275057/job/124397513998",
+                        "externalId": "18cd391a-9693-5613-820e-71aad6bfad66",
+                        "checkSuite": {
+                          "databaseId": 111560624842,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41154275057,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-hide-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-hide-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124397620534,
+                        "name": "p35-hide-early",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:13:49Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124397620534",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111560624842,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41154275057,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-hide-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-hide-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124397920236,
+                        "name": "p35-hide-late",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:15:00Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124397920236",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111560624842,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41154275057,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-hide-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-hide-a.yml"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:16:14 GMT",
+          "etag": "W/\"eb5ed09c269959a506f4bd882526ba9525484797b633c86be969919f6a243613\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C30F:13C089:1ED51D5:6607BA2:6AE5415E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4425",
+          "x-ratelimit-reset": "1793409489",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "575"
+        },
+        "body": {
+          "total_count": 2,
+          "workflow_runs": [
+            {
+              "id": 41154275057,
+              "name": "p35-hide-a",
+              "path": ".github/workflows/p35-hide-a.yml",
+              "event": "push",
+              "head_sha": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a",
+              "status": "completed",
+              "conclusion": "failure",
+              "check_suite_id": 111560624842
+            },
+            {
+              "id": 41154275079,
+              "name": "p35-hide-b",
+              "path": ".github/workflows/p35-hide-b.yml",
+              "event": "push",
+              "head_sha": "826f82f8ebc4d0eb0c7e7738f12f3daadbc6f53a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111560624890
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41154275079 --log, of the log of .github/workflows/p35-hide-b.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T01:13:50.4158661Z P35 posted: id=124397620534 name=p35-hide-early suite=111560624842 conclusion=success",
+          "2026-10-31T01:15:01.4337471Z P35 posted: id=124397920236 name=p35-hide-late suite=111560624842 conclusion=success"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-gate.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): a required check that waits on another job, as verify waits on the",
+            "# mutants. Its job has no check run until it starts: does a success another job posts under its name stand alone till then?",
+            "name: p35-gate",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-more]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  first:",
+            "    name: p35-gate-first",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 8",
+            "    steps:",
+            "      - run: sleep 180",
+            "  gated:",
+            "    name: p35-gated-lens",
+            "    needs: first",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: exit 1"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-more.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): what else can a job's GITHUB_TOKEN do to check runs? It posts under a",
+            "# gated job's name, tries to rename and re-point another workflow's job's check, and posts to the head of another branch.",
+            "name: p35-more",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-more]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  more:",
+            "    name: p35-more",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 8",
+            "    permissions:",
+            "      actions: read",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Post under a gated job's name, before that job has a check run",
+            "        run: |",
+            "          sleep 45",
+            "          gh api \"repos/$REPO/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100\" --jq '\"P35 names before: \\([.check_runs[].name]|sort|join(\",\"))\"'",
+            "          id=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=p35-gated-lens -f head_sha=\"$GITHUB_SHA\" -f status=completed -f conclusion=success --jq .id)",
+            "          gh api \"repos/$REPO/check-runs/$id\" --jq '\"P35 posted: id=\\(.id) name=\\(.name) suite=\\(.check_suite.id) conclusion=\\(.conclusion) details=\\(.details_url)\"'",
+            "      - name: Try to rename and re-point another workflow's job's check",
+            "        run: |",
+            "          real=$(gh api \"repos/$REPO/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100\" --jq '[.check_runs[]|select(.name==\"p35-gate-first\")][0].id')",
+            "          echo \"P35 real: $real\"",
+            "          for field in name=p35-renamed details_url=https://github.com/combsmith/x external_id=forged output[title]=forged; do",
+            "            gh api -i -X PATCH \"repos/$REPO/check-runs/$real\" -f \"$field\" -f output[summary]=forged 2>&1 | sed -n -e \"1s/^/P35 patch $field status: /p\" -e \"\\$s/^/P35 patch $field answer: /p\" | cut -c1-260",
+            "          done",
+            "          gh api \"repos/$REPO/check-runs/$real\" --jq '\"P35 real after: name=\\(.name) status=\\(.status) details=\\(.details_url) external=\\(.external_id) title=\\(.output.title)\"'",
+            "      - name: Post to the head of another branch",
+            "        run: |",
+            "          other=$(gh api \"repos/$REPO/git/ref/heads/trial/p35-other\" --jq .object.sha)",
+            "          echo \"P35 other head: $other\"",
+            "          gh api -i -X POST \"repos/$REPO/check-runs\" -f name=p35-from-elsewhere -f head_sha=\"$other\" -f status=completed -f conclusion=success 2>&1 | sed -n -e '1s/^/P35 cross status: /p' | cut -c1-120",
+            "          gh api \"repos/$REPO/commits/$other/check-runs?filter=all&per_page=100\" --jq '.check_runs[]|\"P35 on other: id=\\(.id) name=\\(.name) suite=\\(.check_suite.id) conclusion=\\(.conclusion) details=\\(.details_url)\"'",
+            "          sleep 200",
+            "          gh api \"repos/$REPO/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100\" --jq '.check_runs[]|\"P35 at the end: id=\\(.id) name=\\(.name) conclusion=\\(.conclusion) details=\\(.details_url)\"'"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-other.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): a head with a suite of its own, which another branch's job posts to.",
+            "name: p35-other",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-other]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  own:",
+            "    name: p35-other-own",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: sleep 240"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-rename-a.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): a real job whose check run another workflow's job tries to change.",
+            "name: p35-rename-a",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-rename]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  real:",
+            "    name: p35-rename-real",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: |",
+            "          sleep 120",
+            "          exit 1"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-rename-b.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): can a job's GITHUB_TOKEN rename or re-point another workflow's job's",
+            "# check run? Each field alone, with no output, while the real job runs and after it has failed.",
+            "name: p35-rename-b",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-rename]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  try:",
+            "    name: p35-rename-b",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 6",
+            "    permissions:",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Each field alone, while it runs and after it fails",
+            "        run: |",
+            "          sleep 30",
+            "          real=$(gh api \"repos/$REPO/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100\" --jq '[.check_runs[]|select(.name==\"p35-rename-real\")][0].id')",
+            "          echo \"P35 real: $real\"",
+            "          attempt() {",
+            "            for field in details_url=https://github.com/combsmith/x external_id=forged name=p35-renamed; do",
+            "              code=$(gh api -i -X PATCH \"repos/$REPO/check-runs/$real\" -f \"$field\" 2>&1 | sed -n 1p | cut -c1-40)",
+            "              echo \"P35 $1 patch $field: $code\"",
+            "              gh api \"repos/$REPO/check-runs/$real\" --jq '\"P35 '\"$1\"' then: name=\\(.name) status=\\(.status) conclusion=\\(.conclusion) details=\\(.details_url) external=\\(.external_id)\"'",
+            "            done",
+            "          }",
+            "          attempt running",
+            "          sleep 130",
+            "          attempt finished"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/4a914e2225065ee8627b5053b24854c635932bf9/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:11 GMT",
+          "etag": "W/\"8a0ef5dddbbf55e03d1dbc6316509fb05fc12a627e5fe3a1532c10390f85257b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C564:35503E:17FDD89:4F17A23:6AE54592",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4931",
+          "x-ratelimit-reset": "1793413122",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "69"
+        },
+        "body": {
+          "total_count": 4,
+          "check_runs": [
+            {
+              "id": 124401250014,
+              "name": "p35-gated-lens",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-31T01:28:21Z",
+              "completed_at": "2026-10-31T01:28:24Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41155247333/job/124401250014",
+              "external_id": "e3a6cd5b-c09b-551c-ab07-aa2638b5f1bb",
+              "head_sha": "4a914e2225065ee8627b5053b24854c635932bf9",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111563135375
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124400697434,
+              "name": "p35-gated-lens",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:25:52Z",
+              "completed_at": "2026-10-31T01:25:52Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124400697434",
+              "external_id": "",
+              "head_sha": "4a914e2225065ee8627b5053b24854c635932bf9",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111563135375
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124400497020,
+              "name": "p35-more",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:25:05Z",
+              "completed_at": "2026-10-31T01:29:16Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41155247600/job/124400497020",
+              "external_id": "7636a3dd-5a46-589f-8642-0a5452ceb999",
+              "head_sha": "4a914e2225065ee8627b5053b24854c635932bf9",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111563135962
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124400496194,
+              "name": "p35-gate-first",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:25:05Z",
+              "completed_at": "2026-10-31T01:28:09Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41155247333/job/124400496194",
+              "external_id": "2b682a17-20fd-5942-af8c-aa11ca9e81b6",
+              "head_sha": "4a914e2225065ee8627b5053b24854c635932bf9",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111563135375
+              },
+              "output": {
+                "title": "forged"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, gate",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "4a914e2225065ee8627b5053b24854c635932bf9"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:11 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C565:83EDA:39EBBF1:BE495D9:6AE54593",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4859",
+          "x-ratelimit-reset": "1793412562",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "141"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124400496194,
+                        "name": "p35-gate-first",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:28:09Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41155247333/job/124400496194",
+                        "externalId": "2b682a17-20fd-5942-af8c-aa11ca9e81b6",
+                        "checkSuite": {
+                          "databaseId": 111563135375,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155247333,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-gate"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-gate.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124400497020,
+                        "name": "p35-more",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:29:16Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41155247600/job/124400497020",
+                        "externalId": "7636a3dd-5a46-589f-8642-0a5452ceb999",
+                        "checkSuite": {
+                          "databaseId": 111563135962,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155247600,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-more"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-more.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124401250014,
+                        "name": "p35-gated-lens",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                        "completedAt": "2026-10-31T01:28:24Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41155247333/job/124401250014",
+                        "externalId": "e3a6cd5b-c09b-551c-ab07-aa2638b5f1bb",
+                        "checkSuite": {
+                          "databaseId": 111563135375,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155247333,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-gate"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-gate.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124400697434,
+                        "name": "p35-gated-lens",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:25:52Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124400697434",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111563135375,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155247333,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-gate"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-gate.yml"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=4a914e2225065ee8627b5053b24854c635932bf9&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:12 GMT",
+          "etag": "W/\"73de6175edf89556968f9374445a0fd8775bb1107d461b7b59e6758bd39992e4\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C567:3A5F8F:1BED8E3:5C86705:6AE54594",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4929",
+          "x-ratelimit-reset": "1793413122",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "71"
+        },
+        "body": {
+          "total_count": 2,
+          "workflow_runs": [
+            {
+              "id": 41155247333,
+              "name": "p35-gate",
+              "path": ".github/workflows/p35-gate.yml",
+              "event": "push",
+              "head_sha": "4a914e2225065ee8627b5053b24854c635932bf9",
+              "status": "completed",
+              "conclusion": "failure",
+              "check_suite_id": 111563135375
+            },
+            {
+              "id": 41155247600,
+              "name": "p35-more",
+              "path": ".github/workflows/p35-more.yml",
+              "event": "push",
+              "head_sha": "4a914e2225065ee8627b5053b24854c635932bf9",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111563135962
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41155247600 --log, of the log of .github/workflows/p35-more.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T01:25:52.3272664Z P35 names before: p35-gate-first,p35-more",
+          "2026-10-31T01:25:53.0424931Z P35 posted: id=124400697434 name=p35-gated-lens suite=111563135375 conclusion=success details=https://github.com/combsmith/software-factory-canary/runs/124400697434",
+          "2026-10-31T01:25:53.3203570Z P35 real: 124400496194",
+          "2026-10-31T01:25:53.5045281Z P35 patch name=p35-renamed status: HTTP/2.0 422 Unprocessable Entity",
+          "2026-10-31T01:25:53.5046387Z P35 patch name=p35-renamed answer: \"title\" wasn't supplied. (HTTP 422)",
+          "2026-10-31T01:25:53.9088662Z P35 patch external_id=forged status: HTTP/2.0 422 Unprocessable Entity",
+          "2026-10-31T01:25:53.9089894Z P35 patch external_id=forged answer: \"title\" wasn't supplied. (HTTP 422)",
+          "2026-10-31T01:25:54.2095881Z P35 patch output[title]=forged status: HTTP/2.0 200 OK",
+          "2026-10-31T01:25:54.2097418Z P35 patch output[title]=forged answer: {\"id\":124400496194,\"name\":\"p35-gate-first\",\"node_id\":\"CR_kwDOVFD6788AAAAc9tjuQg\",\"head_sha\":\"4a914e2225065ee8627b5053b24854c635932bf",
+          "2026-10-31T01:25:54.4388264Z P35 real after: name=p35-gate-first status=in_progress details=https://github.com/combsmith/software-factory-canary/actions/runs/41155247333/job/124400496194 external=2b68",
+          "2026-10-31T01:25:54.6552662Z P35 other head: 589748ca151dfdd6e446668d87e70a0265f35541",
+          "2026-10-31T01:25:55.1420388Z P35 cross status: HTTP/2.0 201 Created",
+          "2026-10-31T01:25:55.3975622Z P35 on other: id=124400707448 name=p35-from-elsewhere suite=111563117845 conclusion=success details=https://github.com/combsmith/software-factory-canary/runs/124400707448",
+          "2026-10-31T01:25:55.3978241Z P35 on other: id=124400475488 name=p35-other-own suite=111563117845 conclusion=null details=https://github.com/combsmith/software-factory-canary/actions/runs/41155240108/j",
+          "2026-10-31T01:29:15.7651907Z P35 at the end: id=124401250014 name=p35-gated-lens conclusion=failure details=https://github.com/combsmith/software-factory-canary/actions/runs/41155247333/job/1244012500",
+          "2026-10-31T01:29:15.7658142Z P35 at the end: id=124400697434 name=p35-gated-lens conclusion=success details=https://github.com/combsmith/software-factory-canary/runs/124400697434",
+          "2026-10-31T01:29:15.7681024Z P35 at the end: id=124400497020 name=p35-more conclusion=null details=https://github.com/combsmith/software-factory-canary/actions/runs/41155247600/job/124400497020",
+          "2026-10-31T01:29:15.7682659Z P35 at the end: id=124400496194 name=p35-gate-first conclusion=success details=https://github.com/combsmith/software-factory-canary/actions/runs/41155247333/job/1244004961"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/589748ca151dfdd6e446668d87e70a0265f35541/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:15 GMT",
+          "etag": "W/\"e819d46b6d83c4db00e4403a8681a8f1afc50c0c8a697f77b5fc4175c7510e72\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C56B:DFC83:171EA28:4C50778:6AE54597",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4926",
+          "x-ratelimit-reset": "1793413122",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "74"
+        },
+        "body": {
+          "total_count": 2,
+          "check_runs": [
+            {
+              "id": 124400707448,
+              "name": "p35-from-elsewhere",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:25:54Z",
+              "completed_at": "2026-10-31T01:25:54Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124400707448",
+              "external_id": "",
+              "head_sha": "589748ca151dfdd6e446668d87e70a0265f35541",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111563117845
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124400475488,
+              "name": "p35-other-own",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:25:00Z",
+              "completed_at": "2026-10-31T01:29:03Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41155240108/job/124400475488",
+              "external_id": "42091c50-24d6-50be-9270-e7f6a237ed9b",
+              "head_sha": "589748ca151dfdd6e446668d87e70a0265f35541",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111563117845
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, other",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "589748ca151dfdd6e446668d87e70a0265f35541"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:16 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C56C:20A928:3AE47E6:C1A663A:6AE54597",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4858",
+          "x-ratelimit-reset": "1793412562",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "142"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124400475488,
+                        "name": "p35-other-own",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:29:03Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41155240108/job/124400475488",
+                        "externalId": "42091c50-24d6-50be-9270-e7f6a237ed9b",
+                        "checkSuite": {
+                          "databaseId": 111563117845,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155240108,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-other"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-other.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124400707448,
+                        "name": "p35-from-elsewhere",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:25:54Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124400707448",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111563117845,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155240108,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-other"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-other.yml"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=589748ca151dfdd6e446668d87e70a0265f35541&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:17 GMT",
+          "etag": "W/\"d147d025a35817afd95d325a0e55477ea6a1583d45bfb7621fa1118817c36d5f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C56E:3EA374:18B71E2:5196697:6AE54598",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4924",
+          "x-ratelimit-reset": "1793413122",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "76"
+        },
+        "body": {
+          "total_count": 1,
+          "workflow_runs": [
+            {
+              "id": 41155240108,
+              "name": "p35-other",
+              "path": ".github/workflows/p35-other.yml",
+              "event": "push",
+              "head_sha": "589748ca151dfdd6e446668d87e70a0265f35541",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111563117845
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/1dd4739796e88e5d31a72f950a78b0baccc42328/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:18 GMT",
+          "etag": "W/\"4864ddea71a4bd996118e5e7df7eb34f5fe79f5991bc4771d35b86e7a7924f9d\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C571:216D8B:195E214:53993C1:6AE54599",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4922",
+          "x-ratelimit-reset": "1793413122",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "78"
+        },
+        "body": {
+          "total_count": 2,
+          "check_runs": [
+            {
+              "id": 124401715905,
+              "name": "p35-rename-b",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T01:30:08Z",
+              "completed_at": "2026-10-31T01:32:55Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41155636700/job/124401715905",
+              "external_id": "0ab98347-db84-519a-9954-06848a99a73a",
+              "head_sha": "1dd4739796e88e5d31a72f950a78b0baccc42328",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111564142638
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124401715617,
+              "name": "p35-rename-real",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-10-31T01:30:08Z",
+              "completed_at": "2026-10-31T01:32:10Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/124401715617",
+              "external_id": "forged",
+              "head_sha": "1dd4739796e88e5d31a72f950a78b0baccc42328",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111564142393
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, rename",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "1dd4739796e88e5d31a72f950a78b0baccc42328"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:18 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C572:1688CF:168FF69:4ABAC4E:6AE5459A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4857",
+          "x-ratelimit-reset": "1793412562",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "143"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124401715617,
+                        "name": "p35-rename-real",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                        "completedAt": "2026-10-31T01:32:10Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/124401715617",
+                        "externalId": "forged",
+                        "checkSuite": {
+                          "databaseId": 111564142393,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155636613,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-rename-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-rename-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124401715905,
+                        "name": "p35-rename-b",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T01:32:55Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41155636700/job/124401715905",
+                        "externalId": "0ab98347-db84-519a-9954-06848a99a73a",
+                        "checkSuite": {
+                          "databaseId": 111564142638,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41155636700,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-rename-b"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-rename-b.yml"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=1dd4739796e88e5d31a72f950a78b0baccc42328&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 01:34:20 GMT",
+          "etag": "W/\"c6e9bc831a25509762f7df3f167c52e1e3f103aea5a679cdb5e22235dd6aaa90\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "C575:20A928:3AE5D3E:C1AADFA:6AE5459B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4920",
+          "x-ratelimit-reset": "1793413122",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "80"
+        },
+        "body": {
+          "total_count": 2,
+          "workflow_runs": [
+            {
+              "id": 41155636613,
+              "name": "p35-rename-a",
+              "path": ".github/workflows/p35-rename-a.yml",
+              "event": "push",
+              "head_sha": "1dd4739796e88e5d31a72f950a78b0baccc42328",
+              "status": "completed",
+              "conclusion": "failure",
+              "check_suite_id": 111564142393
+            },
+            {
+              "id": 41155636700,
+              "name": "p35-rename-b",
+              "path": ".github/workflows/p35-rename-b.yml",
+              "event": "push",
+              "head_sha": "1dd4739796e88e5d31a72f950a78b0baccc42328",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111564142638
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41155636700 --log, of the log of .github/workflows/p35-rename-b.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T01:30:39.7222129Z P35 real: 124401715617",
+          "2026-10-31T01:30:40.1176477Z P35 running patch details_url=https://github.com/combsmith/x: HTTP/2.0 200 OK",
+          "2026-10-31T01:30:40.3975356Z P35 running then: name=p35-rename-real status=in_progress conclusion=null details=https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/1244017",
+          "2026-10-31T01:30:40.7288816Z P35 running patch external_id=forged: HTTP/2.0 200 OK",
+          "2026-10-31T01:30:40.9960885Z P35 running then: name=p35-rename-real status=in_progress conclusion=null details=https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/1244017",
+          "2026-10-31T01:30:41.3414564Z P35 running patch name=p35-renamed: HTTP/2.0 200 OK",
+          "2026-10-31T01:30:41.5701405Z P35 running then: name=p35-rename-real status=in_progress conclusion=null details=https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/1244017",
+          "2026-10-31T01:32:51.8781594Z P35 finished patch details_url=https://github.com/combsmith/x: HTTP/2.0 200 OK",
+          "2026-10-31T01:32:52.1740715Z P35 finished then: name=p35-rename-real status=completed conclusion=failure details=https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/12440",
+          "2026-10-31T01:32:52.5367138Z P35 finished patch external_id=forged: HTTP/2.0 200 OK",
+          "2026-10-31T01:32:52.8967812Z P35 finished then: name=p35-rename-real status=completed conclusion=failure details=https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/12440",
+          "2026-10-31T01:32:53.2342139Z P35 finished patch name=p35-renamed: HTTP/2.0 200 OK",
+          "2026-10-31T01:32:53.4951274Z P35 finished then: name=p35-rename-real status=completed conclusion=failure details=https://github.com/combsmith/software-factory-canary/actions/runs/41155636613/job/12440"
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-self-a.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): the workflow whose suite a created check run lands in.",
+            "name: p35-self-a",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-self]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  real:",
+            "    name: p35-self-a",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - run: sleep 120"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p35-self-b.yml, on a branch the trial alone used, closed and deleted after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "file": [
+            "# Platform trial P-35 (combsmith/software-factory#186): can a job PATCH its own created check run's details_url to a real",
+            "# job's form, with the id of the run whose suite it landed in, and that check's own id? Created in progress and created",
+            "# completed, and read back after each.",
+            "name: p35-self-b",
+            "on:",
+            "  push:",
+            "    branches: [trial/p35-self]",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  self:",
+            "    name: p35-self-b",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    permissions:",
+            "      actions: read",
+            "      checks: write",
+            "    env:",
+            "      GH_TOKEN: ${{ github.token }}",
+            "      REPO: ${{ github.repository }}",
+            "    steps:",
+            "      - name: Create, then PATCH its own details",
+            "        run: |",
+            "          sleep 20",
+            "          for state in in_progress completed; do",
+            "            if [ \"$state\" = completed ]; then extra=\"-f conclusion=success\"; else extra=\"\"; fi",
+            "            id=$(gh api -X POST \"repos/$REPO/check-runs\" -f name=\"p35-self-$state\" -f head_sha=\"$GITHUB_SHA\" -f status=$state $extra --jq .id)",
+            "            suite=$(gh api \"repos/$REPO/check-runs/$id\" --jq .check_suite.id)",
+            "            run=$(gh api \"repos/$REPO/actions/runs?head_sha=$GITHUB_SHA&per_page=10\" --jq \".workflow_runs[]|select(.check_suite_id==$suite)|.id\")",
+            "            echo \"P35 self $state: id=$id suite=$suite run=$run own_run=$GITHUB_RUN_ID\"",
+            "            for target in \"$run\" \"$GITHUB_RUN_ID\"; do",
+            "              url=\"https://github.com/$REPO/actions/runs/$target/job/$id\"",
+            "              code=$(gh api -i -X PATCH \"repos/$REPO/check-runs/$id\" -f details_url=\"$url\" 2>&1 | sed -n 1p | cut -c1-40)",
+            "              echo \"P35 self $state patch to run $target: $code\"",
+            "              gh api \"repos/$REPO/check-runs/$id\" --jq '\"P35 self '\"$state\"' then: details=\\(.details_url) status=\\(.status)\"'",
+            "            done",
+            "            url=\"https://github.com/$REPO/actions/runs/$run/job/$id\"",
+            "            code=$(gh api -i -X POST \"repos/$REPO/check-runs\" -f name=\"p35-self-posted-$state\" -f head_sha=\"$GITHUB_SHA\" -f status=$state $extra -f details_url=\"$url\" 2>&1 | sed -n 1p | cut -c1-40)",
+            "            echo \"P35 self posted with a job's details: $code\"",
+            "          done",
+            "          sleep 15",
+            "          gh api \"repos/$REPO/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100\" --jq '.check_runs[]|\"P35 listed: id=\\(.id) name=\\(.name) details=\\(.details_url)\"'",
+            "          for c in $(gh api \"repos/$REPO/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100\" --jq '.check_runs[]|select(.name==\"p35-self-in_progress\")|.id'); do",
+            "            gh api -X PATCH \"repos/$REPO/check-runs/$c\" -f status=completed -f conclusion=success --jq '\"P35 own finished: status=\\(.status) conclusion=\\(.conclusion) details=\\(.details_url)\"'",
+            "          done"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/eac49ef81641f24bd6e24f7f70d829a2742cfc9a/check-runs?filter=all&per_page=100 (of each check run, its ids, name, state, times, details, external id, App, suite and output's title are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 03:15:08 GMT",
+          "etag": "W/\"8c3546a60670ca38bc33f3f66b3d9f693be639324e8fdf495557b7ef553ccb6b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E05C:36FC0F:457987A:E612F0F:6AE55D3C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "2436",
+          "x-ratelimit-reset": "1793416740",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "2564"
+        },
+        "body": {
+          "total_count": 6,
+          "check_runs": [
+            {
+              "id": 124425574191,
+              "name": "p35-self-posted-completed",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T03:12:40Z",
+              "completed_at": "2026-10-31T03:12:40Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124425574191",
+              "external_id": "",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111583795581
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124425564509,
+              "name": "p35-self-completed",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T03:12:38Z",
+              "completed_at": "2026-10-31T03:12:38Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124425564509",
+              "external_id": "",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111583795581
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124425562706,
+              "name": "p35-self-posted-in_progress",
+              "status": "in_progress",
+              "conclusion": null,
+              "started_at": "2026-10-31T03:12:37Z",
+              "completed_at": null,
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124425562706",
+              "external_id": "",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111583795581
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124425552649,
+              "name": "p35-self-in_progress",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T03:12:35Z",
+              "completed_at": "2026-10-31T03:12:57Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/runs/124425552649",
+              "external_id": "",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111583795581
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124424918765,
+              "name": "p35-self-b",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T03:12:13Z",
+              "completed_at": "2026-10-31T03:12:58Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41163151374/job/124424918765",
+              "external_id": "a728a424-80a0-5908-ab43-4851192c8b1d",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111583795647
+              },
+              "output": {
+                "title": null
+              }
+            },
+            {
+              "id": 124424918551,
+              "name": "p35-self-a",
+              "status": "completed",
+              "conclusion": "success",
+              "started_at": "2026-10-31T03:12:12Z",
+              "completed_at": "2026-10-31T03:14:14Z",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/41163151315/job/124424918551",
+              "external_id": "cc8e12ba-db63-5404-bbe5-68a1c4b47d47",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              },
+              "check_suite": {
+                "id": 111583795581
+              },
+              "output": {
+                "title": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the head's checks as the port reads them, self",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "query": "query($o:GitObjectID!) { repository(owner:\"combsmith\", name:\"software-factory-canary\") { object(oid:$o) { ... on Commit { statusCheckRollup { contexts(first:50) { nodes { ... on CheckRun { databaseId name status conclusion completedAt detailsUrl externalId checkSuite { databaseId app { databaseId } workflowRun { databaseId event workflow { name } file { path } } } } } } } } } } }",
+          "variables": {
+            "o": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 03:15:09 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "E05E:41817:2012950:69B30DA:6AE55D3D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4964",
+          "x-ratelimit-reset": "1793419778",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "36"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "databaseId": 124424918551,
+                        "name": "p35-self-a",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T03:14:14Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41163151315/job/124424918551",
+                        "externalId": "cc8e12ba-db63-5404-bbe5-68a1c4b47d47",
+                        "checkSuite": {
+                          "databaseId": 111583795581,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41163151315,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-self-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-self-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124424918765,
+                        "name": "p35-self-b",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T03:12:58Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/41163151374/job/124424918765",
+                        "externalId": "a728a424-80a0-5908-ab43-4851192c8b1d",
+                        "checkSuite": {
+                          "databaseId": 111583795647,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41163151374,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-self-b"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-self-b.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124425562706,
+                        "name": "p35-self-posted-in_progress",
+                        "status": "IN_PROGRESS",
+                        "conclusion": null,
+                        "completedAt": null,
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124425562706",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111583795581,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41163151315,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-self-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-self-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124425564509,
+                        "name": "p35-self-completed",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T03:12:38Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124425564509",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111583795581,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41163151315,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-self-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-self-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124425552649,
+                        "name": "p35-self-in_progress",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T03:12:57Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124425552649",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111583795581,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41163151315,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-self-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-self-a.yml"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "databaseId": 124425574191,
+                        "name": "p35-self-posted-completed",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "completedAt": "2026-10-31T03:12:40Z",
+                        "detailsUrl": "https://github.com/combsmith/software-factory-canary/runs/124425574191",
+                        "externalId": null,
+                        "checkSuite": {
+                          "databaseId": 111583795581,
+                          "app": {
+                            "databaseId": 15368
+                          },
+                          "workflowRun": {
+                            "databaseId": 41163151315,
+                            "event": "push",
+                            "workflow": {
+                              "name": "p35-self-a"
+                            },
+                            "file": {
+                              "path": ".github/workflows/p35-self-a.yml"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=eac49ef81641f24bd6e24f7f70d829a2742cfc9a&per_page=20 (of each run, its id, name, path, event, head, state and suite are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sat, 31 Oct 2026 03:15:10 GMT",
+          "etag": "W/\"76fe73b99f3d9b68601007bb65df2fda30274d6e089aa6aea5457ce791cf2e27\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E062:FF2D:3560F5D:AF9D922:6AE55D3E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "2434",
+          "x-ratelimit-reset": "1793416740",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "2566"
+        },
+        "body": {
+          "total_count": 2,
+          "workflow_runs": [
+            {
+              "id": 41163151374,
+              "name": "p35-self-b",
+              "path": ".github/workflows/p35-self-b.yml",
+              "event": "push",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111583795647
+            },
+            {
+              "id": 41163151315,
+              "name": "p35-self-a",
+              "path": ".github/workflows/p35-self-a.yml",
+              "event": "push",
+              "head_sha": "eac49ef81641f24bd6e24f7f70d829a2742cfc9a",
+              "status": "completed",
+              "conclusion": "success",
+              "check_suite_id": 111583795581
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 41163151374 --log, of the log of .github/workflows/p35-self-b.yml, its trial lines",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": [
+          "2026-10-31T03:12:36.2454986Z P35 self in_progress: id=124425552649 suite=111583795581 run=41163151315 own_run=41163151374",
+          "2026-10-31T03:12:36.5815217Z P35 self in_progress patch to run 41163151315: HTTP/2.0 200 OK",
+          "2026-10-31T03:12:36.9134922Z P35 self in_progress then: details=https://github.com/combsmith/software-factory-canary/runs/124425552649 status=in_progress",
+          "2026-10-31T03:12:37.3209855Z P35 self in_progress patch to run 41163151374: HTTP/2.0 200 OK",
+          "2026-10-31T03:12:37.6210340Z P35 self in_progress then: details=https://github.com/combsmith/software-factory-canary/runs/124425552649 status=in_progress",
+          "2026-10-31T03:12:38.1253896Z P35 self posted with a job's details: HTTP/2.0 201 Created",
+          "2026-10-31T03:12:39.3250079Z P35 self completed: id=124425564509 suite=111583795581 run=41163151315 own_run=41163151374",
+          "2026-10-31T03:12:39.6240842Z P35 self completed patch to run 41163151315: HTTP/2.0 200 OK",
+          "2026-10-31T03:12:39.9247558Z P35 self completed then: details=https://github.com/combsmith/software-factory-canary/runs/124425564509 status=completed",
+          "2026-10-31T03:12:40.3368493Z P35 self completed patch to run 41163151374: HTTP/2.0 200 OK",
+          "2026-10-31T03:12:40.6204824Z P35 self completed then: details=https://github.com/combsmith/software-factory-canary/runs/124425564509 status=completed",
+          "2026-10-31T03:12:41.2244017Z P35 self posted with a job's details: HTTP/2.0 201 Created",
+          "2026-10-31T03:12:56.6151199Z P35 listed: id=124425574191 name=p35-self-posted-completed details=https://github.com/combsmith/software-factory-canary/runs/124425574191",
+          "2026-10-31T03:12:56.6152195Z P35 listed: id=124425564509 name=p35-self-completed details=https://github.com/combsmith/software-factory-canary/runs/124425564509",
+          "2026-10-31T03:12:56.6152950Z P35 listed: id=124425562706 name=p35-self-posted-in_progress details=https://github.com/combsmith/software-factory-canary/runs/124425562706",
+          "2026-10-31T03:12:56.6153893Z P35 listed: id=124425552649 name=p35-self-in_progress details=https://github.com/combsmith/software-factory-canary/runs/124425552649",
+          "2026-10-31T03:12:56.6154611Z P35 listed: id=124424918765 name=p35-self-b details=https://github.com/combsmith/software-factory-canary/actions/runs/41163151374/job/124424918765",
+          "2026-10-31T03:12:56.6155405Z P35 listed: id=124424918551 name=p35-self-a details=https://github.com/combsmith/software-factory-canary/actions/runs/41163151315/job/124424918551",
+          "2026-10-31T03:12:57.5025079Z P35 own finished: status=completed conclusion=success details=https://github.com/combsmith/software-factory-canary/runs/124425552649"
+        ]
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[14].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization",
+    "exchanges[18].request.headers.authorization",
+    "exchanges[19].request.headers.authorization",
+    "exchanges[20].request.headers.authorization",
+    "exchanges[21].request.headers.authorization",
+    "exchanges[22].request.headers.authorization",
+    "exchanges[23].request.headers.authorization",
+    "exchanges[24].request.headers.authorization",
+    "exchanges[25].request.headers.authorization",
+    "exchanges[26].request.headers.authorization",
+    "exchanges[27].request.headers.authorization",
+    "exchanges[28].request.headers.authorization",
+    "exchanges[29].request.headers.authorization",
+    "exchanges[30].request.headers.authorization",
+    "exchanges[31].request.headers.authorization",
+    "exchanges[32].request.headers.authorization",
+    "exchanges[33].request.headers.authorization",
+    "exchanges[34].request.headers.authorization",
+    "exchanges[35].request.headers.authorization",
+    "exchanges[36].request.headers.authorization",
+    "exchanges[37].request.headers.authorization",
+    "exchanges[38].request.headers.authorization",
+    "exchanges[39].request.headers.authorization",
+    "exchanges[40].request.headers.authorization",
+    "exchanges[41].request.headers.authorization",
+    "exchanges[42].request.headers.authorization",
+    "exchanges[43].request.headers.authorization",
+    "exchanges[44].request.headers.authorization",
+    "exchanges[45].request.headers.authorization",
+    "exchanges[46].request.headers.authorization",
+    "exchanges[47].request.headers.authorization",
+    "exchanges[48].request.headers.authorization",
+    "exchanges[49].request.headers.authorization",
+    "exchanges[50].request.headers.authorization",
+    "exchanges[51].request.headers.authorization",
+    "exchanges[52].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}
