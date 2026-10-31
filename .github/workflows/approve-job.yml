@@ -33,6 +33,7 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+        timeout-minutes: 4
         run: python3 -m harness.approve_step
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -44,6 +45,7 @@ jobs:
         if: always()
         env:
           NAME: ${{ inputs.name }}
+        timeout-minutes: 2
         run: python3 -m harness.outcome
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

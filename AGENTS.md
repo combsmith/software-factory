@@ -9,8 +9,8 @@ except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standard
 ## Verify
 
 ```
-make verify                  # every check and every test, half a minute; SIM_SEEDS=40 is quicker
-python3 -m tools.mutants     # breaks each Kernel rule, one to a CPU; a test must notice. Half a minute
+make verify                  # every check and every test: 15 minutes on CI, 40 on a busy desk; SIM_SEEDS=40 is quicker
+python3 -m tools.mutants     # breaks each rule, one to a CPU; a test must notice. Over an hour; CI runs 8 shards of 10 to 15 minutes
 ```
 
 Both must pass before a change is finished. Python 3.9 or later; nothing to install. Hooks in `.claude/settings.json` check after an edit and before a stop, refuse a commit not the Maintainer's, and ask before a protected edit or a merge, not in bypass mode.

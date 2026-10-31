@@ -16,5 +16,8 @@ jobs:
         with:
           persist-credentials: false
       - run: pip install pytest
+        timeout-minutes: 1
       - run: make verify
+        timeout-minutes: 1
       - run: python3 -m tools.mutants
+        timeout-minutes: 1
