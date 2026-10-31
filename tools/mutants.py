@@ -73,6 +73,9 @@ DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, acti
 NAMING_TESTS = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_exists",)
 ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
+SIM_CREATED = ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)
+JOB_PORT = ("tests.test_adapters.Contract.test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids",
+            "tests.test_adapters.Contract.test_a_created_check_under_a_lens_name_does_not_pass")
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
@@ -5509,6 +5512,26 @@ MUTANTS = ISSUE + [
     ("a function that is no test method is a test", "tools/mutants.py",
      '    return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"\n',
      '    return ""\n', NAMING_TESTS),
+    # Issue 439: a required Lens's check is read only where its details are its own job's (decision 0104).
+    ("a created check keeps its file", "adapters/checks.py", '"workflow": path if own else None,', '"workflow": path,', JOB_PORT),
+    ("a job's own check has no file", "adapters/checks.py", '"workflow": path if own else None,', '"workflow": None,', JOB_PORT),
+    ("the job's form need not be whole", "adapters/checks.py", 'found = JOB.fullmatch(details) if', 'found = JOB.search(details) if', JOB_PORT),
+    ("the job's run id is not compared", "adapters/checks.py", '(int(found.group(1)), int(found.group(2))) == (run_id, check_id)', 'int(found.group(2)) == check_id', JOB_PORT),
+    ("the job's id is not compared", "adapters/checks.py", '(int(found.group(1)), int(found.group(2))) == (run_id, check_id)', 'int(found.group(1)) == run_id', JOB_PORT),
+    ("an id that is none is compared", "adapters/checks.py", ' and all(type(i) is int and i > 0 for i in (check_id, run_id)) \\\n        and (int', ' \\\n        and (int', JOB_PORT),
+    ("a URL of no text is read", "adapters/checks.py", 'found = JOB.fullmatch(details) if isinstance(details, str) else None', 'found = JOB.fullmatch(details)', JOB_PORT),
+    ("the job's URL may be on another host", "adapters/checks.py", 'r"https://github\\.com/[A-Za-z0-9_.-]+/', 'r"https://[a-z.]+/[A-Za-z0-9_.-]+/', JOB_PORT),
+    ("the job's run id may lead with a zero", "adapters/checks.py", '/actions/runs/([1-9][0-9]{0,18})/job/', '/actions/runs/([0-9]{1,19})/job/', JOB_PORT),
+    ("the job's id may lead with a zero", "adapters/checks.py", '/job/([1-9][0-9]{0,18})")', '/job/([0-9]{1,19})")', JOB_PORT),
+    ("a run id may be of any length", "adapters/checks.py", '/actions/runs/([1-9][0-9]{0,18})/job/', '/actions/runs/([1-9][0-9]*)/job/', JOB_PORT),
+    ("a job id may be of any length", "adapters/checks.py", '/job/([1-9][0-9]{0,18})")', '/job/([1-9][0-9]*)")', JOB_PORT),
+    ("the job's URL may have more in it", "adapters/checks.py", 'r"https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/', 'r"https://github\\.com/.+/.+/actions/', JOB_PORT),
+    ("the fake creates no check beside a failure", "sim/world.py", 'if WORKFLOWS[lens] is not None and roll < 0.855:', 'if False:', SIM_CREATED),
+    ("the fake creates no check alone", "sim/world.py", 'if self.faults and WORKFLOWS[lens] is not None and roll < 0.02:', 'if False:', SIM_CREATED),
+    ("the read asks for no details", "adapters/checks.py", 'startedAt completedAt detailsUrl\n', 'startedAt completedAt\n', JOB_PORT),
+    ("the read asks for no run id", "adapters/checks.py", 'workflowRun { databaseId file { path } }', 'workflowRun { file { path } }', JOB_PORT),
+    ("the read asks for no check id", "adapters/checks.py", 'id databaseId name conclusion', 'id name conclusion', JOB_PORT),
+    ("the release's verify is not held to its job", "adapters/candidate.py", '        and runs[0].get("check_suite_id") == suite \\\n        and own_job(ours[0].get("details_url"), ours[0].get("id"), runs[0].get("id"))\n', '        and runs[0].get("check_suite_id") == suite\n', ("tests.test_release_step",)),
     # Issue 204: every commit a pull request carries is the Maintainer's, checked outside the shell.
     # Decision 0087: what the check says is what it holds.
     ('the check says the commits are the Maintainer\'s', 'tools/commits_are_the_maintainers.py',

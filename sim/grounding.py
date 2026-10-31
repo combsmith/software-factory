@@ -73,6 +73,9 @@ RULES = (
      "workflow file that ran it, the path of its check suite's workflow run as GitHub gives it, a dynamic/ one "
      "verbatim, with the permissions the reader and the Controller hold; a check run no workflow ran, as GitHub "
      "Advanced Security's, is read with none", ("P-35",), None, None),
+    ("a_job_creates_a_check_in_another_suite", "A job with checks: write can create a check run that lands in another "
+     "workflow's suite and reads with its name, App and path; GitHub keeps its details at /runs/ID, and only a real job's "
+     "are that job's own", ("P-35",), "trials/P-35.json", None),
     ("actions_runs_a_job_under_any_name", "GitHub Actions reports every job in the repo as one App, 15368, one a pull "
      "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
      "names that file", ("P-35",), "trials/P-35.json", None),
@@ -308,6 +311,9 @@ ASKS = {
     "a_check_names_the_workflow_that_ran_it": {
         "P-35": "Can it be read as the `path` of the check run's check suite's workflow run, with the permissions "
               "the reader and the Controller hold",
+    },
+    "a_job_creates_a_check_in_another_suite": {
+        "P-35": "Where does a check run created through the API with `GITHUB_TOKEN` and `checks: write` land",
     },
     "actions_runs_a_job_under_any_name": {
         "P-35": "does a job a pull request adds in a file of its own, under a required Lens's check name, report "

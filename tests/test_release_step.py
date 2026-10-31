@@ -73,7 +73,7 @@ SUITE = 5150      # the check suite the verify check run is of
 
 def verify_runs(commit=D, conclusion="success", app=candidate.ACTIONS_APP, more=()):
     runs = [{"name": "verify", "head_sha": commit, "status": "completed", "conclusion": conclusion, "app": {"id": app},
-             "check_suite": {"id": SUITE}}]
+             "check_suite": {"id": SUITE}, "id": 77, "details_url": "https://github.com/%s/actions/runs/901/job/77" % REPO}]
     runs += list(more)
     return ex("GET", "/repos/%s/commits/%s/check-runs?check_name=verify&filter=latest&per_page=100" % (REPO, commit),
               200, {"total_count": len(runs), "check_runs": runs})
@@ -180,6 +180,14 @@ class Candidate(unittest.TestCase):
                                           "check_suite_id": SUITE + 1}])):
             with self.subTest(suite=suite["response"]["body"]):
                 self.assertFalse(candidate.verified(github.Replay([verify_runs(), suite]), REPO, D))
+        # A check a job created under verify's name, in verify.yml's suite, has details that are not its own job's (P-35,
+        # decision 0104): nor is one of another run or another check.
+        for change in ({"details_url": "https://github.com/%s/runs/77" % REPO}, {"details_url": None}, {"id": 78},
+                       {"details_url": "https://github.com/%s/actions/runs/902/job/77" % REPO}):
+            with self.subTest(change=change):
+                answered = verify_runs()
+                answered["response"]["body"]["check_runs"][0].update(change)
+                self.assertFalse(candidate.verified(github.Replay([answered, verify_suite()]), REPO, D))
         # A suite id that is no positive integer is none, though a suite of that number would answer as verify's.
         for change, suite in (({"check_suite": None}, []), ({"check_suite": {"id": True}}, [verify_suite(suite=1)]),
                               ({"check_suite": {"id": 0}}, [verify_suite(suite=0)])):
