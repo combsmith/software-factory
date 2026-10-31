@@ -134,7 +134,7 @@ TEXT = {".py", ".json", ".md", ".yml", ".yaml", ".txt", ".toml", ".cfg", ""}
 # The shape of a credential. A secret is referred to by its name, never by its value. This is a
 # net with wide holes; the org's push protection is the real one.
 SECRETS = [re.compile(p) for p in (
-    r"gh[pousr]_[A-Za-z0-9]{30,}", r"github_pat_[A-Za-z0-9_]{30,}", r"glpat-[A-Za-z0-9_-]{20,}",
+    r"gh[a-z]_[A-Za-z0-9]{30,}", r"github_pat_[A-Za-z0-9_]{30,}", r"glpat-[A-Za-z0-9_-]{20,}",
     r"sk-(ant|proj)-[A-Za-z0-9_-]{20,}", r"AIza[0-9A-Za-z_-]{30,}", r"(AKIA|ASIA)[0-9A-Z]{16}",
     r"xox[abprs]-[A-Za-z0-9-]{10,}", r"-----BEGIN [A-Z ]*PRIVATE KEY",
 )]

@@ -1575,6 +1575,7 @@ class Repo(unittest.TestCase):
             self.assertTrue(caught(check_repo.run(root), "shaped like a credential"), name)
         shapes = ["github_pat_" + "a1B2" * 9, "glpat-" + "a1B2" * 6, "sk-" + "ant-" + "a1B2" * 6, "AKIA" + "A1B2" * 4,
                   "xoxb" + "-1234567890-abc", "-----BEGIN RSA " + "PRIVATE KEY-----"]
+        shapes = shapes + ["gh" + "h_" + "a1B2" * 9]
         for shape in shapes:
             self.assertTrue(caught(check_repo.run(tree({"a.py": "X = '%s'\n" % shape})), "credential"), shape[:6])
 
@@ -3555,7 +3556,11 @@ SHAPED = {
     "base64 of a runner's credentials": base64.b64encode(json.dumps({".runner": "x", ".credentials_rsaparams": "k"}).encode()).decode(),
     "anthropic": "sk-" + "ant-oat01-" + "A" * 40,
     "any other gh prefix": "gh" + "h_" + TAIL, "another gh prefix in a url": "https://example.com/x?scope=gh" + "x_" + TAIL,
-    "another gh prefix after an underscore": "x_gh" + "h_" + TAIL, "another gh prefix in capitals": "GH" + "H_" + TAIL,
+    "another gh prefix, short": "gh" + "h_abc", "after an underscore, short": "x_gh" + "h_abc", "after a digit, short": "1gh" + "h_abc",
+    "after a hyphen, short": "x-gh" + "h_abc", "another gh prefix in capitals": "GH" + "H_" + TAIL,
+    # After a letter, where only the long run tells it from a word: a percent escape's, a written escape's, a word's.
+    "after a percent escape's letter": "scope%3Dgh" + "h_" + TAIL, "after another": "%2Fgh" + "h_" + TAIL,
+    "after a written newline": "a\\ngh" + "h_" + TAIL, "after a word": "scopegh" + "h_" + TAIL,
     "base64 of a token behind a byte that does not print": base64.b64encode(("\x00gh" + "p_" + TAIL).encode()).decode(),
 }
 # What a fixture keeps: GitHub's ordinary words must not be refused.
@@ -6800,10 +6805,22 @@ class Redaction(unittest.TestCase):
         # Another field's address is not a check run's details: it is judged as any string is, so this one is deleted.
         out, said = self.redact(json.dumps({"html_url": vendor, "a": 1}))
         self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: html_url"))
-        # A details address with no query, and one that is no URL, stay as they are.
-        plain = {"details_url": "https://app.example.ai/x", "detailsUrl": "http://[bad?x=1"}
+        # A fragment goes as a query does, whichever comes first, and GitHub's own keeps its.
+        for url in ("https://example.ai/x#access_to" + "ken=abc", "https://example.ai/x#a?b", "https://example.ai/x?a#b"):
+            self.assertEqual(json.loads(self.redact(json.dumps({"details_url": url}))[0]), {"details_url": "https://example.ai/x"}, url)
+        self.assertEqual(redact_trial._no_vendor_query("https://github.com/o/r/runs/1#step:1:1"), "https://github.com/o/r/runs/1#step:1:1")
+        # A host that resembles GitHub's is another site, and a commit status's link is read as a check run's.
+        for url in ("https://notgithub.com/x?a=b", "https://github.com.example.ai/x?a=b", "https://example.ai/github.com?a=b"):
+            self.assertEqual(json.loads(self.redact(json.dumps({"details_url": url}))[0]), {"details_url": url.split("?")[0]}, url)
+        for field in ("target_url", "targetUrl"):
+            self.assertEqual(json.loads(self.redact(json.dumps({field: "https://example.ai/x?a=b"}))[0]), {field: "https://example.ai/x"})
+        # A details address with no query, one that is no URL, and one that names no host stay as they are. So one of those
+        # is judged as any string is, and a credential in it takes the field.
+        plain = {"details_url": "https://app.example.ai/x", "detailsUrl": "http://[bad?x=1", "target_url": "not a url?x=1"}
         self.assertEqual(json.loads(self.redact(json.dumps(plain))[0]), plain)
         self.assertEqual(redact_trial._no_vendor_query("http://[bad?x=1"), "http://[bad?x=1")
+        out, said = self.redact(json.dumps({"details_url": "not a url?scope=gh" + "h_" + "A" * 43, "a": 1}))
+        self.assertEqual((json.loads(out), said.splitlines()[0]), ({"a": 1}, "removed: details_url"))
 
     def test_a_string_is_judged_as_a_line_is_and_what_is_not_a_head_or_json_is_refused(self):
         # Issue 406, from the fourth read of PR 404. A string of JSON, an item of a list or a field's, that holds a head or
