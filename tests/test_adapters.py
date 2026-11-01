@@ -3719,7 +3719,7 @@ def written_stored(github_id: int, record, **listed) -> list:
 
 
 class EffectsRecorded(unittest.TestCase):
-    """What reconciliation reads of what the Factory recorded, each read once (decisions 0061, 0109)."""
+    """What reconciliation reads of what the Factory recorded, each read once (decisions 0061, 0110)."""
     SINCE = "2026-10-11T06:00:00Z"
     OWN = 1
     RUN = "r_01JA6Z"

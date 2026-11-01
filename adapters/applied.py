@@ -208,7 +208,7 @@ OPENED = "open_pull_request"      # the Effect that records the pull request it 
 def effects(transport, repo: str, runs, since: str, known, most: int = 50) -> dict:
     """What each completed Run the records port lists recorded since `since` and has not been read: `{"applied":
     [applied/1], "read": [each Run], "at": {Run: when it started}, "whole": bool}`, for reconciliation (decisions 0061,
-    0109). A Run is read once: `known` is the Runs a record before this one read. One past its retention recorded nothing
+    0110). A Run is read once: `known` is the Runs a record before this one read. One past its retention recorded nothing
     that can be read, and is read. One whose record cannot be read, and any past the `most` a pass reads, are not, so a later
     pass reads them, and what this one read is not whole. One that did not succeed and lists none may be yet to, so it too
     is read again, without being short. A record any job could upload could cover a stolen credential's write, so only a

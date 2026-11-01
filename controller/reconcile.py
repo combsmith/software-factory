@@ -79,13 +79,13 @@ def _last(before) -> dict:
 def known(before) -> tuple:
     """`(runs, passes)` that a record before this pass read: each is read once, a pass's attempt by its attempt, since a
     re-run writes again. With no last record, or one that holds none, nothing is known, and everything in the window is
-    read again (decision 0109)."""
+    read again (decision 0110)."""
     held = _last(before)
     return {e["id"] for e in held["runs"]}, {(e["id"], e["attempt"]) for e in held["passes"]}
 
 
 def owed(before) -> list:
-    """The pull requests a record before this pass could not read the writes on: read until they have been (decision 0109)."""
+    """The pull requests a record before this pass could not read the writes on: read until they have been (decision 0110)."""
     return list(_last(before)["owed"])
 
 
@@ -104,7 +104,7 @@ def carried(before, effects, seen, now: str, unread=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. Each key is stamped with when its record was made,
     so that a late first read does not stretch its credit past the window; what was read, with when it was read. So a record
-    holds what the Effects said, not the records themselves, and a pass reads only what is new (decision 0109)."""
+    holds what the Effects said, not the records themselves, and a pass reads only what is new (decision 0110)."""
     since = seen.get("since") if isinstance(seen, dict) else None
     held = {name: [e for e in rows if name == "owed" or since is None or e["at"] >= since]
             for name, rows in _last(before).items()}

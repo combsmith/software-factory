@@ -5589,7 +5589,7 @@ MUTANTS = ISSUE + [
     ("an opener's login may be any text", "schemas/hooks.schema.json", '            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\\\[bot\\\\])?$"\n', '            "minLength": 1\n', OPENER_TESTS),
     ("an opener's id may be text", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "minimum": 1\n          },\n          "is"', OPENER_TESTS),
     ("an opener's id may be no account's", "schemas/hooks.schema.json", '            "type": "integer",\n            "minimum": 1\n          },\n          "is"', '            "type": "integer"\n          },\n          "is"', OPENER_TESTS),
-    # Item 7 of the audit of issue 182: the pass gathers what reconciliation reads, each record once (decision 0109).
+    # Item 7 of the audit of issue 182: the pass gathers what reconciliation reads, each record once (decision 0110).
     ('a Run read before is read again', 'adapters/applied.py', ' or record["run"] in known:', ':', WIRE_RUNS),
     ('a Run still running is read', 'adapters/applied.py', 'if record["status"] != "completed" or record["started_at"]', 'if record["started_at"]', WIRE_RUNS),
     ('a Run older than the window is read', 'adapters/applied.py', ' or record["started_at"] < since or', ' or', WIRE_RUNS),

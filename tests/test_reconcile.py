@@ -629,7 +629,7 @@ class SeenPort(unittest.TestCase):
 
 
 class Carried(unittest.TestCase):
-    """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0109)."""
+    """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0110)."""
     NOW = "2026-10-11T13:00:00Z"
     NEXT = "2026-10-11T13:20:00Z"
     MADE = "2026-10-11T12:00:00Z"
