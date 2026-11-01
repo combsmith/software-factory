@@ -1,6 +1,6 @@
 # 0113. A shim inherits secrets, and a Run's last job wakes the poller
 
-Status: accepted. Trial P-55, #196's ruling 9, run on 2026-11-01, failed its pass condition on two parts. These are their fixes, under the orchestrator's rulings of 2026-11-01. They amend #196's rulings 3, 4 and 5. They replace, in decision 0057, the rows that a shim's job holds nothing but its call, grant, concurrency, `if` and `with`, that the poller wakes on the end of `sf-run`, and that no job but the pass job is granted a write; in decision 0043, that a Run's end restarts the chain through what the poller listens to; and in decision 0066, that a Run has three jobs. §4.9 gains a holder of the grant.
+Status: accepted. Trial P-55, #196's ruling 9, run on 2026-11-01, failed its pass condition on two parts. These are their fixes, under the orchestrator's rulings of 2026-11-01. They amend #196's rulings 3, 4 and 5. They change, in decision 0057, the rows that a shim's job holds nothing but its call, grant, concurrency, `if` and `with`, that the poller wakes on the end of `sf-run`, and that no job but the pass job is granted a write; in decision 0043, that a Run's end restarts the chain through what the poller listens to; and in decision 0066, that a Run has three jobs. §4.9 gains a holder of the grant.
 
 ## Decision
 
