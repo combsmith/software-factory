@@ -819,7 +819,9 @@ class StatusFixture(unittest.TestCase):
         self.assertEqual((long_id["status"], len(long_read["body"]["external_id"])), (200, 255))
         self.assertEqual(long_read["body"]["output"]["text"], None)
         self.assertEqual(long_read["body"]["output"]["title"], wanted["output"]["title"])
+        self.assertEqual(long_read["body"]["output"]["summary"], wanted["output"]["summary"])
         # The output is kept at its limits, and one past them is refused, changing nothing.
+        self.assertEqual(len(full_read["body"]["output"]["title"]), 255)
         self.assertEqual(full_read["body"]["output"]["summary"], "<65535 characters>")
         self.assertEqual(full_read["body"]["output"]["text"], "<65535 characters>")
         self.assertEqual(past["status"], 422)

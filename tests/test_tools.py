@@ -21,6 +21,7 @@ import pathlib
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -8991,8 +8992,12 @@ class StatusTrial(IssueLookupTrial):
             kept.write(json.dumps(sent) + "\\n")
     if method == "POST" and os.path.exists(os.path.join(here, "no-create")):
         status, answer = 422, {"message": "Validation Failed"}
+    elif method == "POST" and os.path.exists(os.path.join(here, "odd.id")):
+        status, answer = 201, {"id": "7/../../../../x", "external_id": sent["external_id"]}
     elif method == "POST":
         status, answer = 201, {"id": 7, "external_id": sent["external_id"]}
+    elif method == "PATCH" and os.path.exists(os.path.join(here, "no-patch")):
+        status, answer = 422, {"message": "Validation Failed"}
     elif "/commits/" in url:
         status, answer = 200, {"total_count": 1, "check_runs": [{"id": 7}]}
     else:
@@ -9023,8 +9028,14 @@ elif "/collaborators/" in url:""", 1)
         self.assertEqual(calls[-1]["method"], "DELETE")
         self.assertEqual(calls[-1]["url"].rsplit("/", 2)[1:], ["installation", "token"])
         self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+        self.assertEqual(stat.S_IMODE(self.out.stat().st_mode), 0o700)
         sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
         self.assertEqual(sent[0]["name"], "status_on_item")
+        # What the trial's findings rest on: an edit with its whole output, and one with no output at all.
+        self.assertEqual(sorted(sent[1]), ["external_id", "output"])
+        self.assertEqual(sorted(sent[1]["output"]), ["summary", "text", "title"])
+        self.assertEqual(sorted(sent[3]), ["external_id"])
+        self.assertRegex(sent[0]["external_id"], r"^d[0-9a-f]{32}$")
         self.assertEqual((sent[0]["head_sha"], sent[0]["status"], sent[0]["conclusion"]), (self.HEAD, "completed", "neutral"))
         self.assertEqual([len(s["external_id"]) for s in sent[:4]], [33, 33, 33, 1000])
         self.assertEqual(len({s["external_id"] for s in sent[:4]}), 4)
@@ -9061,6 +9072,21 @@ elif "/collaborators/" in url:""", 1)
                 self.assertFalse((self.out / "requests.json").exists())
                 self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
                 self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_an_id_that_is_no_number_reaches_no_address_the_token_calls(self):
+        (self.stand_in / "odd.id").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+        self.assertIn("the first create gave no run's id", ran.stderr)
+
+    def test_a_later_call_github_refuses_is_kept_and_the_run_goes_on(self):
+        (self.stand_in / "no-patch").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = [a for a in json.loads((self.out / "requests.json").read_text()) if "call" in a]
+        self.assertEqual(len(asked), 16)
+        self.assertEqual([a["status"] for a in asked if a["call"].startswith("PATCH")], [422] * 4)
 
     def test_a_later_call_the_redaction_refused_stops_the_run(self):
         # The first create read, the read after it is cut short: nothing further is asked, and its token is revoked.
@@ -9101,6 +9127,8 @@ elif "/collaborators/" in url:""", 1)
         ran = self.run_script()
         self.assertIn("cannot read the key file", ran.stderr)
         self.assertEqual(self.calls(), [])
+
+
 class CommentsReadTrial(IssueLookupTrial):
     """`tools/trial_p56_comments.sh`, run against the same stand-ins and never GitHub (decision 0061). It is P-54's script
     with another permission and another read, so every test of that one runs over it too, by inheritance."""

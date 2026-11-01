@@ -4,7 +4,7 @@
   "question": "Does a check run's external_id round-trip, so it can serve as a recovery key; and, with the Controller App's own token, narrowed to checks: write and metadata: read, is its status check run found by name and App, edited in place, and what does GitHub keep of its output, of one created twice, and after a push?",
   "pass": "Written before the run, in issue 454 and at the top of tools/trial_p12_status.sh: pass if the external_id reads back exactly, the list by name and App finds this App's run alone, and an edit in place keeps the id and reads back the new values. Recorded, deciding nothing: what GitHub keeps of the output, at a length past its limit too; whether a long external_id is kept; what creating twice with one name on one head gives, by filter=latest and filter=all; and what a later push does to the old head's run.",
   "repo": "combsmith/software-factory-canary",
-  "ran_at": "2026-11-01T12:18:55Z",
+  "ran_at": "2026-11-01T03:39:08Z",
   "exchanges": [
     {
       "request": {
