@@ -952,7 +952,7 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["diff_not_whole"])
 
-    def test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers(self):  # decision 0110
+    def test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers(self):  # decision 0106
         # The first eval on a runner read 42 cases as failed in 8 s: the CLI never started, and each failed Result was
         # scored as the reviewer's. A reason that says the model gave no answer is the case's code, tells nothing of what
         # it expected, fails the run, and says so in a code of its own.
@@ -1050,7 +1050,7 @@ class EvalJob(unittest.TestCase):
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
 
-    def test_the_canary_installs_the_block_the_jobs_hold(self):  # decision 0110
+    def test_the_canary_installs_the_block_the_jobs_hold(self):  # decision 0106
         # Word for word what the eval job and the Run's jobs run, at the pin and by its checksum: a line taken from them
         # is taken from the check, which a copy in the canary's workflow would not notice.
         from harness.eval import canary
@@ -1068,7 +1068,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(env, {"PATH": "/bin", "CLI_VERSION": pin, "CLI_CHECKSUM": check_workflows.CLI_CHECKSUMS[pin]})
         self.assertFalse(check)
 
-    def test_the_canary_is_red_unless_the_cli_answered(self):  # decision 0110
+    def test_the_canary_is_red_unless_the_cli_answered(self):  # decision 0106
         from harness.eval import canary, run as step
         from tests import test_harness as live
 

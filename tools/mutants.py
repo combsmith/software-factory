@@ -6927,7 +6927,7 @@ MUTANTS = ISSUE + [
     ('a case with no facts is filled', 'harness/eval/__init__.py',
      '        if isinstance(case, dict) and "facts" in case:\n            case = dict(case, facts',
      '        if isinstance(case, dict):\n            case = dict(case, facts', ("tests.test_evals.EvalJob.test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone",)),
-    # Decision 0110: the CLI runs with its scrub on, and the check that says so runs what the jobs hold.
+    # Decision 0106: the CLI runs with its scrub on, and the check that says so runs what the jobs hold.
     ('the eval job installs no bubblewrap', 'tools/check_workflows.py',
      '"sudo mv /tmp/claude /usr/local/bin/claude",\n                   "sudo apt-get install -y --no-install-recommends bubblewrap"]',
      '"sudo mv /tmp/claude /usr/local/bin/claude"]', ("tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone",)),
@@ -6948,7 +6948,7 @@ MUTANTS = ISSUE + [
      'told(call), clock)', 'call, clock)', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'done.stderr[-TAIL:]', 'done.stderr', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
-    # Decision 0110: a fault of the Engine or the Factory is never the reviewer's.
+    # Decision 0106: a fault of the Engine or the Factory is never the reviewer's.
     ("an Engine fault reads as the reviewer's", 'harness/eval/__init__.py',
      '        if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:\n            assessed[entry["id"]] = ("unreadable", [result["reason"]])\n            continue\n',
      '', ("tests.test_evals.EvalJob.test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers",)),

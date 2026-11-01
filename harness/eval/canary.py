@@ -1,4 +1,4 @@
-"""The Engine's check end to end (decision 0110): the install and one review, on a real runner, for one model call.
+"""The Engine's check end to end (decision 0106): the install and one review, on a real runner, for one model call.
 
 A workflow of the canary repo runs it on a checkout of this repo's `main`, weekly and before each cut: `install`, then
 `review`, each a step, the model's credential in `review` alone. `install` runs the lines the eval job and the Run's jobs

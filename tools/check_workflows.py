@@ -473,7 +473,7 @@ EVAL_ORDER = ("checkout", "plan", "install", "fetch", "run", "upload", "judge")
 # The CLI's install, the one the Run's jobs hold word for word in RUN_JOBS_FILE: the eval job installs the CLI a live
 # Run does, at the Engine's pin and by the vendor's checksum (issue 309, amendment 1). Its version and checksum are given
 # under env:, as RUN_JOBS_FILE gives them. Bubblewrap is the one package: the CLI refuses to run with the scrub on and
-# none on the runner (decision 0110). It is fetched as root by Ubuntu's signature, so it comes before anything is in the
+# none on the runner (decision 0106). It is fetched as root by Ubuntu's signature, so it comes before anything is in the
 # job: in the eval job, before the fetch, as in the Run's jobs before the reader.
 CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
                    "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
