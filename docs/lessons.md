@@ -328,6 +328,11 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 **Rule.** An automatic pause needs faults that agree, from Runs on different items, of the Factory's own capacity, inside a recent window.
 **Check.** `tests/test_controller.py::test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window`
 
+### L-62 A broken Engine read as a reviewer that failed
+**Failure.** The second eval read 42 of 44 cases as failed in 8 seconds, and no model had run: the CLI refused to start with its scrub on and no bubblewrap on the runner. The trials' workflows had installed it, so no trial saw it, and the job's report blamed the reviewer.
+**Rule.** A fault of the Engine or the Factory is reported as that, never as the reviewer's. What a trial's workflow installs is part of what it measured, and a check runs the jobs' own install and one review on a real runner.
+**Check.** `tests/test_evals.py::test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers`, `tests/test_evals.py::test_the_canary_is_red_unless_the_cli_answered`
+
 ## Not carried over
 
 These failures were real, and nothing here can hold a rule for them yet, so they are recorded as

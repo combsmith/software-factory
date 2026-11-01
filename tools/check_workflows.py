@@ -229,6 +229,8 @@ jobs:
           echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c
           chmod 0755 /tmp/claude
           sudo mv /tmp/claude /usr/local/bin/claude
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends bubblewrap
       - name: Read what the Task is built from
         id: read
         env:
@@ -468,15 +470,19 @@ EVAL_STEP = "python3 -m harness.eval.%s"
 # The one upload the eval job may run, by its commit, as CHECKOUT is the one checkout: an action in the one job that
 # holds both credentials can read them both (decision 0053), so a bump of it edits this too.
 UPLOAD = ("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", "# v7.0.2")
-EVAL_ORDER = ("checkout", "plan", "fetch", "install", "run", "upload", "judge")
+EVAL_ORDER = ("checkout", "plan", "install", "fetch", "run", "upload", "judge")
 # The CLI's install, the one the Run's jobs hold word for word in RUN_JOBS_FILE: the eval job installs the CLI a live
-# Run does, at the Engine's pin and by the vendor's checksum, between the fetch and the model's step (issue 309,
-# amendment 1). Its version and checksum are given under env:, as RUN_JOBS_FILE gives them.
+# Run does, at the Engine's pin and by the vendor's checksum (issue 309, amendment 1). Its version and checksum are given
+# under env:, as RUN_JOBS_FILE gives them. Bubblewrap is the one package: the CLI refuses to run with the scrub on and
+# none on the runner (decision 0106). It is fetched as root by Ubuntu's signature, so it comes before anything is in the
+# job: in the eval job, before the fetch, as in the Run's jobs before the reader.
 CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
                    "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
                    'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c',
                    "chmod 0755 /tmp/claude",
-                   "sudo mv /tmp/claude /usr/local/bin/claude"]
+                   "sudo mv /tmp/claude /usr/local/bin/claude",
+                   "sudo apt-get update -q",
+                   "sudo apt-get install -y --no-install-recommends bubblewrap"]
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
 # Its runner, the one the CLI's linux-x64 install is for, and its timeout, which the run step's budget is held inside
 # (harness/eval/run.py, BUDGET): a shorter one would end the job before the report is uploaded (issue 309, ruling 9).
