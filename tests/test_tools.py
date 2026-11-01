@@ -41,7 +41,7 @@ from tools.jsonschema_lite import SchemaError, validate
 ROOT = check_authority.ROOT
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
-POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n      - sf-run\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n'
+POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n    secrets: inherit\n'
 STEP = "      - run: make verify\n"
 
 
@@ -2581,15 +2581,25 @@ class Workflows(unittest.TestCase):
     def test_a_shim_holds_no_step_and_calls_the_release_at_its_channel(self):
         # Issue 196's ruling 3: a workflow on schedule, workflow_dispatch or workflow_run runs the default branch's
         # file, so each job calls one file of the Release at its channel, with its grant and its concurrency group, an
-        # if: and with: values that pass its inputs on, and nothing else; only a called workflow names an environment.
+        # if: and with: values that pass its inputs on, `secrets: inherit` (trial P-55), and nothing else; only a called
+        # workflow names an environment.
         self.assertEqual(check_workflows.lint(POLLER), [])
+        # Those words alone, and on a shim alone: in quotes, or on a workflow of any other event, they are refused.
+        quoted = {rule for rule, _ in check_workflows.lint(POLLER.replace("secrets: inherit", 'secrets: "inherit"'))}
+        self.assertIn("token", quoted)
+        spaced = {rule for rule, _ in check_workflows.lint(POLLER.replace("secrets: inherit", "secrets:  inherit"))}
+        self.assertIn("token", spaced)
+        other = GOOD.replace("  verify:\n", "  c:\n    uses: ./.github/workflows/o.yml\n    secrets: inherit\n  verify:\n")
+        self.assertIn("token", {rule for rule, _ in check_workflows.lint(other)})
         call = "    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n"
         broken = {
             "a step": POLLER.replace(call, "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n"
                                            "      - run: python3 -m controller\n"),
             "main's copy": POLLER.replace(call, "    uses: ./.github/workflows/pass.yml\n"),
             "another repo's file": POLLER.replace("combsmith/software-factory/", "combsmith/other/"),
-            "a secret handed on": POLLER + "    secrets:\n      KEY: ${{ secrets.KEY }}\n",
+            "a secret handed on": POLLER.replace("    secrets: inherit\n", "    secrets:\n      KEY: ${{ secrets.KEY }}\n"),
+            "no secrets inherited": POLLER.replace("    secrets: inherit\n", ""),
+            "secrets given in another word": POLLER.replace("secrets: inherit", "secrets: all"),
             "an env above the jobs": POLLER.replace("permissions: {}\n", "permissions: {}\nenv:\n  A: b\n"),
             "no concurrency": POLLER.replace("    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n", ""),
             "no grant": POLLER.replace("    permissions:\n      actions: write\n      contents: read\n", ""),
@@ -2661,7 +2671,7 @@ class Workflows(unittest.TestCase):
             problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": POLLER})))
         self.assertTrue(caught(problems, "other.yml: only poller.yml wakes on another workflow's end"), problems)
         broken = {
-            "its own end": POLLER.replace("      - sf-run\n", "      - sf-run\n      - sf-poller\n"),
+            "its own end": POLLER.replace("      - ci\n", "      - ci\n      - sf-poller\n"),
             "every stage": POLLER.replace("    types:\n      - completed\n", ""),
             "a request": POLLER.replace("      - completed\n", "      - requested\n"),
             "an input": POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n"
@@ -2669,8 +2679,8 @@ class Workflows(unittest.TestCase):
             "the run that woke it": POLLER.replace("  pass:\n    permissions:",
                                                    "  pass:\n    if: github.event.workflow_run.conclusion == 'success'\n"
                                                    "    permissions:"),
-            "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n      - sf-run\n", ""),
-            "an empty list of workflows": POLLER.replace("      - factory\n      - ci\n      - sf-run\n", ""),
+            "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n", ""),
+            "an empty list of workflows": POLLER.replace("      - factory\n      - ci\n", ""),
             "a branch filter": POLLER.replace("    types:\n", "    branches:\n      - main\n    types:\n"),
         }
         # The run that woke it is read in no form an expression can write: by an index, in another case, or whole.
@@ -3108,8 +3118,92 @@ class Workflows(unittest.TestCase):
             self.assertEqual(rules(text), [], name)
 
 
-    # The Run's three jobs, the approving act's one and the pass, each held word for word (issue 196, PR 2b-2).
+    # The Run's jobs, the approving act's one and the pass, each held word for word (issue 196, PR 2b-2).
     LIVE = ROOT / ".github" / "workflows"
+
+    def test_what_the_runs_files_rest_on_is_as_p55_saw_it(self):
+        # Trial P-55's fixture, read for what decision 0113 stands on.
+        fixture = json.loads((ROOT / "trials" / "P-55.json").read_text())
+        self.assertEqual(fixture["verdict"], "fail")
+        exchanges = fixture["exchanges"]
+
+        def run(run_id):
+            return next(e["response"]["body"] for e in exchanges if e["request"]["call"].endswith("/actions/runs/%d" % run_id))
+
+        def jobs(run_id):
+            found = next(e["response"]["body"] for e in exchanges if e["request"]["call"].endswith("/actions/runs/%d/jobs" % run_id))
+            return {j["name"]: j for j in found["jobs"]}
+
+        def said(run_id, job):
+            return next(e["response"]["body"] for e in exchanges if ", %s of run %d," % (job, run_id) in e["request"]["call"])
+
+        def secret(run_id, job):
+            return next(line for line in said(run_id, job) if line.startswith("secret: ")).split(",")[0]
+
+        # The secret: read by a job of the dispatched file, and by a called job only with secrets: inherit.
+        control = 41266627658
+        self.assertEqual(secret(control, "plain"), "secret: present")
+        for job, held in (("inherit / run", "present"), ("inherit / verify", "absent"), ("inherit / apply", "present"),
+                          ("nothing / run", "absent"), ("nothing / verify", "absent"), ("nothing / apply", "absent")):
+            self.assertEqual(secret(control, job), "secret: " + held, job)
+        # The wake-up: only the plain probe's two runs and the poller's one are workflow_run's, each after a person's run.
+        lists = [e for e in exchanges if "/runs?created=" in e["request"]["call"]]
+        by_token = {r["id"] for e in lists for r in e["response"]["body"]["workflow_runs"]
+                    if r["event"] == "workflow_dispatch" and r["actor"] == "github-actions[bot]" and "run.yml" in r["path"]}
+        self.assertTrue({41266503659, 41266939937} <= by_token)
+        woken = [r for e in lists for r in e["response"]["body"]["workflow_runs"] if r["event"] == "workflow_run"]
+        self.assertEqual(sorted(r["id"] for r in woken), [41266881601, 41266881638, 41266901602])
+        self.assertTrue(all(r["actor"] == "don-petry" for r in woken))
+        # The last job: on a Run that ended and one cancelled it ran and the next pass followed; force-cancelled, it did not.
+        for run_id, conclusion in ((41268095167, "success"), (41268293154, "cancelled")):
+            self.assertEqual(run(run_id)["conclusion"], conclusion)
+            self.assertEqual(jobs(run_id)["lane / wake"]["conclusion"], "success")
+            self.assertIn("dispatched the poller", said(run_id, "lane / wake"))
+        self.assertNotIn("lane / wake", jobs(41268705453))
+        pollers = {r["id"]: r for e in lists for r in e["response"]["body"]["workflow_runs"] if r["path"].endswith("poller.yml")}
+        for woke in (41268128013, 41268396024):
+            self.assertEqual((pollers[woke]["event"], pollers[woke]["actor"]), ("workflow_dispatch", "github-actions[bot]"))
+        # The lane: the second Run of an item waits for the first's last job, and another item's does not.
+        first, second, other = jobs(41267252367), jobs(41267262803), jobs(41267273785)
+        self.assertGreater(second["lane / run"]["started_at"], first["lane / apply"]["completed_at"])
+        self.assertLess(other["lane / run"]["started_at"], first["lane / apply"]["completed_at"])
+        # A person's dispatch, a Pause and a re-run are skipped, the run and its job alike.
+        for run_id in (41266877465, 41267134100):
+            self.assertEqual(run(run_id)["conclusion"], "skipped")
+            self.assertEqual(jobs(run_id)["lane"]["conclusion"], "skipped")
+        attempt = next(e["response"]["body"] for e in exchanges if e["request"]["call"].endswith("/attempts/2"))
+        self.assertEqual((attempt["conclusion"], attempt["triggering_actor"]), ("skipped", "don-petry"))
+        # What names the called workflow's own commit, and how the actor compares.
+        lines = said(41266503659, "lane / run")
+        tag = run(41266503659)["referenced_workflows"][0]["sha"]
+        self.assertIn("job.workflow_sha=" + tag, lines)
+        self.assertIn("commit=" + tag, lines)
+        self.assertNotIn("github.workflow_sha=" + tag, lines)
+        self.assertIn("as string: true; as number: true; run_attempt=1", lines)
+
+    def test_the_last_job_alone_of_the_runs_wakes_the_poller_holding_nothing_else(self):
+        # Trial P-55: a Run the pass's token started wakes nothing when it ends, so its last job dispatches the poller,
+        # whatever the others did. It holds no key, no checkout and no input, and no other job of the Run holds its grant.
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        self.assertEqual(check_workflows.run_jobs_problems(good), [])
+        broken = {
+            "not always": good.replace("    if: always()\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n", "    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"),
+            "a key": good.replace("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
+            "a failure that fails the Run": good.replace(' || echo "the next pass waits for the backstop"', ""),
+            "another target": good.replace("workflows/poller.yml/dispatches", "workflows/run.yml/dispatches"),
+            "gone": good[:good.index("  wake:\n")],
+        }
+        for why, text in broken.items():
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's jobs"), why)
+        # The grant is theirs alone: another job given it is refused, and neither id may stand in another file.
+        other = good.replace("  verify:\n    needs: run\n    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n    permissions:\n      contents: read\n",
+                             "  verify:\n    needs: run\n    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n    permissions:\n      actions: write\n")
+        self.assertNotEqual(other, good)
+        self.assertTrue(caught(check_workflows.lint(other), "job verify is granted actions: write"))
+        self.assertEqual(check_workflows.lint(check_workflows.RUN_SHIM % 41898282), [])
+        for job, home in (("wake", "run-jobs.yml"), ("lane", "run.yml")):
+            text = "name: x\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  %s:\n    runs-on: ubuntu-24.04\n" % job
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "the job %s is reserved for %s" % (job, home)), job)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
         good = (self.LIVE / "run-jobs.yml").read_text()
@@ -3151,11 +3245,11 @@ class Workflows(unittest.TestCase):
         }
         for why, text in broken.items():
             self.assertNotEqual(text, good, why)
-            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's three jobs"), why)
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's jobs"), why)
         # Each file is held by its own name, wherever the check meets it.
         passed = (self.LIVE / "pass.yml").read_text()
         approving = (self.LIVE / "approve-job.yml").read_text()
-        for name, text, said in (("run-jobs.yml", broken["another checksum"], "it is not the Run's three jobs"),
+        for name, text, said in (("run-jobs.yml", broken["another checksum"], "it is not the Run's jobs"),
                                  ("pass.yml", passed.replace("      - if: always()\n        uses", "      - uses"),
                                   "it is not the pass"),
                                  ("approve-job.yml", approving.replace("timeout-minutes: 10", "timeout-minutes: 20"),
@@ -3168,7 +3262,7 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.run_jobs_problems(good.replace('"2.1.306"', '"2.1.307"'), moved),
                                "CLI_CHECKSUMS holds no checksum for it"))
         with mock.patch.dict(check_workflows.CLI_CHECKSUMS, {"2.1.307": "1" * 64}):
-            self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's three jobs"))
+            self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's jobs"))
             # The pin, the workflow's version and its checksum moved together pass.
             together = good.replace('"2.1.306"', '"2.1.307"').replace(check_workflows.CLI_CHECKSUMS["2.1.306"], "1" * 64)
             self.assertEqual(check_workflows.run_jobs_problems(together, moved), [])
