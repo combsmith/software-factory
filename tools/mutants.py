@@ -2684,7 +2684,7 @@ MUTANTS = ISSUE + [
      '        if kind == "trial" and not errors:\n', "        if False:\n", ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
     ("the feed counts no Run that left no outcome as an attempt", "controller/feed.py",
      ' or (r["outcome"] is None and r["conclusion"] in t.RAN_AND_DIED))', ')', ("tests.test_controller",)),
-    # Decision 0109: a first attempt skipped is no attempt, and any later one is one.
+    # Decision 0111: a first attempt skipped is no attempt, and any later one is one.
     ("a first attempt an if: skipped is a failure, an attempt", "adapters/records.py",
      '"skipped": "cancelled"', '"skipped": "failure"',
      ("tests.test_adapters.Records.test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt",)),
@@ -6998,7 +6998,7 @@ MUTANTS = ISSUE + [
     ("a Finding in another file reads as elsewhere", 'tools/eval_result.py', 'return [WENT[1] if in_file else WENT[0]]', 'return [WENT[1]]', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
     ("a code of where it went is no code of the report", 'schemas/eval-report.schema.json',
      '"finding_uncited",\n', '"finding_uncitedd",\n', ("tests.test_evals.EvalJob.test_every_code_the_scorer_gives_is_one_the_report_may_carry",)),
-    # Decision 0109: the scorer's codes are the report's and the log's.
+    # Decision 0111: the scorer's codes are the report's and the log's.
     ("the judge's log counts no code", 'harness/eval/__init__.py',
      '        if said in ("engine_fault", "case_failed"):\n            print(tally(written))\n', '',
      ("tests.test_evals.EvalJob.test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded",)),

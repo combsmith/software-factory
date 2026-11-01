@@ -1,4 +1,4 @@
-# 0109. A first attempt an `if:` skipped is no attempt, and a later attempt it skipped is one
+# 0111. A first attempt an `if:` skipped is no attempt, and a later attempt it skipped is one
 
 Status: accepted. The Factory Builder's rulings of 2026-10-31 on the first reading of ruling 10 of "Workflows: the frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape" (issue 196), once the reads found the plain reading unsafe.
 
