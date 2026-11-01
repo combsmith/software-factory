@@ -1074,7 +1074,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(canary.install({"PATH": "/bin"}, run), 7)
         (args, env, check), = calls
         self.assertEqual(args, ["bash", "-e", "-c", "\n".join(check_workflows.CLI_INSTALL_RUN)])
-        self.assertIn("sudo apt-get install -y --no-install-recommends bubblewrap", args[3])
+        self.assertIn("sudo apt-get update -q\nsudo apt-get install -y --no-install-recommends bubblewrap", args[3])
         self.assertEqual(env, {"PATH": "/bin", "CLI_VERSION": pin, "CLI_CHECKSUM": check_workflows.CLI_CHECKSUMS[pin]})
         self.assertFalse(check)
 
@@ -1102,6 +1102,13 @@ class EvalJob(unittest.TestCase):
         code, said = checked(answered)
         self.assertEqual((code, len(answered.asked())), (0, 1), said)
         self.assertIn("status completed", said)
+        # A healthy CLI's stderr stays out of a public log: only a failing one's is any use.
+        self.assertNotIn("bubblewrap is required", said)
+        # A model that refused or gave up has answered: that is the eval's matter, and the Engine is sound.
+        for status in ("incomplete", "refused"):
+            code, said = checked(Said(said=live.answer(live.judged(status=status, reason="too_large", findings=[], effects={}))))
+            self.assertEqual(code, 0, said)
+            self.assertIn("status %s" % status, said)
         # A CLI that failed is red, and says the end of what it said, which names the cause, and no more of it.
         code, said = checked(Said(said="", returncode=1))
         self.assertEqual(code, 1)

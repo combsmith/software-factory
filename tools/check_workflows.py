@@ -229,6 +229,7 @@ jobs:
           echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c
           chmod 0755 /tmp/claude
           sudo mv /tmp/claude /usr/local/bin/claude
+          sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends bubblewrap
       - name: Read what the Task is built from
         id: read
@@ -480,6 +481,7 @@ CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_
                    'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c',
                    "chmod 0755 /tmp/claude",
                    "sudo mv /tmp/claude /usr/local/bin/claude",
+                   "sudo apt-get update -q",
                    "sudo apt-get install -y --no-install-recommends bubblewrap"]
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
 # Its runner, the one the CLI's linux-x64 install is for, and its timeout, which the run step's budget is held inside

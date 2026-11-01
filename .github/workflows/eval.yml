@@ -2,9 +2,9 @@
 # on the commit it judges, main's own head, for the Release the dispatch names. Dispatched alone, by the Maintainer
 # before a cut; the Release's gate reads its report (#197's ruling 4″). Its steps are harness.eval's modules and pinned
 # actions, in the order tools/check_workflows.py holds:
-# the set planned before any credential is used; each case fetched with the Maintainer's read-only token for the home,
-# held by that step alone, into a scratch directory outside the workspace; the CLI installed at the Engine's pin by its
-# checksum; each case given to the review Intent with the model's credential alone, as a live Run is; the report, of
+# the set planned before any credential is used; the CLI installed at the Engine's pin by its checksum, with the package
+# the scrub needs, as root and before anything is here; each case fetched with the Maintainer's read-only token for the
+# home, held by that step alone, into a scratch directory outside the workspace; each case given to the review Intent with the model's credential alone, as a live Run is; the report, of
 # hashes, verdicts and codes alone, uploaded whatever the verdicts; and the run judged by the gate's own test.
 # Nothing of a case, a Result or the home reaches the log: each step prints counts and codes.
 name: factory
@@ -40,6 +40,7 @@ jobs:
           echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c
           chmod 0755 /tmp/claude
           sudo mv /tmp/claude /usr/local/bin/claude
+          sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends bubblewrap
       - run: python3 -m harness.eval.fetch
         timeout-minutes: 3

@@ -3,11 +3,12 @@
 A workflow of the canary repo runs it on a checkout of this repo's `main`, weekly and before each cut: `install`, then
 `review`, each a step, the model's credential in `review` alone. `install` runs the lines the eval job and the Run's jobs
 hold word for word, so that a line taken from them is taken from this check too: a copy in the canary's workflow would
-stay green. `review` asks the eval job's own `assess` about one case, and it is red unless the CLI answered.
+stay green. `review` asks the eval job's own `assess` about one case, and it is red unless the CLI answered. The eval
+job's steps are its own modules; this is no step of that job, and is run by another repo's workflow.
 
 Its case is the repo's own example, never one of the held-out set, so it may do what the eval job's steps may not: when
 the CLI fails it prints the end of what the CLI said, which is what names the cause. It holds nothing else to say: a case
-the model answered and missed is a matter for the eval, and is green here."""
+the model answered and missed, or refused, is a matter for the eval, and is green here."""
 from __future__ import annotations
 
 import hashlib
@@ -49,8 +50,8 @@ def told(call):
 
 
 def review(env: dict, call=live.cli_call, clock=time.time) -> int:
-    """One review by the eval job's path: 0 if the CLI answered and its answer was read and scored, and 1 otherwise. A
-    scorer that raises is no answer either, and the step fails on it."""
+    """One review by the eval job's path: 0 if the CLI answered in a status the Engine may write, its answer read and
+    scored, and 1 otherwise, a `failed` Result among them. A scorer that raises fails the step."""
     case = json.loads((job.ROOT / "examples" / "eval-case.json").read_text())
     content = "sha256:" + hashlib.sha256(case["diff"].encode("utf-8")).hexdigest()
     case["facts"]["content_id"] = content
@@ -69,7 +70,7 @@ def review(env: dict, call=live.cli_call, clock=time.time) -> int:
         verdict, reasons = job.assess(found, {case["id"]: None}, place, answered)[case["id"]]
     status = results[0].get("status") if results else None
     print("status %s, verdict %s, reasons %s" % (status, verdict, ",".join(reasons) or "none"))
-    return 0 if status == "completed" else 1
+    return 0 if status in engine.ENGINE_WRITES else 1
 
 
 if __name__ == "__main__":

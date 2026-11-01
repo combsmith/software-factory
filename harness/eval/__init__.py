@@ -178,7 +178,8 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
 
 
 # The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
-# reviewer's. `result_invalid` is the reviewer's own: it answered, and its answer could not be read (decision 0106).
+# reviewer's. `result_invalid` stays the reviewer's: it is an answer that could not be read, and also a CLI that exited 0
+# with no answer at all, which the Engine does not yet tell apart (decision 0106).
 ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_failed", "engine_timeout", "task_too_large",
                  "rubric_unreadable")
 
