@@ -1339,7 +1339,7 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(self.check(), "release: holds security_events; no Factory App may"))
         self.setUp()
         self.apps["release"]["key"]["environment"] = "factory-apply"
-        self.assertTrue(caught(check_apps._keys(self.apps), "release: its key is kept in factory-apply, and the release job holds it"))
+        self.assertTrue(caught(self.check(), "release: its key is kept in factory-apply, and the release job holds it"))
 
     def test_a_permission_nothing_needs_is_caught(self):
         self.apps["controller"]["permissions"]["checks"]["needs"] = []
