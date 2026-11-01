@@ -1092,6 +1092,7 @@ class Apps(unittest.TestCase):
         self.apps, self.needs = self.table["apps"], self.table["needs"]
         self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
         self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        self.release = json.loads((ROOT / "trials" / "P-39.release.json").read_text())
         installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
         self.listing = installations[0]["response"]["body"]
         self.listed = self.listing["installations"]
@@ -1103,7 +1104,8 @@ class Apps(unittest.TestCase):
     def check(self, **leave_out) -> list:
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
         files = {"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
-                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach)}
+                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach),
+                 "trials/P-39.release.json": json.dumps(self.release)}
         return check_apps.run(tree({rel: text for rel, text in files.items() if rel not in leave_out.get("files", ())}))
 
     def test_the_data_is_held_to_what_github_granted_each_app(self):
@@ -1312,8 +1314,25 @@ class Apps(unittest.TestCase):
             for level in ("read", "write"):
                 self.setUp()
                 self.apps["controller"]["permissions"][name] = {"level": level, "needs": ["read:facts.checks"]}
-                said = "controller: holds %s; no Factory App may" % name
+                said = "controller: holds %s; no Factory App %smay" % (name, "but the release App " * (name == "workflows"))
                 self.assertTrue(caught(self.check(), said), (name, level))
+
+    def test_only_the_release_app_holds_workflows_and_it_holds_security_events_as_little_as_any(self):
+        # Ruling 4′ of issue 197: a tag on a commit that touches .github/workflows/ needs `workflows`. The exception is
+        # that App's alone, its key is kept in the release job's environment, and it opens nothing else in NEVER.
+        self.assertEqual(self.apps["release"]["permissions"]["workflows"]["level"], "write")
+        self.assertEqual(check_apps._keys(self.apps), [])
+        for app in sorted(set(self.apps) - {"release"}):
+            with self.subTest(app=app):
+                self.setUp()
+                self.apps[app]["permissions"]["workflows"] = {"level": "read", "needs": ["read:release.repo"]}
+                self.assertTrue(caught(self.check(), "%s: holds workflows; no Factory App but the release App may" % app))
+        self.setUp()
+        self.apps["release"]["permissions"]["security_events"] = {"level": "read", "needs": ["read:release.repo"]}
+        self.assertTrue(caught(self.check(), "release: holds security_events; no Factory App may"))
+        self.setUp()
+        self.apps["release"]["key"]["environment"] = "factory-apply"
+        self.assertTrue(caught(check_apps._keys(self.apps), "release: its key is kept in factory-apply, and the release job holds it"))
 
     def test_a_permission_nothing_needs_is_caught(self):
         self.apps["controller"]["permissions"]["checks"]["needs"] = []
