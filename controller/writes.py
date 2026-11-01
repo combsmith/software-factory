@@ -31,9 +31,8 @@ def plan(out: dict) -> dict:
         kind = "dispatch_run" if decision["outcome"] == t.ADMIT else "dispatch_approval"
         add(kind, decision["item"], dispatch["run"], dispatch["name"])
     for e in record["pull_requests"]:
-        d = e["decision"]
-        if e.get("head") and d.get("reason") != "hands_off" and d.get("state") != t.NOT_SERVED:
-            add("status_on_item", d["item"])
+        if e.get("head"):
+            add("status_on_item", e["decision"]["item"])
     add("tracking_issue", None)
     if out["successor"]:
         add("dispatch_successor", None)

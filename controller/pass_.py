@@ -42,7 +42,7 @@ from kernel import decide as pull_request
 from kernel import issue
 from kernel import terms as t
 
-# A head commit, as `pass/1` holds one; any other read beside the facts is not carried, and that item gets no status.
+# A head commit, as `pass/1` holds one.
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
 # What started a pass, by the run that started it (decision 0043). Any other event is the relay's public one.
@@ -211,6 +211,15 @@ def _acts(record: dict) -> set:
             if e["decision"]["outcome"] == t.ACT and e["decision"]["action"] != "issue_approval"}
 
 
+def status_head(entry: dict, decision: dict, kernel: dict) -> dict:
+    """The head to carry, where a status goes on this item (#193's ruling 6): an open pull request, read with a commit,
+    that is served and that a person has not left alone, as the Kernel reads that."""
+    facts = entry["facts"]
+    if not COMMIT.fullmatch(str(entry.get("head"))) or facts["state"] != "open" or decision.get("state") == t.NOT_SERVED:
+        return {}
+    return {} if pull_request.left_alone(facts, kernel) else {"head": entry["head"]}
+
+
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     """One pass: the record, the Runs to dispatch, the acts, the view, the alerts and whether a successor starts."""
     rules = reads_.configured(config["controller"])
@@ -238,7 +247,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             d = decide(facts, runs, context, kernel, now)
             minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"
             out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
-                            **({"head": entry["head"]} if COMMIT.fullmatch(str(entry.get("head"))) else {})))
+                            **status_head(entry, d, kernel)))
         return out
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and

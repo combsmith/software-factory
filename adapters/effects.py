@@ -57,6 +57,10 @@ NO_FAULT = {"not_built", "paused", "no_account", "status_bounded"}
 SHOWN = re.compile(r"[A-Za-z0-9_.:/#@-]{1,200}")
 SHOWN_MOST = 20
 SUMMARY_MOST = 4096
+# A status's own forms: its key, and what `written/1` holds as the key read back. P-12: a title of 255 is taken, of 256 refused.
+STATUS_ID = re.compile(r"d[0-9a-f]{32}")
+STATUS_KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
+TITLE_MOST = 255
 DIGITS = re.compile(r"[1-9][0-9]{0,18}")
 # The facts port's own GraphQL reads, which the approver's token may ask of its item and nothing else.
 QUERIES = (threads.QUERY, checks.QUERY, acceptance.QUERY)
@@ -111,10 +115,9 @@ def run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:
 
 
 def status_entries(record: dict) -> list:
-    """The items a status is written on, in the record's item order (#193's ruling 6): each open pull request read with its
-    head, but one left hands-off or one not served, which get no change. An issue has no commit, and gets none."""
-    return [e for e in record["pull_requests"] if e.get("head") and e["decision"].get("reason") != "hands_off"
-            and e["decision"].get("state") != t.NOT_SERVED]
+    """The items a status is written on, in the record's item order (#193's ruling 6): each pull request the pass carried
+    a head for, as `controller.pass_.status_head` rules. An issue has no commit, and gets none."""
+    return [e for e in record["pull_requests"] if e.get("head")]
 
 
 def expected(record: dict, owner_role: str) -> list:
@@ -224,11 +227,22 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
     permits[("POST", "/repos/%s/issues" % home)] = opened
 
     def status_written(body, fields=("external_id", "status", "conclusion", "output")) -> bool:
-        return isinstance(body, dict) and set(fields) <= set(body) <= set(fields) | {"details_url"} \
-            and body["status"] == "completed" and body["conclusion"] == "neutral"
+        if not (isinstance(body, dict) and set(fields) <= set(body) <= set(fields) | {"details_url"}):
+            return False
+        output = body["output"]
+        return body["status"] == "completed" and body["conclusion"] == "neutral" \
+            and isinstance(body["external_id"], str) and STATUS_ID.fullmatch(body["external_id"]) is not None \
+            and isinstance(output, dict) and set(output) == {"title", "summary"} \
+            and isinstance(output["title"], str) and len(output["title"]) <= TITLE_MOST \
+            and isinstance(output["summary"], str) and len(output["summary"]) <= SUMMARY_MOST \
+            and ("details_url" not in body or (isinstance(body["details_url"], str) and run_url.fullmatch(body["details_url"]) is not None))
 
     def status_made(body) -> bool:
-        return status_written(body, ("name", "head_sha", "external_id", "status", "conclusion", "output"))
+        return status_written(body, ("name", "head_sha", "external_id", "status", "conclusion", "output")) \
+            and body["name"] == status_name and isinstance(body["head_sha"], str) and SHA.fullmatch(body["head_sha"]) is not None
+
+    status_name = json.loads((ROOT / "config" / "defaults.json").read_text())["status_on_item"]
+    run_url = re.compile(re.escape("https://github.com/%s/actions/runs/" % home) + r"[1-9][0-9]{0,19}")
 
     permits[("POST", "/repos/%s/check-runs" % home)] = status_made
     statuses = (("GET", re.compile(re.escape("/repos/%s/commits/" % home) + r"[0-9a-f]{40}/check-runs\?check_name=[^&]+&app_id=[0-9]+"
@@ -386,9 +400,11 @@ def status_id(decision: dict) -> str:
 def status_output(decision: dict, record: dict, feed: dict) -> dict:
     """What a person reads: codes and identifiers alone. No title, login, branch name or comment reaches it, and an evidence
     item that is not a code is counted, never shown. P-12: an edit with no output keeps the old, so the whole is sent."""
-    lines = ["attention: %s" % decision.get("attention"), "outcome: %s" % decision.get("outcome"),
-             "action: %s" % decision.get("action"), "next_actor: %s" % feed_.next_actor(decision, feed),
-             "content_id: %s" % decision.get("content_id"), "pass: %s" % record["pass"], "release: %s" % record["release"]]
+    def code(value) -> str:
+        return "null" if value is None else str(value)
+    lines = ["attention: %s" % code(decision.get("attention")), "outcome: %s" % code(decision.get("outcome")),
+             "action: %s" % code(decision.get("action")), "next_actor: %s" % code(feed_.next_actor(decision, feed)),
+             "content_id: %s" % code(decision.get("content_id")), "pass: %s" % record["pass"], "release: %s" % record["release"]]
     evidence = decision.get("evidence") or []
     shown = [e for e in evidence if isinstance(e, str) and SHOWN.fullmatch(e)]
     hidden, kept = len(evidence) - len(shown), 0
@@ -402,14 +418,16 @@ def status_output(decision: dict, record: dict, feed: dict) -> dict:
         lines.append("and %d more" % (len(shown) - kept))
     if hidden:
         lines.append("and %d not shown" % hidden)
-    return {"title": "%s: %s" % (decision.get("state"), decision.get("reason")), "summary": "\n".join(lines)}
+    return {"title": "%s: %s" % (code(decision.get("state")), code(decision.get("reason"))), "summary": "\n".join(lines)}
 
 
 def write_status(transport, entry: dict, record: dict, config: dict, status: dict) -> tuple:
     """`(state, key, reason, wrote)` for the status on the item: one check run by the Controller's App for each head, edited
     in place, and sent only when the Decision changed (I-17). GitHub holds the key, so a status that once failed to write is
-    not stale for ever. It never passes or fails: it can be read as no gate, and no ruleset could be met by it. P-12: `filter=all`,
-    since `latest` lists only the later of two, and GitHub answers a 200 that may not hold what was sent, so it is read back."""
+    not stale for ever. It never passes or fails, so it can be read as no gate; GitHub would count a neutral check as met, so
+    what keeps it from being one is that no ruleset names it. P-12: `filter=all`, since `latest` lists only the later of two,
+    and that later one is what GitHub shows; and GitHub answers a 200 that may not hold what was sent, so it is read back.
+    `wrote` says a write was sent, whatever it answered: a write GitHub limited still counts against the bound."""
     decision, head, home = entry["decision"], entry["head"], config["home"]["repo"]
     want, name, app = status_id(decision), status["name"], status["app_id"]
     listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&app_id=%d&filter=all&per_page=100" % (
@@ -422,30 +440,30 @@ def write_status(transport, entry: dict, record: dict, config: dict, status: dic
         return isinstance(run, dict) and run.get("name") == name and _body_of(run.get("app")).get("id") == app \
             and type(run.get("id")) is int
 
+    def keyed(run) -> bool:
+        return isinstance(run.get("node_id"), str) and STATUS_KEY.fullmatch(run["node_id"]) is not None
+
     mine = [r for r in runs if ours(r)]
-    same = [r for r in mine if r.get("external_id") == want]
-    if same:
-        node = same[0].get("node_id")
-        return ("already_applied", node, None, False) if isinstance(node, str) and node else ("failed", None, "not_read_back", False)
+    target = max(mine, key=lambda r: r["id"]) if mine else None
+    if target is not None and target.get("external_id") == want and target.get("status") == "completed" and target.get("conclusion") == "neutral":
+        return ("already_applied", target["node_id"], None, False) if keyed(target) else ("failed", None, "not_read_back", False)
     fields = {"external_id": want, "status": "completed", "conclusion": "neutral",
               "output": status_output(decision, record, status["feed"])}
     if status.get("run_id"):
         fields["details_url"] = "https://github.com/%s/actions/runs/%s" % (home, status["run_id"])
-    if mine:
-        target = max(mine, key=lambda r: r["id"])
+    if target is not None:
         answer, took = _sent(transport, request("PATCH", "/repos/%s/check-runs/%d" % (home, target["id"]), body=fields)), 200
     else:
-        target, took = None, 201
+        took = 201
         answer = _sent(transport, request("POST", "/repos/%s/check-runs" % home, body=dict(fields, name=name, head_sha=head)))
     back = _body(answer, took)
     if not isinstance(back, dict):
         fault = _fault(answer)
-        return fault["state"], None, fault["reason"], False
-    node = back.get("node_id")
+        return fault["state"], None, fault["reason"], True
     held = ours(back) and back.get("head_sha") == head and back.get("external_id") == want \
         and back.get("status") == "completed" and back.get("conclusion") == "neutral" \
-        and (target is None or back.get("id") == target["id"]) and isinstance(node, str) and bool(node)
-    return ("applied", node, None, True) if held else ("failed", None, "not_read_back", True)
+        and (target is None or back.get("id") == target["id"]) and keyed(back)
+    return ("applied", back["node_id"], None, True) if held else ("failed", None, "not_read_back", True)
 
 
 def _body_of(value) -> dict:
@@ -491,10 +509,8 @@ def apply(writes: dict, record: dict, transports: dict, config: dict, owner_role
             faults = any(o["state"] == "failed" or (o["state"] == "refused" and o["reason"] not in NO_FAULT)
                          for o in out)
             causes = sorted({a for a in record.get("alerts", []) if a != "paused"} | ({"write_failed"} if faults else set()))
-            if "controller" in ended:
-                reason = "token_refused"
-            else:
-                state, key, reason = tracking(transports.get("controller"), config, record, causes, issues)
+            # It asks for itself: a 403 on a status may be GitHub's limit and not a refused token, and an alert is not lost to one.
+            state, key, reason = tracking(transports.get("controller"), config, record, causes, issues)
         elif w["type"] in DISPATCHES:
             if stopped is not None and w["type"] in STOPPED:
                 reason = stopped

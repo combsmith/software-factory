@@ -104,7 +104,7 @@
             "pattern": "^r_[0-9A-Z]{6,26}$"
           },
           "head": {
-            "description": "The head commit read beside the facts, which the status on the item is posted on, so it describes the content the Decision was made on (#193's ruling 6). Absent in a record written before it, and where the head could not be read: no status is written.",
+            "description": "The head commit read beside the facts, which the status on the item is posted on, so it describes the content the Decision was made on (#193's ruling 6). Present only where a status goes: absent on an item ended, not served or left hands-off, or whose label events cannot be read.",
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
           }

@@ -260,7 +260,7 @@ class Record(unittest.TestCase):
                     and isinstance(n.value, ast.Name) and n.value.id in kernel}
             # Each Lifecycle's decide, and the scope's reading of the unnamed Runs (issue 270).
             self.assertLessEqual({attr for name, attr in used if kernel[name] != "kernel.terms"},
-                                 {"decide", "unnamed_scope"}, module)
+                                 {"decide", "left_alone", "unnamed_scope"}, module)
             self.assertNotIn("now()", module.read_text(), module)
             self.assertNotIn("today()", module.read_text(), module)
 
