@@ -55,6 +55,8 @@ def ran(step, *given):
     return code, printed.getvalue()
 
 
+ISSUE_TEXT = {"id": "issue:7", "by": {"kind": "human", "name": "don-petry", "can_write": True}, "body": "What it asks."}
+
 class Shared(unittest.TestCase):
     def test_a_steps_files_are_new_and_its_own(self):
         with tempfile.TemporaryDirectory() as d:
@@ -218,6 +220,10 @@ class Reader(unittest.TestCase):
             calls["opened"].append(k["opened"] is made)
             return facts, "title", head
 
+        def read_issues(transport, pull_read, who, opener, opened):
+            calls["issues"] = (pull_read is pulled, opener, opened is made)
+            return [ISSUE_TEXT]
+
         def read_opened(transport, repo, runs, role):
             calls["opened_role"].append(role)
             return made
@@ -235,7 +241,8 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.facts_, "opener_role", lambda kernel: "dev-lead"), \
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
-                unittest.mock.patch.object(read.pull, "change", lambda *a: change):
+                unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
+                unittest.mock.patch.object(read.texts, "issues", read_issues):
             code, printed = ran(read.step, argv or [NAME, ITEM, PASS, "task"],
                                 environ if environ is not None else {read.KEY: "the key"}, d)
             folder = pathlib.Path(d, "task")
@@ -249,7 +256,9 @@ class Reader(unittest.TestCase):
         self.assertEqual(kept["diff"], DIFF)
         self.assertEqual(kept["run"].decode().strip(), RUN)
         self.assertEqual(json.loads(kept["record.json"]), RECORD)
-        self.assertEqual((json.loads(kept["texts.json"]), json.loads(kept["findings.json"])), ([], []))
+        self.assertEqual((json.loads(kept["texts.json"]), json.loads(kept["findings.json"])), ([ISSUE_TEXT], []))
+        # The issues the change serves are read of the pull request read, by what the snapshot was told of its opener.
+        self.assertEqual(calls["issues"], (True, (12, "Bot"), True))
         self.assertEqual(json.loads(kept["role.json"])["name"], "pr-review")
         # The threads are held to what the item's Lenses recorded, read from the run records (issue 338).
         self.assertEqual(calls["recorded"], [({}, True, [])])

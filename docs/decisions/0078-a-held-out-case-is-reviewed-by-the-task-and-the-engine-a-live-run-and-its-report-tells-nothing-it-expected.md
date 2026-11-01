@@ -1,6 +1,6 @@
 # 0078. A held-out case is reviewed by the Task and the Engine a live Run is, and its report tells nothing it expected
 
-Status: accepted. The working ruling on "Workflows: eval.yml runs the review Intent's held-out cases and writes eval-report/1" (issue 309), rulings 4, 5 and 9, with its first and third amendments, for its second pull request. The Maintainer may overturn it in review. It adds to `docs/decisions/0053-the-eval-job-reads-the-held-out-home-with-the-maintainers-token-and-reports-hashes-and-codes-alone.md`, whose `run` step it builds.
+Status: replaced by `docs/decisions/0109-the-scorers-codes-are-in-the-public-report-and-the-judges-log.md`.
 
 ## Decision
 

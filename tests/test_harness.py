@@ -314,10 +314,10 @@ class Task(unittest.TestCase):
         self.assertEqual(task.trust(None, config()), "outside")
 
     def test_a_task_says_what_it_left_out_and_how_much(self):  # L-56
-        texts = [text("issue:body", body="a" * 40), text("thread:T1", body="b" * 30), text("thread:T2", body="c" * 50),
+        texts = [text("comment:body", body="a" * 40), text("thread:T1", body="b" * 30), text("thread:T2", body="c" * 50),
                  text("comment:C1", body="d" * 20), text("thread:T3", body="e" * 10)]
         t = built(texts, config=config(texts=dict(HARNESS["texts"], characters=80)))
-        self.assertEqual([x["id"] for x in others(t)], ["issue:body", "thread:T1", "thread:T3"])
+        self.assertEqual([x["id"] for x in others(t)], ["comment:body", "thread:T1", "thread:T3"])
         self.assertEqual(t["omitted"], [{"kind": "comment", "texts": 1, "characters": 20},
                                         {"kind": "thread", "texts": 1, "characters": 50}])
         self.assertTrue(all(len(x["body"]) in (40, 30, 10) for x in others(t)))      # none cut short
@@ -339,9 +339,9 @@ class Task(unittest.TestCase):
             self.assertEqual([x["id"] for x in others(got)], want, room)
         # The Maintainer's word is kept before a stranger's, whatever the order given (the Claude review).
         stranger = {"kind": "human", "name": "stranger", "can_write": False}
-        ranked = built([text("thread:T9", by=stranger, body="s" * 30), text("issue:body", body="m" * 60)],
+        ranked = built([text("thread:T9", by=stranger, body="s" * 30), text("comment:body", body="m" * 60)],
                        config=config(texts=dict(HARNESS["texts"], characters=80)))
-        self.assertEqual([x["id"] for x in others(ranked)], ["issue:body"])
+        self.assertEqual([x["id"] for x in others(ranked)], ["comment:body"])
         self.assertEqual(ranked["omitted"], [{"kind": "thread", "texts": 1, "characters": 30}])
         # The budget is what the Task carries: a character JSON escapes counts as its escape (the security pass).
         wide = built([text(body="\u00e9" * 25000)])

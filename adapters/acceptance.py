@@ -176,24 +176,39 @@ def bound(pull: dict, opener, opened=None):
     return issue
 
 
+def _serving(transport, pull: dict, opener, opened) -> tuple:
+    """`(found, issue, whole)`: what `closing` found, the issue the branch binds the pull request to or None, and whether
+    those were read whole, which they are not where the base is not the default branch, whose pull requests carry no
+    closing reference, or where the closing references name another issue than the bound one."""
+    base = pull["base"]
+    if not base.get("ref") or base.get("ref") != (base.get("repo") or {}).get("default_branch"):
+        return {}, None, False
+    issue = bound(pull, opener, opened)
+    if issue is False:
+        return {}, None, False
+    found, whole = closing(transport, pull)
+    if issue is not None and (not whole or any(number != issue for number in found)):
+        return {}, None, False
+    return found, issue, whole
+
+
+def served(transport, pull: dict, opener=None, opened=None) -> tuple:
+    """`(numbers, whole)`: the issues the pull request serves, in order, by the rule `read` holds it to."""
+    found, issue, whole = _serving(transport, pull, opener, opened)
+    return ([issue] if issue is not None else sorted(found)), whole
+
+
 def read(transport, pull: dict, accounts: timeline.Accounts, opener=None, opened=None) -> tuple:
     """`(acceptance, whole)`: null and whole where no issue the pull request serves asks for a contract; null and not
     whole where one asks, where the issues cannot be read whole, or where the base is not the default branch, whose
     pull requests carry no closing reference to read. The issue it serves is the one its branch binds it to, where the
     opener's App opened it, and else the issues it closes."""
-    base = pull["base"]
-    if not base.get("ref") or base.get("ref") != (base.get("repo") or {}).get("default_branch"):
-        return None, False
-    issue = bound(pull, opener, opened)
-    if issue is False:
-        return None, False
-    found, whole = closing(transport, pull)
+    found, issue, whole = _serving(transport, pull, opener, opened)
+    repo = pull["base"]["repo"]["full_name"] if issue is not None or found else None
     if issue is not None:
-        if not whole or any(number != issue for number in found):
-            return None, False
-        found = {issue: found[issue] if issue in found else labelled(transport, base["repo"]["full_name"], issue)}
+        found = {issue: found[issue] if issue in found else labelled(transport, repo, issue)}
     for number, listed in found.items():
-        asked, read_whole = asks(transport, base["repo"]["full_name"], number, listed, accounts)
+        asked, read_whole = asks(transport, repo, number, listed, accounts)
         if asked or not read_whole:
             return None, False
     return None, whole

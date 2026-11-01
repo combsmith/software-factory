@@ -794,6 +794,44 @@ class Tracking(unittest.TestCase):
         self.assertTrue(found)
 
 
+class StatusFixture(unittest.TestCase):
+    def test_the_status_check_run_stands_as_p12_saw_it(self):
+        # trials/P-12.json (issue 454): what the status write rests on, with the Controller's own token.
+        fixture = json.loads((ROOT / "trials" / "P-12.json").read_text())
+        self.assertEqual(fixture["verdict"], "pass")
+        calls = [e for e in fixture["exchanges"] if e["request"]["as"].get("name") == "combsmith-sf-controller"]
+        self.assertEqual(calls[0]["request"]["body"]["permissions"], {"checks": "write", "metadata": "read"})
+        self.assertEqual(calls[-1]["response"]["status"], 204)
+        made, read, mine, named, edited, again, one, second, latest, both, long_id, long_read, full, full_read, past, after_past = [e["response"] for e in calls[1:-1]]
+        sent = calls[1]["request"]["body"]["external_id"]
+        # The external_id reads back exactly; the list by name and App finds this App's alone, and by name alone both.
+        self.assertEqual((made["status"], read["body"]["external_id"], read["body"]["id"]), (201, sent, made["body"]["id"]))
+        self.assertEqual([c["id"] for c in mine["body"]["check_runs"]], [made["body"]["id"]])
+        self.assertEqual({c["app"]["slug"] for c in named["body"]["check_runs"]}, {"combsmith-sf-controller", "github-actions"})
+        # An edit keeps the id and reads back what it sent, and it stays one run in the list.
+        wanted = calls[5]["request"]["body"]
+        self.assertEqual((again["body"]["id"], again["body"]["external_id"], again["body"]["output"]), (made["body"]["id"], wanted["external_id"], wanted["output"]))
+        self.assertEqual(one["body"]["total_count"], 1)
+        # A second create is a second run: latest lists the later alone, all lists both.
+        self.assertNotEqual(second["body"]["id"], made["body"]["id"])
+        self.assertEqual([c["id"] for c in latest["body"]["check_runs"]], [second["body"]["id"]])
+        self.assertEqual({c["id"] for c in both["body"]["check_runs"]}, {made["body"]["id"], second["body"]["id"]})
+        # A long external_id is cut, answered 200; an edit with no output empties the text alone.
+        self.assertEqual((long_id["status"], len(long_read["body"]["external_id"])), (200, 255))
+        self.assertEqual(long_read["body"]["output"]["text"], None)
+        self.assertEqual(long_read["body"]["output"]["title"], wanted["output"]["title"])
+        self.assertEqual(long_read["body"]["output"]["summary"], wanted["output"]["summary"])
+        # The output is kept at its limits, and one past them is refused, changing nothing.
+        self.assertEqual(len(full_read["body"]["output"]["title"]), 255)
+        self.assertEqual(full_read["body"]["output"]["summary"], "<65535 characters>")
+        self.assertEqual(full_read["body"]["output"]["text"], "<65535 characters>")
+        self.assertEqual(past["status"], 422)
+        self.assertEqual(after_past["body"]["output"], full_read["body"]["output"])
+        # After a push the new head lists none of them, and the old head all three.
+        new, old = [e["response"]["body"] for e in fixture["exchanges"][-2:]]
+        self.assertEqual((new["total_count"], old["total_count"]), (0, 3))
+
+
 class Asked(unittest.TestCase):
     @pending
     def test_a_dispatch_of_another_file_and_one_with_no_inputs_are_answered_as_a_trial_recorded(self):
