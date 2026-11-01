@@ -25,6 +25,7 @@ token the transport cannot take, still leaves `written.json`, every write in it 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -35,6 +36,7 @@ import urllib.parse
 
 from adapters import acceptance, checks, identity, pause as pause_, threads
 from adapters.github import Live, Unanswered, request
+from controller import feed as feed_
 from kernel import terms as t
 from tools.jsonschema_lite import validate
 
@@ -50,7 +52,12 @@ CAUSE = re.compile(r"- `([a-z_]{1,60})`")
 # no act, and are written under a Pause, so that a person sees why nothing moves.
 STOPPED = set(DISPATCHES)
 # A write refused for one of these is no fault of the pass's: an act no write serves yet, and a Pause a person set.
-NO_FAULT = {"not_built", "paused", "no_account"}
+NO_FAULT = {"not_built", "paused", "no_account", "status_bounded"}
+# The status on the item (#193's ruling 6, P-12): codes and identifiers alone, and what GitHub keeps of them.
+SHOWN = re.compile(r"[A-Za-z0-9_.:/#@-]{1,200}")
+SHOWN_MOST = 20
+SUMMARY_MOST = 4096
+DIGITS = re.compile(r"[1-9][0-9]{0,18}")
 # The facts port's own GraphQL reads, which the approver's token may ask of its item and nothing else.
 QUERIES = (threads.QUERY, checks.QUERY, acceptance.QUERY)
 
@@ -103,10 +110,17 @@ def run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:
     return "sf %s#%d %s %s %s %s" % (item["repo"], item["number"], intent, role, content, run)
 
 
+def status_entries(record: dict) -> list:
+    """The items a status is written on, in the record's item order (#193's ruling 6): each open pull request read with its
+    head, but one left hands-off or one not served, which get no change. An issue has no commit, and gets none."""
+    return [e for e in record["pull_requests"] if e.get("head") and e["decision"].get("reason") != "hands_off"
+            and e["decision"].get("state") != t.NOT_SERVED]
+
+
 def expected(record: dict, owner_role: str) -> list:
     """Every write but the successor that the record's Decisions call for, in the order they are sent: each act no
     write serves yet, then each Run's and approval's dispatch, in the record's item order, under the run-name its
-    Decision gives it, and then the tracking issue, the one each pass keeps (#193's ruling 8)."""
+    Decision gives it, then each status on an item, and then the tracking issue, the one each pass keeps (#193's ruling 8)."""
     entries = record["pull_requests"] + record["issues"]
     acts, dispatches = [], []
     for e in entries:
@@ -120,7 +134,8 @@ def expected(record: dict, owner_role: str) -> list:
                                run_name(d["item"], t.ISSUE_APPROVAL, owner_role, d["content_id"], e["run"]), None))
         elif d["outcome"] == t.ACT:
             acts.append(("not_built", d["item"], None, None, d["action"]))
-    return acts + dispatches + [("tracking_issue", None, None, None, None)]
+    statuses = [("status_on_item", e["decision"]["item"], None, None, None) for e in status_entries(record)]
+    return acts + dispatches + statuses + [("tracking_issue", None, None, None, None)]
 
 
 def _held(writes: dict, record: dict, owner_role: str) -> None:
@@ -179,8 +194,9 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
     """`(permits, patterns)`: the requests the Controller's token may send for the Pause and the tracking issue. Each
     repo's `FACTORY_PAUSED`, and the org's as the first repo's list of the org's variables, each page (issue 362); the
     open issues its App opened, one page; an issue opened with the one title, a body and
-    the Maintainer assigned; and an issue of the home repo edited, its body alone or with the Maintainer assigned
-    again, or closed as completed."""
+    the Maintainer assigned; an issue of the home repo edited, its body alone or with the Maintainer assigned
+    again, or closed as completed; and on the home repo the status check run on a commit, listed, made or edited, each
+    with the fields the status has and no other."""
     home = config["home"]["repo"]
     account = config["accounts"]["controller"] or {}
 
@@ -206,9 +222,21 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
     if account.get("login"):
         permits[("GET", listed(home, account))] = none
     permits[("POST", "/repos/%s/issues" % home)] = opened
+
+    def status_written(body, fields=("external_id", "status", "conclusion", "output")) -> bool:
+        return isinstance(body, dict) and set(fields) <= set(body) <= set(fields) | {"details_url"} \
+            and body["status"] == "completed" and body["conclusion"] == "neutral"
+
+    def status_made(body) -> bool:
+        return status_written(body, ("name", "head_sha", "external_id", "status", "conclusion", "output"))
+
+    permits[("POST", "/repos/%s/check-runs" % home)] = status_made
+    statuses = (("GET", re.compile(re.escape("/repos/%s/commits/" % home) + r"[0-9a-f]{40}/check-runs\?check_name=[^&]+&app_id=[0-9]+"
+                                   r"&filter=all&per_page=100"), none),
+                ("PATCH", re.compile(re.escape("/repos/%s/check-runs/" % home) + r"[1-9][0-9]{0,18}"), status_written))
     pages = (("GET", re.compile(re.escape(pause_.listed(via) + "&page=") + r"(?:[2-9]|[1-9][0-9]{1,3})"), none),) \
         if via is not None else ()
-    return permits, (("PATCH", re.compile(re.escape("/repos/%s/issues/" % home) + r"[1-9][0-9]{0,9}"), edited),) + pages
+    return permits, (("PATCH", re.compile(re.escape("/repos/%s/issues/" % home) + r"[1-9][0-9]{0,9}"), edited),) + statuses + pages
 
 
 def listed(home: str, account: dict) -> str:
@@ -349,27 +377,124 @@ def brake(pause: dict, org: str, repos: list):
     return None
 
 
+def status_id(decision: dict) -> str:
+    """The status's `external_id`: `d` and the first 32 hex digits of the SHA-256 of the Decision's canonical JSON, so any
+    change to the Decision, its evidence among it, changes it. P-12: GitHub keeps it whole, up to 255 characters."""
+    return "d" + hashlib.sha256(json.dumps(decision, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:32]
+
+
+def status_output(decision: dict, record: dict, feed: dict) -> dict:
+    """What a person reads: codes and identifiers alone. No title, login, branch name or comment reaches it, and an evidence
+    item that is not a code is counted, never shown. P-12: an edit with no output keeps the old, so the whole is sent."""
+    lines = ["attention: %s" % decision.get("attention"), "outcome: %s" % decision.get("outcome"),
+             "action: %s" % decision.get("action"), "next_actor: %s" % feed_.next_actor(decision, feed),
+             "content_id: %s" % decision.get("content_id"), "pass: %s" % record["pass"], "release: %s" % record["release"]]
+    evidence = decision.get("evidence") or []
+    shown = [e for e in evidence if isinstance(e, str) and SHOWN.fullmatch(e)]
+    hidden, kept = len(evidence) - len(shown), 0
+    for e in shown[:SHOWN_MOST]:
+        line = "evidence: %s" % e
+        if len("\n".join(lines + [line])) + 64 > SUMMARY_MOST:
+            break
+        lines.append(line)
+        kept += 1
+    if len(shown) > kept:
+        lines.append("and %d more" % (len(shown) - kept))
+    if hidden:
+        lines.append("and %d not shown" % hidden)
+    return {"title": "%s: %s" % (decision.get("state"), decision.get("reason")), "summary": "\n".join(lines)}
+
+
+def write_status(transport, entry: dict, record: dict, config: dict, status: dict) -> tuple:
+    """`(state, key, reason, wrote)` for the status on the item: one check run by the Controller's App for each head, edited
+    in place, and sent only when the Decision changed (I-17). GitHub holds the key, so a status that once failed to write is
+    not stale for ever. It never passes or fails: it can be read as no gate, and no ruleset could be met by it. P-12: `filter=all`,
+    since `latest` lists only the later of two, and GitHub answers a 200 that may not hold what was sent, so it is read back."""
+    decision, head, home = entry["decision"], entry["head"], config["home"]["repo"]
+    want, name, app = status_id(decision), status["name"], status["app_id"]
+    listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&app_id=%d&filter=all&per_page=100" % (
+        home, head, urllib.parse.quote(name, safe=""), app))), 200)
+    runs = listed.get("check_runs") if isinstance(listed, dict) else None
+    if not isinstance(runs, list) or listed.get("total_count") != len(runs) or len(runs) >= 100:
+        return "failed", None, "checks_unreadable", False
+
+    def ours(run) -> bool:
+        return isinstance(run, dict) and run.get("name") == name and _body_of(run.get("app")).get("id") == app \
+            and type(run.get("id")) is int
+
+    mine = [r for r in runs if ours(r)]
+    same = [r for r in mine if r.get("external_id") == want]
+    if same:
+        node = same[0].get("node_id")
+        return ("already_applied", node, None, False) if isinstance(node, str) and node else ("failed", None, "not_read_back", False)
+    fields = {"external_id": want, "status": "completed", "conclusion": "neutral",
+              "output": status_output(decision, record, status["feed"])}
+    if status.get("run_id"):
+        fields["details_url"] = "https://github.com/%s/actions/runs/%s" % (home, status["run_id"])
+    if mine:
+        target = max(mine, key=lambda r: r["id"])
+        answer, took = _sent(transport, request("PATCH", "/repos/%s/check-runs/%d" % (home, target["id"]), body=fields)), 200
+    else:
+        target, took = None, 201
+        answer = _sent(transport, request("POST", "/repos/%s/check-runs" % home, body=dict(fields, name=name, head_sha=head)))
+    back = _body(answer, took)
+    if not isinstance(back, dict):
+        fault = _fault(answer)
+        return fault["state"], None, fault["reason"], False
+    node = back.get("node_id")
+    held = ours(back) and back.get("head_sha") == head and back.get("external_id") == want \
+        and back.get("status") == "completed" and back.get("conclusion") == "neutral" \
+        and (target is None or back.get("id") == target["id"]) and isinstance(node, str) and bool(node)
+    return ("applied", node, None, True) if held else ("failed", None, "not_read_back", True)
+
+
+def _body_of(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def apply(writes: dict, record: dict, transports: dict, config: dict, owner_role: str, pause=None,
-          issues=None) -> dict:
+          issues=None, status=None) -> dict:
     """`written/1`: each write of the plan sent through its credential's transport, and what it did. `transports`
     maps a credential, `workflow` or `controller`, to its transport; one that is missing sends nothing. `owner_role` is
     the Role an approval is dispatched under, the configuration's. `pause` is the Pause as `adapters/pause.py` read it
-    for `scopes(writes, config)` just before, and `issues` the open tracking issues as `open_issues` read them."""
+    for `scopes(writes, config)` just before, and `issues` the open tracking issues as `open_issues` read them. `status`
+    names what the status on an item is written with: its check's `name`, the Controller's `app_id`, the `feed` and the
+    pass's `run_id`. A pass writes at most `max_status_writes` of them, in item order: the rest wait for the next."""
     problems = validate(config, SCHEMAS["controller"], schemas=SCHEMAS)
     if problems:
         raise Refused("the Controller's configuration does not validate: %s" % problems[0])
     _held(writes, record, owner_role)
     stopped = brake(pause, *scopes(writes, config))
-    ended, out = set(), []
+    ended, out, status_sent = set(), [], 0
+    entries = {(e["decision"]["item"]["repo"], e["decision"]["item"]["number"]): e for e in status_entries(record)}
     for w in writes["writes"]:
         state, reason, key = "refused", None, None
         if w["type"] == "not_built":
             reason = "not_built"
+        elif w["type"] == "status_on_item":
+            # A status is no act: it is written under a Pause, so that a person sees why nothing moves.
+            if "controller" in ended:
+                reason = "token_refused"
+            elif transports.get("controller") is None or status is None:
+                reason = "no_credential"
+            elif status_sent >= config["max_status_writes"]:
+                reason = "status_bounded"
+            else:
+                try:
+                    state, key, reason, wrote = write_status(transports["controller"], entries[(w["item"]["repo"], w["item"]["number"])],
+                                                             record, config, status)
+                    status_sent += 1 if wrote else 0
+                except _TokenRefused:
+                    state, key, reason = "refused", None, "token_refused"
+                    ended.add("controller")
         elif w["type"] == "tracking_issue":
             faults = any(o["state"] == "failed" or (o["state"] == "refused" and o["reason"] not in NO_FAULT)
                          for o in out)
             causes = sorted({a for a in record.get("alerts", []) if a != "paused"} | ({"write_failed"} if faults else set()))
-            state, key, reason = tracking(transports.get("controller"), config, record, causes, issues)
+            if "controller" in ended:
+                reason = "token_refused"
+            else:
+                state, key, reason = tracking(transports.get("controller"), config, record, causes, issues)
         elif w["type"] in DISPATCHES:
             if stopped is not None and w["type"] in STOPPED:
                 reason = stopped
@@ -891,8 +1016,13 @@ def main(argv=None, environ=None, base=None, mint=None, clock=None) -> int:
             transports["controller"] = Allowed(own, *controller_permits(config, org, repos))
         org, repos = scopes(writes, config) if transports["controller"] else ("", [])
         read = pause_.read(transports["controller"], org, repos)
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        run_id = environ.get("GITHUB_RUN_ID")
+        status = {"name": defaults["status_on_item"], "feed": json.loads((ROOT / "config" / "feed.json").read_text()),
+                  "app_id": json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["app_id"],
+                  "run_id": run_id if isinstance(run_id, str) and DIGITS.fullmatch(run_id) else None}
         written = apply(writes, record, transports, config, owner_role, pause=read,
-                        issues=open_issues(transports["controller"], config))
+                        issues=open_issues(transports["controller"], config), status=status)
     except Unanswered:
         written, sent = refused_all(writes, record, "token_unreadable"), False
     except Refused:

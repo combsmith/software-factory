@@ -946,13 +946,13 @@ class Entry(unittest.TestCase):
         # before read. The window is a day and `not_run_seconds` back from the read.
         spied, efforts = [], {}
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, opener, recorded, opened):
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             kept["reviews"] = "kept of %d" % number     # what a snapshot had read before it failed is not handed on
             if number == 8:
                 raise github.Unanswered("no")
             transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number)})
             transport.send({"method": "GET", "path": "/repos/%s/pulls/%d/later" % (repo, number)})
-            return support.facts(item=dict(support.ITEM, number=number)), "A title"
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
         def read(transport, item, kept, identities, apps, since):
             spied.append((item, kept, identities, apps, since))
@@ -1007,6 +1007,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(efforts["runs"], (self.HOME, since, {"r_01JA00"}))
         self.assertEqual(efforts["passes"], (self.HOME, "main", "poller.yml", int(self.RUN), since, {(40, 1)}))
         record = files["pass.json"]
+        # The head read beside the facts is kept, for the status on the item.
+        self.assertEqual([e["head"] for e in record["pull_requests"]], ["a" * 40])
         # The read that began each snapshot is kept; one whose snapshot could not be read has none.
         self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
         # What it read goes into its record, for the next pass, after what the last one carried.
@@ -1076,11 +1078,12 @@ class Entry(unittest.TestCase):
 
         whos = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, opener, recorded, opened):
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener,
                            recorded))
             whos.append(who)
-            return support.facts(item=dict(support.ITEM, number=number)), "A title"
+            self.assertIs(with_head, True)
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
         from tests.test_steps import recorded_spy
         asked = []
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), recorded_spy(entry, asked):

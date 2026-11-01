@@ -36,6 +36,7 @@
   },
   "read_gap_seconds": 180,
   "not_run_seconds": 21600,
+  "max_status_writes": 50,
   "capacity_window_seconds": 18000,
   "automatic_pause": {
     "faults": 3,

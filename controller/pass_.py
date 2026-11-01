@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import re
 
 from controller import credentials as credentials_
 from controller import feed as feed_
@@ -40,6 +41,9 @@ from controller.shared import Refused, checked, key, moment, seconds, text
 from kernel import decide as pull_request
 from kernel import issue
 from kernel import terms as t
+
+# A head commit, as `pass/1` holds one; any other read beside the facts is not carried, and that item gets no status.
+COMMIT = re.compile(r"[0-9a-f]{40}")
 
 # What started a pass, by the run that started it (decision 0043). Any other event is the relay's public one.
 SCHEDULE, OWN_REPO, DISPATCHED = "schedule", "workflow_run", "workflow_dispatch"
@@ -233,7 +237,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             facts["complete"]["runs"] = facts["complete"].get("runs") is True and whole
             d = decide(facts, runs, context, kernel, now)
             minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"
-            out.append({"facts": facts, "decision": d, "run": mint("r") if minted else None})
+            out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
+                            **({"head": entry["head"]} if COMMIT.fullmatch(str(entry.get("head"))) else {})))
         return out
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and

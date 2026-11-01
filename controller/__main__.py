@@ -166,9 +166,9 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
     for number in numbers:
         held, through = {}, Dated(transport)
         try:
-            facts, title = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),
-                                           kept=held, opener=opens, recorded=found[number], opened=made)
-            pulls.append({"facts": facts, "title": title})
+            facts, title, head = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),
+                                                 kept=held, with_head=True, opener=opens, recorded=found[number], opened=made)
+            pulls.append({"facts": facts, "title": title, "head": head})
             kept[number] = held
             facts_reads += dated(through.first)
         except Unanswered:
