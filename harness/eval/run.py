@@ -48,8 +48,11 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
     def review(case: dict) -> dict:
         facts = case["facts"]
         admit = {"role": case["role"], "intent": case["intent"], "content_id": facts.get("content_id")}
+        # The issue a change serves, as a live Run reads it (adapters/texts.py), where the case holds one (decision 0116).
+        texts = [{"id": "issue:%d" % case["issue"]["number"], "by": case["issue"]["by"], "body": case["issue"]["body"]}] \
+            if "issue" in case else []
         try:
-            the_task = tasks.from_admission(admit, facts.get("item"), run_id(), facts, [], manifest, [], config,
+            the_task = tasks.from_admission(admit, facts.get("item"), run_id(), facts, texts, manifest, [], config,
                                       case["diff"].encode("utf-8"))
         except (tasks.Refused, KeyError, UnicodeEncodeError):
             raise Stop("not_this_set") from None
