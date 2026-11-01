@@ -630,7 +630,7 @@ title anywhere in it: the facts have no field for one.
   "findings": ["f_9c1e", "f_22ab"],
   "texts": [
     { "id": "thread:PRRT_kw1", "trust": "advisory", "source": "coderabbitai[bot]", "body": "..." },
-    { "id": "issue:body", "trust": "maintainer", "source": "don-petry", "body": "..." }
+    { "id": "issue:36", "trust": "outside", "source": "don-petry", "body": "..." }
   ],
   "limits": { "turns": 20, "repair_turns": 2, "seconds": 900, "cost_ceiling_usd": 1.5 },
   "tier": "deep",
@@ -1117,9 +1117,9 @@ criteria:
     evidence: The diff.
     severity_if_violated: blocking
   - id: PR-3
-    statement: New behaviour has a test that would fail without it.
+    statement: The change does what it means to, with no logic error, and new behaviour has a test that would fail without it.
     category: functional
-    evidence: The diff and the test results.
+    evidence: The diff.
     severity_if_violated: major
     applies_when: { paths: ["**/*.py"] }
 ```
