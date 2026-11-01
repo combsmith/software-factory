@@ -1,6 +1,6 @@
 # 0099. The eval job holds a set's split where its cases are, since the repo cannot hold the counts true
 
-Status: accepted. Replaces `docs/decisions/0094-the-eval-job-holds-a-sets-split-where-its-cases-are-and-no-count-of-a-kind-is-public.md`. The Factory Builder's ruling of 2026-10-30 on issue 365, "Evals: the held-out manifest holds its Finding and right-change counts, so the cutover's split is held", after the Maintainer's on issue 430, "Evals: the public report's per-case verdicts can publish each case's kind". The decision stands as it was; its reason, and a rule that followed from that reason, do not. The Maintainer may overturn it in review. It adds to 0078's job and public report, and holds the split that 0010's cutover waits on.
+Status: replaced by `docs/decisions/0109-the-scorers-codes-are-in-the-public-report-and-the-judges-log.md`.
 
 ## Decision
 

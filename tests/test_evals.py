@@ -409,7 +409,7 @@ class TheSet(unittest.TestCase):
         # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
         # with a Finding and as many of a change that was right: forty at least. The manifest keeps no count of a kind,
         # since a session here cannot read a case to hold it true; the eval job holds the split where the cases are
-        # (decision 0099).
+        # (decision 0109).
         manifest = json.loads(SET.read_text())
         self.assertGreaterEqual(manifest["count"], 40)
 
@@ -546,7 +546,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
-        # Decision 0099: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
+        # Decision 0109: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
         # of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set, which
         # `verdict`, the Release's gate too, refuses. Neither says how many of a kind.
         from harness import eval as job
@@ -607,7 +607,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(json.loads((self.temp / "heldout" / "fetched.json").read_text()), {first: "hash_differs", "poc-two": None})
         self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
         # The report and the judge's log say what the scorer said, as codes: a run cannot be read without them, and a
-        # case's kind is not worth hiding (decision 0107, on the ruling that closed "Evals: the public report's per-case
+        # case's kind is not worth hiding (decision 0109, on the ruling that closed "Evals: the public report's per-case
         # verdicts can publish each case's kind"). The run says `case_failed` all the same.
         self.assertEqual(eval_result.score(load("examples/eval-case.json"), wrong)["reasons"][0], "finding_not_raised")
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
@@ -981,7 +981,9 @@ class EvalJob(unittest.TestCase):
                 self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
                 self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
                                  [("unreadable", [reason]), ("pass", [])])
-                self.assertEqual(self.step(judge), "engine_fault")
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                    self.assertEqual(self.step(judge), "engine_fault")
+                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1\n" % reason)
         # The reviewer's own failure stays as it was: a Result it gave that does not pass, and one that cannot be read.
         shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
         self.step(plan)
@@ -1068,7 +1070,7 @@ class EvalJob(unittest.TestCase):
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
 
-    def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0107
+    def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0109
         # A code the enum lacks would make the whole report unreadable, and the run would say so and nothing else.
         from harness import eval as job
         source = (ROOT / "tools" / "eval_result.py").read_text()
@@ -1077,6 +1079,28 @@ class EvalJob(unittest.TestCase):
         self.assertGreater(len(codes), 10)
         self.assertEqual(codes - job.eval_result_codes() - {"file", "file_outside"}, set())
         self.assertNotIn("case_failed", job.eval_result_codes())
+
+    def test_the_judges_line_counts_the_cases_passed_and_each_code(self):
+        from harness import eval as job
+        cases = [{"verdict": "pass", "reasons": []}, {"verdict": "fail", "reasons": ["criterion_not_met"]},
+                 {"verdict": "fail", "reasons": ["criterion_not_met", "coverage_disagrees"]}]
+        self.assertEqual(job.tally({"passed": 1, "cases": cases}), "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2")
+        self.assertEqual(job.tally({"passed": 0, "cases": [{"verdict": "fail", "reasons": []}]}), "0 of 1 passed; no code")
+
+    def test_a_case_the_scorer_cannot_read_is_unreadable_in_the_report(self):
+        # What the scorer calls unreadable is no failure of the reviewer's, and the report says so by the scorer's verdict.
+        from harness import eval as job
+        first, kept = next(iter(self.cases.items()))
+        one = json.loads(kept)
+        one["expected"] = dict(one["expected"], criterion="PR-99")
+        cases = {first: (json.dumps(one) + "\n").encode()}
+        self.set(cases)
+        self.step(job.plan)
+        self.step(job.fetch, self.home(cases))
+        self.step(job.score, lambda case: load("examples/result.json"))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]], [("unreadable", ["criterion_unknown"])])
+        self.assertEqual(self.step(job.judge), "case_failed")
 
     def test_the_canary_installs_the_block_the_jobs_hold(self):  # decision 0106
         # Word for word what the eval job and the Run's jobs run, at the pin and by its checksum: a line taken from them

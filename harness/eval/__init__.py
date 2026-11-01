@@ -10,8 +10,9 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too.
 
-Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails prints one code and
-exits 1, and no traceback, which could quote a case, reaches the log. Results and cases stay in the scratch directory;
+Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
+exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
+log. Results and cases stay in the scratch directory;
 only `eval-report.json`, of hashes, verdicts and codes, is written where the upload finds it."""
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
 # How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
-# held here, where the cases are, since the repo cannot hold a count of them true (decision 0099).
+# held here, where the cases are, since the repo cannot hold a count of them true (decision 0109).
 KIND_LEAST = 20
 
 
@@ -297,7 +298,7 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             continue
         said = eval_result.score(case, result)
         # What the scorer says is codes of the report's enum: nothing of a case's content, and no word of the model's. A
-        # case's kind is not worth hiding, and a run cannot be read without them (decision 0107).
+        # case's kind is not worth hiding, and a run cannot be read without them (decision 0109).
         assessed[entry["id"]] = (said["verdict"], said["reasons"])
     return assessed
 
@@ -310,7 +311,7 @@ def eval_result_codes() -> set:
 
 def split_ok(found: dict, place: pathlib.Path):
     """Whether the set's cases, as fetched into the scratch, hold KIND_LEAST of each kind: one word of the whole set,
-    never how many of either: the gate needs no more (decision 0099). None where a case was not read, or its answer is no
+    never how many of either: the gate needs no more (decision 0109). None where a case was not read, or its answer is no
     kind: such a run fails by that case."""
     counted = {"finding": 0, "met": 0}
     for entry in found["cases"]:
@@ -402,7 +403,7 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
 
 def main(step, *given) -> int:
     """One step of the job, run in the workspace: what it says on success, or its one code on failure, and nothing
-    else. Whatever it raised is never printed, since its message could quote a case."""
+    else of its own. Whatever it raised is never printed, since its message could quote a case."""
     try:
         said = step(dict(os.environ), ROOT, pathlib.Path.cwd(), *given)
     except Stop as stop:

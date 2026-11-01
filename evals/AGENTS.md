@@ -2,7 +2,7 @@
 
 What this repo holds of each held-out eval set: one manifest a directory, `<role>/cases.json`, with the Role, the Intent, the count of cases and each case's id and sha256.
 The cases themselves live in a private repo under a different owner (design §3.13), read only by the eval job (§4.9), and never here, in a pull request, an issue or a note.
-No count of a kind is written here, since a session here cannot read a case to hold it true: the eval job holds the split (decision 0099).
+No count of a kind is written here, since a session here cannot read a case to hold it true: the eval job holds the split (decision 0109).
 `tools/eval_result.py` scores one `result/1` against one case, at run time, where the case is.
 `context/task.json` is the context's test (issue 8, "The context's test: a fresh agent adds a rule to the Kernel without being told how"): one task sentence, the sha256 of its held-out answer,
 and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Maintainer's terminal and recorded by `tools/context_eval.py` with no text of the model's.
@@ -18,9 +18,9 @@ and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Main
 | A case expects a Finding in the Finding's own categories and severities | `tests/test_evals.py::test_a_cases_categories_are_the_findings` |
 | The eval job ends a set of no case before anything is minted, and reads the Release and commit it judges | `tests/test_evals.py::test_a_set_of_no_case_ends_the_run_before_anything_is_read` |
 | Each case is fetched into a scratch outside the workspace and scored; only the report, of hashes and codes, reaches it | `tests/test_evals.py::test_each_case_is_fetched_into_the_scratch_and_scored_and_only_the_report_reaches_the_workspace` |
-| A set short of 20 of a kind fails the run and closes the gate; its log and report hold no count of a kind | `tests/test_evals.py::test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count` |
+| A set short of 20 of a kind fails the run and closes the gate; its refusal holds no count of a kind | `tests/test_evals.py::test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count` |
 | A fault of the Engine or the Factory is unreadable by its own code, and the run says so; `harness/eval/canary.py` checks it weekly (decision 0106) | `tests/test_evals.py::test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers` |
-| A case not read whole or failed fails the run, its report written all the same, for the upload | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
+| A case not read whole or failed fails the run, its report written all the same, with the scorer's codes (decision 0109) | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
 | A case whose expected Finding is off its rubric is unreadable by a code alone, and asks nothing | `tests/test_evals.py::test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing` |
 | The facts the set predates are filled in the job alone, and a field made required later fails until it has a row | `tests/test_evals.py::test_the_facts_the_set_was_made_with_read_as_todays_once_filled` |
 | A case whose facts are still no `facts/1` is unreadable by a code alone, and asks nothing | `tests/test_evals.py::test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone` |
