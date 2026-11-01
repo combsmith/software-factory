@@ -4291,6 +4291,10 @@ class Trials(unittest.TestCase):
     def test_a_fixture_of_the_org_asks_by_rest_of_this_org_alone_and_climbs_nowhere(self):
         # Another org, a GraphQL query whose call looks like an App's, and a path that climbs out of /apps/ are each
         # a call of something else; the fixture's own calls are not.
+        # A Factory App's bot account is the org's to read, by the one form its login takes; no other account is.
+        for call, fine in (("GET /users/combsmith-sf-controller[bot]", True), ("GET /users/octocat", False),
+                           ("GET /users/combsmith-sf-controller[bot]/repos", False), ("GET /users/other-sf-x[bot]", False)):
+            self.assertEqual(bool(check_trials.ORG_CALL.match(call)), fine, call)
         reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
         n = len(reach["exchanges"])
         reach["exchanges"] += [json.loads(json.dumps(reach["exchanges"][0])) for _ in range(4)]
