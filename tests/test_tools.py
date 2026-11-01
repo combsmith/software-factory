@@ -3267,6 +3267,7 @@ class Workflows(unittest.TestCase):
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
         broken = {
+            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends bubblewrap\n", ""),
             "the reader's key beside the model": good.replace(model, model + reader),
             "the model beside the reader's key": good.replace(reader, reader + model),
             "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
