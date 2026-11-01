@@ -630,17 +630,23 @@ class CommentsGrant(unittest.TestCase):
         # so a token without the grant read them too, and the header is what says which grant serves them (decision 0068).
         fixture = json.loads((ROOT / "trials" / "P-56.json").read_text())
         self.assertEqual(fixture["verdict"], "pass")
-        narrowed = fixture["exchanges"][0]["request"]["body"]["permissions"]
-        self.assertEqual(narrowed, {"pull_requests": "read"})
-        read = fixture["exchanges"][1]
+        mint, read, revoke = fixture["exchanges"][:3]
+        # The Controller's App minted the narrowed token, made the read with it, and revoked it.
+        self.assertEqual(mint["response"]["status"], 201)
+        self.assertEqual(mint["request"]["body"]["permissions"], {"pull_requests": "read"})
+        self.assertEqual({e["request"]["as"]["name"] for e in (mint, read, revoke)}, {"combsmith-sf-controller"})
+        self.assertEqual(revoke["response"]["status"], 204)
         self.assertIn("/comments?since=", read["request"]["call"])
         self.assertEqual(read["response"]["status"], 200)
         self.assertIn("pull_requests=read", read["response"]["headers"]["x-accepted-github-permissions"].split("; "))
         self.assertTrue(read["response"]["body"])
         for comment in read["response"]["body"]:
-            self.assertIsInstance(comment["id"], int)
+            # What adapters/seen.py reads of each, and no comment's text, which comes from outside.
+            self.assertIsInstance(comment["node_id"], str)
+            self.assertIsInstance(comment["created_at"], str)
             self.assertIsInstance(comment["user"]["id"], int)
             self.assertIsInstance(comment["user"]["type"], str)
+            self.assertNotIn("body", comment)
 
 
 if __name__ == "__main__":

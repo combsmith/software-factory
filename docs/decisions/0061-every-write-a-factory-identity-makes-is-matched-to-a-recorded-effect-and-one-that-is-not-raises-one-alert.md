@@ -23,7 +23,7 @@ The machine user's token is long-lived and can approve, and every App's key can 
 record means a credential is used outside the Factory. Reconciliation is the detective control that sees it. Each
 alert asks the Maintainer to rotate the credential (section 4.9).
 
-The comments read is served by `pull_requests: read`, which trial P-56 confirmed on 2026-11-01 (`trials/P-56.json`).
+The comments read is served by `pull_requests: read`, unverified until a trial of the second token window answers it.
 The window leaves out check runs on an older head, writes outside the served items, and resolutions GitHub does not
 attribute: stated limits, accepted by the answers. Three more follow from reading what GitHub records of a write's
 making: an edit of a write the Factory recorded keeps its key and is not seen, a check run's conclusion among them;
@@ -54,6 +54,7 @@ limit; these add no GraphQL point.
 | A Run's `applied/1` is read whole or not at all | `tests/test_adapters.py::test_a_runs_applied_record_is_read_whole_or_not_at_all` |
 | The pass raises one alert, names each write in the view and keeps it in its record | `tests/test_controller.py::test_a_write_no_effect_recorded_raises_one_alert_and_is_named_in_the_view` |
 | `pull_requests: read` serves the comments on a pull request | `tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read` |
+| Trial P-56 answers that on a pull request of the public canary (`trials/P-56.json`): GitHub names `issues=read; pull_requests=read`, and any token reads there. An issue's comments and a private repo stay unasked | `tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read` |
 | The pass's reads are gathered by the workflow that runs it | waiting on `.github/workflows/poller.yml` |
 | Only a listed Run of a Role workflow or of the approving act has its `applied/1` read, once, its keys kept as `reconciled` | waiting on `.github/workflows/poller.yml` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
