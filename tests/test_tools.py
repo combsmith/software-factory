@@ -5208,7 +5208,8 @@ class OutputMadeAlone(unittest.TestCase):
     SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY", "KEY"),
                "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
                "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
-               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42")}
+               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
+               "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40)}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -5345,6 +5346,7 @@ class OutputMadeAlone(unittest.TestCase):
         # The scripts this cannot run so plainly hold to the same line.
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
+                       "trial_p12_status.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -8949,6 +8951,142 @@ sys.stdout.write("HTTP/2 %d''', 1)
                                  ((self.CANARY, "1/../2"), None, "is not an issue's number"),
                                  ((self.CANARY, ""), None, "is not an issue's number"),
                                  ((self.CANARY,), None, "usage:"), ((self.CANARY, "42", "43"), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+
+class StatusTrial(IssueLookupTrial):
+    """`tools/trial_p12_status.sh`, run against the same stand-ins and never GitHub (issue 454). It is P-54's script with
+    one token, narrowed to what the status write needs, and writes among its calls, so every test of that one that is not
+    about what is asked runs over it too, by inheritance."""
+
+    SCRIPT = ROOT / "tools" / "trial_p12_status.sh"
+    HEAD = "a" * 40
+    GIVEN = (IssueLookupTrial.CANARY, HEAD)
+    FIRST = "checks: write and metadata: read"
+    # The stand-in answers the check-run calls: a create and an edit by what was sent, kept for the test to read, and a
+    # list or a read by a run of one id. A file beside it refuses the first create.
+    CURL = IssueLookupTrial.CURL.replace('if "/collaborators/" in url:', """if "/check-runs" in url:
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")) or (method == "GET" and os.path.exists(os.path.join(here, "get.cut"))):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    sent = json.load(open(body[1:])) if body and body.startswith("@") else None
+    if sent is not None:
+        with open(os.path.join(here, "sent"), "a") as kept:
+            kept.write(json.dumps(sent) + "\\n")
+    if method == "POST" and os.path.exists(os.path.join(here, "no-create")):
+        status, answer = 422, {"message": "Validation Failed"}
+    elif method == "POST":
+        status, answer = 201, {"id": 7, "external_id": sent["external_id"]}
+    elif "/commits/" in url:
+        status, answer = 200, {"total_count": 1, "check_runs": [{"id": 7}]}
+    else:
+        status, answer = 200, {"id": 7, "external_id": "read back"}
+elif "/collaborators/" in url:""", 1)
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        calls = self.calls()
+        self.assertEqual([c["url"].split("/app/")[1] for c in calls if c["url"].endswith("/access_tokens")],
+                         ["installations/%d/access_tokens" % installation])
+        self.assertEqual(json.loads(calls[0]["body"]), {"repositories": [self.CANARY.split("/")[1]],
+                                                        "permissions": {"checks": "write", "metadata": "read"}})
+        runs = "%s/check-runs" % self.CANARY
+        named = "%s/commits/%s/check-runs?check_name=status_on_item" % (self.CANARY, self.HEAD)
+        mine = "%s&app_id=%d" % (named, app["app_id"])
+        asked = [("POST", runs), ("GET", runs + "/7"), ("GET", mine + "&filter=latest&per_page=100"),
+                 ("GET", named + "&filter=all&per_page=100"), ("PATCH", runs + "/7"), ("GET", runs + "/7"),
+                 ("GET", mine + "&filter=all&per_page=100"), ("POST", runs), ("GET", mine + "&filter=latest&per_page=100"),
+                 ("GET", mine + "&filter=all&per_page=100"), ("PATCH", runs + "/7"), ("GET", runs + "/7"),
+                 ("PATCH", runs + "/7"), ("GET", runs + "/7"), ("PATCH", runs + "/7"), ("GET", runs + "/7")]
+        self.assertEqual([(c["method"], c["url"].split("/repos/")[1]) for c in calls[1:-1]], asked)
+        self.assertEqual(calls[-1]["method"], "DELETE")
+        self.assertEqual(calls[-1]["url"].rsplit("/", 2)[1:], ["installation", "token"])
+        self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+        sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
+        self.assertEqual(sent[0]["name"], "status_on_item")
+        self.assertEqual((sent[0]["head_sha"], sent[0]["status"], sent[0]["conclusion"]), (self.HEAD, "completed", "neutral"))
+        self.assertEqual([len(s["external_id"]) for s in sent[:4]], [33, 33, 33, 1000])
+        self.assertEqual(len({s["external_id"] for s in sent[:4]}), 4)
+        self.assertEqual([len(sent[4]["output"][k]) for k in ("title", "summary", "text")], [255, 65535, 65535])
+        self.assertEqual([len(sent[5]["output"][k]) for k in ("title", "summary", "text")], [256, 65536, 65536])
+        texts = {p.name: p.read_text() for p in self.out.iterdir()}
+        self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json"] + ["%s-%d" % (kind, n) for n in range(1, 17)
+                                                                              for kind in ("clean", "redacted")]))
+        said = json.loads(texts["requests.json"])
+        self.assertEqual([(a["call"].split(" ")[0], a["status"]) for a in said[:2]], [("POST", 201), ("GET", 200)])
+        self.assertEqual(said[-1], {"revoked": self.FIRST, "status": 204})
+        self.assertIn('"external_id": "d', texts["clean-1"])
+        self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+
+    def test_a_first_create_refused_stops_the_run_and_its_token_is_revoked(self):
+        (self.stand_in / "no-create").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("the first create gave no run's id, status 422; nothing else is asked", ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+        self.assertIn('"message": "Validation Failed"', (self.out / "clean-1").read_text())
+
+    def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
+        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
+                self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_a_later_call_the_redaction_refused_stops_the_run(self):
+        # The first create read, the read after it is cut short: nothing further is asked, and its token is revoked.
+        (self.stand_in / "get.cut").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "GET", "DELETE"])
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+        self.assertFalse((self.out / "requests.json").exists())
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the call's.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual(asked[0]["status"], 201)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        not_a_commit = "is not a commit's 40 hex digits"
+        for given, out, said in (((self.CANARY, self.HEAD), self.out.parent, "exists"),
+                                 ((self.CANARY, self.HEAD), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", self.HEAD), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith/elsewhere", self.HEAD), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith", self.HEAD), None, "is not owner/name"),
+                                 ((self.CANARY, "a" * 39), None, not_a_commit),
+                                 ((self.CANARY, "a" * 41), None, not_a_commit),
+                                 ((self.CANARY, "A" * 40), None, not_a_commit),
+                                 ((self.CANARY, "../" + "a" * 37), None, not_a_commit),
+                                 ((self.CANARY, ""), None, not_a_commit),
+                                 ((self.CANARY,), None, "usage:"), ((self.CANARY, self.HEAD, "43"), None, "usage:")):
             ran = self.run_script(*given, out=out)
             self.assertNotEqual(ran.returncode, 0, given)
             self.assertIn(said, ran.stderr, given)
