@@ -1,4 +1,4 @@
-# 0110. A pass gathers what reconciliation reads, and carries what it has read
+# 0111. A pass gathers what reconciliation reads, and carries what it has read
 
 Status: accepted. The Factory Builder's rulings of 2026-10-31 on wiring the live pass, an item of the audit of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182). It builds what `docs/decisions/0061-every-write-a-factory-identity-makes-is-matched-to-a-recorded-effect-and-one-that-is-not-raises-one-alert.md` left waiting on the pass's entry, and adds to it how a Run is read once.
 

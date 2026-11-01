@@ -114,7 +114,7 @@ def records(transport, repo: str, branch: str, poller: str, own: int):
 
 def written(transport, repo: str, branch: str, poller: str, own: int, since: str, known, most: int = READS) -> dict:
     """What each completed pass since `since` recorded of its writes and has not been read: `{"written": [written/1],
-    "read": [{"id", "attempt"}], "at": {pass: when it was made}, "whole": bool}`, for reconciliation (decisions 0061, 0110).
+    "read": [{"id", "attempt"}], "at": {pass: when it was made}, "whole": bool}`, for reconciliation (decisions 0061, 0111).
     An attempt is read once: `known` holds the `(id, attempt)` a record before this one read. One that succeeded and lists
     no record, one whose record cannot be read or is not `written/1`, and any past the `most` a pass reads, are not read, so
     a later pass reads them, and what this one read is not whole. One that failed and lists none may be yet to, so it too

@@ -8,7 +8,7 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    began (decision 0043).
 3. It reads what started the pass from its own run, `GITHUB_RUN_ID`; `FACTORY_PAUSED` on the org and the repo; the
    run records, with the outcomes the records before it read (`records.known`); the facts of each open pull request;
-   and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0110). The issues' reads are the issue Lifecycle's port's, not built yet: none is read, and no issue is decided.
+   and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0111). The issues' reads are the issue Lifecycle's port's, not built yet: none is read, and no issue is decided.
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
@@ -124,7 +124,7 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
 
 def recorded_effects(transport, config: dict, runs, own: int, before, since: str) -> dict:
     """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1` and each pass's
-    `written/1`, read once, and all of them again where the last record holds none (decision 0110)."""
+    `written/1`, read once, and all of them again where the last record holds none (decision 0111)."""
     controller = config["controller"]
     home = controller["home"]["repo"]
     known_runs, known_passes = reconcile.known(before)

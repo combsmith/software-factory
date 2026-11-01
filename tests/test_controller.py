@@ -940,7 +940,7 @@ class Entry(unittest.TestCase):
             _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
             self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
 
-    def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0110
+    def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0111
         # What each snapshot kept is handed to the seen port, each item once; the machine user's pushes are read; a pull
         # request the pass before served and that has left is read as left; and the Effects are read by what no record
         # before read. The window is a day and `not_run_seconds` back from the read.
