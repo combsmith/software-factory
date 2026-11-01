@@ -3812,14 +3812,16 @@ class TheFactorysOwnRules(unittest.TestCase):
         self.assertEqual(self.waits_for_a_person(both)["evidence"], ["roles/pr-review.*", "harness/"])
 
     def test_what_grades_the_review_stays_on_model_review(self):  # issue 471
-        # The Maintainer's ruling, and his accepted risk: a model-approved change could weaken what grades the model.
-        for path in ("tools/eval_result.py", "tools/jsonschema_lite.py", "evals/pr-review/cases.json", "schemas/eval-case.schema.json",
-                     "schemas/eval-report.schema.json", "schemas/eval-set.schema.json", "schemas/result.schema.json",
-                     ".github/workflows/eval.yml", "adapters/heldout.py", "release/cut.py", "release/rings.json",
-                     "adapters/candidate.py", "adapters/artifacts.py", ".github/workflows/release.yml"):
+        # The Maintainer's ruling, and his accepted risk: each is reviewed by the model, of any class, and waits for no person.
+        for path in ("tools/eval_result.py", "evals/pr-review/cases.json", "schemas/eval-case.schema.json",
+                     "schemas/eval-report.schema.json", "schemas/eval-set.schema.json", ".github/workflows/eval.yml",
+                     "adapters/heldout.py", "release/cut.py", "release/move.py", "adapters/candidate.py", "adapters/artifacts.py",
+                     ".github/workflows/release.yml"):
             self.assertFalse([p for p in CONFIG["model_lens_inputs"] if derive.matches(p, path)], path)
-            d = go(changing(**AGENT, changed_paths=[path]), REVIEWED)
-            self.assertNotEqual(d["reason"], "model_lens_input_needs_person", path)
+            for cls in (AGENT, DEPENDENCY):
+                self.waits_for_review([path], cls=cls)
+                d = go(changing(**cls, changed_paths=[path]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), path)
         # The job's modules stay on the list, through the Harness (decision 0052).
         self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]))["evidence"], ["harness/"])
 

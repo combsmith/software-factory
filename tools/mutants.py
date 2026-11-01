@@ -10515,6 +10515,8 @@ MUTANTS = ISSUE + [
      '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n', '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n    {"lens": "pr-review", "path": "release/cut.py", "is": "x"},\n', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
     ('the Harness leaves the review\'s inputs', 'config/hooks.json',
      '    {"lens": "pr-review", "path": "harness/", "is": "the Harness, which gives the review its Task and takes its answer"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
+    ('the set\'s manifest has no model review', 'config/hooks.json',
+     '    {"lens": "verify", "path": "evals/", "is": "the held-out set\'s manifest and the context\'s test, which verify holds"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
 ]
 
 
