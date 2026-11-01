@@ -399,6 +399,7 @@ class Apps(unittest.TestCase):
                   for n in grant["needs"]}
         self.assertFalse(others & set(own))
         self.assertEqual(apps["needs"]["read:release.refs"], {"permission": "contents", "level": "read"})
+        self.assertIn("read:release.refs", release["contents"]["needs"])
         self.assertIn("read:release.refs", apps["apps"]["reader"]["permissions"]["contents"]["needs"])
 
 
