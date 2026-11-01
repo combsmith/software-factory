@@ -1103,7 +1103,10 @@ class Apps(unittest.TestCase):
     def check(self, **leave_out) -> list:
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
         files = {"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
-                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach)}
+                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach),
+                 "config/machine-user.json": (ROOT / "config" / "machine-user.json").read_text(),
+                 "config/defaults.json": (ROOT / "config" / "defaults.json").read_text(),
+                 "config/rulesets.json": (ROOT / "config" / "rulesets.json").read_text()}
         return check_apps.run(tree({rel: text for rel, text in files.items() if rel not in leave_out.get("files", ())}))
 
     def test_the_machine_user_is_the_approver_and_a_code_owner_with_write_here(self):  # issue 89
