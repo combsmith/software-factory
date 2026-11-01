@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 
-from harness import eval as job, run as live
+from harness import engine, eval as job, run as live
 from harness.eval import run as step
 from tools import check_workflows
 
@@ -37,11 +37,13 @@ def install(env: dict, call=subprocess.run) -> int:
 
 
 def told(call):
-    """`call`, the CLI's, saying the end of what the CLI said when it failed."""
+    """`call`, the CLI's, saying the end of what the CLI said when it failed, its credential taken out first: the log is
+    public, and a slice could start inside the value, where a runner's masking would not know it."""
     def asked(args, env, timeout):
         done = call(args, env, timeout)
         if done.returncode != 0:
-            print("the CLI exited %d: %s" % (done.returncode, done.stderr[-TAIL:]))
+            said = done.stderr.replace(env[engine.CREDENTIAL_NAME], "***")
+            print("the CLI exited %d: %s" % (done.returncode, said[-TAIL:]))
         return done
     return asked
 

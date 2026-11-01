@@ -986,6 +986,16 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([c["reasons"] for c in written["cases"]], [["case_failed"], ["case_failed"]])
         self.assertEqual(self.step(judge), "case_failed")
+        # A reason the model wrote is the reviewer's, whatever it says: a Result it refused, naming an Engine fault, is
+        # no fault of the Engine's, or a case's text could choose the report's code.
+        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        said = dict(load("examples/result.json"), status="refused", reason="engine_failed", findings=[])
+        self.step(job.score, lambda case: said)
+        report = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([c["reasons"] for c in report["cases"]], [["case_failed"], ["case_failed"]])
+        self.assertEqual(self.step(judge), "case_failed")
         # One Engine fault among failed cases says so: the run cannot say what the reviewer would have done.
         mixed = copy.deepcopy(written)
         mixed["cases"][1].update(verdict="unreadable", reasons=["engine_failed"])
@@ -1077,7 +1087,9 @@ class EvalJob(unittest.TestCase):
 
             def __call__(self, args, env, timeout):
                 done = super().__call__(args, env, timeout)
-                done.stderr = "x" * canary.TAIL + "error: bubblewrap is required"
+                # The credential is cut across by where the end of it begins: taken out after the cut, a piece would be left.
+                last = "error: bubblewrap is required"
+                done.stderr = "x" * canary.TAIL + live.TOKEN + "x" * (canary.TAIL - 9 - len(last)) + last
                 return done
 
         def checked(cli, env=None):
@@ -1096,7 +1108,8 @@ class EvalJob(unittest.TestCase):
         self.assertIn("error: bubblewrap is required", said)
         self.assertIn("engine_failed", said)
         self.assertNotIn("x" * canary.TAIL, said)
-        self.assertNotIn(live.TOKEN, said)
+        self.assertNotIn(live.TOKEN[-9:], said)
+        self.assertIn("***", said)
         # An answer the Harness cannot read, a CLI at another version and no credential are each red.
         for cli, env in ((Said(said="not a result"), None), (Said(versions=("9.9.9", "9.9.9")), None),
                          (Said(), {k: v for k, v in live.JOB.items() if k != "CLAUDE_CODE_OAUTH_TOKEN"})):
