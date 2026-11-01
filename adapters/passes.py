@@ -25,12 +25,17 @@ import re
 
 from adapters import artifacts
 from adapters.github import PASSED, Unanswered, request
+from tools.jsonschema_lite import validate
 
 NAME = "pass"                 # the artifact the pass job uploads
 MEMBER = "pass.json"          # its one file
 HELD = 8 * 1024 * 1024        # bytes the file may be, as the zip says and as read out of it
 WANTED = 2                    # the records read: the last two passes'
 PAGE = 20                     # the runs read, newest first, to find them
+WRITTEN = "written"           # the artifact the pass job's last step uploads
+WRITTEN_MEMBER = "written.json"
+WINDOW_PAGE, WINDOW_PAGES = 100, 10  # the runs read for reconciliation's window, newest first; more is read short
+READS = 50                    # the records one pass reads of them, inside its step's limit; the next reads on
 EVENTS = {"schedule", "workflow_dispatch", "workflow_run"}
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 
@@ -105,6 +110,75 @@ def records(transport, repo: str, branch: str, poller: str, own: int):
         if len(found) < WANTED and total > len(listed):
             return None
     return list(reversed(found))
+
+
+def written(transport, repo: str, branch: str, poller: str, own: int, since: str, known, most: int = READS) -> dict:
+    """What each completed pass since `since` recorded of its writes and has not been read: `{"written": [written/1],
+    "read": [{"id", "attempt"}], "at": {pass: when it was made}, "whole": bool}`, for reconciliation (decisions 0061, 0112).
+    An attempt is read once: `known` holds the `(id, attempt)` a record before this one read. One that succeeded and lists
+    no record, one whose record cannot be read or is not `written/1`, and any past the `most` a pass reads, are not read, so
+    a later pass reads them, and what this one read is not whole. One that failed and lists none may be yet to, so it too
+    is read again, without being short. The list is held as the records port holds its own: each run once, one count."""
+    out, page, rows, counts = {"written": [], "read": [], "at": {}, "whole": True}, 1, [], set()
+    while True:
+        try:
+            answer = transport.send(request(
+                "GET", "/repos/%s/actions/workflows/%s/runs?branch=%s&status=completed&created=%%3E%%3D%s&per_page=%d&page=%d"
+                % (repo, poller, branch, since, WINDOW_PAGE, page), headers={"Cache-Control": "no-cache"}))
+        except Unanswered:
+            break
+        body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
+        listed, total = body.get("workflow_runs"), body.get("total_count")
+        if not isinstance(listed, list) or type(total) is not int or total < 0:
+            break
+        rows, counts = rows + listed, counts | {total}
+        if len(rows) >= total or not listed or page == WINDOW_PAGES:
+            break
+        page += 1
+    # Short of the count it gave, or with none, for whatever reason it stopped.
+    ids = [row.get("id") if isinstance(row, dict) else None for row in rows]
+    if len(counts) != 1 or len(rows) != next(iter(counts)) or len(set(map(str, ids))) != len(ids):
+        out["whole"] = False
+    tried, done_ids = 0, set()
+    for row in rows:
+        if not isinstance(row, dict) or not _id(row.get("id")):
+            out["whole"] = False
+            continue
+        if row["id"] in done_ids or not _is_pass(row, repo, branch, poller, own):
+            continue
+        made = row.get("created_at")
+        if not isinstance(made, str) or made < since:     # the list's own filter is GitHub's: this holds it
+            out["whole"] = out["whole"] and isinstance(made, str)
+            continue
+        done_ids.add(row["id"])
+        attempt = row.get("run_attempt")
+        if not _id(attempt):
+            out["whole"] = False
+            continue
+        if (row["id"], attempt) in known:
+            continue
+        if tried == most:
+            out["whole"] = False
+            break
+        tried += 1
+        told = []
+        try:
+            held, whole = artifacts.read(transport, repo, row["id"], name=WRITTEN, member=WRITTEN_MEMBER,
+                                         held_most=artifacts.APPLIED_MOST, required=row.get("conclusion") == "success",
+                                         expired=told)
+            done = json.loads(held.decode("utf-8")) if held is not None else None
+        except (Unanswered, ValueError, RecursionError):
+            whole, done = False, None
+        if not whole or (done is not None and validate(done, artifacts.SCHEMAS["written"], schemas=artifacts.SCHEMAS)):
+            out["whole"] = False
+            continue
+        if done is None and not told:
+            continue
+        out["read"].append({"id": row["id"], "attempt": attempt})
+        if done is not None:
+            out["written"].append(done)
+            out["at"][done["pass"]] = made
+    return out
 
 
 PASS_ID = re.compile(r"p_[0-9A-Z]{6,26}")

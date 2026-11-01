@@ -20,7 +20,8 @@
       "sha256": "1b657e2ca5226c6d61636cf2d155df3aeef3cd95422f9ae09924410f72ed07d4",
       "verdict": "fail",
       "reasons": [
-        "case_failed"
+        "finding_not_raised",
+        "coverage_disagrees"
       ]
     }
   ],

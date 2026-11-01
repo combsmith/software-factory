@@ -83,7 +83,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-14 The Maintainer's finding had no force where it was written
 **Failure.** The Maintainer reported a fault in a plain comment. The author never saw it, the reviewer approved, and the change merged eight minutes later with the fault in it.
 **Rule.** A person with write access blocks with a review thread, whatever its severity, or with an ordinary request for changes. The request stands until that person approves or a person with write access dismisses it: new content does not clear it, and nor does an App's dismissal. A plain comment gates nothing, because it has no resolved state (L-13); it is given to the next Run to steer it.
-**Check.** `tests/test_decide.py::test_a_writer_thread_gates_whatever_its_severity`, `tests/test_decide.py::test_a_writers_request_for_changes_does_not_converge`, `tests/test_decide.py::test_a_request_for_changes_stands_until_that_person_reviews_again`; a comment reaching the next Run is waiting on `adapters/texts.py`
+**Check.** `tests/test_decide.py::test_a_writer_thread_gates_whatever_its_severity`, `tests/test_decide.py::test_a_writers_request_for_changes_does_not_converge`, `tests/test_decide.py::test_a_request_for_changes_stands_until_that_person_reviews_again`; a comment reaching the next Run waits on the story that reads a comment's text, as `adapters/texts.py` reads an issue's so far
 
 ## Approval and merge
 

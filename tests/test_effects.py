@@ -315,7 +315,9 @@ class Effects(unittest.TestCase):
         self.assertEqual({(w["state"], w["reason"]) for w in refused["writes"]}, {("refused", "plan_refused")})
         self.assertEqual({token for token, _, _ in sent}, {"c"})
         self.assertEqual(sorted(path for _, method, path in sent if method == "GET"),
-                         sorted([pause.listed("combsmith/software-factory"), pause.path("combsmith/software-factory")]))
+                         sorted([pause.listed("combsmith/software-factory"), pause.path("combsmith/software-factory"),
+                                 effects.listed("combsmith/software-factory",
+                                                json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]["controller"])]))
 
     def test_a_failed_write_is_recorded_and_fails_the_step(self):
         o = out()
@@ -327,9 +329,8 @@ class Effects(unittest.TestCase):
             argv = [str(folder / "pass.json"), str(folder / "writes.json"), str(folder)]
             self.assertEqual(effects.main(argv, environ={}, base=tmp), 1)
             written = json.loads((folder / "written.json").read_text())
-        # With no Controller token the Pause cannot be read, so no dispatch is sent; and while the configuration names
-        # no account for the Controller's App, no tracking issue is written.
-        self.assertEqual({w["reason"] for w in written["writes"][1:]}, {"pause_unreadable", "uncounted"})
+        # With no Controller token the Pause cannot be read, so no dispatch is sent, and no tracking issue is written.
+        self.assertEqual({w["reason"] for w in written["writes"][1:]}, {"pause_unreadable", "no_credential"})
         # A token the transport cannot take, or a plan refused whole, still leaves written.json, every write refused.
         with tempfile.TemporaryDirectory() as tmp:
             folder = pathlib.Path(tmp)

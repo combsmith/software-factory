@@ -1,0 +1,153 @@
+{
+  "schema": "trial/1",
+  "trial": "P-39",
+  "question": "Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with config/apps.json?",
+  "pass": "They agree exactly, and a difference fails (section 6). This fixture holds one more read, for the accounts config/controller.json records, as #193's ruling 8 and decision 0061 leave them null until a trial records them: GET /users/{name}[bot] for the Controller's App and the pr-review App, each named as config/apps.json names it, answers a bot account, type Bot, by the login and the id config/controller.json then holds. The rest of the condition is held in P-39.grants.json and P-39.reach.json.",
+  "repo": "combsmith",
+  "ran_at": "2026-11-01T00:26:19Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /users/combsmith-sf-controller[bot]",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 01 Nov 2026 00:26:20 GMT",
+          "etag": "W/\"dc464bae9a5b61808ec85a7986a9ec6b382c4531fd7c8ba3acb88b18c722b257\"",
+          "last-modified": "Sun, 18 Oct 2026 02:22:10 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D413:F91A0:128265B:3CAB69D:6AE6872C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4960",
+          "x-ratelimit-reset": "1793494608",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "40"
+        },
+        "body": {
+          "login": "combsmith-sf-controller[bot]",
+          "id": 344165726,
+          "node_id": "BOT_kgDOFIONXg",
+          "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D",
+          "html_url": "https://github.com/apps/combsmith-sf-controller",
+          "followers_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/followers",
+          "following_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/following{/other_user}",
+          "gists_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/subscriptions",
+          "organizations_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/orgs",
+          "repos_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/repos",
+          "events_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/combsmith-sf-controller%5Bbot%5D/received_events",
+          "type": "Bot",
+          "user_view_type": "public",
+          "site_admin": false,
+          "name": null,
+          "company": null,
+          "blog": "",
+          "location": null,
+          "email": null,
+          "hireable": null,
+          "bio": null,
+          "twitter_username": null,
+          "public_repos": 0,
+          "public_gists": 0,
+          "followers": 0,
+          "following": 0,
+          "created_at": "2026-10-18T02:22:10Z",
+          "updated_at": "2026-10-18T02:22:10Z"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /users/combsmith-sf-pr-review[bot]",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 01 Nov 2026 00:26:20 GMT",
+          "etag": "W/\"eac0c677f586d3941d4976c9d62979fb45526c0dcd93518e89a02d155d8e25dc\"",
+          "last-modified": "Sun, 18 Oct 2026 02:23:43 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D416:E103E:12D561A:3DBEE65:6AE6872C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4959",
+          "x-ratelimit-reset": "1793494608",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "41"
+        },
+        "body": {
+          "login": "combsmith-sf-pr-review[bot]",
+          "id": 344166014,
+          "node_id": "BOT_kgDOFIOOfg",
+          "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D",
+          "html_url": "https://github.com/apps/combsmith-sf-pr-review",
+          "followers_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/followers",
+          "following_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/following{/other_user}",
+          "gists_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/subscriptions",
+          "organizations_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/orgs",
+          "repos_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/repos",
+          "events_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/combsmith-sf-pr-review%5Bbot%5D/received_events",
+          "type": "Bot",
+          "user_view_type": "public",
+          "site_admin": false,
+          "name": null,
+          "company": null,
+          "blog": "",
+          "location": null,
+          "email": null,
+          "hireable": null,
+          "bio": null,
+          "twitter_username": null,
+          "public_repos": 0,
+          "public_gists": 0,
+          "followers": 0,
+          "following": 0,
+          "created_at": "2026-10-18T02:23:43Z",
+          "updated_at": "2026-10-18T02:23:43Z"
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

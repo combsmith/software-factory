@@ -22,8 +22,8 @@
       "body": "parse() reads the first item before it checks that the list has one."
     },
     {
-      "id": "issue:body",
-      "trust": "maintainer",
+      "id": "issue:36",
+      "trust": "outside",
       "source": "don-petry",
       "body": "Return early from parse() when its list is empty, and add a test of that case."
     }
