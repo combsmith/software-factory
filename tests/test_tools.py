@@ -991,7 +991,7 @@ class Authority(unittest.TestCase):
 
     def test_a_role_writes_through_no_app_that_is_no_roles(self):
         # The Controller's App, the reader's and the release App are no Role's, the release App the one that holds
-        # `workflows` (decision 0113): a manifest may not name them, whatever it permits.
+        # `workflows` (decision 0114): a manifest may not name them, whatever it permits.
         for app in ("combsmith-sf-controller", "combsmith-sf-reader", "combsmith-sf-release"):
             quiet = self.review(app=app, intents=[dict(self.review()["intents"][0], permitted_effects=[])])
             self.assertTrue(caught(self.team({"pr-review": quiet}), "pr-review names %s, which is no Role's App" % app), app)
@@ -3301,7 +3301,7 @@ class Workflows(unittest.TestCase):
     LIVE = ROOT / ".github" / "workflows"
 
     def test_what_the_runs_files_rest_on_is_as_p55_saw_it(self):
-        # Trial P-55's fixture, read for what decision 0114 stands on.
+        # Trial P-55's fixture, read for what decision 0115 stands on.
         fixture = json.loads((ROOT / "trials" / "P-55.json").read_text())
         self.assertEqual(fixture["verdict"], "fail")
         exchanges = fixture["exchanges"]
@@ -9491,7 +9491,7 @@ class Rulesets(unittest.TestCase):
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
 
-    def test_the_tag_rulesets_that_guard_every_key_are_held(self):  # decision 0114
+    def test_the_tag_rulesets_that_guard_every_key_are_held(self):  # decision 0115
         apps = (ROOT / "config" / "apps.json").read_text()
 
         def run(rulesets, table=apps):

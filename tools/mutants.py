@@ -7669,7 +7669,7 @@ MUTANTS = ISSUE + [
     ("a shim's words may stand anywhere in its file", "tools/check_workflows.py",
      '<= SHIM_EVENTS and len(e["path"]) == 2 and e["path"][0] == "jobs"', '<= SHIM_EVENTS', ("tests.test_tools.Workflows.test_a_shim_holds_no_step_and_calls_the_release_at_its_channel",)),
     ("the poller may name the Run's end", "tools/check_workflows.py", '    if names and RUN_WORKFLOW in names:\n', '    if False:\n', ("tests.test_tools.Workflows.test_only_the_poller_runs_on_workflow_run",)),
-    # Decision 0114: a pass a wake started waits for its Run to end, and the tag rulesets, every key's guard, are held.
+    # Decision 0115: a pass a wake started waits for its Run to end, and the tag rulesets, every key's guard, are held.
     ("a pass its token started does not wait", "controller/pass_.py", 'least = SUCCESSOR_WAIT if started_by(started, config["controller"]["accounts"]) == "successor" else 0', 'least = 0', ("tests.test_controller.Chain.test_a_pass_its_own_token_started_reads_no_sooner_than_it_can_read_the_run_as_ended",)),
     ("every pass waits as one its token started", "controller/pass_.py", 'least = SUCCESSOR_WAIT if started_by(started, config["controller"]["accounts"]) == "successor" else 0', 'least = SUCCESSOR_WAIT', ("tests.test_controller.Chain.test_a_pass_its_own_token_started_reads_no_sooner_than_it_can_read_the_run_as_ended",)),
     ("a successor's wait gives way to the gap's end", "controller/pass_.py", '    return max(least, gap - seconds(now, began))\n', '    return max(0, gap - seconds(now, began))\n', ("tests.test_controller.Chain.test_a_pass_its_own_token_started_reads_no_sooner_than_it_can_read_the_run_as_ended",)),

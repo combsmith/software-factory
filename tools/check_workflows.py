@@ -72,7 +72,7 @@ SHIM_NEEDS = {"uses", "permissions", "concurrency", "secrets"}
 # A called job that names an environment reads its secrets only when its caller says `secrets: inherit` (trial P-55), so
 # a shim says that, in these words and no others. The called file can then name any secret of the repo or the org, an
 # environment's where its job names that environment: its branch policy is met by the caller's main, whatever commit the
-# channel names, so the tag's ruleset is what guards every key (decision 0114).
+# channel names, so the tag's ruleset is what guards every key (decision 0115).
 SHIM_SECRETS = "    secrets: inherit"
 # The one channel every shim calls (decision 0006), the Release's tag, never a local path, which would run main's copy.
 RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.yml@factory/v0-next$")

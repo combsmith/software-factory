@@ -8,7 +8,7 @@ tool of the code-scanning rule is the check of a deterministic Lens that no work
 still say this is `tools/rulesets_drift.sh`'s, run by hand: nothing here reads GitHub.
 
 The two tag rulesets guard every key, since a shim inherits secrets and its environment's branch policy is met by the
-caller's `main` whatever commit the channel names (decision 0114). Each is recorded, active and over its tags; `factory
+caller's `main` whatever commit the channel names (decision 0115). Each is recorded, active and over its tags; `factory
 release tags` lets by the admin role and the release App alone, whose id is `config/apps.json`'s, and no one bypasses
 `factory releases are immutable`.
 
@@ -31,7 +31,7 @@ VERIFY = "verify"
 # The team through which the machine user is a code owner (issue 198's ruling 2).
 CODE_OWNER = "@combsmith/org-leads"
 CATCH_ALL = "*"     # the one spelling read as every path; another is refused, never guessed at
-# The tag rulesets that guard every key (decision 0114), and the rules each must hold.
+# The tag rulesets that guard every key (decision 0115), and the rules each must hold.
 TAG_RULESETS = {"factory release tags": {"creation", "update", "deletion", "non_fast_forward"},
                 "factory releases are immutable": {"update", "deletion", "non_fast_forward"}}
 ADMIN_ROLE = 5
@@ -104,7 +104,7 @@ def _tags(rulesets: dict, root: pathlib.Path) -> list:
         if not isinstance(ruleset, dict) or ruleset.get("enforcement") != "active" or ruleset.get("target") != "tag" \
                 or not set(ruleset.get("rules") or ()) >= rules or not ruleset.get("include"):
             problems.append("config/rulesets.json: the tag ruleset %s is not recorded, active and holding its rules; every "
-                            "key's guard is the tag rulesets (decision 0114)" % name)
+                            "key's guard is the tag rulesets (decision 0115)" % name)
             continue
         actors = {(a.get("actor_type"), a.get("actor_id")) for a in ruleset.get("bypass_actors") or ()}
         allowed = {("RepositoryRole", ADMIN_ROLE), ("Integration", app_id)} if name == "factory release tags" else set()

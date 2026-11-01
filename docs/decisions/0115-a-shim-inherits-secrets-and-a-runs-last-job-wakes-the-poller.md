@@ -1,4 +1,4 @@
-# 0114. A shim inherits secrets, and a Run's last job wakes the poller
+# 0115. A shim inherits secrets, and a Run's last job wakes the poller
 
 Status: accepted. Trial P-55, asked by ruling 9 of "Workflows: the frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape" (issue 196), run on 2026-11-01, failed its pass condition on two parts. These are their fixes, under the orchestrator's rulings of 2026-11-01. They amend its rulings 3, 4 and 5. They change, in decision 0057, the rows that a shim's job holds nothing but its call, grant, concurrency, `if` and `with`, that the poller wakes on the end of `sf-run`, and that no job but the pass job is granted a write; in decision 0043, that a Run's end restarts the chain through what the poller listens to; and in decision 0066, that a Run has three jobs. §4.9 gains a holder of the grant.
 
