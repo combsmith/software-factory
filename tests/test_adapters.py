@@ -19,8 +19,9 @@ import zipfile
 from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, \
-    pause, rules, threads, timeline
+    pause, rules, texts, threads, timeline
 from harness import task
+from kernel import brakes
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -984,6 +985,27 @@ class Records(unittest.TestCase):
         again = listing("P-17", 10, page=2, total=2, rows={"name": NAME})
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
+    def test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt(self):
+        # Decision 0111. The shim's `if:` runs a first attempt alone and the list shows the latest, so a row `skipped` on
+        # a later attempt, or one whose attempt cannot be read, may be a Run that ran and died: it is an attempt, and a
+        # person's re-run erases none. Only a first attempt ran no Role.
+        done = {"name": NAME, "status": "completed", "conclusion": "skipped"}
+        ident = listing("P-17", 3, rows=done)["response"]["body"]["workflow_runs"][0]["id"]
+        for attempt, read, counted in ((1, "cancelled", 0), (2, "failure", 1), (3, "failure", 1), (True, "failure", 1),
+                                       ("1", "failure", 1), (None, "failure", 1), (0, "failure", 1)):
+            row = listing("P-17", 3, rows=dict(done, run_attempt=attempt))
+            got, _ = self.read(row, stored(canary(), ident, None)[0])
+            one = got["runs"][0]
+            self.assertEqual((one["conclusion"], one["outcome"], got["complete"]), (read, None, True), attempt)
+            self.assertEqual(len(brakes._attempts(got["runs"], one["intent"])), counted, attempt)
+        # An outcome a later attempt's row still lists is read as any failed Run's.
+        row = listing("P-17", 3, rows=dict(done, run_attempt=2))
+        got, _ = self.read(row, *stored(canary(), ident, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
+        self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"]), ("failure", "environment"))
+        # The Run ceiling counts each, whichever it reads.
+        got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=1)), stored(canary(), ident, None)[0])
+        self.assertEqual(len(brakes._spent(got["runs"])), len(got["runs"]))
+
     def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):
         # Decisions 0039 and 0049: a failed Run's outcome is read from its artifact; a Run that succeeded has none
         # read, and one whose outcome cannot be read leaves the list not whole, never read as no attempt.
@@ -992,7 +1014,8 @@ class Records(unittest.TestCase):
         github_id = row["response"]["body"]["workflow_runs"][0]["id"]
         got, _ = self.read(row)
         self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]), ("success", None, True))
-        for conclusion, read in (("startup_failure", "cancelled"), ("timed_out", "timed_out"), ("cancelled", "cancelled")):
+        for conclusion, read in (("startup_failure", "cancelled"), ("skipped", "cancelled"), ("timed_out", "timed_out"),
+                                 ("cancelled", "cancelled")):
             failed = listing("P-17", 3, rows=dict(done, conclusion=conclusion))
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item"))))
             self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]),
@@ -1896,6 +1919,66 @@ def label_event(action: str, actor=PERSON, label: str = "factory:contract", at: 
     login, account, kind = actor
     return {"event": action, "label": {"name": label}, "actor": {"login": login, "id": account, "type": kind},
             "created_at": at, "performed_via_github_app": via}
+
+
+class Texts(unittest.TestCase):
+    PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+    OPENED = dict(PULL, user={"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"},
+                  head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/r"}})
+    MADE = {"named": {26: []}, "unreadable": set(), "whole": True}
+
+    def issue(self, number, body="What it asks.", user=None, **over):
+        found = issue_answer("o/r", number, **over)
+        if body is not ...:
+            found["response"]["body"]["body"] = body
+        found["response"]["body"]["user"] = user or {"login": "don-petry", "id": PERSON[1], "type": "User"}
+        return found
+
+    def bare(self, number):
+        found = self.issue(number)
+        del found["response"]["body"]["user"]
+        return found
+
+    def read(self, *found, pull=None, opener=None, opened=None):
+        router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
+        return texts.issues(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener, opened)
+
+    def test_a_task_is_given_the_body_of_each_issue_the_change_serves(self):  # decision 0110
+        said = self.read(closing_answer("o/r", 26, [36, 7]), self.issue(7, "First."), self.issue(36, "Second."))
+        self.assertEqual([(t["id"], t["body"]) for t in said], [("issue:7", "First."), ("issue:36", "Second.")])
+        # Who wrote it is read from the issue, as the facts name an actor, so that its class is never the text's own.
+        self.assertEqual((said[0]["by"]["kind"], said[0]["by"]["name"], said[0]["by"]["can_write"]), ("human", "don-petry", True))
+        self.assertEqual([t for t in said if set(t) != {"id", "by", "body"}], [])
+        other = self.read(closing_answer("o/r", 26, [7]), self.issue(7, user={"login": "reader", "id": 9, "type": "User"}))
+        self.assertEqual((other[0]["by"]["name"], other[0]["by"]["can_write"]), ("reader", False))
+        # An issue with no body has no text, and a change that serves none has none.
+        self.assertEqual(self.read(closing_answer("o/r", 26, [7]), self.issue(7, None)), [])
+        self.assertEqual(self.read(closing_answer("o/r", 26, [7]), self.issue(7, "")), [])
+        self.assertEqual(self.read(closing_answer("o/r", 26, [])), [])
+        # A pull request the opener's App opened serves the issue its branch binds it to, whatever it closes.
+        bound = self.read(closing_answer("o/r", 26, []), self.issue(36), pull=self.OPENED, opener=(12, "Bot"), opened=self.MADE)
+        self.assertEqual([t["id"] for t in bound], ["issue:36"])
+
+    def test_what_cannot_be_read_whole_builds_no_task(self):  # decision 0110
+        other_base = {"number": 26, "base": {"ref": "dev", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+        for why, found, given in (
+                ("a closing list read short", [closing_answer("o/r", 26, [7], total=11)], {}),
+                ("another repo's issue", [closing_answer("o/r", 26, [7], elsewhere="o/other")], {}),
+                ("a base with no closing reference", [], {"pull": other_base}),
+                ("a branch that binds nothing readable", [], {"pull": self.OPENED, "opener": (12, "Bot"), "opened": None}),
+                ("closing another than the bound one", [closing_answer("o/r", 26, [7])],
+                 {"pull": self.OPENED, "opener": (12, "Bot"), "opened": self.MADE}),
+                ("an issue that fails", [closing_answer("o/r", 26, [7]), self.issue(7, status=404)], {}),
+                ("a pull request listed as an issue", [closing_answer("o/r", 26, [7]), self.issue(7, pull=True)], {}),
+                ("a body of no text", [closing_answer("o/r", 26, [7]), self.issue(7, 3)], {}),
+                ("an answer of no object", [closing_answer("o/r", 26, [7]), dict(self.issue(7), response={"status": 200, "headers": {}, "body": []})], {}),
+                ("an issue no one opened", [closing_answer("o/r", 26, [7]), self.bare(7)], {})):
+            with self.subTest(why), self.assertRaises(github.Unanswered):
+                self.read(*found, **given)
+        answered = self.issue(7)
+        answered["response"]["body"]["number"] = 8
+        with self.assertRaises(github.Unanswered):
+            self.read(closing_answer("o/r", 26, [7]), answered)
 
 
 class Acceptance(unittest.TestCase):
