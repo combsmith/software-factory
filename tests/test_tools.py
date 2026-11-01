@@ -9143,7 +9143,7 @@ class Rulesets(unittest.TestCase):
         self.main = self.rulesets["rulesets"]["main"]["rules"]
 
     def run_on(self) -> list:
-        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                         "config/defaults.json": json.dumps(self.defaults)}))
 
     def test_this_repos_rulesets_agree_with_its_lenses(self):
@@ -9205,7 +9205,7 @@ class Rulesets(unittest.TestCase):
                       dismiss_stale_reviews_on_push=True, required_reviewers=[],
                       require_extra_approval_for_unattributed_changes=False)
         owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
-        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                         "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
 
     def test_an_approval_counts_only_a_code_owners_of_the_last_push(self):  # issue 366
@@ -9248,13 +9248,13 @@ class Rulesets(unittest.TestCase):
                 self.assertTrue(caught(self.counted(owners), words), (owners, self.counted(owners)))
         # Code owners that cannot be read, under a ruleset that counts an approval, are a problem, never none.
         self.counted()
-        self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                                         "config/defaults.json": json.dumps(self.defaults)})),
                                ".github/CODEOWNERS cannot be read"))
         # A ruleset that counts no approval, of anyone, reads no code owners at all.
         self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
                                          require_last_push_approval=False)
-        self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                                   "config/defaults.json": json.dumps(self.defaults),
                                                   ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
 
