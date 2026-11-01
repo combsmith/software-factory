@@ -347,7 +347,7 @@ def machine_user(root: pathlib.Path, code_owner: str = CODE_OWNER) -> list:
         home = json.loads((root / "config" / "rulesets.json").read_text())["repo"]
         repos = {row["repo"]: row for row in held["repos"]}
         login, team, teams, owners = held["login"], held["code_owner_team"], held["teams"], held["code_owners"]
-        if not isinstance(teams, list) or not isinstance(owners, list):
+        if not isinstance(teams, list) or not isinstance(owners, list) or not isinstance(held["org_role"]["teams"], list):
             raise TypeError("teams and code_owners are lists")
     except (OSError, ValueError, KeyError, TypeError) as err:
         return ["config/machine-user.json cannot be read, so the machine user's role cannot be checked: %r" % err]
@@ -361,6 +361,8 @@ def machine_user(root: pathlib.Path, code_owner: str = CODE_OWNER) -> list:
                         % (team, code_owner))
     if login not in owners:
         problems.append("config/machine-user.json: %s is not among %s's members it records" % (login, team))
+    if team not in held["org_role"]["teams"]:
+        problems.append("config/machine-user.json: %s holds no org role, so it has no write" % team)
     if team not in teams:
         problems.append("config/machine-user.json: %s is not a member of %s, so its approval is no code owner's" % (login, team))
     if not isinstance(repos.get(home), dict) or repos[home].get("team_permission") != "push":

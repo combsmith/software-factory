@@ -26,7 +26,7 @@ def reads(held: dict) -> list:
     the user's membership of each team, then each repo's role and its teams."""
     org, login, team = held["org"], held["login"], held["code_owner_team"]
     role, place = "orgs/%s/organization-roles/%d" % (org, held["org_role"]["id"]), "orgs/%s/teams/%s" % (org, team)
-    calls = ["users/%s" % login, role, role + "/teams", place, "%s/members?per_page=%d" % (place, PAGE),
+    calls = ["users/%s" % login, role, "%s/teams?per_page=%d" % (role, PAGE), place, "%s/members?per_page=%d" % (place, PAGE),
              "orgs/%s/repos?per_page=%d" % (org, PAGE)]
     calls += ["orgs/%s/teams/%s/memberships/%s" % (org, name, login) for name in held["teams"]]
     for row in held["repos"]:
@@ -57,9 +57,10 @@ def compare(held: dict, answers: list) -> list:
     name = bodies[1].get("name") if isinstance(bodies[1], dict) else None
     if name != held["org_role"]["name"]:
         problems.append("the org role %d is %s, and config/machine-user.json records %s" % (held["org_role"]["id"], name, held["org_role"]["name"]))
-    slugs = [t.get("slug") for t in bodies[2] if isinstance(t, dict)] if isinstance(bodies[2], list) else []
-    if team not in slugs:
-        problems.append("%s does not hold the org role %s" % (team, held["org_role"]["name"]))
+    holders = sorted(row["slug"] for row in _listed(bodies[2], calls[2], "slug", problems))
+    if holders != sorted(held["org_role"]["teams"]):
+        problems.append("the org role %s is held by %s, and config/machine-user.json records %s"
+                        % (held["org_role"]["name"], holders, sorted(held["org_role"]["teams"])))
     grants = bodies[3].get("repos_count") if isinstance(bodies[3], dict) else None
     if grants != held["team_repo_grants"]:
         problems.append("%s has %s grants of its own on repos, and config/machine-user.json records %s"
@@ -70,13 +71,15 @@ def compare(held: dict, answers: list) -> list:
     active = [row["name"] for row in _listed(bodies[5], calls[5], "name", problems)
               if not row.get("archived") and not ADVISORY.search(row["name"])]
     recorded = {row["repo"].split("/")[-1] for row in held["repos"]}
+    if recorded - set(active):
+        problems.append("%s are recorded and are not active repos of the org" % sorted(recorded - set(active)))
     left_out = len(set(active) - recorded)     # a count: the names are not for this file, or for what it prints
     if left_out != held["repos_left_out"]:
         problems.append("%d active repos are not recorded, and config/machine-user.json leaves out %d" % (left_out, held["repos_left_out"]))
     for at, name in enumerate(held["teams"]):
         body = bodies[6 + at]
-        if not isinstance(body, dict) or body.get("state") != "active":
-            problems.append("%s is not an active member of %s" % (held["login"], name))
+        if not isinstance(body, dict) or body.get("state") != "active" or body.get("role") != "member":
+            problems.append("%s is not an active plain member of %s" % (held["login"], name))     # a maintainer sets who is in it
     first = 6 + len(held["teams"])
     for at, row in enumerate(held["repos"]):
         permission, teams = bodies[first + 2 * at], bodies[first + 1 + 2 * at]

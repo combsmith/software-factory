@@ -14,7 +14,11 @@
   ],
   "org_role": {
     "name": "all_repo_maintain",
-    "id": 8134
+    "id": 8134,
+    "teams": [
+      "org-leads",
+      "organization-members"
+    ]
   },
   "team_repo_grants": 0,
   "repos": [

@@ -1122,6 +1122,7 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(problems(login="someone-else"), "config/defaults.json's approver is donpetry-bot"))
         self.assertTrue(caught(problems(id=2), "config/controller.json's approver is 281750570"))
         self.assertTrue(caught(problems(code_owners=["don-petry"]), "donpetry-bot is not among org-leads's members"))
+        self.assertTrue(caught(problems(org_role=dict(held["org_role"], teams=["organization-members"])), "org-leads holds no org role"))
         self.assertTrue(caught(problems(code_owner_team="other"), "names the code owners' team other"))
         self.assertTrue(caught(problems(code_owner="@combsmith/other"), "the code owners file names @combsmith/other"))
         self.assertTrue(caught(problems(teams=["organization-members"]), "is not a member of org-leads"))
@@ -1130,7 +1131,8 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(problems(repos=[dict(r, team_permission="pull") if r["repo"] == home else r for r in held["repos"]]),
                                "has no write on " + home))
         for broken in ("{", "[]", json.dumps(dict(held, repos=[1])), json.dumps({"login": "x"}), json.dumps(dict(held, teams=1)),
-                       json.dumps(dict(held, teams="xorg-leadsx")), json.dumps(dict(held, code_owners="donpetry-bot"))):
+                       json.dumps(dict(held, teams="xorg-leadsx")), json.dumps(dict(held, code_owners="donpetry-bot")),
+                       json.dumps(dict(held, org_role=dict(held["org_role"], teams="xorg-leadsx")))):
             root = clone({"config/machine-user.json": broken})
             self.assertTrue(caught(check_apps.machine_user(root), "cannot be read, so the machine user's role"), broken)
         self.assertTrue(caught(check_apps.run(clone({"config/machine-user.json": "{"})), "the machine user's role"))
@@ -1147,9 +1149,10 @@ class Apps(unittest.TestCase):
         team = held["code_owner_team"]
         repos = [{"name": row["repo"].split("/")[-1], "archived": False} for row in held["repos"]]
         repos += [{"name": "left-out-1"}, {"name": "left-out-2"}, {"name": "old", "archived": True}, {"name": "x-ghsa-ab12-cd34-ef56"}]
-        found = [(200, {"id": held["id"]}), (200, {"name": held["org_role"]["name"]}), (200, [{"slug": team}]), (200, {"repos_count": 0}),
+        found = [(200, {"id": held["id"]}), (200, {"name": held["org_role"]["name"]}),
+                 (200, [{"slug": slug} for slug in reversed(held["org_role"]["teams"])]), (200, {"repos_count": 0}),
                  (200, [{"login": login} for login in reversed(held["code_owners"])]), (200, repos)]
-        found += [(200, {"state": "active"}) for _ in held["teams"]]
+        found += [(200, {"state": "active", "role": "member"}) for _ in held["teams"]]
         for _ in held["repos"]:
             found += [(200, {"role_name": "write"}), (200, [{"slug": "others", "permission": "admin"}, {"slug": team, "permission": "push"}])]
         return found
@@ -1158,6 +1161,14 @@ class Apps(unittest.TestCase):
         held = json.loads((ROOT / "config" / "machine-user.json").read_text())
         calls = machine_user_drift.reads(held)
         self.assertEqual(len(calls), 6 + len(held["teams"]) + 2 * len(held["repos"]))
+        # The paths themselves, which the script's tests take from this list.
+        self.assertEqual(calls[:8], ["users/donpetry-bot", "orgs/combsmith/organization-roles/8134",
+                                     "orgs/combsmith/organization-roles/8134/teams?per_page=100", "orgs/combsmith/teams/org-leads",
+                                     "orgs/combsmith/teams/org-leads/members?per_page=100", "orgs/combsmith/repos?per_page=100",
+                                     "orgs/combsmith/teams/org-leads/memberships/donpetry-bot",
+                                     "orgs/combsmith/teams/organization-members/memberships/donpetry-bot"])
+        self.assertEqual(calls[8:10], ["repos/%s/collaborators/donpetry-bot/permission" % held["repos"][0]["repo"],
+                                       "repos/%s/teams" % held["repos"][0]["repo"]])
         team = held["code_owner_team"]
 
         def live():
@@ -1166,15 +1177,20 @@ class Apps(unittest.TestCase):
         self.assertEqual(machine_user_drift.compare(held, live()), [])
         first, repos = 6 + len(held["teams"]), live()[5][1]
         wrong = ((0, (200, {"id": 1}), "records id"), (1, (200, {"name": "all_repo_maintain"}), "is all_repo_maintain"),
-                 (2, (200, []), "does not hold the org role"), (3, (200, {"repos_count": 7}), "has 7 grants of its own"),
+                 (2, (200, []), "is held by []"), (2, (200, [{"slug": s} for s in held["org_role"]["teams"] + ["all-staff"]]), "all-staff"),
+                 (2, (200, [{"slug": "x%d" % i} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
+                 (3, (200, {"repos_count": 7}), "has 7 grants of its own"),
                  (4, (200, [{"login": "donpetry-bot"}]), "org-leads holds ['donpetry-bot']"),
                  (4, (200, [{"login": "don-petry"}, {"login": "donpetry-bot"}, {"login": "someone-else"}]), "someone-else"),
                  (4, (200, [{"login": "x%d" % i} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
                  (5, (200, repos + [{"name": "new"}]), "3 active repos are not recorded"),
                  (5, (200, [r for r in repos if r["name"] != "left-out-1"]), "1 active repos are not recorded"),
                  (5, (200, repos + [{"name": "x%d" % i, "archived": True} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
-                 (6, (200, {"state": "pending"}), "is not an active member of org-leads"),
-                 (6, (404, {}), "was answered 404"), (7, (200, {}), "is not an active member of organization-members"),
+                 (5, (200, [dict(r, archived=True) if r["name"] == "worldchest" else r for r in repos]), "['worldchest'] are recorded and"),
+                 (5, (200, {}), "are recorded and are not active"),
+                 (6, (200, {"state": "pending", "role": "member"}), "is not an active plain member of org-leads"),
+                 (6, (200, {"state": "active", "role": "maintainer"}), "is not an active plain member of org-leads"),
+                 (6, (404, {}), "was answered 404"), (7, (200, {}), "is not an active plain member of organization-members"),
                  (first, (200, {"role_name": "maintain"}), "holds maintain"),
                  (first + 1, (200, [{"slug": team, "permission": "maintain"}]), "has ['maintain']"),
                  (first + 1, (200, [{"slug": "others", "permission": "push"}]), "has nothing"),
@@ -1223,7 +1239,7 @@ for folder, _, names in os.walk(os.environ["TMPDIR"]):
         self.assertEqual((done.returncode, done.stdout.strip()), (0, "no drift"), done.stderr)
         self.assertFalse((bin_ / "leaked").exists())
         self.assertEqual((bin_ / "calls").read_text().splitlines(), ["api --include " + call for call in calls])
-        self.assertEqual(os.listdir(str(scratch)), [])
+        self.assertEqual(list(scratch.glob("machine-user-drift.*")), [])     # macOS's python3 keeps xcrun_db beside it
 
     def test_the_machine_users_script_refuses_a_scratch_directory_inside_the_repo(self):  # issue 89
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "into-the-repo"

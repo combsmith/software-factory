@@ -57,7 +57,8 @@
       "additionalProperties": false,
       "required": [
         "name",
-        "id"
+        "id",
+        "teams"
       ],
       "properties": {
         "name": {
@@ -67,6 +68,16 @@
         "id": {
           "type": "integer",
           "minimum": 1
+        },
+        "teams": {
+          "description": "Every team that holds the org role, as GitHub answers",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          }
         }
       }
     },
