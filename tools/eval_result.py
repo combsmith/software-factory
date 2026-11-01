@@ -62,7 +62,9 @@ def _where_it_went(expected: dict, raised: list) -> list:
         return ([WENT[2]] if any(f["criterion"] is None for f in there) else []) + \
                ([WENT[3]] if any(f["criterion"] is not None for f in there) else []) + \
                min((_misses(expected, f) for f in there), key=len)
-    in_file = any(f.get("location", {}).get("path") == expected["location"]["path"] for f in raised)
+    # A location whose lines cannot be read is nowhere, as `_overlaps` reads it.
+    in_file = any(f.get("location", {}).get("path") == expected["location"]["path"] and _lines(f["location"]) is not False
+                  for f in raised)
     return [WENT[1] if in_file else WENT[0]]
 
 

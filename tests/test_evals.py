@@ -85,7 +85,8 @@ class Scoring(unittest.TestCase):
         place = at["location"]
 
         def said(*findings):
-            result = dict(right, findings=[dict(at, **f) for f in findings])
+            made = [dict(at, **f) for f in findings]
+            result = dict(right, findings=[{k: v for k, v in f.items() if k != "location" or v is not None} for f in made])
             scored = eval_result.score(case, result)
             self.assertEqual(scored["verdict"], "fail", findings)
             return [r for r in scored["reasons"] if r != "coverage_disagrees"]
@@ -96,12 +97,18 @@ class Scoring(unittest.TestCase):
         self.assertEqual(said(dict(criterion=None, severity="minor")), ["finding_uncited", "severity_differs"])
         self.assertEqual(said(dict(criterion=None, category="security")), ["finding_uncited", "category_differs"])
         self.assertEqual(said(dict(criterion=None, severity="minor"), dict(criterion=None)), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion="PR-1", severity="minor")), ["finding_cites_another", "severity_differs"])
         # In the file, on other lines; a Finding of the whole file is there; in another file, or none, is not raised.
         away = dict(place, start_line=place["end_line"] + 1, end_line=place["end_line"] + 5)
         self.assertEqual(said(dict(criterion=None, location=away)), ["finding_elsewhere"])
         self.assertEqual(said(dict(criterion=None, location={"path": place["path"]})), ["finding_uncited"])
         self.assertEqual(said(dict(criterion=None, location={"path": "kernel/gate.py"})), ["finding_not_raised"])
         self.assertEqual(said(), ["finding_not_raised"])
+        # A Finding of no location, which result/1 allows, is nowhere; so is one whose lines cannot be read, in the file or not.
+        self.assertEqual(said(dict(criterion=None, location=None)), ["finding_not_raised"])
+        self.assertEqual(said(dict(location=None)), ["location_differs"])
+        for lines in (dict(end_line=2), dict(start_line=9, end_line=2)):
+            self.assertEqual(said(dict(criterion=None, location=dict(path=place["path"], **lines))), ["finding_not_raised"])
         # Beside the Finding that cites it, none of these is anything: the pass rule has not moved.
         extra = dict(at, ref="n9", criterion=None)
         self.assertEqual(eval_result.score(case, dict(right, findings=[at, extra]))["verdict"], "pass")
