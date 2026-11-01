@@ -34,7 +34,7 @@ from sim import world
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, mutants, needs_passed, redact_trial,
-                   rulesets_drift, verify, walk)
+                   machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -1105,6 +1105,62 @@ class Apps(unittest.TestCase):
         files = {"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
                  "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach)}
         return check_apps.run(tree({rel: text for rel, text in files.items() if rel not in leave_out.get("files", ())}))
+
+    def test_the_machine_user_is_the_approver_and_a_code_owner_with_write_here(self):  # issue 89
+        # What config/machine-user.json records is held to the rest of the configuration: it is the approver, in the team
+        # the code owners file names, and that team has write on this repo.
+        self.assertEqual(check_apps.machine_user(ROOT), [])
+        held = json.loads((ROOT / "config" / "machine-user.json").read_text())
+
+        def problems(code_owner=check_apps.CODE_OWNER, **changes):
+            return check_apps.machine_user(clone({"config/machine-user.json": json.dumps(dict(held, **changes))}), code_owner)
+
+        self.assertTrue(caught(problems(login="someone-else"), "config/defaults.json's approver is donpetry-bot"))
+        self.assertTrue(caught(problems(code_owner_team="other"), "names the code owners' team other"))
+        self.assertTrue(caught(problems(code_owner="@combsmith/other"), "the code owners file names @combsmith/other"))
+        self.assertTrue(caught(problems(teams=["organization-members"]), "is not a member of org-leads"))
+        home = "combsmith/software-factory"
+        self.assertTrue(caught(problems(repos=[r for r in held["repos"] if r["repo"] != home]), "has no write on " + home))
+        self.assertTrue(caught(problems(repos=[dict(r, team_permission="pull") if r["repo"] == home else r for r in held["repos"]]),
+                               "has no write on " + home))
+        for broken in ("{", "[]", json.dumps(dict(held, repos=[1])), json.dumps({"login": "x"})):
+            root = clone({"config/machine-user.json": broken})
+            self.assertTrue(caught(check_apps.machine_user(root), "cannot be read, so the machine user's role"), broken)
+        self.assertTrue(caught(check_apps.run(clone({"config/machine-user.json": "{"})), "the machine user's role"))
+        self.assertIn("* " + check_apps.CODE_OWNER, (ROOT / ".github" / "CODEOWNERS").read_text())
+
+    def test_the_machine_users_live_role_is_compared_whole(self):  # issue 89
+        held = json.loads((ROOT / "config" / "machine-user.json").read_text())
+        calls = machine_user_drift.reads(held)
+        self.assertEqual(len(calls), 3 + 2 * len(held["repos"]))
+        team = held["code_owner_team"]
+
+        def live():
+            found = [(200, {"id": held["id"]}), (200, [{"slug": team}]), (200, {"repos_count": 0})]
+            for row in held["repos"]:
+                found += [(200, {"role_name": "write"}), (200, [{"slug": team, "permission": "push"}])]
+            return found
+
+        self.assertEqual(machine_user_drift.compare(held, live()), [])
+        for at, answer, said in ((0, (200, {"id": 1}), "records id"), (1, (200, []), "does not hold the org role"),
+                                 (2, (200, {"repos_count": 7}), "has 7 grants of its own"),
+                                 (3, (200, {"role_name": "maintain"}), "holds maintain"),
+                                 (4, (200, [{"slug": team, "permission": "maintain"}]), "has ['maintain']"),
+                                 (4, (200, []), "has nothing"), (3, (404, {}), "was answered 404")):
+            found = live()
+            found[at] = answer
+            self.assertTrue(caught(machine_user_drift.compare(held, found), said), said)
+        self.assertTrue(caught(machine_user_drift.compare(held, live()[:-1]), "read them again"))
+        # The script reads through a stand-in gh, and only reads: every call is an `api --include` GET.
+        stand_in = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (stand_in / "gh").write_text("#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/calls\"\nprintf 'HTTP/2.0 404 Not Found\\n\\n{}'\nexit 1\n")
+        (stand_in / "gh").chmod(0o755)
+        env = dict(os.environ, PATH=str(stand_in) + os.pathsep + os.environ["PATH"])
+        done = subprocess.run(["sh", str(ROOT / "tools" / "machine_user_drift.sh")], env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("was answered 404", done.stdout)
+        said = (stand_in / "calls").read_text().splitlines()
+        self.assertEqual(said, ["api --include " + call for call in calls])
 
     def test_the_data_is_held_to_what_github_granted_each_app(self):
         # P-39 recorded each installation's permissions. The data must name exactly those, at the same levels: a
