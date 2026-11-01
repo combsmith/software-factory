@@ -22,6 +22,8 @@ SET = ROOT / "evals" / "pr-review" / "cases.json"
 # The eval job's workflow, the live file, as issue 309's ruling 10 and its first amendment shape it: the planted faults
 # below are made from it.
 EVAL_WORKFLOW = (ROOT / ".github" / "workflows" / "eval.yml").read_text()
+FETCH_STEP = EVAL_WORKFLOW[EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.fetch\n"):
+                          EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.run\n")]
 
 
 def load(rel: str):
@@ -340,8 +342,13 @@ class TheSet(unittest.TestCase):
             "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
                                       "nothing else above its job"),
             "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
-            # The CLI's install, between the fetch and the model's step, at the Engine's pin by its checksum, word for
+            # The CLI's install, before the fetch, at the Engine's pin by its checksum, word for
             # word as the Run's jobs install it (issue 309, amendment 1).
+            # Bubblewrap is in the block, and the block comes before the fetch: it runs as root, before the cases are here.
+            "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo apt-get install -y --no-install-recommends bubblewrap\n", ""),
+                              "its steps are"),
+            "the install after the fetch": (EVAL_WORKFLOW.replace(FETCH_STEP, "").replace(
+                "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "its steps are"),
             "the CLI at another version": (EVAL_WORKFLOW.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.305"'),
                                            "its install step is given under env"),
             "the CLI by another checksum": (EVAL_WORKFLOW.replace('CLI_CHECKSUM: "520bc6', 'CLI_CHECKSUM: "000000'),
@@ -945,6 +952,54 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["diff_not_whole"])
 
+    def test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers(self):  # decision 0110
+        # The first eval on a runner read 42 cases as failed in 8 s: the CLI never started, and each failed Result was
+        # scored as the reviewer's. A reason that says the model gave no answer is the case's code, tells nothing of what
+        # it expected, fails the run, and says so in a code of its own.
+        from harness import engine
+        from harness import eval as job
+        plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
+        first = next(iter(self.cases))
+        usage = load("examples/result.json")["usage"]
+        for reason in job.ENGINE_FAULTS:
+            with self.subTest(reason):
+                shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+                self.set(self.cases)
+                self.step(plan)
+                self.step(fetch, self.home(self.cases))
+                task = {"run": "r_ABC123", "release": "factory/v0.1.0"}
+                failed = engine.failed(task, reason, usage)
+                good = load("examples/result.json")
+                self.step(job.score, lambda case: failed if case["id"] == first else good)
+                written = json.loads((self.work / job.REPORT).read_text())
+                self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+                self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
+                                 [("unreadable", [reason]), ("pass", [])])
+                self.assertEqual(self.step(judge), "engine_fault")
+        # The reviewer's own failure stays as it was: a Result it gave that does not pass, and one that cannot be read.
+        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        wrong = dict(load("examples/result.json"), findings=[])
+        invalid = engine.failed({"run": "r_ABC123", "release": "factory/v0.1.0"}, "result_invalid", usage)
+        self.step(job.score, lambda case: wrong if case["id"] == first else invalid)
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([c["reasons"] for c in written["cases"]], [["case_failed"], ["case_failed"]])
+        self.assertEqual(self.step(judge), "case_failed")
+        # One Engine fault among failed cases says so: the run cannot say what the reviewer would have done.
+        mixed = copy.deepcopy(written)
+        mixed["cases"][1].update(verdict="unreadable", reasons=["engine_failed"])
+        found, digest = job.manifest(self.root)
+        self.assertEqual(job.verdict(mixed, found, digest, "a" * 40, "factory/v0.1.0"), "engine_fault")
+        # A reason the model wrote is never one of these: `status` failed is the Harness's alone. And every reason the
+        # Engine or the run can write is told: a new one is one or the other, by a decision.
+        said = (ROOT / "harness" / "engine.py").read_text() + (ROOT / "harness" / "run.py").read_text()
+        reasons = set(re.findall(r'failed\(task, "([a-z_]+)"', said)) | set(re.findall(r'reason = "([a-z_]+)"', said)) | \
+            set(re.findall(r'fault = "([a-z_]+)"', said))
+        self.assertGreater(len(reasons), 5)
+        self.assertEqual(sorted(reasons - set(job.ENGINE_FAULTS) - {"result_invalid", "diff_not_whole"}), [])
+        self.assertNotIn("result_invalid", job.ENGINE_FAULTS)
+
     def test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone(self):  # decision 0105
         # A case whose facts fail the schema after the fill is told from one of another set, or none: a code of its own,
         # asking nothing of the model, with no field's name in the report or the log.
@@ -994,6 +1049,64 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(asked["env"]["CLAUDE_CODE_OAUTH_TOKEN"], live.TOKEN)
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
+
+    def test_the_canary_installs_the_block_the_jobs_hold(self):  # decision 0110
+        # Word for word what the eval job and the Run's jobs run, at the pin and by its checksum: a line taken from them
+        # is taken from the check, which a copy in the canary's workflow would not notice.
+        from harness.eval import canary
+        from tools import check_workflows
+        calls = []
+
+        def run(args, env, check):
+            calls.append((args, env, check))
+            return mock.Mock(returncode=7)
+        pin = load("config/harness.json")["engine"]["version"]
+        self.assertEqual(canary.install({"PATH": "/bin"}, run), 7)
+        (args, env, check), = calls
+        self.assertEqual(args, ["bash", "-e", "-c", "\n".join(check_workflows.CLI_INSTALL_RUN)])
+        self.assertIn("sudo apt-get install -y --no-install-recommends bubblewrap", args[3])
+        self.assertEqual(env, {"PATH": "/bin", "CLI_VERSION": pin, "CLI_CHECKSUM": check_workflows.CLI_CHECKSUMS[pin]})
+        self.assertFalse(check)
+
+    def test_the_canary_is_red_unless_the_cli_answered(self):  # decision 0110
+        from harness.eval import canary, run as step
+        from tests import test_harness as live
+
+        class Said(live.CLI):
+            """The CLI, with the stderr `harness/run.cli_call` always captures."""
+
+            def __call__(self, args, env, timeout):
+                done = super().__call__(args, env, timeout)
+                done.stderr = "x" * canary.TAIL + "error: bubblewrap is required"
+                return done
+
+        def checked(cli, env=None):
+            out = io.StringIO()
+            with mock.patch.object(step, "run_id", lambda: live.RUN), mock.patch("sys.stdout", out):
+                code = canary.review(dict(live.JOB) if env is None else env, cli, live.Clock(*[float(i) for i in range(9)]))
+            return code, out.getvalue()
+        # An answer the eval's path read and scored is green, on the repo's own case and by one call of the model.
+        answered = Said(said=live.answer(live.judged(findings=[], effects={})))
+        code, said = checked(answered)
+        self.assertEqual((code, len(answered.asked())), (0, 1), said)
+        self.assertIn("status completed", said)
+        # A CLI that failed is red, and says the end of what it said, which names the cause, and no more of it.
+        code, said = checked(Said(said="", returncode=1))
+        self.assertEqual(code, 1)
+        self.assertIn("error: bubblewrap is required", said)
+        self.assertIn("engine_failed", said)
+        self.assertNotIn("x" * canary.TAIL, said)
+        self.assertNotIn(live.TOKEN, said)
+        # An answer the Harness cannot read, a CLI at another version and no credential are each red.
+        for cli, env in ((Said(said="not a result"), None), (Said(versions=("9.9.9", "9.9.9")), None),
+                         (Said(), {k: v for k, v in live.JOB.items() if k != "CLAUDE_CODE_OAUTH_TOKEN"})):
+            code, said = checked(cli, env)
+            self.assertEqual(code, 1, said)
+        # What never reached the model is red whatever is said of it, and a case the review raised on is unanswered.
+        with mock.patch.object(step, "reviewer", lambda *given: lambda case: (_ for _ in ()).throw(ValueError())):
+            code, said = checked(Said())
+        self.assertEqual(code, 1)
+        self.assertIn("unanswered", said)
 
     def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
         from harness.eval import run as step

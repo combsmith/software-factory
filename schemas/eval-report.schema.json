@@ -97,6 +97,12 @@
                 "diff_not_content",
                 "pusher_unnamed",
                 "diff_not_whole",
+                "credential_missing",
+                "engine_version",
+                "engine_failed",
+                "engine_timeout",
+                "task_too_large",
+                "rubric_unreadable",
                 "answer_off_rubric",
                 "case_failed"
               ]
