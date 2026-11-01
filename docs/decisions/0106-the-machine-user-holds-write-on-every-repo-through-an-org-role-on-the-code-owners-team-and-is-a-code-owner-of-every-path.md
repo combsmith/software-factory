@@ -1,6 +1,6 @@
 # 0106. The machine user holds write on every repo through an org role on the code owners' team, and is a code owner of every path
 
-Status: accepted. The Maintainer's answers of 2026-10-31, as the Factory Builder relayed them, on "Redesign the machine user's permissions: approve everywhere, own no rules" (issue 89). It corrects the eight-repo reading of his answer of 2026-10-21, given on "The ruleset switch: main requires the machine user's approval of the most recent commit, and slice 1's event is recorded" (issue 198).
+Status: accepted. The Maintainer's answers of 2026-10-31, as the Factory Builder relayed them, on "Redesign the machine user's permissions: approve everywhere, own no rules" (issue 89). It corrects the eight-repo reading of his answer of 2026-10-21, given on "The ruleset switch: main requires the machine user's approval of the most recent commit, and slice 1's event is recorded" (issue 198). The Factory Builder ran the change on his word, with his approval by hand, on 2026-11-01.
 
 ## Decision
 
@@ -8,7 +8,7 @@ Status: accepted. The Maintainer's answers of 2026-10-31, as the Factory Builder
 |---|---|---|
 | The role | Write, on every repo, "via org level settings, not repo" (the Maintainer). The team `org-leads` holds the org role `all_repo_write` and no longer `all_repo_maintain`. Approving needs write; maintain adds settings powers it never uses (FR-60) | A read of 2026-10-31 found the bot's maintain comes from that org role, on all 15 active repos. One `PUT` a repo on eight repos, as the ruling on the switch first had it, would have left the org role standing, and maintain with it |
 | The team's repo grants | Removed, on the 7 repos that have one, so the org role alone governs. **This is the Factory Builder's reading of his words, not his words**: he did not say it in those terms | He does not want it managed repo by repo. A grant left at maintain would keep maintain there |
-| The order | Write on, then maintain off, then the grants off, each read back, then a canary approval read | A team must itself have write to count as a code owner. Today's read shows a team's org role counts: this repo and the canary have no grant of their own, `codeowners/errors` is empty, and the bot's approval counted there (`trials/P-7.json`). The org role at write is what the read after the change shows |
+| The order | Write on, then maintain off, then the grants off, each read back, then a canary approval read | A team must itself have write to count as a code owner. A team's org role counts: this repo and the canary have no grant of their own, `codeowners/errors` is empty, and the bot's approval counted there (`trials/P-7.json`). It counts at write: with the change made, the bot's approval on the canary's "The machine user at write: does its approval still count?" (pull request 80) read `APPROVED` and `CLEAN` |
 | The teams | `org-leads`, which makes it a code owner, and `organization-members`, as every member is. Nothing is granted to it directly | As the ruling on the switch had it |
 | The paths | Every path, through `* @combsmith/org-leads`, unchanged. `.github/CODEOWNERS` stays the org's word for word, and the org's `repo-template` does not change | The Maintainer's answer. Rule paths to him alone would refuse the bot's approval (`trials/P-24.json`) on changes he authors, which GitHub refuses him too, so each would need a bypass; and the org's standard forbids a person as an owner. What stops the Factory approving a change to its own rules is `apply` (decisions 0004, 0005), and, while he authors every change, his authorship |
 | The other repos | The role changes on them, and nothing else: no file, ruleset or template. Their rulesets and code owners stay | "Write everywhere". Whether the bot's other work there needs more than write is unproven: three days of its activity fit write |
@@ -19,7 +19,7 @@ Status: accepted. The Maintainer's answers of 2026-10-31, as the Factory Builder
 
 The story asked for the machine user's least privilege, reconciled with section 5.1. Section 5.1 already said code ownership does not keep the Factory from approving a change to its own rules, so the reconciling is done: only the role was left, and the read found it held at a different level from what the rulings assumed.
 
-The org-level change is the Maintainer's. This record states it; the file holds what the read after it shows.
+The org-level change is the Maintainer's. All 15 active repos read write for the bot and push for the team after it, and `config/machine-user.json` holds that read: `tools/machine_user_drift.sh` answered no drift.
 
 ## Boundaries
 
