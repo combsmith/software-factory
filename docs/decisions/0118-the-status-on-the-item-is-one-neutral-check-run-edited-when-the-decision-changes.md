@@ -1,4 +1,4 @@
-# 0113. The status on the item is one neutral check run, edited in place when the Decision changes
+# 0118. The status on the item is one neutral check run, edited in place when the Decision changes
 
 Status: accepted. The Factory Builder's ruling of 2026-10-31 to build step 8 of the audit of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182) from trial P-12. It builds ruling 6 on "Controller: one pass reads, decides, records, dispatches, writes the view and raises the reconciliation alert" (issue 193), which decision 0051's row "Not built yet" left waiting on that trial.
 
