@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "eval-report/1: what the eval job uploads of one run over a held-out set: the Release and commit it judged, the set by its count and the sha256 of its manifest, and each case by its id and hash with its verdict and the codes that say why it was not read, or `case_failed` for any case the scorer did not pass: what the scorer said would tell what a case expected, and the report is public. No case's content and no word of the model's is here, and none may be.",
+  "title": "eval-report/1: what the eval job uploads of one run over a held-out set: the Release and commit it judged, the set by its count and the sha256 of its manifest, and each case by its id and hash with its verdict and the codes that say why it was not read or what the scorer found (decision 0109). Each is a code of this enum. No case's content and no word of the model's is here, and none may be.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -104,7 +104,17 @@
                 "task_too_large",
                 "rubric_unreadable",
                 "answer_off_rubric",
-                "case_failed"
+                "result_not_completed",
+                "finding_not_raised",
+                "category_differs",
+                "severity_differs",
+                "location_differs",
+                "coverage_disagrees",
+                "finding_raised_wrongly",
+                "criterion_not_met",
+                "answer_disagrees_with_verdict",
+                "location_unreadable",
+                "criterion_unknown"
               ]
             }
           }
