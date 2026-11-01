@@ -1,4 +1,4 @@
-# 0106. P-31, the relay's host, is asked before the relay is built, and not before the first approval
+# 0107. P-31, the relay's host, is asked before the relay is built, and not before the first approval
 
 Status: accepted. The Factory Builder's ruling of 2026-10-31, on "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182). It decides one row of `docs/decisions/0043-a-scheduled-tick-is-a-backstop-of-hours-the-relay-carries-w-2-and-a-pass-records-what-started-it.md` otherwise, "The trials", which had P-31 join batch 2; the rest of that row stands.
 

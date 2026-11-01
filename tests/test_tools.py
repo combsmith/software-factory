@@ -3931,14 +3931,14 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
 
 
 class Trials(unittest.TestCase):
-    def test_the_relays_host_stands_in_no_batch_before_the_first_approval(self):  # decision 0106
+    def test_the_relays_host_stands_in_no_batch_before_the_first_approval(self):  # decision 0107
         # W-2 rests on the relay alone, and the first approval does not need it, so the relay's own trial is the relay's.
         # It stands in no batch, and section 6.1 says why.
         section = (ROOT / check_trials.DESIGN).read_text().split("### 6.1 ")[1].split("\n### ")[0]
         batches = [line for line in section.split("\n") if line.startswith("| **")]
         self.assertEqual(len(batches), 4)
         self.assertFalse([line for line in batches if "P-31" in line])
-        self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0106). "
+        self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0107). "
                       "The first approval does not need W-2, since a Run's end starts its passes (decision 0043).", section)
 
     def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438

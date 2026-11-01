@@ -10270,7 +10270,7 @@ MUTANTS = ISSUE + [
      '    if not isinstance(value, str) or not DAY.fullmatch(value):\n', '    if not isinstance(value, str):\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
     ('any row with no dates is skipped', 'controller/credentials.py',
      '        if readable and row.get("kind") == COORDINATE and row.get("expires") is False \\\n', '        if readable and row.get("expires") is False \\\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
-    # P-31 is the relay's trial, not the first approval's (decision 0106).
+    # P-31 is the relay's trial, not the first approval's (decision 0107).
     ("the relay's host stands before any code", 'docs/architecture/software-factory-design.md',
      "| **1. Before any code** | ", "| **1. Before any code** | P-31; ", ('tests.test_tools.Trials.test_the_relays_host_stands_in_no_batch_before_the_first_approval',)),
     ("section 6.1 does not say why the first approval goes without the relay", 'docs/architecture/software-factory-design.md',
