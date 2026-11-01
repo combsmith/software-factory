@@ -20,6 +20,8 @@ cannot be told.
 """
 from __future__ import annotations
 
+import re
+
 from controller.shared import errors, key
 
 # What each identity may write, and the recorded Effect each kind is matched to: (`applied/1` type or `written/1`
@@ -40,6 +42,7 @@ DISPATCHES = ("dispatch_run", "dispatch_approval")
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")
+STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
 def _identities(accounts) -> tuple:
@@ -59,36 +62,71 @@ def _identities(accounts) -> tuple:
     return found, known
 
 
+EMPTY = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+# What a carried value may be, as `pass/1` holds it: a record's own schema may be wider, and one that does not fit is not
+# carried and leaves reconciliation short, so that one record never refuses a pass.
+FITS_KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
+FITS_RUN = re.compile(r"r_[0-9A-Z]{6,26}")
+FITS_ITEM = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/(pull|issues)/[1-9][0-9]*")
+
+
 def _last(before) -> dict:
     """What the last record before this pass carried of what was reconciled; nothing if it holds none."""
     held = before[-1].get("reconciled") if isinstance(before, list) and before else None
-    return held if isinstance(held, dict) else {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": []}
+    return held if isinstance(held, dict) else EMPTY
 
 
 def known(before) -> tuple:
-    """`(runs, passes)` that a record before this pass read: each is read once. With no last record, or one that holds
-    none, nothing is known, and everything in the window is read again (decision 0109)."""
+    """`(runs, passes)` that a record before this pass read: each is read once, a pass's attempt by its attempt, since a
+    re-run writes again. With no last record, or one that holds none, nothing is known, and everything in the window is
+    read again (decision 0109)."""
     held = _last(before)
-    return {e["id"] for e in held["runs"]}, {e["id"] for e in held["passes"]}
+    return {e["id"] for e in held["runs"]}, {(e["id"], e["attempt"]) for e in held["passes"]}
 
 
-def carried(before, effects, seen, now: str) -> dict:
-    """What this pass's record carries for the next: what was read in the window and the keys it held, each stamped with
-    when it was read, those older than the window dropped. So a record holds what the Effects it read said, not the
-    records themselves, and a pass reads only what is new (decision 0109)."""
+def owed(before) -> list:
+    """The pull requests a record before this pass could not read the writes on: read until they have been (decision 0109)."""
+    return list(_last(before)["owed"])
+
+
+def _one(doc: dict, kind: str) -> dict:
+    return {"applied": [doc], "written": []} if kind == APPLIED else {"applied": [], "written": [doc]}
+
+
+def unfit(effects) -> bool:
+    """Whether a landed Effect's key or item cannot be carried. It can match nothing GitHub says, and reads as short."""
+    keys, items = _keys(effects)
+    return any(not FITS_KEY.fullmatch(k) for found in keys.values() for k in found) \
+        or any(not FITS_ITEM.fullmatch(item) for _, item in items)
+
+
+def carried(before, effects, seen, now: str, unread=()) -> dict:
+    """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
+    window dropped, and the pull requests whose writes it could not read. Each key is stamped with when its record was made,
+    so that a late first read does not stretch its credit past the window; what was read, with when it was read. So a record
+    holds what the Effects said, not the records themselves, and a pass reads only what is new (decision 0109)."""
     since = seen.get("since") if isinstance(seen, dict) else None
-    held = {name: [e for e in rows if since is None or e["at"] >= since] for name, rows in _last(before).items()}
+    held = {name: [e for e in rows if name == "owed" or since is None or e["at"] >= since]
+            for name, rows in _last(before).items()}
+    held["owed"] = sorted(set(unread))
     if not _readable(effects):
         return held
     read = effects.get("read") if isinstance(effects.get("read"), dict) else {}
-    keys, items = _keys(effects)
-    return {"runs": held["runs"] + [{"id": r, "at": now} for r in read.get("runs", [])],
-            "passes": held["passes"] + [{"id": p, "at": now} for p in read.get("passes", [])],
-            "keys": held["keys"] + [{"where": where, "type": kind, "key": k, "at": now}
-                                    for (where, kind), found in sorted(keys.items()) for k in sorted(found)],
-            "items": held["items"] + [{"type": kind, "item": item, "count": count, "at": now}
-                                      for (kind, item), count in sorted(items.items())],
-            "dispatched": held["dispatched"] + [{"run": r, "at": now} for r in sorted(_dispatched(effects))]}
+    stamps = effects.get("at") if isinstance(effects.get("at"), dict) else {}
+    out = dict(held, runs=held["runs"] + [{"id": r, "at": now} for r in read.get("runs", []) if FITS_RUN.fullmatch(r)],
+               passes=held["passes"] + [dict(p, at=now) for p in read.get("passes", [])],
+               keys=list(held["keys"]), items=list(held["items"]), dispatched=list(held["dispatched"]))
+    for kind, docs, name in ((APPLIED, effects["applied"], "run"), (WRITTEN, effects["written"], "pass")):
+        for doc in docs:
+            at = stamps.get(doc[name])
+            at = at if isinstance(at, str) and STAMP.fullmatch(at) else now
+            keys, items = _keys(_one(doc, kind))
+            out["keys"] += [{"where": where, "type": t, "key": k, "at": at} for (where, t), found in sorted(keys.items())
+                            for k in sorted(found) if FITS_KEY.fullmatch(k)]
+            out["items"] += [{"type": t, "item": item, "count": count, "at": at} for (t, item), count in sorted(items.items())
+                             if FITS_ITEM.fullmatch(item)]
+            out["dispatched"] += [{"run": r, "at": at} for r in sorted(_dispatched(_one(doc, kind))) if FITS_RUN.fullmatch(r)]
+    return out
 
 
 def _keys(effects: dict, before=None, since=None) -> tuple:
@@ -135,6 +173,9 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     readable = seen is not None and not errors(seen, "seen")
     recorded = _readable(effects)
     short = not (readable and seen["whole"] is True and recorded and effects.get("whole") is True and known)
+    short = short or (recorded and unfit(effects))
+    # A Run still running may have written what it has yet to record, so its writes read as short, not as unmatched.
+    running = {key(r["item"]) for r in runs if r.get("status") != "completed"} if isinstance(runs, list) else set()
     since = seen["since"] if readable else None
     keys, items = _keys(effects, before, since) if recorded else _keys({"applied": [], "written": []}, before, since)
     unmatched, override = [], []
@@ -151,7 +192,9 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             items[slot] = items.get(slot, 0) - 1
         else:
             landed = where is not None and w["key"] is not None and w["key"] in keys.get(where, set())
-        if not landed:
+        if not landed and kind != "controller" and w["item"] and key(w["item"]) in running:
+            short = True
+        elif not landed:
             unmatched.append({"by": w["by"], "kind": w["kind"], "item": w["item"], "key": w["key"]})
     # The pass job's token is an identity once its account is set; until then no dispatch is reconciled (ruling 2).
     token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)

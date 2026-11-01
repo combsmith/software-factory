@@ -92,27 +92,34 @@ def dated(answer) -> list:
     return [{"date": at["date"], "age": at["age"]}] if at else []
 
 
-def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock) -> dict:
-    """What each Factory identity wrote on what this pass served, or the pass before served and has left, `seen/1`
-    (decision 0061). What a snapshot could not read is short: nothing is guessed."""
+def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock) -> tuple:
+    """`(seen/1, the pull requests read short)`: what each Factory identity wrote on what this pass served, or on what the
+    pass before served or could not read and has left (decision 0061). What a snapshot could not read is short, and one that
+    is short is read again by the next pass, so that nothing leaves unread. So is a pass with no records before it to say
+    what has left. Nothing is guessed."""
     controller = config["controller"]
     home, accounts_held = controller["home"]["repo"], controller["accounts"]
     identities, _ = seen_.identities(accounts_held)
     apps = seen_.apps_of(accounts_held, config["apps"])
     last = before[-1]["pull_requests"] if before else []
-    left = [e["facts"]["item"]["number"] for e in last if e["facts"]["item"]["number"] not in numbers]
-    parts = []
-    for number, held in [(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in left]:
+    served = {e["facts"]["item"]["number"] for e in last} | set(reconcile.owed(before))
+    parts, unread = [], []
+    for number, held in [(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(served - set(numbers))]:
         try:
-            parts.append(seen_.read(transport, {"repo": home, "type": "pull_request", "number": number}, held, identities,
-                                    apps, since))
+            part = seen_.read(transport, {"repo": home, "type": "pull_request", "number": number}, held, identities, apps,
+                              since)
         except Unanswered:
-            parts.append(([], [], False))
+            part = ([], [], False)
+        parts.append(part)
+        if part[-1] is not True:
+            unread.append(number)
     try:
         parts.append(seen_.pushes(transport, home, accounts_held["approver"], since, clock=lambda: utc(clock)))
     except Unanswered:
         parts.append(([], False))
-    return seen_.seen(parts, since)
+    if before is None:
+        parts.append(([], False))
+    return seen_.seen(parts, since), unread
 
 
 def recorded_effects(transport, config: dict, runs, own: int, before, since: str) -> dict:
@@ -126,6 +133,7 @@ def recorded_effects(transport, config: dict, runs, own: int, before, since: str
                                  since, known_passes)
     return {"applied": from_runs["applied"], "written": from_passes["written"],
             "read": {"runs": from_runs["read"], "passes": from_passes["read"]},
+            "at": dict(from_runs["at"], **from_passes["at"]),
             "whole": from_runs["whole"] and from_passes["whole"]}
 
 
@@ -167,10 +175,10 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
             pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None})
     before = pass_.earlier(reads_.previous_records(previous), now)
     since = utc(lambda: clock() - WINDOW - controller["not_run_seconds"])
+    seen, unread = writes_seen(transport, config, numbers, kept, before, since, clock)
     return {"started": passes.started(transport, home, run_id), "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": facts_reads, "usage": {},
-            "seen": writes_seen(transport, config, numbers, kept, before, since, clock),
-            "effects": recorded_effects(transport, config, runs, int(run_id), before, since)}
+            "seen": seen, "unread": unread, "effects": recorded_effects(transport, config, runs, int(run_id), before, since)}
 
 
 def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.sleep) -> dict:

@@ -632,52 +632,70 @@ class Carried(unittest.TestCase):
     """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0109)."""
     NOW = "2026-10-11T13:00:00Z"
     NEXT = "2026-10-11T13:20:00Z"
-    TOKENED = TOKEN
+    MADE = "2026-10-11T12:00:00Z"
+    RUN = "r_01JA7Q"
+    NONE = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
 
-    def effects(self, *a, written_=(), runs=(), passes=(), whole=True):
-        return dict(recorded(a, written_, whole), read={"runs": list(runs), "passes": list(passes)})
+    def effects(self, *a, written_=(), runs=(), passes=(), whole=True, at=None):
+        return dict(recorded(a, written_, whole), read={"runs": list(runs), "passes": list(passes)}, at=at or {})
 
     def test_what_a_pass_read_matches_a_write_in_the_passes_after_it_for_the_window(self):
         read = self.effects(applied(("approve", "K", "applied"), ("comment", "L", "already_applied"), ("comment", "M", "failed")),
                             written_=[written(("dequeue", ITEM, None, None, "applied"), ("status_on_item", ITEM, None, "S", "applied"),
-                                              ("dispatch_run", ITEM, "r_01JA7Q", None, "sent"))],
-                            runs=["r_01JA7Q"], passes=[41])
-        held = reconcile.carried([], read, seen(), self.NOW)
-        self.assertEqual(held["runs"], [{"id": "r_01JA7Q", "at": self.NOW}])
-        self.assertEqual(held["passes"], [{"id": 41, "at": self.NOW}])
+                                              ("dispatch_run", ITEM, self.RUN, None, "sent"))],
+                            runs=[self.RUN], passes=[{"id": 41, "attempt": 1}], at={self.RUN: self.MADE, "p_01JA7Q": self.MADE})
+        held = reconcile.carried([], read, seen(), self.NOW, [7])
+        self.assertEqual(held["runs"], [{"id": self.RUN, "at": self.NOW}])
+        self.assertEqual(held["passes"], [{"id": 41, "attempt": 1, "at": self.NOW}])
+        self.assertEqual(held["owed"], [7])
         self.assertEqual(sorted((k["where"], k["type"], k["key"]) for k in held["keys"]),
                          [("applied", "approve", "K"), ("applied", "comment", "L"), ("written", "status_on_item", "S")])
+        # A key is stamped with when its record was made, not when it was read, so a late first read stretches nothing.
+        self.assertEqual({k["at"] for k in held["keys"]} | {i["at"] for i in held["items"]} | {d["at"] for d in held["dispatched"]},
+                         {self.MADE})
         self.assertEqual([(i["type"], i["count"]) for i in held["items"]], [("dequeue", 1)])
-        self.assertEqual([d["run"] for d in held["dispatched"]], ["r_01JA7Q"])
+        self.assertEqual([d["run"] for d in held["dispatched"]], [self.RUN])
         before = [{"now": self.NOW, "pull_requests": [], "reconciled": held}]
-        self.assertEqual(reconcile.known(before), ({"r_01JA7Q"}, {41}))
+        self.assertEqual(reconcile.known(before), ({self.RUN}, {(41, 1)}))
+        self.assertEqual(reconcile.owed(before), [7])
         # Nothing new is read, and what was carried still matches each write; a key no one recorded does not.
         writes = (wrote("approver", "approval", "K"), wrote("pr-review", "comment", "L"), wrote("controller", "check_run", "S"),
                   wrote("controller", "dequeue"))
         found = check(seen(*writes), self.effects(), before=before)
         self.assertEqual((found["unmatched"], found["short"]), ([], False))
         self.assertEqual(kinds(check(seen(wrote("pr-review", "comment", "M")), self.effects(), before=before)), [("pr-review", "comment")])
-        # A dequeue is matched as many times as it was recorded.
+        # A dequeue is matched as many times as it was recorded, what it read this pass and what was carried together.
         self.assertEqual(kinds(check(seen(wrote("controller", "dequeue"), wrote("controller", "dequeue")), self.effects(), before=before)),
                          [("controller", "dequeue")])
+        self.assertEqual(check(seen(wrote("controller", "dequeue"), wrote("controller", "dequeue")),
+                               self.effects(written_=[written(("dequeue", ITEM, None, None, "applied"))]), before=before)["unmatched"], [])
         # A dispatch it read is carried too.
-        run = {"run": "r_01JA7Q", "item": ITEM, "started_at": "2026-10-11T12:00:00Z"}
-        self.assertEqual(check(seen(), self.effects(), [run], before=before, accounts=self.TOKENED)["unmatched"], [])
-        self.assertEqual(kinds(check(seen(), self.effects(), [dict(run, run="r_01JA7R")], before=before, accounts=self.TOKENED)),
+        run = {"run": self.RUN, "item": ITEM, "started_at": self.MADE, "status": "completed"}
+        self.assertEqual(check(seen(), self.effects(), [run], before=before, accounts=TOKEN)["unmatched"], [])
+        self.assertEqual(kinds(check(seen(), self.effects(), [dict(run, run="r_01JA7R")], before=before, accounts=TOKEN)),
                          [("workflow_token", "dispatch")])
-        # The next pass's carries what it read after what it was handed, and a pass with nothing new carries it all on.
-        again = reconcile.carried(before, self.effects(applied(("comment", "N", "applied")), runs=["r_01JA7R"]), seen(), self.NEXT)
+        # The next pass's carries what it read after what it was handed, each kind of it, and one with nothing new carries
+        # it all on, owing what it itself could not read and no more.
+        more = self.effects(applied(("comment", "N", "applied")),
+                            written_=[written(("dequeue", ITEM, None, None, "applied"), ("dispatch_run", ITEM, "r_01JA7R", None, "sent"))],
+                            runs=["r_01JA7R"], passes=[{"id": 42, "attempt": 1}])
+        again = reconcile.carried(before, more, seen(), self.NEXT)
         self.assertEqual(again["runs"], held["runs"] + [{"id": "r_01JA7R", "at": self.NEXT}])
-        self.assertEqual(again["keys"][:-1], held["keys"])
-        self.assertEqual(reconcile.carried(before, self.effects(), seen(), self.NEXT), held)
+        self.assertEqual(again["passes"], held["passes"] + [{"id": 42, "attempt": 1, "at": self.NEXT}])
+        self.assertEqual(again["keys"][:len(held["keys"])], held["keys"])
+        self.assertEqual(again["keys"][len(held["keys"]):], [{"where": "applied", "type": "comment", "key": "N", "at": self.NEXT}])
+        self.assertEqual([len(again[k]) for k in ("items", "dispatched")], [2, 2])
+        self.assertEqual(again["owed"], [])
+        self.assertEqual(reconcile.carried(before, self.effects(), seen(), self.NEXT), dict(held, owed=[]))
 
     def test_what_is_older_than_the_window_is_dropped_and_matches_nothing(self):
         old = {"at": "2026-10-09T00:00:00Z"}
-        kept = {"at": SINCE}
-        held = {"runs": [dict(old, id="r_01JA00"), dict(kept, id="r_01JA01")], "passes": [dict(old, id=1), dict(kept, id=2)],
-                "keys": [dict(old, where="applied", type="comment", key="OLD"), dict(kept, where="applied", type="comment", key="NEW")],
+        kept_ = {"at": SINCE}
+        held = {"runs": [dict(old, id="r_01JA00"), dict(kept_, id="r_01JA01")],
+                "passes": [dict(old, id=1, attempt=1), dict(kept_, id=2, attempt=1)],
+                "keys": [dict(old, where="applied", type="comment", key="OLD"), dict(kept_, where="applied", type="comment", key="NEW")],
                 "items": [dict(old, type="dequeue", item=reconcile.key(ITEM), count=1)],
-                "dispatched": [dict(old, run="r_01JA00"), dict(kept, run="r_01JA01")]}
+                "dispatched": [dict(old, run="r_01JA00"), dict(kept_, run="r_01JA01")], "owed": []}
         before = [{"now": self.NOW, "pull_requests": [], "reconciled": held}]
         out = reconcile.carried(before, self.effects(), seen(), self.NOW)
         self.assertEqual((out["runs"], out["passes"], [k["key"] for k in out["keys"]], out["items"], [d["run"] for d in out["dispatched"]]),
@@ -685,24 +703,31 @@ class Carried(unittest.TestCase):
         self.assertEqual(check(seen(wrote("pr-review", "comment", "NEW")), self.effects(), before=before)["unmatched"], [])
         self.assertEqual(kinds(check(seen(wrote("pr-review", "comment", "OLD")), self.effects(), before=before)), [("pr-review", "comment")])
         self.assertEqual(kinds(check(seen(wrote("controller", "dequeue")), self.effects(), before=before)), [("controller", "dequeue")])
-        dropped = {"run": "r_01JA00", "item": ITEM, "started_at": "2026-10-11T12:00:00Z"}
-        self.assertEqual(kinds(check(seen(), self.effects(), [dropped], before=before, accounts=self.TOKENED)), [("workflow_token", "dispatch")])
+        dropped = {"run": "r_01JA00", "item": ITEM, "started_at": self.MADE, "status": "completed"}
+        self.assertEqual(kinds(check(seen(), self.effects(), [dropped], before=before, accounts=TOKEN)), [("workflow_token", "dispatch")])
+        # A record first read late is dropped by when it was made: its credit does not outlast its own write.
+        late = self.effects(written_=[written(("dequeue", ITEM, None, None, "applied"))], at={"p_01JA7Q": "2026-10-09T00:00:00Z"})
+        carried = reconcile.carried([], late, seen(), self.NOW)
+        self.assertEqual(reconcile.carried([{"reconciled": carried}], self.effects(), seen(), self.NEXT)["items"], [])
+        # A stamp that is no time is read as now: it is never read as older than it is.
+        odd = reconcile.carried([], self.effects(written_=[written(("dequeue", ITEM, None, None, "applied"))], at={"p_01JA7Q": "x"}), seen(), self.NOW)
+        self.assertEqual(odd["items"][0]["at"], self.NOW)
 
     def test_a_record_that_holds_none_is_read_again_and_what_cannot_be_read_is_carried_on(self):
         # With no last record, or one written before this, nothing is known: everything in the window is read again.
         for before in (None, [], [{"now": self.NOW, "pull_requests": []}], [{"now": self.NOW, "pull_requests": [], "reconciled": None}]):
-            self.assertEqual(reconcile.known(before), (set(), set()), before)
+            self.assertEqual((reconcile.known(before), reconcile.owed(before)), ((set(), set()), []), before)
         # Only the last record is read.
-        last = {"runs": [{"id": "r_01JA7Q", "at": self.NOW}], "passes": [], "keys": [], "items": [], "dispatched": []}
-        first = dict(last, runs=[{"id": "r_01JA7R", "at": self.NOW}])
-        self.assertEqual(reconcile.known([{"reconciled": first}, {"reconciled": last}])[0], {"r_01JA7Q"})
+        last = dict(self.NONE, runs=[{"id": self.RUN, "at": self.NOW}])
+        first = dict(self.NONE, runs=[{"id": "r_01JA7R", "at": self.NOW}])
+        self.assertEqual(reconcile.known([{"reconciled": first}, {"reconciled": last}])[0], {self.RUN})
         # What cannot be read carries on what the last record held, within the window, and reads nothing new; so does a
         # read with no list of what it read. An unreadable seen drops nothing.
         before = [{"now": self.NOW, "pull_requests": [], "reconciled": last}]
         for effects in (None, {"applied": "x"}, recorded([dict(applied(), effects="none")])):
             self.assertEqual(reconcile.carried(before, effects, seen(), self.NEXT), last, effects)
         self.assertEqual(reconcile.carried(before, recorded(), seen(), self.NEXT), last)
-        old = dict(last, runs=[{"id": "r_01JA7Q", "at": "2026-10-09T00:00:00Z"}])
+        old = dict(last, runs=[{"id": self.RUN, "at": "2026-10-09T00:00:00Z"}])
         self.assertEqual(reconcile.carried([{"reconciled": old}], None, None, self.NEXT), old)
         # Carried keys still match where this pass's own read is short, which says so; a seen that cannot be read matches
         # nothing, and is short.
@@ -714,11 +739,47 @@ class Carried(unittest.TestCase):
         # And a pass record holding it is a pass record; one with anything else in it is not.
         record = json.loads((ROOT / "examples" / "pass.json").read_text())
         self.assertEqual(validate(dict(record, reconciled=held), SCHEMAS["pass"], schemas=SCHEMAS), [])
-        for odd in (dict(held, more=[]), {k: v for k, v in held.items() if k != "keys"},
-                    dict(held, runs=[{"id": "r_01JA7Q"}]), dict(held, passes=[{"id": "x", "at": self.NOW}]),
+        for odd in (dict(held, more=[]), {k: v for k, v in held.items() if k != "keys"}, {k: v for k, v in held.items() if k != "owed"},
+                    dict(held, runs=[{"id": self.RUN}]), dict(held, passes=[{"id": "x", "attempt": 1, "at": self.NOW}]),
+                    dict(held, passes=[{"id": 0, "attempt": 1, "at": self.NOW}]), dict(held, passes=[{"id": 1, "at": self.NOW}]),
+                    dict(held, passes=[{"id": 1, "attempt": 0, "at": self.NOW}]), dict(held, owed=[0]),
                     dict(held, keys=[{"where": "elsewhere", "type": "comment", "key": "L", "at": self.NOW}]),
                     dict(held, items=[{"type": "dequeue", "item": "x", "count": 0, "at": self.NOW}])):
             self.assertNotEqual(validate(dict(record, reconciled=odd), SCHEMAS["pass"], schemas=SCHEMAS), [], odd)
+
+    def test_a_record_too_wide_for_the_pass_record_leaves_it_short_and_never_refuses_a_pass(self):
+        # applied/1 and written/1 are wider than what a pass record carries. One record's key or repo that does not fit is
+        # not carried, so it never refuses a pass; it can match nothing GitHub says, and reconciliation says so.
+        wide = "K" * 101
+        for effects in (self.effects(applied(("comment", wide, "applied")), runs=[self.RUN]),
+                        self.effects(written_=[written(("dequeue", dict(ITEM, repo="o/r x"), None, None, "applied"))])):
+            out = reconcile.carried([], effects, seen(), self.NOW)
+            self.assertEqual((out["keys"], out["items"]), ([], []))
+            self.assertEqual(validate(dict(json.loads((ROOT / "examples" / "pass.json").read_text()), reconciled=out), SCHEMAS["pass"], schemas=SCHEMAS), [])
+            self.assertTrue(check(seen(), effects)["short"])
+        fits = "K" * 100
+        out = reconcile.carried([], self.effects(applied(("comment", fits, "applied"))), seen(), self.NOW)
+        self.assertEqual([k["key"] for k in out["keys"]], [fits])
+        self.assertFalse(check(seen(), self.effects(applied(("comment", fits, "applied"))))["short"])
+        # So too a Run's name, and a dispatch's, that does not fit.
+        odd = "not-a-run"
+        out = reconcile.carried([], self.effects(runs=[odd]), seen(), self.NOW)
+        self.assertEqual(out["runs"], [])
+
+    def test_a_run_still_running_makes_its_items_writes_short_not_unmatched(self):
+        # A Run's apply writes before its job uploads its record, so a write on an item with a Run still running reads as
+        # short until the record can be read. Any other write, the Controller's among them, does not wait.
+        run = {"run": self.RUN, "item": ITEM, "started_at": self.MADE, "status": "in_progress"}
+        other = dict(run, item=dict(ITEM, number=ITEM["number"] + 1))
+        review = wrote("pr-review", "review", "K")
+        accounts = dict(KNOWN, workflow_token=None)
+        found = check(seen(review), recorded(), [run], accounts=accounts)
+        self.assertEqual((found["unmatched"], found["short"]), ([], True))
+        self.assertEqual(kinds(check(seen(review), recorded(), [other], accounts=accounts)), [("pr-review", "review")])
+        self.assertEqual(kinds(check(seen(review), recorded(), [dict(run, status="completed")], accounts=accounts)), [("pr-review", "review")])
+        self.assertFalse(check(seen(review), recorded(), [dict(run, status="completed")], accounts=accounts)["short"])
+        self.assertEqual(kinds(check(seen(wrote("controller", "check_run", "S")), recorded(), [run], accounts=accounts)), [("controller", "check_run")])
+        self.assertEqual(kinds(check(seen(wrote("approver", "push", "P", item=None)), recorded(), [run], accounts=accounts)), [("approver", "push")])
 
 
 class CommentsGrant(unittest.TestCase):

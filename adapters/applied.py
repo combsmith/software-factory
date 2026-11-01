@@ -51,6 +51,7 @@ from adapters.github import Unanswered
 
 # A Run's start, as the records port reads it.
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+APPROVING = "issue-approval"    # the Intent of the approving act, whose record alone vouches for an approval
 REVIEW = "review-change"       # the Intent that reviews the change, and so may supersede an earlier review
 
 
@@ -204,16 +205,17 @@ OPENS = "open-pull-request"       # the Intent whose Run opens a pull request fo
 OPENED = "open_pull_request"      # the Effect that records the pull request it opened
 
 
-def effects(transport, repo: str, runs, since: str, known) -> dict:
+def effects(transport, repo: str, runs, since: str, known, most: int = 50) -> dict:
     """What each completed Run the records port lists recorded since `since` and has not been read: `{"applied":
-    [applied/1], "read": [each Run], "whole": bool}`, for reconciliation (decisions 0061, 0109). A Run is read once: `known`
-    is the Runs a record before this one read. One past its retention, or one that did not succeed and lists no record,
-    recorded nothing that can be read, and is read; one whose record cannot be read is not, so a later pass reads it again,
-    and what this one read is not whole. A record any job could upload could cover a stolen credential's write, so only a
-    Run the list names is read."""
+    [applied/1], "read": [each Run], "at": {Run: when it started}, "whole": bool}`, for reconciliation (decisions 0061,
+    0109). A Run is read once: `known` is the Runs a record before this one read. One past its retention recorded nothing
+    that can be read, and is read. One whose record cannot be read, and any past the `most` a pass reads, are not, so a later
+    pass reads them, and what this one read is not whole. One that did not succeed and lists none may be yet to, so it too
+    is read again, without being short. A record any job could upload could cover a stolen credential's write, so only a
+    Run the list names is read, and only the approving act's record vouches for an approval."""
     listed = isinstance(runs, dict) and runs.get("complete") is True and isinstance(runs.get("github_ids"), dict) \
         and isinstance(runs.get("runs"), list)
-    out = {"applied": [], "read": [], "whole": listed}
+    out, tried = {"applied": [], "read": [], "at": {}, "whole": listed}, 0
     for record in runs["runs"] if listed else []:
         if record["status"] != "completed" or record["started_at"] < since or record["run"] in known:
             continue
@@ -221,16 +223,24 @@ def effects(transport, repo: str, runs, since: str, known) -> dict:
         if type(github) is not list or len(github) != 1:
             out["whole"] = False
             continue
+        if tried == most:
+            out["whole"] = False
+            break
+        tried += 1
         try:
             kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded)
         except Unanswered:
             kept, whole = None, False
         if not whole:
             out["whole"] = False
+        if kept is None:
             continue
         out["read"].append(record["run"])
         if isinstance(kept, dict):
+            if record.get("intent") != APPROVING:
+                kept = dict(kept, effects=[e for e in kept["effects"] if e["type"] != "approve"])
             out["applied"].append(kept)
+            out["at"][record["run"]] = record["started_at"]
     return out
 
 

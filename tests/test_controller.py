@@ -947,16 +947,16 @@ class Entry(unittest.TestCase):
         spied, efforts = [], {}
 
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, opener, recorded, opened):
+            kept["reviews"] = "kept of %d" % number     # what a snapshot had read before it failed is not handed on
             if number == 8:
                 raise github.Unanswered("no")
-            kept["reviews"] = "kept of %d" % number
             transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number)})
             transport.send({"method": "GET", "path": "/repos/%s/pulls/%d/later" % (repo, number)})
             return support.facts(item=dict(support.ITEM, number=number)), "A title"
 
         def read(transport, item, kept, identities, apps, since):
             spied.append((item, kept, identities, apps, since))
-            return ([], [], since is not None)
+            return ([], [], item["number"] != 8)
 
         def pushes(transport, repo, approver, since, clock):
             spied.append(("pushes", repo, approver["id"], since, clock()))
@@ -964,11 +964,11 @@ class Entry(unittest.TestCase):
 
         def applied_read(transport, repo, runs, since, known):
             efforts["runs"] = (repo, since, known)
-            return {"applied": [], "read": ["r_01JA7Q"], "whole": True}
+            return {"applied": [], "read": ["r_01JA7Q"], "at": {}, "whole": True}
 
         def written_read(transport, repo, branch, poller, own, since, known):
             efforts["passes"] = (repo, branch, poller, own, since, known)
-            return {"written": [], "read": [41], "whole": True}
+            return {"written": [], "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": True}
 
         before = json.loads((ROOT / "examples" / "pass.json").read_text())
         before["now"] = "2026-10-12T11:00:00Z"
@@ -976,14 +976,18 @@ class Entry(unittest.TestCase):
             before["pull_requests"][0]["facts"]["item"], number=n))) for n in (7, 9)]
         before["pull_requests"] = served
         before["reconciled"] = {"runs": [{"id": "r_01JA00", "at": "2026-10-12T11:00:00Z"}],
-                                "passes": [{"id": 40, "at": "2026-10-12T11:00:00Z"}], "keys": [], "items": [], "dispatched": []}
+                                "passes": [{"id": 40, "attempt": 1, "at": "2026-10-12T11:00:00Z"}], "keys": [], "items": [],
+                                "dispatched": [], "owed": [11]}
+        # The last of two records says what has left: the one before it names another that has not been served since.
+        older = dict(before, now="2026-10-12T10:00:00Z", reconciled=dict(before["reconciled"], owed=[], runs=[]),
+                     pull_requests=[dict(served[0], facts=dict(served[0]["facts"], item=dict(served[0]["facts"]["item"], number=12)))])
         table = self.table(numbers=[7, 8])
         pull = copy.deepcopy(exchanges("P-17")[4]["response"])
         pull["headers"] = {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}
         table[("GET", "/repos/%s/pulls/7" % self.HOME)] = pull
         table[("GET", "/repos/%s/pulls/7/later" % self.HOME)] = dict(pull, headers={"date": "Mon, 12 Oct 2026 11:59:40 GMT", "age": "0"})
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [older, before]), \
                 unittest.mock.patch.object(entry.seen_, "read", read), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
                 unittest.mock.patch.object(entry.applied, "effects", applied_read), \
                 unittest.mock.patch.object(entry.passes, "written", written_read):
@@ -992,49 +996,80 @@ class Entry(unittest.TestCase):
         since = "2026-10-11T06:00:00Z"
         item = lambda n: {"repo": self.HOME, "type": "pull_request", "number": n}
         identities, apps = spied[0][2], spied[0][3]
-        self.assertEqual([s[:2] for s in spied[:3]],
-                         [(item(7), {"reviews": "kept of 7"}), (item(8), None), (item(9), entry.seen_.LEFT)])
-        self.assertTrue(all(s[4] == since for s in spied[:3]))
+        self.assertEqual([s[:2] for s in spied[:4]],
+                         [(item(7), {"reviews": "kept of 7"}), (item(8), None), (item(9), entry.seen_.LEFT), (item(11), entry.seen_.LEFT)])
+        self.assertTrue(all(s[4] == since for s in spied[:4]))
         self.assertEqual(identities[(344165726, "Bot")], "controller")
         self.assertEqual(identities[(344166014, "Bot")], "pr-review")
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(apps, {catalogue["controller"]["app_id"]: "controller", catalogue["pr-review"]["app_id"]: "pr-review"})
-        self.assertEqual(spied[3], ("pushes", self.HOME, CONTROLLER["accounts"]["approver"]["id"], since, "2026-10-12T12:00:00Z"))
+        self.assertEqual(spied[4], ("pushes", self.HOME, CONTROLLER["accounts"]["approver"]["id"], since, "2026-10-12T12:00:00Z"))
         self.assertEqual(efforts["runs"], (self.HOME, since, {"r_01JA00"}))
-        self.assertEqual(efforts["passes"], (self.HOME, "main", "poller.yml", int(self.RUN), since, {40}))
+        self.assertEqual(efforts["passes"], (self.HOME, "main", "poller.yml", int(self.RUN), since, {(40, 1)}))
         record = files["pass.json"]
         # The read that began each snapshot is kept; one whose snapshot could not be read has none.
         self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
         # What it read goes into its record, for the next pass, after what the last one carried.
         self.assertEqual(record["reconciled"]["runs"], before["reconciled"]["runs"] + [{"id": "r_01JA7Q", "at": record["now"]}])
-        self.assertEqual(record["reconciled"]["passes"], before["reconciled"]["passes"] + [{"id": 41, "at": record["now"]}])
+        self.assertEqual(record["reconciled"]["passes"], before["reconciled"]["passes"] + [{"id": 41, "attempt": 1, "at": record["now"]}])
+        # What it could not read is owed, read again though it leaves, and not what it did read.
+        self.assertEqual(record["reconciled"]["owed"], [8])
         self.assertEqual(shared.errors(record, "pass"), [])
         # A seen read not answered, and the machine user's pushes not answered, are short, never a pass that fails.
         def refused(*a, **k):
             raise github.Unanswered("no")
+
+        def whole(transport, item, kept, identities, apps, since):
+            return ([], [], True)
+        for reads_, pushes_ in ((refused, pushes), (whole, refused)):
+            with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.seen_, "read", reads_), unittest.mock.patch.object(entry.seen_, "pushes", pushes_), \
+                    unittest.mock.patch.object(entry.applied, "effects", applied_read), \
+                    unittest.mock.patch.object(entry.passes, "written", written_read):
+                code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual(code, 0)
+            self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"])
+        self.assertEqual(files["pass.json"]["reconciled"]["owed"], [])
+        dated_table = self.table(numbers=[7])
+        dated_table[("GET", "/repos/%s/pulls/7" % self.HOME)] = pull
+        dated_table[("GET", "/repos/%s/pulls/7/later" % self.HOME)] = pull
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                unittest.mock.patch.object(entry.seen_, "read", refused), unittest.mock.patch.object(entry.seen_, "pushes", refused), \
-                unittest.mock.patch.object(entry.applied, "effects", applied_read), \
-                unittest.mock.patch.object(entry.passes, "written", written_read):
-            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
-        self.assertEqual(code, 0)
-        self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"])
+                unittest.mock.patch.object(entry.seen_, "read", whole), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
+                unittest.mock.patch.object(entry.applied, "effects", lambda *a: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a: {"written": [], "read": [], "at": {}, "whole": True}):
+            _, _, files, _ = self.run_entry(Hub(dated_table))
+        self.assertNotIn("reconciliation_unreadable", files["pass.json"]["alerts"])
         # What was recorded and could not be read whole is short, whichever half it was.
         for runs_whole, passes_whole in ((False, True), (True, False)):
             with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                    unittest.mock.patch.object(entry.seen_, "read", read), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
-                    unittest.mock.patch.object(entry.applied, "effects", lambda *a: {"applied": [], "read": [], "whole": runs_whole}), \
-                    unittest.mock.patch.object(entry.passes, "written", lambda *a: {"written": [], "read": [], "whole": passes_whole}):
-                _, _, files, _ = self.run_entry(Hub(table))
+                    unittest.mock.patch.object(entry.seen_, "read", whole), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
+                    unittest.mock.patch.object(entry.applied, "effects", lambda *a: {"applied": [], "read": [], "at": {}, "whole": runs_whole}), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a: {"written": [], "read": [], "at": {}, "whole": passes_whole}):
+                _, _, files, _ = self.run_entry(Hub(dated_table))
             self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"], (runs_whole, passes_whole))
+        # An answer with no date, or an age that is no count, gives a facts read no stamp, and fails nothing.
+        for headers in ({}, {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "x"}):
+            undated = self.table(numbers=[7])
+            undated[("GET", "/repos/%s/pulls/7" % self.HOME)] = dict(pull, headers=headers)
+            undated[("GET", "/repos/%s/pulls/7/later" % self.HOME)] = dict(pull, headers=headers)
+            with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.seen_, "read", whole), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
+                    unittest.mock.patch.object(entry.applied, "effects", applied_read), \
+                    unittest.mock.patch.object(entry.passes, "written", written_read):
+                code, _, files, _ = self.run_entry(Hub(undated))
+            self.assertEqual(code, 0, headers)
+            self.assertEqual([r for r in files["pass.json"]["reads"] if r["read"] == "facts"], [], headers)
+            self.assertEqual([e["facts"]["item"]["number"] for e in files["pass.json"]["pull_requests"]], [7], headers)
         # With no record before it, nothing is known, so everything in the window is read.
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(entry.passes, "records", lambda *a: None), \
                 unittest.mock.patch.object(entry.seen_, "read", read), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
                 unittest.mock.patch.object(entry.applied, "effects", applied_read), \
                 unittest.mock.patch.object(entry.passes, "written", written_read):
-            self.run_entry(Hub(self.table(numbers=[7])))
+            _, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
         self.assertEqual((efforts["runs"][2], efforts["passes"][5]), (set(), set()))
+        # And it cannot say what has left, so what it saw is short, though each read of it was whole.
+        self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"])
 
     def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
