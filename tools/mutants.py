@@ -6957,6 +6957,12 @@ MUTANTS = ISSUE + [
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     # Decision 0116: the review cites, knows what met means, and reads the issue.
+    ("an issue is labelled by who opened it", 'harness/task.py', 'return "outside" if text["id"].startswith("issue:") else trust(text["by"], config)', 'return trust(text["by"], config)',
+     ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
+    ("a security fault may be filed under another criterion", 'roles/pr-review/prompt.md', 'A security fault no `security`', 'A fault no `security`', ("tests.test_evals.EvalJob.test_the_review_is_told_to_cite_and_what_met_means",)),
+    ("an issue no Task carries whole is asked anyway", 'harness/eval/run.py', '        if any(o["kind"] == "issue" for o in the_task["omitted"]):\n            raise Stop("issue_not_whole")\n', '', ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
+    ("an issue no Task can name is asked anyway", 'harness/eval/__init__.py', '    if "issue" in case and not re.fullmatch(source, case["issue"]["by"]["name"]):\n        return "issue_unreadable"\n', '', ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
+    ("an answer of no object raises otherwise", 'adapters/texts.py', 'answer["status"] != 200 or not isinstance(issue, dict) or ', 'answer["status"] != 200 or ', ("tests.test_adapters.Texts.test_what_cannot_be_read_whole_builds_no_task",)),
     ("a case's issue reaches no Task", 'harness/eval/run.py', 'facts, texts, manifest, [], config,', 'facts, [], manifest, [], config,',
      ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
     ("a case's issue has another id than a live Run's", 'harness/eval/run.py', '"issue:%d" % case["issue"]["number"]', '"issue:body"',

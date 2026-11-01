@@ -235,7 +235,7 @@
     },
     "read_at": "2026-10-11T12:20:00Z"
   },
-  "diff": "--- a/kernel/decide.py\n+++ b/kernel/decide.py\n@@ -86,9 +86,9 @@\n-    if not items:\n-        return []\n     first = items[0]\n+    if not items:\n+        return []\n     return parse(first, items[1:])\n",
+  "diff": "--- a/kernel/decide.py\n+++ b/kernel/decide.py\n@@ -86,3 +86,5 @@\n def parse(items):\n+    if not items:\n+        return []\n     first = items[0]\n     return parse(first, items[1:])\n",
   "expected": {
     "verdict": "met",
     "criterion": "PR-1",

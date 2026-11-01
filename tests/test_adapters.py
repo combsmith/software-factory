@@ -1911,6 +1911,11 @@ class Texts(unittest.TestCase):
         found["response"]["body"]["user"] = user or {"login": "don-petry", "id": PERSON[1], "type": "User"}
         return found
 
+    def bare(self, number):
+        found = self.issue(number)
+        del found["response"]["body"]["user"]
+        return found
+
     def read(self, *found, pull=None, opener=None, opened=None):
         router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
         return texts.issues(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener, opened)
@@ -1942,7 +1947,9 @@ class Texts(unittest.TestCase):
                  {"pull": self.OPENED, "opener": (12, "Bot"), "opened": self.MADE}),
                 ("an issue that fails", [closing_answer("o/r", 26, [7]), self.issue(7, status=404)], {}),
                 ("a pull request listed as an issue", [closing_answer("o/r", 26, [7]), self.issue(7, pull=True)], {}),
-                ("a body of no text", [closing_answer("o/r", 26, [7]), self.issue(7, 3)], {})):
+                ("a body of no text", [closing_answer("o/r", 26, [7]), self.issue(7, 3)], {}),
+                ("an answer of no object", [closing_answer("o/r", 26, [7]), dict(self.issue(7), response={"status": 200, "headers": {}, "body": []})], {}),
+                ("an issue no one opened", [closing_answer("o/r", 26, [7]), self.bare(7)], {})):
             with self.subTest(why), self.assertRaises(github.Unanswered):
                 self.read(*found, **given)
         answered = self.issue(7)

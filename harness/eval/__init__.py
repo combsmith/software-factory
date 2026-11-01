@@ -236,6 +236,9 @@ def case_fault(case: dict):
     source = eval_result.schemas(ROOT)["task"]["properties"]["texts"]["items"]["properties"]["source"]["pattern"]
     if not (isinstance(facts["last_pusher"], str) and re.fullmatch(source, facts["last_pusher"])):
         return "pusher_unnamed"
+    # So does the issue's, where the case holds one.
+    if "issue" in case and not re.fullmatch(source, case["issue"]["by"]["name"]):
+        return "issue_unreadable"
     return None
 
 

@@ -2,9 +2,9 @@
 
 A review judges a change by what its issue asks (the rubric's PR-1), and a Task of the diff alone cannot. The issues are
 the ones `adapters/acceptance.py` reads for the contract, by one rule: the one its branch binds it to, and else those it
-closes. Each is read as GitHub gives it now, whoever wrote it: `harness/task.py` labels its trust class from `by`, never
-from the text. An issue with no body has no text. What cannot be read whole raises, so that no Task is built short of
-one. A thread's text waits on the story that holds it."""
+closes. Each is read as GitHub gives it now, `by` naming who opened it, which is all GitHub says: `harness/task.py` holds an
+issue's text `outside` whoever that is. An issue with no body has no text. What cannot be read whole raises, so that no
+Task is built short of one. A thread's text waits on the story that holds it."""
 from __future__ import annotations
 
 from adapters import acceptance

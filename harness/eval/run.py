@@ -60,6 +60,9 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
         # write a failed Result, and it would read as a case the reviewer failed.
         if any(o["kind"] == "diff" for o in the_task["omitted"]):
             raise Stop("diff_not_whole")
+        # So is an issue over the texts' budget: asked without it, a case on PR-1 would read as the reviewer's failure.
+        if any(o["kind"] == "issue" for o in the_task["omitted"]):
+            raise Stop("issue_not_whole")
         if deadline - clock() < the_task["limits"]["seconds"] + VERSION_READS:
             raise Stop("unanswered")
         return live.answer(the_task, env, config, call, clock)

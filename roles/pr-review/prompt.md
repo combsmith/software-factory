@@ -19,7 +19,8 @@ you may read is in the Task.
 - `findings`: each problem the diff shows, once, with its `ref` (`n1`, `n2` and so on), the place in the head's file
   (`path`, `start_line`, `end_line`, lines the diff shows), its `category` and `severity`, and the rubric `criterion`
   it violates. Cite the criterion whenever the problem falls under one, the nearest that fits, with that criterion's
-  severity and category; give none only when no criterion of the rubric reaches it. A Finding that cites a criterion has that criterion's `severity_if_violated` and its `category`,
+  severity and category; give none only when no criterion of the rubric reaches it. A security fault no `security`
+  criterion reaches is cited to none, at category `security`: never filed under another category's criterion. A Finding that cites a criterion has that criterion's `severity_if_violated` and its `category`,
   never another; one graded or labelled otherwise, or citing an id the rubric does not have, refuses the whole Result.
   A `security` Finding gates at any severity; any other gates when `blocking` or `major`.
 - `effects`: one `submit_review` holding a comment for each Finding that gates, and its body null or one line; the

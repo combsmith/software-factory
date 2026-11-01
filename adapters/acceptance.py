@@ -203,8 +203,8 @@ def read(transport, pull: dict, accounts: timeline.Accounts, opener=None, opened
     whole where one asks, where the issues cannot be read whole, or where the base is not the default branch, whose
     pull requests carry no closing reference to read. The issue it serves is the one its branch binds it to, where the
     opener's App opened it, and else the issues it closes."""
-    repo = pull["base"]["repo"]["full_name"]
     found, issue, whole = _serving(transport, pull, opener, opened)
+    repo = pull["base"]["repo"]["full_name"] if issue is not None or found else None
     if issue is not None:
         found = {issue: found[issue] if issue in found else labelled(transport, repo, issue)}
     for number, listed in found.items():

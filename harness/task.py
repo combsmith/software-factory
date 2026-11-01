@@ -66,6 +66,12 @@ def readable_text(text) -> bool:
             and SOURCE.fullmatch(text["by"]["name"]) is not None)
 
 
+def class_of(text: dict, config: dict) -> str:
+    """A text's trust class. An issue's is `outside`, whoever opened it: anyone who can write can edit its body, and GitHub
+    gives its opener and not who wrote what it says now, so who wrote it cannot be read (decision 0116)."""
+    return "outside" if text["id"].startswith("issue:") else trust(text["by"], config)
+
+
 def carried(body: str) -> int:
     """How long a text is as the Task carries it to the CLI, escaped as JSON, so that the budget bounds the bytes of
     the one argument the CLI is given and not only its characters."""
@@ -78,7 +84,7 @@ def texts_of(texts: list, config: dict) -> tuple:
     and how many characters (L-56). A text is kept whole or left out whole, so no text reaches the model cut short."""
     room = config["harness"]["texts"]["characters"]
     kept, omitted = [], {}
-    ranked = sorted(((trust(t["by"], config), i, t) for i, t in enumerate(texts)), key=lambda x: (RANK.index(x[0]), x[1]))
+    ranked = sorted(((class_of(t, config), i, t) for i, t in enumerate(texts)), key=lambda x: (RANK.index(x[0]), x[1]))
     for klass, _, text in ranked:
         body = text["body"]
         if carried(body) <= room:

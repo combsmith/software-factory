@@ -1208,7 +1208,7 @@ class EvalJob(unittest.TestCase):
         self.assertIn("unanswered", said)
 
     def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0116
-        from harness import engine, task
+        from harness import engine, eval as job, task
         from harness.eval import run as step
         case, live = self.reviewed()
         by = {"kind": "human", "name": "a-colleague", "can_write": False}
@@ -1226,6 +1226,20 @@ class EvalJob(unittest.TestCase):
         # Its class is read from who wrote it, never from the case, and a case with none holds the diff alone.
         self.assertEqual([(t["id"], t["trust"], t["source"]) for t in given["texts"] if t["id"].startswith("issue:")],
                          [("issue:12", "outside", "a-colleague")])
+        # Whoever opened it: anyone who can write can edit its body, so its opener's name is no label for what it says.
+        config_of = dict(live.config(), release="factory/v0.1.0")
+        mine = {"id": "issue:12", "by": live.MAINTAINER, "body": "x"}
+        self.assertEqual(task.class_of(mine, config_of), "outside")
+        self.assertEqual(task.class_of(dict(mine, id="thread:PRRT_kw1"), config_of), "maintainer")
+        # An issue no Task can carry whole, and one whose writer no Task can name, say so by a code and ask nothing.
+        too_long = dict(case, issue=dict(held["issue"], body="x" * (live.HARNESS["texts"]["characters"] + 1)))
+        cli = live.CLI()
+        with self.assertRaises(job.Stop) as stopped:
+            step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0))(too_long)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("issue_not_whole", []))
+        spaced = dict(case, issue=dict(held["issue"], by=dict(by, name="a colleague")))
+        self.assertEqual(job.case_fault(spaced), "issue_unreadable")
+        self.assertIsNone(job.case_fault(held))
 
     def test_the_review_is_told_to_cite_and_what_met_means(self):  # decision 0116
         # Run 41329046436 read 10 cases as `finding_uncited`: the fault was found and no criterion cited. The rubric's ids
@@ -1240,6 +1254,8 @@ class EvalJob(unittest.TestCase):
         self.assertIn("Cite the criterion whenever the problem falls under one", " ".join(prompt.split()))
         self.assertIn("which includes a change that gives it nothing to break", " ".join(prompt.split()))
         self.assertIn("only when what the criterion judges is not in the Task", " ".join(prompt.split()))
+        # Citing the nearest must not move a security fault out of `security`, whose thread `apply` holds apart (decision 0095).
+        self.assertIn("A security fault no `security` criterion reaches is cited to none, at category `security`", " ".join(prompt.split()))
 
     def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
         from harness.eval import run as step
