@@ -15,6 +15,7 @@ exits 1, and no traceback, which could quote a case, reaches the log. Results an
 only `eval-report.json`, of hashes, verdicts and codes, is written where the upload finds it."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -106,7 +107,7 @@ def _read(directory, name: str):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         raise Stop("scratch_unreadable") from None
 
 
@@ -176,9 +177,73 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
     return "fetched %d of %d cases" % (len([c for c in why.values() if c is None]), found["count"])
 
 
+# The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
+# reviewer's. `result_invalid` stays the reviewer's: it is an answer that could not be read, and also a CLI that exited 0
+# with no answer at all, which the Engine does not yet tell apart (decision 0106).
+ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_failed", "engine_timeout", "task_too_large",
+                 "rubric_unreadable")
+
+
+# What facts/1 has required since the review Intent's set was made, at d556992, each with what the job gives a case that
+# lacks it, and what that means. The set stays as it is, and a case cannot exercise one of these until it is issued again
+# with it. Applied to a case's facts alone, in this job alone, before anything reads them; the live path never fills.
+# A field made required later fails tests/test_evals.py::test_the_facts_the_set_was_made_with_read_as_todays_once_filled
+# until it has a row here, or the set is issued again (decision 0105).
+FACTS_THE_SET_PREDATES = (
+    ("last_reopened_at", None, "never reopened: a case cannot exercise an approval from before a reopening"),
+    ("expired_reviews", [], "no Lens review past retention: a case cannot exercise one being asked for again"),
+)
+THREAD_FIELDS_THE_SET_PREDATES = (
+    ("ruling", None, "the Lens decided nothing of its Finding: a case cannot exercise a ruling on a thread"),
+)
+
+
+def current_facts(facts):
+    """A copy of a case's `facts`, each field the set predates filled by its row where it is absent, and a field the case
+    gives kept as it is. What is no facts, or nested past what can be copied, is handed back for the schema to refuse."""
+    if not isinstance(facts, dict):
+        return facts
+    try:
+        filled = copy.deepcopy(facts)
+    except RecursionError:
+        return facts
+    for field, default, _ in FACTS_THE_SET_PREDATES:
+        filled.setdefault(field, copy.deepcopy(default))
+    threads = filled.get("threads")
+    for thread in threads if isinstance(threads, list) else []:
+        for field, default, _ in THREAD_FIELDS_THE_SET_PREDATES:
+            if isinstance(thread, dict):
+                thread.setdefault(field, copy.deepcopy(default))
+    return filled
+
+
+def case_fault(case: dict):
+    """The code of what would refuse this case's Task, read before it is built, or None: `harness/task.py` refuses each of
+    these too, in words a live Run's report needs and this job may not print. Held here so that a set that fails says
+    why by a code alone, each its owner's to mend in the home (decision 0105). `case` is a current `eval-case/1`."""
+    facts = case["facts"]
+    if not all(v is True for v in facts["complete"].values()):
+        return "facts_read_short"
+    try:
+        diff = case["diff"].encode("utf-8")
+    except UnicodeEncodeError:
+        return "diff_unreadable"
+    if not diff:
+        return "diff_unreadable"
+    if "sha256:" + hashlib.sha256(diff).hexdigest() != facts["content_id"]:
+        return "diff_not_content"
+    # The Task's text names who pushed it, a login, where facts/1 also allows null or any string.
+    source = eval_result.schemas(ROOT)["task"]["properties"]["texts"]["items"]["properties"]["source"]["pattern"]
+    if not (isinstance(facts["last_pusher"], str) and re.fullmatch(source, facts["last_pusher"])):
+        return "pusher_unnamed"
+    return None
+
+
 def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
-    one that is no `eval-case/1` of this set's Role and Intent is `unreadable`, `not_this_set`; one whose expected Finding
+    the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
+    `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
+    `unreadable`, `not_this_set`; one `case_fault` finds a fault in is `unreadable` by that code; one whose expected Finding
     is off its rubric is `unreadable`, `answer_off_rubric`; every other is given to `review`, which returns its `result/1`,
     and scored against the case by `tools/eval_result.py`."""
     assessed, interrupted = {}, False
@@ -193,12 +258,21 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
         try:
             with open(within(place / "cases", "%s.json" % entry["id"]), encoding="utf-8") as f:
                 case = json.load(f)
-        except (OSError, ValueError, Stop):
+        except (OSError, ValueError, RecursionError, Stop):
             assessed[entry["id"]] = ("unreadable", ["schema"])
             continue
+        if isinstance(case, dict) and "facts" in case:
+            case = dict(case, facts=current_facts(case["facts"]))
+            if _errors(case["facts"], "facts"):
+                assessed[entry["id"]] = ("unreadable", ["facts_not_current"])
+                continue
         if _errors(case, "eval-case") or case["id"] != entry["id"] or \
                 (case["role"], case["intent"]) != (found["role"], found["intent"]):
             assessed[entry["id"]] = ("unreadable", ["not_this_set"])
+            continue
+        fault = case_fault(case)
+        if fault is not None:
+            assessed[entry["id"]] = ("unreadable", [fault])
             continue
         # A case whose answer the rubric refuses would reward a Result `apply` refuses: it asks nothing of the model, and
         # says so by a code alone, for its owner to mend in the home (issue 421).
@@ -218,6 +292,9 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
         except BaseException:
             interrupted = True
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
+            continue
+        if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
+            assessed[entry["id"]] = ("unreadable", [result["reason"]])
             continue
         said = eval_result.score(case, result)
         # What the scorer says of a case that did not pass could tell anyone who reads the report the category, severity
@@ -279,6 +356,8 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
     named = sorted((c["id"], c["sha256"]) for c in found["cases"])
     if sorted((c["id"], c["sha256"]) for c in document["cases"]) != named:
         return "cases_differ"
+    if any(set(c["reasons"]) & set(ENGINE_FAULTS) for c in document["cases"]):
+        return "engine_fault"
     if any(c["verdict"] != PASS or c["reasons"] for c in document["cases"]):
         return "case_failed"
     if document["passed"] != found["count"]:

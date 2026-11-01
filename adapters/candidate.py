@@ -17,12 +17,12 @@ import json
 import re
 
 from adapters import artifacts
+from adapters.checks import ACTIONS_APP, own_job      # GitHub Actions, the one App whose `verify` counts
 from adapters.github import STORED, Unanswered, request
 from harness import eval as eval_gate
 from release import cut
 
 VERIFY = "verify"                   # the check run `verify.yml`'s job reports, on the merge group main took
-ACTIONS_APP = 15368                 # GitHub Actions, the one App whose `verify` counts
 VERIFY_WORKFLOW = ".github/workflows/verify.yml"    # the one workflow whose `verify` counts, as the Kernel's Lens reads it
 EVAL_WORKFLOW = "eval.yml"
 REPORT, MEMBER = "eval-report", "eval-report.json"
@@ -60,7 +60,8 @@ def on_main(transport, repo: str, commit: str, branch: str = "main") -> bool:
 
 def verified(transport, repo: str, commit: str) -> bool:
     """Whether GitHub Actions' one `verify` check run on `commit`, the latest of its name, concluded success, and was run
-    by `verify.yml`: its check suite's one workflow run, read by the suite's id, is of that file and that commit."""
+    by `verify.yml`: its check suite's one workflow run, read by the suite's id, is of that file and that commit, and its
+    details are that run's own job's (decision 0104)."""
     try:
         answer = transport.send(request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&filter=latest&per_page=100"
                                         % (repo, commit, VERIFY)))
@@ -89,7 +90,8 @@ def verified(transport, repo: str, commit: str) -> bool:
             or not isinstance(runs[0], dict):
         return False
     return runs[0].get("path") == VERIFY_WORKFLOW and runs[0].get("head_sha") == commit \
-        and runs[0].get("check_suite_id") == suite
+        and runs[0].get("check_suite_id") == suite \
+        and own_job(ours[0].get("details_url"), ours[0].get("id"), runs[0].get("id"))
 
 
 def _manifest(transport, repo: str, commit: str):
