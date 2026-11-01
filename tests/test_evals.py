@@ -274,7 +274,7 @@ class TheSet(unittest.TestCase):
         self.assertEqual([r for r in check_workflows.lint(EVAL_WORKFLOW) if r[0] not in check_workflows.SHAPED["eval.yml"]], [])
         token = "          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}\n"
         install = EVAL_WORKFLOW[EVAL_WORKFLOW.index("      - env:\n          CLI_VERSION"):
-                                EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.run\n")]
+                                EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.fetch\n")]
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         broken = {
             "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "its fetch step is given under env"),
