@@ -476,7 +476,7 @@ def _asked(request: dict) -> tuple:
             repos.add(starred.group(1) + "/" + starred.group(2))
         if not found and not starred:
             wrong.append("names no repo of the org, nor the org, an App or an installation, in its path; a read of a "
-                         "fixture of the canary is of one of those")
+                         "fixture of a repo is of one of those")
         elif CLIMBS.search(call.split(" ", 1)[1].split("?", 1)[0]):
             wrong.append("climbs out of its repo with a .. segment; write the path it reads")
         else:
@@ -561,11 +561,12 @@ def _repos(data: dict, installed) -> list:
     one, or, made by an App, names or is answered with a repo its installation does not reach; and for a command-line
     read that is not the Maintainer's own. An App the data does not know reaches the canary alone; a data file that
     cannot be read is one problem, and every App is then held to the canary. A fixture of the Factory's own repo is
-    held to the same, with that repo in the canary's place."""
+    held to the same, with that repo in the canary's place, but for the App the data does not know, which reaches
+    nothing there, since this repo is no sandbox."""
     out, home = [], data.get("repo")
     home_id, place = (FACTORY_ID, "the Factory's repo") if home == FACTORY else (CANARY_ID, "the canary")
     if installed is None:
-        out.append(("config/apps.json", "cannot be read, so every App's reach is %s alone" % place))
+        out.append(("config/apps.json", "cannot be read, so no App's reach can be told"))
         installed = {}
     trial = data.get("trial")
     fork = lambda repo: trial in TRIALS_OF_FORKS and repo.count("/") == 1 and repo.split("/")[1] == CANARY
@@ -612,7 +613,7 @@ def _repos(data: dict, installed) -> list:
         out += [(where + ".call", what) for what in wrong]
         forks_named = {r.split("/")[0] for r in repos if fork(r)} - _orgs_named(request)
         for owner in sorted(owners - {ORG} - forks_named):
-            out.append((where + ".call", "names the owner %s; a read of a fixture of the canary names the org alone, or in a "
+            out.append((where + ".call", "names the owner %s; a read of a fixture of a repo names the org alone, or in a "
                         "trial of forks the owner of a fork of the canary" % owner))
         response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
         answered = set(_named(response.get("body")))
@@ -626,7 +627,8 @@ def _repos(data: dict, installed) -> list:
             name = str(asker.get("name", "")).split(",")[0].replace("[bot]", "")
             # A trial of reach reads beyond the App's install by its question; the owner's check above still holds it to
             # the org's repos.
-            reach = installed.get(name, {home}) if trial not in TRIALS_OF_REACH else repos | answered
+            unknown = set() if home == FACTORY else {home}
+            reach = installed.get(name, unknown) if trial not in TRIALS_OF_REACH else repos | answered
             if request.get("via") == "graphql" and ORG in owners and not repos:
                 out.append((where + ".call", "asks of the org by an App, whose installation reaches repos alone"))
             for repo in sorted(repos - reach):
@@ -640,6 +642,8 @@ def _of_the_factory(data: dict) -> list:
     """(path, what is wrong) when a fixture records the Factory's own repo and its trial is not named for it, or its
     trial is and it records anywhere else."""
     repo, trial = data.get("repo"), data.get("trial")
+    if not isinstance(trial, str):
+        return []       # the schema refuses it
     if repo == FACTORY and trial not in TRIALS_OF_THE_FACTORY:
         return [("repo", "is %s, and %s is no trial of TRIALS_OF_THE_FACTORY; a trial runs in the canary" % (FACTORY, trial))]
     if trial in TRIALS_OF_THE_FACTORY and repo != FACTORY:

@@ -1,8 +1,8 @@
 {
   "schema": "trial/1",
   "trial": "P-30",
-  "question": "Does a check run's external_id round-trip, so it can serve as a recovery key?",
-  "pass": "Yes",
+  "question": "Which identity can cut a Release and move a channel tag under a tag ruleset, from a workflow in the Factory repo?",
+  "pass": "One identity, through one path",
   "repo": "combsmith/software-factory",
   "ran_at": "2026-10-15T14:02:11Z",
   "exchanges": [
@@ -10,7 +10,7 @@
       "request": {
         "as": {
           "kind": "app",
-          "name": "combsmith-sf-trial"
+          "name": "combsmith-sf-controller"
         },
         "via": "rest",
         "call": "POST /repos/combsmith/software-factory/check-runs",
@@ -19,7 +19,7 @@
           "x-github-api-version": "2022-11-28"
         },
         "body": {
-          "name": "trial-p-12",
+          "name": "trial-p-30",
           "head_sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
           "external_id": "factory-run-r1"
         }
@@ -34,11 +34,11 @@
           "id": 4,
           "head_sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
           "external_id": "factory-run-r1",
-          "name": "trial-p-12",
+          "name": "trial-p-30",
           "status": "queued",
           "conclusion": null,
           "app": {
-            "slug": "combsmith-sf-trial"
+            "slug": "combsmith-sf-controller"
           }
         }
       }
@@ -47,7 +47,7 @@
       "request": {
         "as": {
           "kind": "app",
-          "name": "combsmith-sf-trial"
+          "name": "combsmith-sf-controller"
         },
         "via": "rest",
         "call": "GET /repos/combsmith/software-factory/check-runs/4",
@@ -67,11 +67,11 @@
           "id": 4,
           "head_sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
           "external_id": "factory-run-r1",
-          "name": "trial-p-12",
+          "name": "trial-p-30",
           "status": "queued",
           "conclusion": null,
           "app": {
-            "slug": "combsmith-sf-trial"
+            "slug": "combsmith-sf-controller"
           }
         }
       }

@@ -4525,6 +4525,22 @@ class Trials(unittest.TestCase):
         self.assertEqual(writing(check_trials.FACTORY_ID), [])
         self.assertTrue(any("that is not the Factory's repo's by its id" in p for p in writing(check_trials.CANARY_ID)))
 
+        # A write carried inside an answer is held the same, and only a read of this repo alone ties a node to it.
+        def carrying(repo_id, named="combsmith/software-factory"):
+            held = json.loads(json.dumps(data))
+            held["exchanges"][1]["response"]["body"] = {"id": 4, "node_id": node(repo_id), "repository": {"nameWithOwner": named}}
+            held["exchanges"].append({"request": held["exchanges"][0]["request"], "response": {
+                "status": 200, "headers": {}, "body": {"query": write, "variables": {"id": node(repo_id)}}}})
+            return check_trials.fixture_problems(held)
+
+        self.assertEqual(carrying(check_trials.FACTORY_ID), [])
+        said = "carries a write of enqueuePullRequest on a node no read of the Factory's repo alone answered"
+        self.assertTrue(any(said in p for p in carrying(check_trials.CANARY_ID)))
+        canary = "combsmith/" + check_trials.CANARY
+        self.assertTrue(any(said in p for p in carrying(check_trials.FACTORY_ID, canary)))
+        # A trial the schema refuses for its form is left to the schema, with no fault from this rule.
+        self.assertEqual(check_trials.fixture_problems({"trial": ["P-12"], "repo": None, "exchanges": []}), [])
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
         # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
@@ -4568,6 +4584,9 @@ class Trials(unittest.TestCase):
             "another-trial-in-the-factorys-repo": "and P-12 is no trial of TRIALS_OF_THE_FACTORY",
             "a-trial-of-the-factory-on-the-canary": "and P-30 runs in combsmith/software-factory",
             "a-trial-of-the-factory-reading-another-owners-repo": "names the owner outside",
+            # An App is held to its reach there too, and one the data does not know reaches nothing there.
+            "a-trial-of-the-factory-beyond-an-apps-reach": "asks of combsmith/other, which the App's installation does not reach",
+            "a-trial-of-the-factory-by-an-app-the-data-does-not-know": "asks of combsmith/software-factory, which the App's installation does not reach",
             # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
             "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
             "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
