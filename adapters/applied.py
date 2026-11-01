@@ -51,6 +51,7 @@ from adapters.github import Unanswered
 
 # A Run's start, as the records port reads it.
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+READS = 50                      # the records one pass reads of them, inside its step's limit; the next reads on
 APPROVING = "issue-approval"    # the Intent of the approving act, whose record alone vouches for an approval
 REVIEW = "review-change"       # the Intent that reviews the change, and so may supersede an earlier review
 
@@ -205,10 +206,10 @@ OPENS = "open-pull-request"       # the Intent whose Run opens a pull request fo
 OPENED = "open_pull_request"      # the Effect that records the pull request it opened
 
 
-def effects(transport, repo: str, runs, since: str, known, most: int = 50) -> dict:
+def effects(transport, repo: str, runs, since: str, known, most: int = READS) -> dict:
     """What each completed Run the records port lists recorded since `since` and has not been read: `{"applied":
     [applied/1], "read": [each Run], "at": {Run: when it started}, "whole": bool}`, for reconciliation (decisions 0061,
-    0111). A Run is read once: `known` is the Runs a record before this one read. One past its retention recorded nothing
+    0112). A Run is read once: `known` is the Runs a record before this one read. One past its retention recorded nothing
     that can be read, and is read. One whose record cannot be read, and any past the `most` a pass reads, are not, so a later
     pass reads them, and what this one read is not whole. One that did not succeed and lists none may be yet to, so it too
     is read again, without being short. A record any job could upload could cover a stolen credential's write, so only a

@@ -114,7 +114,7 @@ def records(transport, repo: str, branch: str, poller: str, own: int):
 
 def written(transport, repo: str, branch: str, poller: str, own: int, since: str, known, most: int = READS) -> dict:
     """What each completed pass since `since` recorded of its writes and has not been read: `{"written": [written/1],
-    "read": [{"id", "attempt"}], "at": {pass: when it was made}, "whole": bool}`, for reconciliation (decisions 0061, 0111).
+    "read": [{"id", "attempt"}], "at": {pass: when it was made}, "whole": bool}`, for reconciliation (decisions 0061, 0112).
     An attempt is read once: `known` holds the `(id, attempt)` a record before this one read. One that succeeded and lists
     no record, one whose record cannot be read or is not `written/1`, and any past the `most` a pass reads, are not read, so
     a later pass reads them, and what this one read is not whole. One that failed and lists none may be yet to, so it too
@@ -146,6 +146,10 @@ def written(transport, repo: str, branch: str, poller: str, own: int, since: str
             continue
         if row["id"] in done_ids or not _is_pass(row, repo, branch, poller, own):
             continue
+        made = row.get("created_at")
+        if not isinstance(made, str) or made < since:     # the list's own filter is GitHub's: this holds it
+            out["whole"] = out["whole"] and isinstance(made, str)
+            continue
         done_ids.add(row["id"])
         attempt = row.get("run_attempt")
         if not _id(attempt):
@@ -173,7 +177,7 @@ def written(transport, repo: str, branch: str, poller: str, own: int, since: str
         out["read"].append({"id": row["id"], "attempt": attempt})
         if done is not None:
             out["written"].append(done)
-            out["at"][done["pass"]] = row.get("created_at")
+            out["at"][done["pass"]] = made
     return out
 
 

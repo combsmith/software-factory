@@ -629,7 +629,7 @@ class SeenPort(unittest.TestCase):
 
 
 class Carried(unittest.TestCase):
-    """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0111)."""
+    """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0112)."""
     NOW = "2026-10-11T13:00:00Z"
     NEXT = "2026-10-11T13:20:00Z"
     MADE = "2026-10-11T12:00:00Z"
@@ -650,9 +650,10 @@ class Carried(unittest.TestCase):
         self.assertEqual(held["owed"], [7])
         self.assertEqual(sorted((k["where"], k["type"], k["key"]) for k in held["keys"]),
                          [("applied", "approve", "K"), ("applied", "comment", "L"), ("written", "status_on_item", "S")])
-        # A key is stamped with when its record was made, not when it was read, so a late first read stretches nothing.
-        self.assertEqual({k["at"] for k in held["keys"]} | {i["at"] for i in held["items"]} | {d["at"] for d in held["dispatched"]},
-                         {self.MADE})
+        # A key one write alone can match is stamped with when it was read, so it outlasts the write it records, which came
+        # after its record's Run began. What any such write could spend is stamped with when its record was made.
+        self.assertEqual({k["at"] for k in held["keys"]} | {d["at"] for d in held["dispatched"]}, {self.NOW})
+        self.assertEqual({i["at"] for i in held["items"]}, {self.MADE})
         self.assertEqual([(i["type"], i["count"]) for i in held["items"]], [("dequeue", 1)])
         self.assertEqual([d["run"] for d in held["dispatched"]], [self.RUN])
         before = [{"now": self.NOW, "pull_requests": [], "reconciled": held}]
@@ -705,10 +706,23 @@ class Carried(unittest.TestCase):
         self.assertEqual(kinds(check(seen(wrote("controller", "dequeue")), self.effects(), before=before)), [("controller", "dequeue")])
         dropped = {"run": "r_01JA00", "item": ITEM, "started_at": self.MADE, "status": "completed"}
         self.assertEqual(kinds(check(seen(), self.effects(), [dropped], before=before, accounts=TOKEN)), [("workflow_token", "dispatch")])
-        # A record first read late is dropped by when it was made: its credit does not outlast its own write.
-        late = self.effects(written_=[written(("dequeue", ITEM, None, None, "applied"))], at={"p_01JA7Q": "2026-10-09T00:00:00Z"})
-        carried = reconcile.carried([], late, seen(), self.NOW)
-        self.assertEqual(reconcile.carried([{"reconciled": carried}], self.effects(), seen(), self.NEXT)["items"], [])
+        # A record first read late is dropped by when it was made: its credit does not outlast its own write. It is kept for
+        # an hour past that, as the write it records came after its record's run began, and no more.
+        at = lambda when: self.effects(written_=[written(("dequeue", ITEM, None, None, "applied"))], at={"p_01JA7Q": when})
+        too_late = reconcile.carried([], at("2026-10-09T00:00:00Z"), seen(), self.NOW)
+        self.assertEqual(reconcile.carried([{"reconciled": too_late}], self.effects(), seen(), self.NEXT)["items"], [])
+        hour = "2026-10-10T23:00:00Z"
+        self.assertEqual(SINCE, "2026-10-11T00:00:00Z")
+        edge = reconcile.carried([], at(hour), seen(), self.NOW)
+        self.assertEqual(len(reconcile.carried([{"reconciled": edge}], self.effects(), seen(), self.NEXT)["items"]), 1)
+        self.assertEqual(check(seen(wrote("controller", "dequeue")), self.effects(), before=[{"now": self.NOW, "pull_requests": [], "reconciled": edge}])["unmatched"], [])
+        past = reconcile.carried([], at("2026-10-10T22:59:59Z"), seen(), self.NOW)
+        self.assertEqual(reconcile.carried([{"reconciled": past}], self.effects(), seen(), self.NEXT)["items"], [])
+        self.assertEqual(kinds(check(seen(wrote("controller", "dequeue")), self.effects(), before=[{"now": self.NOW, "pull_requests": [], "reconciled": past}])),
+                         [("controller", "dequeue")])
+        # A key read long after its Run began still matches its write: it is dropped by when it was read.
+        read_late = reconcile.carried([], self.effects(applied(("comment", "K", "applied")), at={self.RUN: "2026-10-09T00:00:00Z"}), seen(), self.NOW)
+        self.assertEqual(check(seen(wrote("pr-review", "comment", "K")), self.effects(), before=[{"now": self.NOW, "pull_requests": [], "reconciled": read_late}])["unmatched"], [])
         # A stamp that is no time is read as now: it is never read as older than it is.
         odd = reconcile.carried([], self.effects(written_=[written(("dequeue", ITEM, None, None, "applied"))], at={"p_01JA7Q": "x"}), seen(), self.NOW)
         self.assertEqual(odd["items"][0]["at"], self.NOW)
@@ -729,6 +743,8 @@ class Carried(unittest.TestCase):
         self.assertEqual(reconcile.carried(before, recorded(), seen(), self.NEXT), last)
         old = dict(last, runs=[{"id": self.RUN, "at": "2026-10-09T00:00:00Z"}])
         self.assertEqual(reconcile.carried([{"reconciled": old}], None, None, self.NEXT), old)
+        # So does a seen that is no seen/1: its `since` is not read.
+        self.assertEqual(reconcile.carried([{"reconciled": old}], None, {"since": 7}, self.NEXT), old)
         # Carried keys still match where this pass's own read is short, which says so; a seen that cannot be read matches
         # nothing, and is short.
         held = dict(last, keys=[{"where": "applied", "type": "comment", "key": "L", "at": self.NOW}])
@@ -761,7 +777,7 @@ class Carried(unittest.TestCase):
         out = reconcile.carried([], self.effects(applied(("comment", fits, "applied"))), seen(), self.NOW)
         self.assertEqual([k["key"] for k in out["keys"]], [fits])
         self.assertFalse(check(seen(), self.effects(applied(("comment", fits, "applied"))))["short"])
-        # So too a Run's name, and a dispatch's, that does not fit.
+        # So too a Run's name that does not fit: it is read again, and is not carried.
         odd = "not-a-run"
         out = reconcile.carried([], self.effects(runs=[odd]), seen(), self.NOW)
         self.assertEqual(out["runs"], [])

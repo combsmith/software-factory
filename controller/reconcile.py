@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-from controller.shared import errors, key
+from controller.shared import errors, key, moment
 
 # What each identity may write, and the recorded Effect each kind is matched to: (`applied/1` type or `written/1`
 # type). A kind not listed for an identity is never its, so it is unmatched whatever was recorded.
@@ -43,6 +43,7 @@ DISPATCHES = ("dispatch_run", "dispatch_approval")
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")
 STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+LATE = 60 * 60          # how much later than its record's own making a pass's or a Run's write can be: the job's limits
 
 
 def _identities(accounts) -> tuple:
@@ -70,6 +71,11 @@ FITS_RUN = re.compile(r"r_[0-9A-Z]{6,26}")
 FITS_ITEM = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/(pull|issues)/[1-9][0-9]*")
 
 
+def _within(at: str, since: str, late: bool = False) -> bool:
+    """Whether a carried stamp is inside the window; one of when a record was made, `late`, by `LATE` more."""
+    return at >= since or (late and (moment(since) - moment(at)).total_seconds() <= LATE)
+
+
 def _last(before) -> dict:
     """What the last record before this pass carried of what was reconciled; nothing if it holds none."""
     held = before[-1].get("reconciled") if isinstance(before, list) and before else None
@@ -79,13 +85,13 @@ def _last(before) -> dict:
 def known(before) -> tuple:
     """`(runs, passes)` that a record before this pass read: each is read once, a pass's attempt by its attempt, since a
     re-run writes again. With no last record, or one that holds none, nothing is known, and everything in the window is
-    read again (decision 0111)."""
+    read again (decision 0112)."""
     held = _last(before)
     return {e["id"] for e in held["runs"]}, {(e["id"], e["attempt"]) for e in held["passes"]}
 
 
 def owed(before) -> list:
-    """The pull requests a record before this pass could not read the writes on: read until they have been (decision 0111)."""
+    """The pull requests a record before this pass could not read the writes on: read until they have been (decision 0112)."""
     return list(_last(before)["owed"])
 
 
@@ -102,11 +108,13 @@ def unfit(effects) -> bool:
 
 def carried(before, effects, seen, now: str, unread=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
-    window dropped, and the pull requests whose writes it could not read. Each key is stamped with when its record was made,
-    so that a late first read does not stretch its credit past the window; what was read, with when it was read. So a record
-    holds what the Effects said, not the records themselves, and a pass reads only what is new (decision 0111)."""
-    since = seen.get("since") if isinstance(seen, dict) else None
-    held = {name: [e for e in rows if name == "owed" or since is None or e["at"] >= since]
+    window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
+    with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
+    spend, so it is stamped with when its record was made, and kept for `LATE` after, as the writes it records are later
+    than that; so a late first read does not stretch it. So a record holds what the Effects said, not the records
+    themselves, and a pass reads only what is new (decision 0112)."""
+    since = seen["since"] if seen is not None and not errors(seen, "seen") else None
+    held = {name: [e for e in rows if name == "owed" or since is None or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
     if not _readable(effects):
@@ -121,11 +129,11 @@ def carried(before, effects, seen, now: str, unread=()) -> dict:
             at = stamps.get(doc[name])
             at = at if isinstance(at, str) and STAMP.fullmatch(at) else now
             keys, items = _keys(_one(doc, kind))
-            out["keys"] += [{"where": where, "type": t, "key": k, "at": at} for (where, t), found in sorted(keys.items())
+            out["keys"] += [{"where": where, "type": t, "key": k, "at": now} for (where, t), found in sorted(keys.items())
                             for k in sorted(found) if FITS_KEY.fullmatch(k)]
             out["items"] += [{"type": t, "item": item, "count": count, "at": at} for (t, item), count in sorted(items.items())
                              if FITS_ITEM.fullmatch(item)]
-            out["dispatched"] += [{"run": r, "at": at} for r in sorted(_dispatched(_one(doc, kind))) if FITS_RUN.fullmatch(r)]
+            out["dispatched"] += [{"run": r, "at": now} for r in sorted(_dispatched(_one(doc, kind))) if FITS_RUN.fullmatch(r)]
     return out
 
 
@@ -138,7 +146,7 @@ def _keys(effects: dict, before=None, since=None) -> tuple:
         if since is None or e["at"] >= since:
             keys.setdefault((e["where"], e["type"]), set()).add(e["key"])
     for e in held["items"]:
-        if since is None or e["at"] >= since:
+        if since is None or _within(e["at"], since, True):
             items[(e["type"], e["item"])] = items.get((e["type"], e["item"]), 0) + e["count"]
     for done in effects["applied"]:
         for e in done["effects"]:

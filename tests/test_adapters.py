@@ -3719,7 +3719,7 @@ def written_stored(github_id: int, record, **listed) -> list:
 
 
 class EffectsRecorded(unittest.TestCase):
-    """What reconciliation reads of what the Factory recorded, each read once (decisions 0061, 0111)."""
+    """What reconciliation reads of what the Factory recorded, each read once (decisions 0061, 0112)."""
     SINCE = "2026-10-11T06:00:00Z"
     OWN = 1
     RUN = "r_01JA6Z"
@@ -3737,7 +3737,7 @@ class EffectsRecorded(unittest.TestCase):
 
     def test_each_pass_in_the_window_is_read_once_and_what_cannot_be_read_is_read_again(self):
         made = "2026-10-11T12:00:00Z"
-        got = self.passes_(self.page([a_pass(30, created_at=made, run_attempt=1), a_pass(10, run_attempt=1), a_pass(self.OWN, run_attempt=1)]),
+        got = self.passes_(self.page([a_pass(30, created_at=made, run_attempt=1), a_pass(10, created_at=made, run_attempt=1), a_pass(self.OWN, run_attempt=1)]),
                            written_stored(30, self.DONE), known=[(10, 1)])
         # One that recorded is read, with when it was made; one a record read is not; its own is not.
         self.assertEqual(got, {"written": [self.DONE], "read": [{"id": 30, "attempt": 1}], "at": {"p_01JA7Q": made}, "whole": True})
@@ -3803,7 +3803,12 @@ class EffectsRecorded(unittest.TestCase):
         wide = json.dumps(dict(self.DONE, writes=[dict(row, id="w%d" % (i + 1)) for i in range(800)]))
         self.assertGreater(len(wide), artifacts.ZIPPED)
         self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1)]), raw(wide, zipfile.ZIP_STORED)), dict(none, whole=False))
+        # One older than the window is passed over though the list names it; one whose time cannot be read is short.
+        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1, created_at="2026-10-11T05:59:59Z")])), none)
+        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1, created_at=None)])), dict(none, whole=False))
+        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1, created_at=self.SINCE)]), written_stored(30, self.DONE))["read"], [{"id": 30, "attempt": 1}])
         # A pass reads no more than `most` of them, newest first: what it read stands, and the rest is short until a later one.
+        self.assertEqual((passes.READS, applied.READS), (50, 50))
         two = self.page([a_pass(30, run_attempt=1), a_pass(20, run_attempt=1)])
         got = passes.written(github.Replay([two] + written_stored(30, self.DONE) + written_stored(20, self.DONE)), HOME, "main", POLLER, self.OWN, self.SINCE, set(), most=1)
         self.assertEqual((got["read"], got["whole"]), ([{"id": 30, "attempt": 1}], False))

@@ -177,7 +177,7 @@
       }
     },
     "reconciled": {
-      "description": "What reconciliation has read in its window and the keys it held, each stamped with when it was read, so that the next pass reads only what is new (decision 0111). Absent in a record written before it; then everything in the window is read again.",
+      "description": "What reconciliation has read in its window and the keys it held, each stamped with when it was read, so that the next pass reads only what is new (decision 0112). Absent in a record written before it; then everything in the window is read again.",
       "type": "object",
       "additionalProperties": false,
       "required": [
