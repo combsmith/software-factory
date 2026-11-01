@@ -185,7 +185,7 @@ def wait_before_reading(previous, now: str, config: dict, started=None) -> int:
     """Seconds to wait before this pass reads: none sooner than the gap after the last pass's read began, whatever
     started it (decision 0043). If the records cannot be read, the whole gap. A pass its own token started waits at
     least SUCCESSOR_WAIT, since a Run's wake dispatches it from inside the Run, which must end before it is read as ended
-    (decision 0113)."""
+    (decision 0114)."""
     gap = config["controller"]["read_gap_seconds"]
     least = SUCCESSOR_WAIT if started_by(started, config["controller"]["accounts"]) == "successor" else 0
     before = earlier(reads_.previous_records(previous), now)

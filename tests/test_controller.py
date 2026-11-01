@@ -440,7 +440,7 @@ class Chain(unittest.TestCase):
         far = [earlier("2026-10-10T00:00:00Z"), earlier("2026-10-11T12:00:00Z"), earlier("2026-10-11T12:57:00Z")]
         self.assertEqual(passed(previous=far)["cleared"], [])
 
-    def test_a_pass_its_own_token_started_reads_no_sooner_than_it_can_read_the_run_as_ended(self):  # decision 0113
+    def test_a_pass_its_own_token_started_reads_no_sooner_than_it_can_read_the_run_as_ended(self):  # decision 0114
         cfg = config()
         token = CONTROLLER["accounts"]["workflow_token"]
         started = {"event": "workflow_dispatch", "attempt": 1, "actor": {"id": token["id"], "type": token["type"]}}
@@ -1072,7 +1072,7 @@ class Entry(unittest.TestCase):
         self.assertEqual((code, [s for s, _ in slept]), (0, [CONTROLLER["read_gap_seconds"]]))
         self.assertIsNone(files["pass.json"]["context"]["passes_since"])
 
-    def test_a_pass_its_own_token_started_waits_for_the_run_that_woke_it_to_end(self):  # decision 0113
+    def test_a_pass_its_own_token_started_waits_for_the_run_that_woke_it_to_end(self):  # decision 0114
         # The entry reads what started it before it waits: a pass the workflow's own token dispatched waits, one a
         # schedule started does not.
         token = CONTROLLER["accounts"]["workflow_token"]

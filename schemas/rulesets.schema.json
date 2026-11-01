@@ -309,7 +309,7 @@
               "const": []
             },
             "bypass_actors": {
-              "title": "The repository's admin role, which the Maintainer alone holds today (nothing here records who holds it), and the release App, whose id tools/check_rulesets.py holds to config/apps.json (P-30, decision 0113).",
+              "title": "The repository's admin role, which the Maintainer alone holds today (nothing here records who holds it), and the release App, whose id tools/check_rulesets.py holds to config/apps.json (P-30, decision 0114).",
               "const": [
                 {
                   "actor_id": 5,
@@ -350,7 +350,7 @@
           }
         },
         "factory releases are immutable": {
-          "title": "No Release tag, once made, is moved or deleted, by anyone: no one bypasses this. With factory release tags, it is what guards every key, since a shim inherits secrets (decision 0113).",
+          "title": "No Release tag, once made, is moved or deleted, by anyone: no one bypasses this. With factory release tags, it is what guards every key, since a shim inherits secrets (decision 0114).",
           "type": "object",
           "additionalProperties": false,
           "required": [
