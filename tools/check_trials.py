@@ -38,7 +38,7 @@ CANARY = "software-factory-" + "canary"
 # A trial about the org and its Apps records the org as its repo, and only such a trial: one whose every call is a
 # REST call of an App, of the org, or of an installation, with no segment that climbs out of it (decision 0035).
 ORG = "combsmith"
-ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/%s/|installation/)" % ORG)
+ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/%s/|installation/|users/%s-sf-[a-z-]+\[bot\]$)" % (ORG, ORG))
 CLIMBS = re.compile(r"(^|/)\.{1,2}(/|$)|%2e", re.I)
 FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
 # A fixture of the canary reads the org's repos alone, and is answered with them alone (decision 0035, issue 226): a

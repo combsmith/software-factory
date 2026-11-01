@@ -81,7 +81,7 @@ def _http_date(text: str) -> str:
     return when
 
 
-def _read_at(answer: dict) -> dict:
+def read_at(answer: dict) -> dict:
     """The answer's date and age, as the pass record keeps them; one that cannot be read is refused."""
     headers = answer.get("headers") or {}
     age = str(headers.get("age", "0"))
@@ -100,7 +100,7 @@ def _list(transport, repo: str, workflow: str, branch: str, per_page: int) -> tu
         answer = transport.send(request("GET", base if page == 1 else "%s&page=%d" % (base, page), headers=FRESH))
         if answer["status"] != 200 or not isinstance(answer["body"], dict):
             raise Unanswered("the runs of %s answered %d" % (workflow, answer["status"]))
-        reads.append(_read_at(answer))
+        reads.append(read_at(answer))
         listed, total = answer["body"].get("workflow_runs"), answer["body"].get("total_count")
         if not isinstance(listed, list) or not isinstance(total, int) or isinstance(total, bool) or total < 0:
             return rows, reads, False
@@ -268,6 +268,6 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             continue
         record["outcome"], read_whole = artifacts.outcome(
             transport, repo, github_id, record["run"],
-            lambda answer: reads.append(dict(_read_at(answer), read="outcome")))
+            lambda answer: reads.append(dict(read_at(answer), read="outcome")))
         whole = whole and read_whole
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}
