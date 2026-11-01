@@ -989,6 +989,13 @@ class Authority(unittest.TestCase):
         del apps["apps"]["pr-review"]["permissions"]
         self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
 
+    def test_a_role_writes_through_no_app_that_is_no_roles(self):
+        # The Controller's App, the reader's and the release App are no Role's, the release App the one that holds
+        # `workflows` (decision 0114): a manifest may not name them, whatever it permits.
+        for app in ("combsmith-sf-controller", "combsmith-sf-reader", "combsmith-sf-release"):
+            quiet = self.review(app=app, intents=[dict(self.review()["intents"][0], permitted_effects=[])])
+            self.assertTrue(caught(self.team({"pr-review": quiet}), "pr-review names %s, which is no Role's App" % app), app)
+
     def test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one(self):  # the Claude review
         # An Intent that writes spends from gate, so it is held to an eval set before it writes.
         off = self.review(intents=[dict(self.review()["intents"][0], budget_class="shadow", evals="evals/nothing")])
@@ -1092,6 +1099,7 @@ class Apps(unittest.TestCase):
         self.apps, self.needs = self.table["apps"], self.table["needs"]
         self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
         self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        self.release = json.loads((ROOT / "trials" / "P-39.release.json").read_text())
         installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
         self.listing = installations[0]["response"]["body"]
         self.listed = self.listing["installations"]
@@ -1104,6 +1112,7 @@ class Apps(unittest.TestCase):
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
         files = {"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
                  "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach),
+                 "trials/P-39.release.json": json.dumps(self.release),
                  "config/machine-user.json": (ROOT / "config" / "machine-user.json").read_text(),
                  "config/defaults.json": (ROOT / "config" / "defaults.json").read_text(),
                  "config/rulesets.json": (ROOT / "config" / "rulesets.json").read_text(),
@@ -1457,8 +1466,25 @@ for folder, _, names in os.walk(os.environ["TMPDIR"]):
             for level in ("read", "write"):
                 self.setUp()
                 self.apps["controller"]["permissions"][name] = {"level": level, "needs": ["read:facts.checks"]}
-                said = "controller: holds %s; no Factory App may" % name
+                said = "controller: holds %s; no Factory App %smay" % (name, "but the release App " * (name == "workflows"))
                 self.assertTrue(caught(self.check(), said), (name, level))
+
+    def test_only_the_release_app_holds_workflows_and_it_holds_security_events_as_little_as_any(self):
+        # Ruling 4′ of issue 197: a tag on a commit that touches .github/workflows/ needs `workflows`. The exception is
+        # that App's alone, its key is kept in the release job's environment, and it opens nothing else in NEVER.
+        self.assertEqual(self.apps["release"]["permissions"]["workflows"]["level"], "write")
+        self.assertEqual(check_apps._keys(self.apps), [])
+        for app in sorted(set(self.apps) - {"release"}):
+            with self.subTest(app=app):
+                self.setUp()
+                self.apps[app]["permissions"]["workflows"] = {"level": "read", "needs": ["read:release.repo"]}
+                self.assertTrue(caught(self.check(), "%s: holds workflows; no Factory App but the release App may" % app))
+        self.setUp()
+        self.apps["release"]["permissions"]["security_events"] = {"level": "read", "needs": ["read:release.repo"]}
+        self.assertTrue(caught(self.check(), "release: holds security_events; no Factory App may"))
+        self.setUp()
+        self.apps["release"]["key"]["environment"] = "factory-apply"
+        self.assertTrue(caught(self.check(), "release: its key is kept in factory-apply, and the release job holds it"))
 
     def test_a_permission_nothing_needs_is_caught(self):
         self.apps["controller"]["permissions"]["checks"]["needs"] = []
@@ -5412,7 +5438,7 @@ class OutputMadeAlone(unittest.TestCase):
               if r != "combsmith/software-factory"][0]
     CONTROLLER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
                   if r != "combsmith/software-factory"][0]
-    SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY", "KEY"),
+    SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("controller=KEY", "pr-review=KEY", "reader=KEY", "queue=KEY"),
                "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
                "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
                "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
@@ -5434,7 +5460,7 @@ class OutputMadeAlone(unittest.TestCase):
                 for name in ("mktemp", "curl"):
                     (folder / "bin" / name).chmod(0o755)
                 (folder / "key.pem").write_text("not a key\n")
-                argv = [str(folder / "key.pem") if a == "KEY" else a for a in args]
+                argv = [a.replace("KEY", str(folder / "key.pem")) for a in args]
                 done = subprocess.run(["sh", str(ROOT / "tools" / script), str(out), *argv], capture_output=True, text=True,
                                       env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
                                            "LANG": "C", "TMPDIR": str(folder)},
@@ -5481,7 +5507,7 @@ class OutputMadeAlone(unittest.TestCase):
         (folder / "cli").chmod(0o755)
         (folder / "stub.py").write_text("")
         if script in self.SCRIPTS:
-            argv = ["sh", str(ROOT / "tools" / script), str(out)] + [str(folder / "key.pem") if a == "KEY" else a
+            argv = ["sh", str(ROOT / "tools" / script), str(out)] + [a.replace("KEY", str(folder / "key.pem"))
                                                                       for a in self.SCRIPTS[script]]
         else:
             argv = ["bash", str(ROOT / "tools" / script), str(out), self.SANDBOX[script], str(folder / "cli"),
@@ -5618,7 +5644,8 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
         self.keys = []
         for app in ("controller", "pr-review", "reader", "queue"):
             (self.folder / app).write_text("not a key\n")
-            self.keys.append(str(self.folder / app))
+            self.keys.append("%s=%s" % (app, self.folder / app))
+        self.key_file = str(self.folder / "controller")
         self.out = self.folder / "out"
 
     def run_script(self, plan, scratch_closed=False, stop=False, script=None, args=None):
@@ -5652,6 +5679,32 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
 
     def revoked(self, calls):
         return [c["auth"] for c in calls if c["method"] == "DELETE"]
+
+    def test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted(self):
+        # One App's key alone reads that App's reach, for the installation P-39 found, and nothing else is asked.
+        (self.folder / "release").write_text("not a key\n")
+        code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}},
+                                                  args=["release=%s" % (self.folder / "release")])
+        self.assertEqual(code, 0, told)
+        self.assertEqual(len(self.minted(calls)), 1)
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        release = [i for i in listed["response"]["body"]["installations"] if i["app_slug"] == "combsmith-sf-release"][0]
+        self.assertIn("/app/installations/%d/access_tokens" % release["id"], calls[0]["url"])
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([(a["n"], a["app"], a["as"], a["app_id"]) for a in asked],
+                         [(1, "release", "combsmith-sf-release", release["app_id"])])
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["clean-1", "ran_at", "redacted-1", "requests.json"])
+        for args, why in (([], "usage:"), (["nobody=%s" % self.key_file], "is no App this reads"), (["controller"], "cannot read the key file for controller"),
+                          (["release=/no/such/key"], "cannot read the key file for release"),
+                          (["release=%s" % self.key_file, "release=%s" % self.key_file], "named twice")):
+            with self.subTest(args=args):
+                self.setUp()
+                ran = subprocess.run(["sh", str(self.SCRIPT), str(self.out), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                     cwd=str(self.folder), env={"PATH": "%s:%s" % (self.folder / "bin", os.environ["PATH"]), "HOME": str(self.folder), "LANG": "C"})
+                self.assertEqual(ran.returncode, 2, ran.stderr)
+                self.assertIn(why, ran.stderr)
+                self.assertFalse((self.folder / "calls").exists() or self.out.exists())
 
     def test_each_token_minted_is_revoked_and_out_holds_no_credential(self):
         code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}})
@@ -5693,7 +5746,7 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
                     ({"status": 422, "body": self.MINTED}, True, "held a token all the same")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
-                    argv = [self.keys[0] if a == "KEY" else a for a in args]
+                    argv = [a.replace("KEY", self.key_file) for a in args]
                     code, said, told_, calls = self.run_script({"mint": plan}, scratch_closed=True,
                                                                script=ROOT / "tools" / name, args=argv)
                     self.assertEqual(code, 1, told_)
