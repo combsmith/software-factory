@@ -21,7 +21,6 @@ import pathlib
 import re
 import shutil
 import signal
-import stat
 import subprocess
 import sys
 import tempfile
@@ -9028,7 +9027,7 @@ elif "/collaborators/" in url:""", 1)
         self.assertEqual(calls[-1]["method"], "DELETE")
         self.assertEqual(calls[-1]["url"].rsplit("/", 2)[1:], ["installation", "token"])
         self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
-        self.assertEqual(stat.S_IMODE(self.out.stat().st_mode), 0o700)
+        self.assertEqual(self.out.stat().st_mode & 0o777, 0o700)
         sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
         self.assertEqual(sent[0]["name"], "status_on_item")
         # What the trial's findings rest on: an edit with its whole output, and one with no output at all.
