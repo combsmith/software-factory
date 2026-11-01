@@ -3,10 +3,9 @@
 What this repo holds of each held-out eval set: one manifest a directory, `<role>/cases.json`, with the Role, the Intent, the count of cases and each case's id and sha256.
 The cases themselves live in a private repo under a different owner (design §3.13), read only by the eval job (§4.9), and never here, in a pull request, an issue or a note.
 No count of a kind is written here, since a session here cannot read a case to hold it true: the eval job holds the split (decision 0099).
-`tools/eval_result.py` scores one `result/1` against one case, at run time, where the case is. `context/task.json` is the
-context's test (issue 8, "The context's test: a fresh agent adds a rule to the Kernel without being told how"): one task
-sentence, the sha256 of its held-out answer, and each run of a fresh agent on it, made by `tools/context_eval.sh` at the
-Maintainer's terminal and recorded by `tools/context_eval.py` with no text of the model's.
+`tools/eval_result.py` scores one `result/1` against one case, at run time, where the case is.
+`context/task.json` is the context's test (issue 8, "The context's test: a fresh agent adds a rule to the Kernel without being told how"): one task sentence, the sha256 of its held-out answer,
+and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Maintainer's terminal and recorded by `tools/context_eval.py` with no text of the model's.
 
 | Rule | Held by |
 |---|---|
@@ -22,6 +21,9 @@ Maintainer's terminal and recorded by `tools/context_eval.py` with no text of th
 | A set short of 20 of a kind fails the run and closes the gate; its log and report hold no count of a kind | `tests/test_evals.py::test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count` |
 | A case not read whole or failed fails the run, its report written all the same, for the upload | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
 | A case whose expected Finding is off its rubric is unreadable by a code alone, and asks nothing | `tests/test_evals.py::test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing` |
+| The facts the set predates are filled in the job alone, and a field made required later fails until it has a row | `tests/test_evals.py::test_the_facts_the_set_was_made_with_read_as_todays_once_filled` |
+| A case whose facts are still no `facts/1` is unreadable by a code alone, and asks nothing | `tests/test_evals.py::test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone` |
+| A case whose facts or diff would refuse its Task is unreadable by a code of its own, and asks nothing | `tests/test_evals.py::test_what_would_refuse_a_cases_task_says_so_by_a_code_of_its_own` |
 | A case of another set, or no case, is unreadable and asks nothing | `tests/test_evals.py::test_a_case_that_is_no_case_of_this_set_is_unreadable` |
 | The gate passes only this set's report on this commit for this Release, every case passed | `tests/test_evals.py::test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release` |
 | The fetch takes its token from its own environment alone, and reads with it, never writes | `tests/test_evals.py::test_the_fetch_step_takes_its_token_from_its_environment_alone` |

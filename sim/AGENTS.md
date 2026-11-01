@@ -19,7 +19,7 @@ the issue is held or declined, and a person none while it is declined: the Contr
 
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
 On those seeds the Pause may begin early, as an approval falls due or a count is spent (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`, `..._with_a_spent_count`).
-Its checks pass, fail, time out or give no verdict, and another App can post a passing check under the name of a Lens that failed. On an odd seed it is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts
+Its checks pass, fail, time out or give no verdict, and another App or a job can post a passing check under a Lens's name. On an odd seed it is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts
 with threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it: requests changes, comments or approves (`tests/test_simulator.py::test_the_seeds_serve_a_maintainers_and_an_agents_pull_request`).
 On one seed in ten it is a dependency bot's update, on every other such seed to a workflow's pin, whose list of paths can leave one out. A Role's fix, the Maintainer's push and that update
 may change the Factory's own rules or a Lens's input (`tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer`).
