@@ -11,7 +11,7 @@ from adapters import seen as seen_
 from adapters.github import Unanswered
 from controller import reconcile
 from controller.shared import SCHEMAS
-from tests.support import ROOT, pending, run
+from tests.support import ROOT, run
 from tools.jsonschema_lite import validate
 
 SINCE = "2026-10-11T00:00:00Z"
@@ -783,15 +783,38 @@ class Carried(unittest.TestCase):
 
 
 class CommentsGrant(unittest.TestCase):
-    @pending
     def test_the_comments_on_a_pull_request_are_read_with_pull_requests_read(self):
-        # Whether the Controller's token, narrowed to metadata and pull_requests: read, reads a pull request's comments
-        # is a trial of the second token window (2026-10-23 to 10-30); until its fixture lands, this test is expected
-        # to fail, and the comments read's need stays where ruling 3 put it.
-        said = "pull_requests: read serves a pull request's comments"
-        found = [p for p in sorted((ROOT / "trials").glob("*.json")) if said in p.read_text()]
-        self.assertEqual(len(found), 1)
-        self.assertIs(json.loads(found[0].read_text())["exchanges"][-1]["response"]["body"][said], True)
+        # trials/P-56.json: the Controller's token, narrowed to pull_requests: read, reads a pull request's comments, each
+        # with what adapters/seen.py reads of it, and GitHub names that permission as one it accepts. The canary is public,
+        # so a token without the grant read them too, and the header is what says which grant serves them (decision 0068).
+        fixture = json.loads((ROOT / "trials" / "P-56.json").read_text())
+        self.assertEqual(fixture["verdict"], "pass")
+        mint, read, revoke = fixture["exchanges"][:3]
+        # The Controller's App minted the narrowed token, made the read with it, and revoked it.
+        self.assertEqual(mint["response"]["status"], 201)
+        self.assertEqual(mint["request"]["body"]["permissions"], {"pull_requests": "read"})
+        self.assertEqual(mint["request"]["body"]["repositories"], [read["request"]["call"].split("/")[3]])
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_slug"] == "combsmith-sf-controller"][0]
+        self.assertIn("/app/installations/%d/access_tokens" % installation, mint["request"]["call"])
+        self.assertEqual({e["request"]["as"]["name"] for e in (mint, read, revoke)}, {"combsmith-sf-controller"})
+        self.assertEqual(revoke["response"]["status"], 204)
+        self.assertIn("/comments?since=", read["request"]["call"])
+        self.assertEqual(read["response"]["status"], 200)
+        self.assertIn("pull_requests=read", read["response"]["headers"]["x-accepted-github-permissions"].split("; "))
+        self.assertTrue(read["response"]["body"])
+        for comment in read["response"]["body"]:
+            # What the pass condition asks of each and adapters/seen.py reads of it.
+            self.assertIsInstance(comment["id"], int)
+            self.assertIsInstance(comment["node_id"], str)
+            self.assertIsInstance(comment["created_at"], str)
+            self.assertIsInstance(comment["user"]["id"], int)
+            self.assertIsInstance(comment["user"]["type"], str)
+        # And no comment's text, which comes from outside, in either read.
+        for exchange in fixture["exchanges"]:
+            if isinstance(exchange["response"]["body"], list):
+                self.assertFalse([c for c in exchange["response"]["body"] if "body" in c])
 
 
 if __name__ == "__main__":
