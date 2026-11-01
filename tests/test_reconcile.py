@@ -634,6 +634,11 @@ class CommentsGrant(unittest.TestCase):
         # The Controller's App minted the narrowed token, made the read with it, and revoked it.
         self.assertEqual(mint["response"]["status"], 201)
         self.assertEqual(mint["request"]["body"]["permissions"], {"pull_requests": "read"})
+        self.assertEqual(mint["request"]["body"]["repositories"], [read["request"]["call"].split("/")[3]])
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_slug"] == "combsmith-sf-controller"][0]
+        self.assertIn("/app/installations/%d/access_tokens" % installation, mint["request"]["call"])
         self.assertEqual({e["request"]["as"]["name"] for e in (mint, read, revoke)}, {"combsmith-sf-controller"})
         self.assertEqual(revoke["response"]["status"], 204)
         self.assertIn("/comments?since=", read["request"]["call"])
@@ -641,12 +646,16 @@ class CommentsGrant(unittest.TestCase):
         self.assertIn("pull_requests=read", read["response"]["headers"]["x-accepted-github-permissions"].split("; "))
         self.assertTrue(read["response"]["body"])
         for comment in read["response"]["body"]:
-            # What adapters/seen.py reads of each, and no comment's text, which comes from outside.
+            # What the pass condition asks of each and adapters/seen.py reads of it.
+            self.assertIsInstance(comment["id"], int)
             self.assertIsInstance(comment["node_id"], str)
             self.assertIsInstance(comment["created_at"], str)
             self.assertIsInstance(comment["user"]["id"], int)
             self.assertIsInstance(comment["user"]["type"], str)
-            self.assertNotIn("body", comment)
+        # And no comment's text, which comes from outside, in either read.
+        for exchange in fixture["exchanges"]:
+            if isinstance(exchange["response"]["body"], list):
+                self.assertFalse([c for c in exchange["response"]["body"] if "body" in c])
 
 
 if __name__ == "__main__":
