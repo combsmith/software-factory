@@ -39,7 +39,7 @@ NEVER = ("workflows", "security_events")
 # The one App that holds one of them. A tag on a commit that touches .github/workflows/ needs `workflows` (ruling 4′ of
 # issue 197), and every Release is such a commit in time. Only release.yml names its key, whose every line
 # tools/check_workflows.py holds; factory-release's deployment branches, main's alone, are a setting nothing here reads
-# (decision 0112).
+# (decision 0113).
 EXCEPT = {"workflows": "release"}
 REPO = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
 # What trial P-39 recorded: in trials/P-39.json or a fixture of it, as P-39.grants.json and P-39.reach.json. Each read

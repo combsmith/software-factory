@@ -991,7 +991,7 @@ class Authority(unittest.TestCase):
 
     def test_a_role_writes_through_no_app_that_is_no_roles(self):
         # The Controller's App, the reader's and the release App are no Role's, the release App the one that holds
-        # `workflows` (decision 0112): a manifest may not name them, whatever it permits.
+        # `workflows` (decision 0113): a manifest may not name them, whatever it permits.
         for app in ("combsmith-sf-controller", "combsmith-sf-reader", "combsmith-sf-release"):
             quiet = self.review(app=app, intents=[dict(self.review()["intents"][0], permitted_effects=[])])
             self.assertTrue(caught(self.team({"pr-review": quiet}), "pr-review names %s, which is no Role's App" % app), app)
