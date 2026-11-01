@@ -1,4 +1,4 @@
-# 0113. The release App is in the data, and alone holds `workflows`
+# 0114. The release App is in the data, and alone holds `workflows`
 
 Status: accepted. PR 3 of "Release: cut an immutable tag, move next, and roll back in one action" (issue 197), under its ruling 4′ as amended, the orchestrator's brief of 2026-10-31 and the Maintainer's ruling of 2026-10-30 that a protected file's pull request needs no separate sign-off, only the four reads. It changes the rows of decisions 0071 and 0076 that say the release App's needs wait on its registration, and decision 0101's line that the key's row names its environment since config/apps.json has no release App: that row's environment is now null, as every App's is.
 
