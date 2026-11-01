@@ -18,8 +18,8 @@ resolved it (decision 0067); a thread GitHub names no resolver for is `unattribu
 that cannot be read whole, or a write whose time or key cannot be read, leaves what was read `whole` false, so that
 reconciliation is short, never silent; nothing is guessed. Ids and codes alone: no body or title is kept.
 
-Whether the comments read is served by `pull_requests: read` alone is a trial of the second token window's
-(`tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read`, pending). An edit of
+The comments read is served by `pull_requests: read` alone (trials/P-56.json,
+`tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read`). An edit of
 a write the Factory recorded, a check run's conclusion changed among them, keeps its key, and is not seen.
 """
 from __future__ import annotations

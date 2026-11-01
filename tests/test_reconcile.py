@@ -11,7 +11,7 @@ from adapters import seen as seen_
 from adapters.github import Unanswered
 from controller import reconcile
 from controller.shared import SCHEMAS
-from tests.support import ROOT, pending, run
+from tests.support import ROOT, run
 from tools.jsonschema_lite import validate
 
 SINCE = "2026-10-11T00:00:00Z"
@@ -624,15 +624,23 @@ class SeenPort(unittest.TestCase):
 
 
 class CommentsGrant(unittest.TestCase):
-    @pending
     def test_the_comments_on_a_pull_request_are_read_with_pull_requests_read(self):
-        # Whether the Controller's token, narrowed to metadata and pull_requests: read, reads a pull request's comments
-        # is a trial of the second token window (2026-10-23 to 10-30); until its fixture lands, this test is expected
-        # to fail, and the comments read's need stays where ruling 3 put it.
-        said = "pull_requests: read serves a pull request's comments"
-        found = [p for p in sorted((ROOT / "trials").glob("*.json")) if said in p.read_text()]
-        self.assertEqual(len(found), 1)
-        self.assertIs(json.loads(found[0].read_text())["exchanges"][-1]["response"]["body"][said], True)
+        # trials/P-56.json: the Controller's token, narrowed to pull_requests: read, reads a pull request's comments, each
+        # with what adapters/seen.py reads of it, and GitHub names that permission as one it accepts. The canary is public,
+        # so a token without the grant read them too, and the header is what says which grant serves them (decision 0068).
+        fixture = json.loads((ROOT / "trials" / "P-56.json").read_text())
+        self.assertEqual(fixture["verdict"], "pass")
+        narrowed = fixture["exchanges"][0]["request"]["body"]["permissions"]
+        self.assertEqual(narrowed, {"pull_requests": "read"})
+        read = fixture["exchanges"][1]
+        self.assertIn("/comments?since=", read["request"]["call"])
+        self.assertEqual(read["response"]["status"], 200)
+        self.assertIn("pull_requests=read", read["response"]["headers"]["x-accepted-github-permissions"].split("; "))
+        self.assertTrue(read["response"]["body"])
+        for comment in read["response"]["body"]:
+            self.assertIsInstance(comment["id"], int)
+            self.assertIsInstance(comment["user"]["id"], int)
+            self.assertIsInstance(comment["user"]["type"], str)
 
 
 if __name__ == "__main__":
