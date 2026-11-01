@@ -58,11 +58,11 @@ def thresholds(window: list, usage, rule: dict) -> dict:
             "decision_delay_p95_minutes": threshold(delay_p95(window), rule["decision_delay_p95_minutes"])}
 
 
-def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bool, not_run: bool, unnamed: dict,
+def alerts(reasons: list, context: dict, capacity, automatic: list, left_out: bool, not_run: bool, unnamed: dict,
            reconciled=(), credentials: bool = False) -> list:
     """Each cause once, however many items it defers (L-48). A cause that holds the whole scope is raised from the
     context as well as from the Decisions, so that it is raised with no item to defer. The automatic pause defers as
-    `capacity` does, and is the one cause `environment` unless a capacity fault holds too. Facts left out are one cause,
+    `capacity` does, and is the causes `automatic` names, what holds it, unless a capacity fault holds too. Facts left out are one cause,
     and so is six hours with no pass. `unnamed` is the Kernel's `unnamed_scope`: an unnamed Run inside the window
     defers, and past `max_unnamed_runs` of them past it every Run does (issue 270). `reconciled` is reconciliation's
     alerts: a write no Effect recorded, and a reconciliation that was short (decision 0061). `credentials` is whether a
@@ -76,7 +76,7 @@ def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bo
     causes |= {"runs_unnamed"} if unnamed["bounded"] else set()
     if automatic and capacity is None:
         causes.discard("capacity")
-    causes |= {ENVIRONMENT} if automatic else set()
+    causes |= set(automatic)
     causes |= {"facts_unreadable"} if left_out else set()
     causes |= {"not_run"} if not_run else set()
     causes |= set(reconciled)
@@ -84,12 +84,12 @@ def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bo
     return sorted(causes)
 
 
-def health(record: dict, before: list, pause: tuple, automatic: bool, alerts: list, usage, rules: dict) -> dict:
-    """The health file of one pass. `pause` is the person's Pause as read, `(paused, scopes)`; `automatic` whether the
-    environment faults hold every Run."""
+def health(record: dict, before: list, pause: tuple, automatic: list, alerts: list, usage, rules: dict) -> dict:
+    """The health file of one pass. `pause` is the person's Pause as read, `(paused, scopes)`; `automatic` what holds
+    every Run, by its causes, none where nothing does."""
     # Paused by the scopes that pause and by the faults; unreadable by the scopes that cannot be read; or neither.
     paused, scopes = pause
-    by = (list(scopes) if paused is not False else []) + ([ENVIRONMENT] if automatic else [])
+    by = (list(scopes) if paused is not False else []) + list(automatic)
     state = "paused" if paused or automatic else ("unreadable" if paused is None else "none")
     window = [r for r in before if seconds(record["now"], r["now"]) <= rules["thresholds"]["window_seconds"]]
     window.append(record)

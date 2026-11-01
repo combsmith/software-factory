@@ -17,7 +17,7 @@ Not built yet, by the stories that hold their rules: relay.py, backpressure.py, 
 | A Pause on the org or a repo is a Pause; a value but exact `true`, exact `false` or none is unreadable | `tests/test_controller.py::test_a_pause_on_the_org_or_the_repo_is_a_pause_and_any_other_value_is_unreadable` |
 | The active Runs and the unidentified are read from the records port's list | `tests/test_controller.py::test_the_count_of_active_runs_and_the_unidentified_are_read_from_the_records` |
 | A list of runs read short, not at all or holding what is not a run record admits nothing | `tests/test_controller.py::test_a_list_of_runs_read_short_or_not_at_all_admits_nothing` |
-| An automatic pause needs environment faults since a Run last succeeded, on different items, recently; it defers Runs, never an act | `tests/test_controller.py::test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window` |
+| An automatic pause needs faults since a Run last succeeded, on different items, recently; it defers Runs, never an act | `tests/test_controller.py::test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window` |
 | `passes_since` restarts only after six hours with no pass | `tests/test_controller.py::test_passes_since_restarts_only_after_a_gap_of_the_second_reading` |
 | The first pass after six hours with none raises the not-run alert, and the next clears it | `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it` |
 | The entry reads through the ports with a token of reads alone, and a token not revoked fails it | `tests/test_controller.py::test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else` |

@@ -364,6 +364,36 @@ class Context(unittest.TestCase):
         other = passed(reads(runs=[dict(fault, outcome="item")]))
         self.assertIsNone(other["record"]["context"]["model_deferred_until"])
 
+    def test_runs_that_never_ran_pause_admission_and_are_named_as_themselves(self):  # decision 0114
+        # A Run GitHub started no job of writes no outcome, so one cause doing it to every dispatch would run each open
+        # item to a Hold naming nothing. It counts toward the automatic pause, by the same rule, under its own name.
+        def never(*numbers, at="2026-10-11T12:30:00Z"):
+            return [dict(run("r_0000%02d" % i, number=n, conclusion="cancelled", at=at), never_ran=True)
+                    for i, n in enumerate(numbers)]
+        out = passed(reads(runs=never(7, 8, 7)))
+        self.assertEqual(out["record"]["context"]["model_deferred_until"], "2026-10-11T13:30:00Z")
+        self.assertEqual(decisions(out)[0]["outcome"], "defer")
+        self.assertEqual(out["alerts"], ["runs_never_started"])
+        self.assertEqual(out["view"]["health"]["pause"], {"state": "paused", "by": ["runs_never_started"]})
+        # By the same rule: too few, one item's alone, or a success after them holds nothing.
+        for runs in (never(7, 8), never(7, 7, 7), never(7, 8, 9) + [run("r_SUCCES", number=9, at="2026-10-11T12:31:00Z")]):
+            self.assertIsNone(passed(reads(runs=runs))["record"]["context"]["model_deferred_until"], runs)
+            self.assertNotIn("runs_never_started", passed(reads(runs=runs))["alerts"], runs)
+        # A person's cancel, or a concurrency group's, reads the same conclusion with no flag, and trips nothing.
+        cancels = [run("r_0000%02d" % i, number=n, conclusion="cancelled", at="2026-10-11T12:30:00Z")
+                   for i, n in enumerate((7, 8, 9, 10))]
+        self.assertEqual(passed(reads(runs=cancels))["alerts"], [])
+        self.assertIsNone(passed(reads(runs=cancels))["record"]["context"]["model_deferred_until"])
+        # With an outage in the streak, each is named; alone, an outage stays `environment`.
+        fault = run("r_FAULT0", number=9, conclusion="failure", outcome="environment", at="2026-10-11T12:30:00Z")
+        both = passed(reads(runs=never(7, 8) + [fault]))
+        self.assertEqual(both["alerts"], ["environment", "runs_never_started"])
+        self.assertEqual(both["view"]["health"]["pause"]["by"], ["environment", "runs_never_started"])
+        # It stops no act, so that only a person's Pause keeps a merge from being stopped.
+        queued = pr(42, queue=True, reviews=[support.review()], author="donpetry-bot")
+        self.assertEqual([d.get("action") for d in passed(reads(pulls=[queued], runs=[run()] + never(7, 8, 9)))["acts"]],
+                         ["dequeue"])
+
     def test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window(self):  # L-59
         def faults(*numbers, outcome="environment", at="2026-10-11T12:30:00Z"):
             return [run("r_0000%02d" % i, number=n, conclusion="failure", outcome=outcome, at=at)

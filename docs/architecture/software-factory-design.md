@@ -911,7 +911,7 @@ cost is not known exactly; its duration is the estimate.
 |---|---|---|---|
 | `item` | The Engine produced an invalid Result; a reviewing Result left a criterion uncovered; the fix did not pass | Yes | The item's attempt ceiling applies |
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
-| `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds |
+| `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds. A Run GitHub started no job of counts the same, named `runs_never_started` (decision 0114) |
 | `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no

@@ -153,6 +153,7 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
         # on any other may be a Run that ran and died, so it is an attempt, its outcome read as any failed Run's. Read as
         # no attempt, a person's re-run would erase the attempts a Hold stands on (decision 0109).
         first = isinstance(attempt, int) and not isinstance(attempt, bool) and attempt == 1
+        never_ran = conclusion == "startup_failure" or (conclusion == "skipped" and first)
         conclusion = "failure" if conclusion == "skipped" and not first else CONCLUSIONS[conclusion]
     elif conclusion is not None:
         return None
@@ -162,6 +163,10 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     except ValueError:
         return None
     record = dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started)
+    # What `cancelled` alone cannot say: GitHub started no job. A person's cancel and a concurrency group's say nothing
+    # here, so that only this counts toward the automatic pause (decision 0114).
+    if status == "completed" and never_ran:
+        record["never_ran"] = True
     # When it was dispatched, which a re-run keeps, and whether the pass job's own token re-ran it: reconciliation reads
     # the dispatch by the one, and a re-run by that token as a write no Effect records (decision 0063).
     created = row.get("created_at")

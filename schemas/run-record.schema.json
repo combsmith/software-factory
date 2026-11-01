@@ -66,6 +66,10 @@
       "type": "string",
       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
+    "never_ran": {
+      "description": "Present and true where GitHub started no job of this Run: `startup_failure`, or a first attempt an `if:` skipped. The conclusion is then `cancelled`, as a person's cancel is; this tells them apart. Such Runs count toward the automatic pause (decision 0114).",
+      "const": true
+    },
     "rerun_by_dispatcher": {
       "description": "Present on a re-run alone, or where GitHub gives no attempt that can be read: whether the pass job's own token, the dispatcher's account, re-ran it, as GitHub's triggering_actor says. A re-run runs nothing (decision 0058); one by that token is a write no Effect records, and alarms (decision 0063); null where its attempt or re-runner cannot be read, and reconciliation is short",
       "type": [

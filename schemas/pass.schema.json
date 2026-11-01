@@ -155,7 +155,8 @@
           "not_run",
           "write_unmatched",
           "reconciliation_unreadable",
-          "credential_due"
+          "credential_due",
+          "runs_never_started"
         ]
       }
     },

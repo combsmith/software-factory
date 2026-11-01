@@ -47,6 +47,7 @@ SCHEDULE, OWN_REPO, DISPATCHED = "schedule", "workflow_run", "workflow_dispatch"
 PAUSED, NOT_PAUSED = "true", "false"
 CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
+NEVER_STARTED = "runs_never_started"
 __all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of"]
 
 
@@ -110,21 +111,33 @@ def human_pause(read, repos) -> tuple:
     return False, []
 
 
-def automatic_pause(runs: list, now: str, rule: dict):
-    """Until when every Run waits because Admission paused itself, or None: environment faults in a row, since any Run
-    last succeeded, from Runs on different items, inside the recent window (L-59), held for the window from the newest.
-    An old streak is outside the window; one item's is that item's. It stops no act: only a person's Pause stops a
-    dequeue, so that nothing but the Maintainer can keep a merge from being stopped (decision 0003)."""
+def _streak(runs: list, now: str, rule: dict) -> list:
+    """The faults since any Run last succeeded, inside the recent window: Runs that ended `environment`, and Runs GitHub
+    started no job of (decision 0114), which write no outcome at all."""
     recent = [r for r in runs if r["status"] == "completed" and seconds(now, r["started_at"]) is not None
               and 0 <= seconds(now, r["started_at"]) < rule["window_seconds"]]
     recent.sort(key=lambda r: r["started_at"])
     succeeded = [i for i, r in enumerate(recent) if r["conclusion"] == "success"]
     since = recent[succeeded[-1] + 1:] if succeeded else recent
-    faults = [r for r in since if r["outcome"] == ENVIRONMENT]
+    return [r for r in since if r["outcome"] == ENVIRONMENT or r.get("never_ran") is True]
+
+
+def automatic_pause(runs: list, now: str, rule: dict):
+    """Until when every Run waits because Admission paused itself, or None: faults in a row, since any Run last
+    succeeded, from Runs on different items, inside the recent window (L-59), held for the window from the newest. An
+    old streak is outside the window; one item's is that item's. It stops no act: only a person's Pause stops a dequeue,
+    so that nothing but the Maintainer can keep a merge from being stopped (decision 0003)."""
+    faults = _streak(runs, now, rule)
     items = {(r["item"]["repo"], r["item"]["type"], r["item"]["number"]) for r in faults}
     if len(faults) < rule["faults"] or len(items) < rule["items"]:
         return None
     return text(moment(faults[-1]["started_at"]) + datetime.timedelta(seconds=rule["window_seconds"]))
+
+
+def automatic_causes(runs: list, now: str, rule: dict) -> list:
+    """What holds the automatic pause, asked once it holds: `environment` for Runs that said so, and `runs_never_started`
+    for Runs GitHub started no job of, so one cause is named as itself and not as an outage."""
+    return sorted({NEVER_STARTED if r.get("never_ran") is True else ENVIRONMENT for r in _streak(runs, now, rule)})
 
 
 def capacity_until(runs: list, now: str, window: int):
@@ -278,14 +291,15 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # A stored credential near its limit, or whose row cannot be read, is one alert, each by its secret's name alone
     # (L-37, issue 305).
     due, names_due = credentials_.due(config.get("credentials"), now)
-    alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, automatic is not None,
+    causes = automatic_causes(runs, now, rules["automatic_pause"]) if automatic is not None else []
+    alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, causes,
                             bool(left_out), raised, unnamed, reconcile_.alerts(found), due)
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
     feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"], record["reconciliation"])
     record["credentials_due"] = names_due
-    feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
+    feed["health"] = health_.health(record, before, pause, causes, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not
     # one the pass before made too, which did not take. A Run's end starts the next pass itself, and a pass deferred by
     # a Run it cannot name starts none (decisions 0036, 0043).
