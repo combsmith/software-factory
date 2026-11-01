@@ -1,4 +1,4 @@
-# 0108. A first attempt an `if:` skipped is no attempt, and a later attempt it skipped is one
+# 0109. A first attempt an `if:` skipped is no attempt, and a later attempt it skipped is one
 
 Status: accepted. The Factory Builder's rulings of 2026-10-31 on the first reading of ruling 10 of "Workflows: the frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape" (issue 196), once the reads found the plain reading unsafe.
 
@@ -16,7 +16,7 @@ Status: accepted. The Factory Builder's rulings of 2026-10-31 on the first readi
 
 The gap this accepts: a cause that skips every dispatch, or a broken Release that gives every Run `startup_failure`, writes no `environment`. So no automatic pause and no alert names it, and each open item takes `max_runs_per_item` Runs and then a `run_ceiling` Hold, which a writer clears item by item. It fails safe and spends no model. Ruling 9's trial checks the shim's `github.actor_id` comparison before the shims go live, and an alert is the follow-up "Many Runs with no outcome across items raise no alert: a skipped dispatch or a broken Release ends in Holds that name no cause" (issue 456).
 
-What waits on the trial: the word itself is read from this repo's own `.github/workflows/release.yml`: 106 `schedule` runs whose only job an `if:` skipped read `completed`, `skipped`. A `workflow_dispatch` run, a `workflow_run` run and a shim calling a reusable workflow are unproven, and wait on ruling 9's canary trial. That a re-run the `if:` skips concludes `skipped` is unproven too. If GitHub sends another word, the row leaves the list not whole until this mapping follows the trial.
+What waits on the trial: the word itself is read from this repo's own `.github/workflows/release.yml`: 106 `schedule` runs whose only job an `if:` skipped read `completed`, `skipped`. A canary's Run shim on `workflow_dispatch`, attempt 1, read the same for its run and its job `lane` (run 41266877465), which no fixture holds until ruling 9's canary trial lands. That a re-run the `if:` skips concludes `skipped` is unproven, and waits on that trial too. If GitHub sends another word, the row leaves the list not whole until this mapping follows the trial.
 
 ## Boundaries
 

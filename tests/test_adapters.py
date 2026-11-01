@@ -986,7 +986,7 @@ class Records(unittest.TestCase):
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
     def test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt(self):
-        # Decision 0108. The shim's `if:` runs a first attempt alone and the list shows the latest, so a row `skipped` on
+        # Decision 0109. The shim's `if:` runs a first attempt alone and the list shows the latest, so a row `skipped` on
         # a later attempt, or one whose attempt cannot be read, may be a Run that ran and died: it is an attempt, and a
         # person's re-run erases none. Only a first attempt ran no Role.
         done = {"name": NAME, "status": "completed", "conclusion": "skipped"}

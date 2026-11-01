@@ -2684,7 +2684,7 @@ MUTANTS = ISSUE + [
      '        if kind == "trial" and not errors:\n', "        if False:\n", ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
     ("the feed counts no Run that left no outcome as an attempt", "controller/feed.py",
      ' or (r["outcome"] is None and r["conclusion"] in t.RAN_AND_DIED))', ')', ("tests.test_controller",)),
-    # Decision 0108: a first attempt skipped is no attempt, and any later one is one.
+    # Decision 0109: a first attempt skipped is no attempt, and any later one is one.
     ("a first attempt an if: skipped is a failure, an attempt", "adapters/records.py",
      '"skipped": "cancelled"', '"skipped": "failure"',
      ("tests.test_adapters.Records.test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt",)),

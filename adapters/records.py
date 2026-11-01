@@ -38,7 +38,7 @@ ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms
 # started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
 # bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt. A first attempt
 # `skipped`, as the entry shim's `if:` may leave it, ran no Role either and reads the same; `_record` reads any later
-# attempt otherwise (decision 0108). A word not here would leave the list not whole for as long as GitHub serves the
+# attempt otherwise (decision 0109). A word not here would leave the list not whole for as long as GitHub serves the
 # row, and admit nothing anywhere.
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
@@ -151,7 +151,7 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
             return None
         # The shim's `if:` runs a first attempt alone, and the list shows only the latest attempt (P-27): a row `skipped`
         # on any other may be a Run that ran and died, so it is an attempt, its outcome read as any failed Run's. Read as
-        # no attempt, a person's re-run would erase the attempts a Hold stands on (decision 0108).
+        # no attempt, a person's re-run would erase the attempts a Hold stands on (decision 0109).
         first = isinstance(attempt, int) and not isinstance(attempt, bool) and attempt == 1
         conclusion = "failure" if conclusion == "skipped" and not first else CONCLUSIONS[conclusion]
     elif conclusion is not None:
