@@ -456,7 +456,8 @@ locally. The `main` ruleset requires no review and pins only `verify` to its App
 repo's settings and then in that file, and the Kernel's pin does not wait on it. The tag ruleset
 `factory release tags` refuses the creation, update and deletion of a `factory/*` tag to all but the
 repository's admin role, which the Maintainer alone holds today, though nothing here records who
-holds it, until trial P-30 names the release identity, when it and its record change together. A Lens
+holds it, and the release App, and `factory releases are immutable` refuses anyone the update or
+deletion of a Release's. Since a shim inherits secrets, these two guard every key (decision 0115). A Lens
 no workflow runs has a gap of its own: whether an upload to code scanning under CodeQL's tool and
 category, by an identity holding `security_events: write`, can replace the CodeQL verdict is
 unverified (trial P-36). Such an upload would be reported by the Lens's own App under its own
@@ -2019,8 +2020,10 @@ it is long-lived, it can approve, and it can merge.
 | The machine user's token | Approve, on this repo alone: a fine-grained token (decision 0055) | The approving act's one job, `approve`, on `factory-approve`, which holds no other secret and no other environment holds it | Environment secret, `main` only | On a fixed period (issue 305), and on any reconciliation alert |
 | Each Role's App key | Mint that Role's tokens | `apply` | Environment secret, default branch only | On a fixed period |
 | The Controller's App key | Read the facts and the run records, and post check runs: the status on the item. It does not start Runs | The poller | Environment secret, default branch only | On a fixed period |
-| The poller job's own token | Start Runs: `actions: write`, declared on that job only | The poller job | Not stored: GitHub mints it for the job | Expires when the job ends |
+| The poller job's own token | Start Runs: `actions: write`, of the jobs a Run does not hold declared on that job only | The poller job | Not stored: GitHub mints it for the job | Expires when the job ends |
+| A Run's `wake` job's own token | Dispatch the poller when the Run ends: `actions: write`, on that job and the shim job that calls it (decision 0115). The grant could also start or cancel runs, which only its one fixed line, held word for word, stops | The `wake` job, which holds no secret, no environment, no checkout and no input | Not stored: GitHub mints it for the job | Expires when the job ends |
 | The reader App's key | Read public repos | The `run` job | Environment secret, default branch only | On a fixed period |
+| The release App's key | Write Release and channel tags, on this repo alone: the one App that holds `workflows` (decision 0114) | The `release` job | Environment secret, default branch only | On a fixed period |
 | The held-out sets' credential | Read the held-out repo | The eval job's `fetch` step alone, for reads, though any code running in that job could read it (decision 0053) | The Maintainer's fine-grained personal token, read-only on the held-out repo alone, with the repo's coordinates, secrets of `factory-eval`, default branch only (decision 0053) | At its expiry, and on any suspicion |
 | The relay's webhook secret | Prove that a webhook came from GitHub | The relay | The relay's host | On a fixed period |
 | The relay itself | Nothing over the Factory repo | The relay's host | None needed | Not applicable |
@@ -2213,6 +2216,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-52 | Can the Controller's installation token, with the Variables permission at repository read alone, read `FACTORY_PAUSED` on a repo it acts in, and the org's `FACTORY_PAUSED` shared with that repo, and by which route? | The repo's is read, and the org's by at least one route, its own endpoint or the repo's list of the org's variables, with its name and value; otherwise the Controller needs the organization's Variables permission, or the pass reads the org's Pause another way. **Passed** on 2026-10-27 (`trials/P-52.json`), at the Maintainer's terminal with the Controller's key, one token minted and revoked. Its permissions named `actions_variables` at read and nothing of the org. The canary's `FACTORY_PAUSED` answered 200, `false`; the org's own endpoint refused it, 403, asking for `organization_actions_variables`; the canary's list of the org's variables answered 200 and named the org's `FACTORY_PAUSED`, `false`. So the pass reads the org's Pause through the repo's list. A token minted narrowed to exactly `metadata: read` and `actions_variables: read`, the names the pass asks for, was answered with those and no other, and read both, 200, on 2026-10-27 (`trials/P-52.narrowed.json`) |
 | P-53 | Does a pull request's timeline, read as the REST issue timeline and as GraphQL `timelineItems` of every item type, name who resolved a review thread, by account id and type; and does it link a reply whose thread's first comment was deleted to that comment or its review? And does the repo's permission read of the login `resolvedBy` gives answer that account's id and type? | The threads port (§3.3) reads a resolver and an opener from what can say them. **Recorded** on 2026-10-26 (`trials/P-53.json`), read-only by the Maintainer on P-49's pull request. Neither read names a thread's resolution: no item of either is one. Neither links the reply to the deleted comment: the deleted comment's review is still listed, by the App, a `Bot`, with no comment left, and nothing points to it. The repo's permission read of `resolvedBy`'s login answers the account's id and type: the App's bot 344141469, `resolvedBy`'s own id, a `Bot`; the Maintainer a `User`. So #331 types a resolver by the thread's own comment authors, else by that read where its id is `resolvedBy`'s |
 | P-54 | Can the Controller's installation token, narrowed to `issues: read` on the canary alone, read the issue a pull request is bound to, `GET /repos/{repo}/issues/{n}`, as the acceptance port's `labelled()` reads it; and what is a token narrowed to `metadata: read` alone answered for the same read? (issue 342) | The narrowed token is answered 200 with the issue: its number, no `pull_request`, and labels each with a name; otherwise the acceptance port cannot read a bound issue's labels under the Controller's grant. **Passed** on 2026-10-30 (`trials/P-54.json`): 200 with the issue, and GitHub's `x-accepted-github-permissions` says `issues=read`. Recorded, deciding nothing: the `metadata: read` token is answered 200 too, since the canary is public (decision 0068). The private-repo case stays open until a private Consumer repo exists (slice 3) |
+| P-55 | Do the Run's and the poller's files stand as #196's ruling 9 rests on them, at a test tag on the canary: does `workflow_run` start the poller when a Run dispatched by the pass's token ends, and how long does a chain of dispatches and `workflow_run` starts run; does a concurrency group on a calling job hold the lane across the called workflow's three jobs; does a called job's `environment:` give it that environment's secrets on a dispatch from `main`; how does `github.actor_id` compare in the shim's `if:`; what does a run conclude when an `if:` skipped its only job; which value, if any, names a called workflow's own commit? | Each of these holds: a Run dispatched by the pass's token starts the poller when it ends; the second Run of one item starts its `run` job only after the first's `apply` has ended, and a Run of another item overlaps them; a called job naming the environment reads its secret with no `secrets:` on the caller, and a called job naming none reads nothing; the shim's `if:` runs the pass token's dispatch and skips a person's, a Pause's and a re-run's. Recorded, deciding nothing: where the chain stops, within 8 Runs; the word a skipped run concludes with; and which value, if any, names the called workflow's commit **Failed** on 2026-11-01 (`trials/P-55.json`), on two parts, each with its fix (decision 0115). A Run dispatched by the pass's token wakes nothing by `workflow_run` when it ends, though a person's does, a skipped one's too: a Run's last job, `wake`, dispatches the poller, whose next run was created 5 seconds after `apply` ended and whose pass began 10 seconds after, and also on a cancel, 10 and 16, while a force-cancel leaves it to the backstop. A called job naming the environment read its secret only with `secrets: inherit` on its caller. The rest held: the second Run of an item started its `run` job 4 seconds after the first's `apply` ended, and another item's overlapped them; the `if:` ran the pass's token's dispatch and skipped a person's, a Pause's and a re-run's, `github.actor_id` reading 41898282, true as a string and as a number. Recorded: 7 successor dispatches in a row ran with no stop; a skipped run and its job conclude `skipped`; `job.workflow_sha` names the called workflow's own commit, as REST's `referenced_workflows` does, and `github.workflow_sha` is the caller's |
 | P-56 | Can the Controller's installation token, narrowed to `pull_requests: read` on the canary alone, read a pull request's comments, `GET /repos/{repo}/issues/{n}/comments`, as the seen port reads them; and what is a token, narrowed to `metadata: read` alone, answered for the same read? (decision 0061) | The narrowed token is answered 200 with the comments, each with an id and a user with an id and a type, and GitHub's `x-accepted-github-permissions` names `pull_requests=read`; otherwise the need moves to what it names. **Passed** on 2026-11-01 (`trials/P-56.json`): 200 with five comments, and the header says `issues=read; pull_requests=read`. Recorded, deciding nothing: the `metadata: read` token is answered 200 too, since the canary is public (decision 0068). The private-repo case stays open until a private Consumer repo exists (slice 3) |
 
 ### 6.1 The order to run them in
@@ -2323,6 +2327,8 @@ late or not at all.
   listed at once (P-9, `trials/P-9.json`), only if an item is due at its end. Anything due later
   waits for a tick, a nudge or a Run's end, so a successor never stands in for a timer, and a chain
   ends when nothing is due.
+- A pass its own token started waits at least 30 seconds before it reads, since a Run's `wake`
+  dispatches it from inside the Run, which must end before it reads as ended (decision 0115).
 - Every pass, whatever started it, reads no sooner than three minutes after the last pass that
   read began, since W-4 allows twenty passes an hour at the cost `trials/P-8.json` estimated with
   every page read. A pass started sooner waits out the rest before it reads, and as at most one
@@ -2333,12 +2339,14 @@ late or not at all.
   unnamed is not the normal lag, and passes chained on it would feed themselves without bound (W-7).
   The next pass comes at the next tick or nudge (decision 0036).
 - A chain breaks when a successor is evicted. It restarts on a tick, on a nudge from the relay,
-  and, from the first day and with the relay down too, at the end of any Run: the poller listens
-  to the completion of the Factory's Run workflows (`workflow_run`), named in its file, never to
-  its own. So while any Run is in flight a broken chain restarts at that Run's end, and only one
-  broken with no Run in flight waits for the schedule. The trigger reads nothing from the run that
-  ended and the poller takes no inputs, so a run of that name in a fork's pull request can cause
-  one pass and direct nothing. `workflow_run` is not among the triggers
+  and, from the first day and with the relay down too, at the end of any Run: a Run's last job,
+  `wake`, runs whatever the others did and dispatches the poller, since a Run the pass's token
+  started wakes nothing by `workflow_run` when it ends (trial P-55, decision 0115). So while any
+  Run is in flight a broken chain restarts at that Run's end, a force-cancelled Run's or a lost
+  runner's aside, and only those, and one broken with no Run in flight, wait for the schedule. The
+  poller also listens to the completion of `factory` and `ci` (`workflow_run`), named in its file,
+  never to its own. The trigger reads nothing from the run that ended and the poller takes no
+  inputs, so a run of that name in a fork's pull request can cause one pass and direct nothing. `workflow_run` is not among the triggers
   `docs/standards/workflows.md` allows: the workflows story adds it for the poller alone, on these
   conditions, before the poller is built (decision 0043).
 - The Factory's own writes cannot run away. A nudge asks for a pass; whether a Run is admitted is
@@ -2368,7 +2376,7 @@ late or not at all.
   a page that computes it in the browser, so those hours are hours a person knows about. Which host, and which public event, are settled by
   trial (P-20, P-31).
 - The Factory's own repo nudges the poller directly from the first day, by the `workflow_run`
-  trigger above.
+  trigger and the `wake` job above.
 - **A pass records what started it**, as `started_by` in `pass/1`, a code read from the run that
   started it, never from anything a dispatch carries: `schedule` for a scheduled run; `own_repo`
   for `workflow_run`; `successor` for a dispatch by the workflow's own token; `dispatch` for a

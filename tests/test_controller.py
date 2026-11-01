@@ -440,6 +440,21 @@ class Chain(unittest.TestCase):
         far = [earlier("2026-10-10T00:00:00Z"), earlier("2026-10-11T12:00:00Z"), earlier("2026-10-11T12:57:00Z")]
         self.assertEqual(passed(previous=far)["cleared"], [])
 
+    def test_a_pass_its_own_token_started_reads_no_sooner_than_it_can_read_the_run_as_ended(self):  # decision 0115
+        cfg = config()
+        token = CONTROLLER["accounts"]["workflow_token"]
+        started = {"event": "workflow_dispatch", "attempt": 1, "actor": {"id": token["id"], "type": token["type"]}}
+        last = earlier("2026-10-11T12:59:30Z", read_at=["2026-10-11T12:59:00Z"])
+        # At least the wait, none on a pass with no earlier record, and the gap where it is longer.
+        self.assertEqual(pass_.wait_before_reading([], NOW, cfg, started), pass_.SUCCESSOR_WAIT)
+        self.assertEqual(pass_.wait_before_reading([last], "2026-10-11T13:10:00Z", cfg, started), pass_.SUCCESSOR_WAIT)
+        self.assertEqual(pass_.wait_before_reading([last], NOW, cfg, started), 120)
+        self.assertEqual(pass_.wait_before_reading(None, NOW, cfg, started), 180)
+        # Anything else started it, or what did cannot be read: no such wait.
+        for other in (None, {"event": "schedule", "attempt": 1, "actor": None}, dict(started, attempt=2), dict(started, event="schedule"),
+                      dict(started, actor={"id": 1, "type": "User"})):
+            self.assertEqual(pass_.wait_before_reading([], NOW, cfg, other), 0, other)
+
     def test_a_pass_reads_no_sooner_than_three_minutes_after_the_last_pass_began_to_read(self):  # decision 0043
         cfg = config()
         last = earlier("2026-10-11T12:59:30Z", read_at=["2026-10-11T12:59:10Z", "2026-10-11T12:59:00Z"])
@@ -1179,7 +1194,7 @@ class Entry(unittest.TestCase):
         code, _, files, slept = self.run_entry(hub)
         self.assertEqual(code, 0)
         # The last pass's read began a minute ago: two minutes more, waited before anything but the records is read.
-        self.assertEqual(slept, [(120, 5)])
+        self.assertEqual(slept, [(120, 6)])
         self.assertEqual([r["path"].split("?")[0].rsplit("/", 1)[-1] for _, r in hub.sent[2:5]],
                          ["runs", "artifacts", "zip"])
         self.assertEqual(files["view/health.json"]["previous_pass_at"], "2026-10-12T11:59:00Z")
@@ -1188,6 +1203,19 @@ class Entry(unittest.TestCase):
         code, _, files, slept = self.run_entry(Hub(table))
         self.assertEqual((code, [s for s, _ in slept]), (0, [CONTROLLER["read_gap_seconds"]]))
         self.assertIsNone(files["pass.json"]["context"]["passes_since"])
+
+    def test_a_pass_its_own_token_started_waits_for_the_run_that_woke_it_to_end(self):  # decision 0115
+        # The entry reads what started it before it waits: a pass the workflow's own token dispatched waits, one a
+        # schedule started does not.
+        token = CONTROLLER["accounts"]["workflow_token"]
+        table = self.table()
+        started = table[("GET", "/repos/%s/actions/runs/%s" % (self.HOME, self.RUN))]
+        _, _, _, slept = self.run_entry(Hub(table))
+        self.assertEqual([s for s, _ in slept], [0])
+        started["body"].update(event="workflow_dispatch", actor={"id": token["id"], "type": token["type"], "login": "github-actions[bot]"})
+        _, _, _, slept = self.run_entry(Hub(table))
+        self.assertEqual([s for s, _ in slept], [pass_.SUCCESSOR_WAIT])
+        self.assertEqual(pass_.SUCCESSOR_WAIT, 30)
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),

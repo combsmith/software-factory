@@ -23,6 +23,7 @@ jobs:
       group: ${{ inputs.item }}
       cancel-in-progress: true
     uses: combsmith/software-factory/.github/workflows/run-jobs.yml@factory/v0-next
+    secrets: inherit
     with:
       name: ${{ inputs.name }}
       item: ${{ inputs.item }}

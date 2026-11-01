@@ -1,4 +1,4 @@
-# A Run's three jobs, called by run.yml at the Release's channel, with the item's lane on the calling job (#196's rulings 6 and 7; decisions 0004, 0050, 0054, 0058, 0064).
+# A Run's four jobs, called by run.yml at the Release's channel, with the item's lane on the calling job (#196's rulings 6 and 7; decisions 0004, 0050, 0054, 0058, 0064).
 # `run` reads what the Task is built from with the reader's key in a step of its own, whose token is revoked before the model's step; the model's step holds the model's credential alone, and the Engine sets the scrub and `--tools ""`.
 # `verify` holds no secret and no cache, and takes the Result by the digest `run` reported. `apply` runs whatever failed before it: it writes nothing unless both succeeded, and its last step always leaves the Run's outcome.
 # The first job checks out the Channel once and hands on the commit it got; every later job checks out exactly that commit, with its tags, so that every job runs one Release and each step that needs the Release's name reads its one tag (harness/steps.release). Never the item's code. The CLI is installed at the Engine's pin, its sha256 the one the vendor's release manifest gives for linux-x64.
@@ -163,3 +163,20 @@ jobs:
           name: outcome
           path: outcome/outcome.json
           if-no-files-found: error
+  wake:
+    needs:
+      - run
+      - verify
+      - apply
+    if: always() && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Wake the next pass, since a Run the pass's token started wakes nothing when it ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        timeout-minutes: 2
+        run: timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"

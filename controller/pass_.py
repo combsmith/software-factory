@@ -59,6 +59,11 @@ def earlier(previous, now: str):
     return sorted(previous, key=lambda r: r["now"])
 
 
+# How long a pass its own token started waits before it reads. In P-55 a Run read as ended 2 and 3 seconds after its wake
+# dispatched the pass, whose job began 5 and 6 seconds after: the margin was a few seconds, and nothing held it.
+SUCCESSOR_WAIT = 30
+
+
 def started_by(started, accounts: dict) -> str:
     """What started the pass, read from its run and never from anything a dispatch carries (decision 0043).
 
@@ -176,18 +181,21 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
     return listed, whole, runs, pause, automatic, capacity, context
 
 
-def wait_before_reading(previous, now: str, config: dict) -> int:
+def wait_before_reading(previous, now: str, config: dict, started=None) -> int:
     """Seconds to wait before this pass reads: none sooner than the gap after the last pass's read began, whatever
-    started it (decision 0043). If the records cannot be read, the whole gap."""
+    started it (decision 0043). If the records cannot be read, the whole gap. A pass its own token started waits at
+    least SUCCESSOR_WAIT, since a Run's wake dispatches it from inside the Run, which must end before it is read as ended
+    (decision 0115)."""
     gap = config["controller"]["read_gap_seconds"]
+    least = SUCCESSOR_WAIT if started_by(started, config["controller"]["accounts"]) == "successor" else 0
     before = earlier(reads_.previous_records(previous), now)
     if before is None:
-        return gap
+        return max(gap, least)
     if not before:
-        return 0
+        return least
     last = before[-1]
     began = min([r["date"] for r in last["reads"] if moment(r["date"]) is not None] or [last["now"]])
-    return max(0, gap - seconds(now, began))
+    return max(least, gap - seconds(now, began))
 
 
 def rebuild(records: list, titles: dict, config: dict) -> list:
