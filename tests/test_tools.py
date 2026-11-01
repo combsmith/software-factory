@@ -5209,7 +5209,8 @@ class OutputMadeAlone(unittest.TestCase):
     SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY", "KEY"),
                "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
                "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
-               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42")}
+               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
+               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42")}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -5346,6 +5347,7 @@ class OutputMadeAlone(unittest.TestCase):
         # The scripts this cannot run so plainly hold to the same line.
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
+                       "trial_p56_comments.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -8863,6 +8865,9 @@ class IssueLookupTrial(ReaderTrialScript):
               if r != "combsmith/software-factory"][0]
     GIVEN = (CANARY, "42")
     FIRST = "issues"
+    READ = "issues/42"
+    KEPT = ('"number": 42', '"name": "question"')
+    NOT_A_NUMBER = "is not an issue's number"
     # The reader trial's stand-in GitHub, which also answers an issue: to a token narrowed to issues, and to any token
     # where the repo is public, as a file beside it says. A file beside it puts a proxy's block before the answer.
     CURL = ReaderTrialScript.CURL.replace('elif "/activity" in url:', '''elif "/issues/" in url:
@@ -8897,22 +8902,22 @@ sys.stdout.write("HTTP/2 %d''', 1)
                 self.assertEqual([m["url"].split("/app/")[1] for m in mints],
                                  ["installations/%d/access_tokens" % installation] * 2)
                 self.assertEqual([json.loads(m["body"]) for m in mints],
-                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {"issues": "read"}},
+                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {self.FIRST: "read"}},
                                   {"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}}])
                 self.assertEqual([c["url"].split("/repos/")[1] for c in calls if c["method"] == "GET"],
-                                 ["%s/issues/42" % self.CANARY] * 2)
+                                 ["%s/%s" % (self.CANARY, self.READ)] * 2)
                 self.assertEqual(len([c for c in calls if c["method"] == "DELETE"]), 2)
                 self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
                 texts = {p.name: p.read_text() for p in self.out.iterdir()}
                 self.assertEqual(sorted(texts), ["clean-1", "clean-2", "ran_at", "redacted-1", "redacted-2", "requests.json"])
                 asked = json.loads(texts["requests.json"])
                 self.assertEqual([(a["narrowed_to"], a["call"], a["status"]) for a in asked if "call" in a],
-                                 [("issues: read", "GET /repos/%s/issues/42" % self.CANARY, 200),
-                                  ("metadata: read", "GET /repos/%s/issues/42" % self.CANARY, metadata)])
+                                 [(self.FIRST + ": read", "GET /repos/%s/%s" % (self.CANARY, self.READ), 200),
+                                  ("metadata: read", "GET /repos/%s/%s" % (self.CANARY, self.READ), metadata)])
                 self.assertEqual([a for a in asked if "revoked" in a],
-                                 [{"revoked": "issues: read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
-                self.assertIn('"number": 42', texts["clean-1"])
-                self.assertIn('"name": "question"', texts["clean-1"])
+                                 [{"revoked": self.FIRST + ": read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
+                for kept in self.KEPT:
+                    self.assertIn(kept, texts["clean-1"])
                 self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
@@ -8944,11 +8949,11 @@ sys.stdout.write("HTTP/2 %d''', 1)
                                  (("combsmith/software-factory", "42"), None, "is not the canary the Controller is installed on"),
                                  (("combsmith/elsewhere", "42"), None, "is not the canary the Controller is installed on"),
                                  (("combsmith", "42"), None, "is not owner/name"),
-                                 ((self.CANARY, "0"), None, "is not an issue's number"),
-                                 ((self.CANARY, "12a"), None, "is not an issue's number"),
-                                 ((self.CANARY, "-1"), None, "is not an issue's number"),
-                                 ((self.CANARY, "1/../2"), None, "is not an issue's number"),
-                                 ((self.CANARY, ""), None, "is not an issue's number"),
+                                 ((self.CANARY, "0"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "12a"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "-1"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "1/../2"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, ""), None, self.NOT_A_NUMBER),
                                  ((self.CANARY,), None, "usage:"), ((self.CANARY, "42", "43"), None, "usage:")):
             ran = self.run_script(*given, out=out)
             self.assertNotEqual(ran.returncode, 0, given)
@@ -8958,6 +8963,20 @@ sys.stdout.write("HTTP/2 %d''', 1)
         ran = self.run_script()
         self.assertIn("cannot read the key file", ran.stderr)
         self.assertEqual(self.calls(), [])
+
+
+class CommentsReadTrial(IssueLookupTrial):
+    """`tools/trial_p56_comments.sh`, run against the same stand-ins and never GitHub (decision 0061). It is P-54's script
+    with another permission and another read, so every test of that one runs over it too, by inheritance."""
+
+    SCRIPT = ROOT / "tools" / "trial_p56_comments.sh"
+    FIRST = "pull_requests"
+    READ = "issues/42/comments?since=2020-01-01T00:00:00Z&per_page=100"
+    KEPT = ('"id": 7', '"type": "User"')
+    NOT_A_NUMBER = "is not a pull request's number"
+    CURL = IssueLookupTrial.CURL.replace('if grant == "issues" or', 'if grant == "pull_requests" or', 1).replace(
+        '''status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}''',
+        '''status, answer = 200, [{"id": 7, "user": {"id": 9, "type": "User"}, "leak": "gh" + "s_" + "L" * 36}]''', 1)
 
 
 class Rulesets(unittest.TestCase):
