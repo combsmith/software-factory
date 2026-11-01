@@ -22,3 +22,4 @@ jobs:
       group: sf-poller
       cancel-in-progress: false
     uses: ./.github/workflows/pass.yml
+    secrets: inherit

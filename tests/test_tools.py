@@ -3244,6 +3244,7 @@ class Workflows(unittest.TestCase):
         for file, text in (("run-jobs.yml", good), ("approve-job.yml", act)):
             self.assertEqual(check_workflows.wake_problems(check_workflows.read(text)[0]), [], file)
             for why, change in (("a secret", ("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets.APPROVER_TOKEN }}\n")),
+                                ("a secret by index", ("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets['APPROVER_TOKEN'] }}\n")),
                                 ("an environment", ("    timeout-minutes: 5\n", "    timeout-minutes: 5\n    environment: factory-approve\n")),
                                 ("a checkout", ("    steps:\n      - name: Wake", "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n      - name: Wake"))):
                 held = check_workflows.read(text.replace(*change))[0]

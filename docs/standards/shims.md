@@ -18,6 +18,7 @@ jobs:
       group: sf-poller
       cancel-in-progress: false
     uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next
+    secrets: inherit
 ```
 
 Each job holds `uses`, `permissions`, `concurrency` and `secrets: inherit`, in those words, and may hold `if` and

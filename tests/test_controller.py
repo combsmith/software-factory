@@ -451,7 +451,7 @@ class Chain(unittest.TestCase):
         self.assertEqual(pass_.wait_before_reading([last], NOW, cfg, started), 120)
         self.assertEqual(pass_.wait_before_reading(None, NOW, cfg, started), 180)
         # Anything else started it, or what did cannot be read: no such wait.
-        for other in (None, {"event": "schedule", "attempt": 1, "actor": None}, dict(started, attempt=2),
+        for other in (None, {"event": "schedule", "attempt": 1, "actor": None}, dict(started, attempt=2), dict(started, event="schedule"),
                       dict(started, actor={"id": 1, "type": "User"})):
             self.assertEqual(pass_.wait_before_reading([], NOW, cfg, other), 0, other)
 

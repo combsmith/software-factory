@@ -141,6 +141,7 @@ PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
 # wake holds no secret, no environment and no checkout in either file, so its write never stands beside a key.
 WAKE_JOB, LANE_JOB = "wake", "lane"
 WAKE_FILES, LANE_FILES = (RUN_JOBS, APPROVE_JOB), ("run.yml", "approve.yml")
+SECRETS_NAMED = re.compile(r"\bsecrets\s*[.\[]", re.I)      # by a dot or an index, as an expression may write it
 ACTIONS_WRITE = {PASS_JOB, WAKE_JOB, LANE_JOB}
 # The Run's jobs and the approving act's, each with its wake, each held word for word, as run.yml is (#196's ruling 7, decisions
 # 0050, 0054 and 0055; the Maintainer's answers (a) and (b) of 2026-10-21). Every job checks out the Release, never the
@@ -1484,7 +1485,7 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
 def wake_problems(entries: list) -> list:
     """A wake that holds a secret, an environment or a checkout: its write would stand beside a key, or the item's code."""
     held = [e for e in entries if e["path"][:2] == ["jobs", WAKE_JOB]]
-    if any("secrets." in e["value"].lower() or e["key"] == "environment" or _checkout(e) for e in held):
+    if any(SECRETS_NAMED.search(e["value"]) or e["key"] == "environment" or _checkout(e) for e in held):
         return ["the job %s holds a secret, an environment or a checkout, and holds a write" % WAKE_JOB]
     return []
 
