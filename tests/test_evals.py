@@ -76,6 +76,36 @@ class Scoring(unittest.TestCase):
         unfinished["status"], unfinished["reason"] = "incomplete", "turns_exhausted"
         self.assertEqual(eval_result.score(case, unfinished)["reasons"], ["result_not_completed"])
 
+    def test_a_finding_no_finding_cited_says_where_it_went(self):
+        # Run 41315433150 read 19 cases as `finding_not_raised`, and could not tell a miss from a Finding raised and not
+        # cited. Each of these fails the case alike: only what it says has changed.
+        case, right = load("examples/eval-case.json"), load("examples/result.json")
+        self.assertEqual(eval_result.score(case, right)["verdict"], "pass")
+        at = right["findings"][0]
+        place = at["location"]
+
+        def said(*findings):
+            result = dict(right, findings=[dict(at, **f) for f in findings])
+            scored = eval_result.score(case, result)
+            self.assertEqual(scored["verdict"], "fail", findings)
+            return [r for r in scored["reasons"] if r != "coverage_disagrees"]
+        self.assertEqual(said(dict(criterion=None)), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion="PR-1")), ["finding_cites_another"])
+        self.assertEqual(said(dict(criterion=None), dict(criterion="PR-1")), ["finding_uncited", "finding_cites_another"])
+        # What it has otherwise, of the nearest: the place is its being there.
+        self.assertEqual(said(dict(criterion=None, severity="minor")), ["finding_uncited", "severity_differs"])
+        self.assertEqual(said(dict(criterion=None, category="security")), ["finding_uncited", "category_differs"])
+        self.assertEqual(said(dict(criterion=None, severity="minor"), dict(criterion=None)), ["finding_uncited"])
+        # In the file, on other lines; a Finding of the whole file is there; in another file, or none, is not raised.
+        away = dict(place, start_line=place["end_line"] + 1, end_line=place["end_line"] + 5)
+        self.assertEqual(said(dict(criterion=None, location=away)), ["finding_elsewhere"])
+        self.assertEqual(said(dict(criterion=None, location={"path": place["path"]})), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion=None, location={"path": "kernel/gate.py"})), ["finding_not_raised"])
+        self.assertEqual(said(), ["finding_not_raised"])
+        # Beside the Finding that cites it, none of these is anything: the pass rule has not moved.
+        extra = dict(at, ref="n9", criterion=None)
+        self.assertEqual(eval_result.score(case, dict(right, findings=[at, extra]))["verdict"], "pass")
+
     def test_a_right_change_is_scored_by_its_coverage(self):
         case, result = load("examples/eval-case.met.json"), load("examples/result.json")
         self.assertEqual(eval_result.score(case, result)["verdict"], "pass")
@@ -1075,7 +1105,7 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         source = (ROOT / "tools" / "eval_result.py").read_text()
         given = set(re.findall(r'"reasons": \["([a-z_]+)"\]|reasons\.append\("([a-z_]+)"\)', source))
-        codes = {code for pair in given for code in pair if code} | set(eval_result.MISSES)
+        codes = {code for pair in given for code in pair if code} | set(eval_result.MISSES) | set(eval_result.WENT)
         self.assertGreater(len(codes), 10)
         self.assertEqual(codes - job.eval_result_codes() - {"file", "file_outside"}, set())
         self.assertNotIn("case_failed", job.eval_result_codes())
