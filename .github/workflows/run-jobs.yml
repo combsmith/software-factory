@@ -166,7 +166,7 @@ jobs:
       - run
       - verify
       - apply
-    if: always()
+    if: always() && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -177,4 +177,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         timeout-minutes: 2
-        run: gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"
+        run: timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"

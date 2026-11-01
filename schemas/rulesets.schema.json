@@ -26,7 +26,8 @@
       "additionalProperties": false,
       "required": [
         "main",
-        "factory release tags"
+        "factory release tags",
+        "factory releases are immutable"
       ],
       "properties": {
         "main": {
@@ -291,8 +292,7 @@
           ],
           "properties": {
             "id": {
-              "type": "integer",
-              "minimum": 0
+              "const": 25183656
             },
             "target": {
               "const": "tag"
@@ -309,11 +309,16 @@
               "const": []
             },
             "bypass_actors": {
-              "title": "Only the repository's admin role, which the Maintainer alone holds today (nothing here records who holds it), until trial P-30 names the release identity (issue 62).",
+              "title": "The repository's admin role, which the Maintainer alone holds today (nothing here records who holds it), and the release App, whose id tools/check_rulesets.py holds to config/apps.json (P-30, decision 0113).",
               "const": [
                 {
                   "actor_id": 5,
                   "actor_type": "RepositoryRole",
+                  "bypass_mode": "always"
+                },
+                {
+                  "actor_id": 5502359,
+                  "actor_type": "Integration",
                   "bypass_mode": "always"
                 }
               ]
@@ -331,6 +336,62 @@
                 "creation": {
                   "const": {}
                 },
+                "update": {
+                  "const": {}
+                },
+                "deletion": {
+                  "const": {}
+                },
+                "non_fast_forward": {
+                  "const": {}
+                }
+              }
+            }
+          }
+        },
+        "factory releases are immutable": {
+          "title": "No Release tag, once made, is moved or deleted, by anyone: no one bypasses this. With factory release tags, it is what guards every key, since a shim inherits secrets (decision 0113).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "target",
+            "enforcement",
+            "include",
+            "exclude",
+            "bypass_actors",
+            "rules"
+          ],
+          "properties": {
+            "id": {
+              "const": 25996980
+            },
+            "target": {
+              "const": "tag"
+            },
+            "enforcement": {
+              "const": "active"
+            },
+            "include": {
+              "const": [
+                "refs/tags/factory/v*.*.*"
+              ]
+            },
+            "exclude": {
+              "const": []
+            },
+            "bypass_actors": {
+              "const": []
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "update",
+                "deletion",
+                "non_fast_forward"
+              ],
+              "properties": {
                 "update": {
                   "const": {}
                 },

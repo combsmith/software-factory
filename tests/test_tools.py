@@ -2591,6 +2591,13 @@ class Workflows(unittest.TestCase):
         self.assertIn("token", spaced)
         other = GOOD.replace("  verify:\n", "  c:\n    uses: ./.github/workflows/o.yml\n    secrets: inherit\n  verify:\n")
         self.assertIn("token", {rule for rule, _ in check_workflows.lint(other)})
+        # Every event a shim's: a push, a pull request or a call beside a dispatch is no shim's to inherit for.
+        for beside in ("  push:\n    branches:\n      - main\n", "  pull_request:\n  merge_group:\n", "  workflow_call:\n"):
+            mixed = POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n" + beside)
+            self.assertIn("token", {rule for rule, _ in check_workflows.lint(mixed)}, beside)
+        # A job's own key: those words at that depth anywhere else are no shim's.
+        elsewhere = POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  schedule:\n    secrets: inherit\n", 1)
+        self.assertIn("token", {rule for rule, _ in check_workflows.lint(elsewhere)})
         call = "    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n"
         broken = {
             "a step": POLLER.replace(call, "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n"
@@ -2672,6 +2679,7 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(problems, "other.yml: only poller.yml wakes on another workflow's end"), problems)
         broken = {
             "its own end": POLLER.replace("      - ci\n", "      - ci\n      - sf-poller\n"),
+            "a Run's end, which never comes": POLLER.replace("      - ci\n", "      - ci\n      - sf-run\n"),
             "every stage": POLLER.replace("    types:\n      - completed\n", ""),
             "a request": POLLER.replace("      - completed\n", "      - requested\n"),
             "an input": POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n"
@@ -3180,6 +3188,10 @@ class Workflows(unittest.TestCase):
         self.assertIn("commit=" + tag, lines)
         self.assertNotIn("github.workflow_sha=" + tag, lines)
         self.assertIn("as string: true; as number: true; run_attempt=1", lines)
+        # 7 successors in a row, each dispatched by the pass before, and no stop: as far as it was asked.
+        chain = [r for r in pollers.values() if "2026-11-01T03:05:50Z" < r["created_at"] < "2026-11-01T03:07:00Z"]
+        self.assertEqual({(r["event"], r["actor"]) for r in chain}, {("workflow_dispatch", "github-actions[bot]")})
+        self.assertEqual(len(chain), 7)
 
     def test_the_last_job_alone_of_the_runs_wakes_the_poller_holding_nothing_else(self):
         # Trial P-55: a Run the pass's token started wakes nothing when it ends, so its last job dispatches the poller,
@@ -3187,7 +3199,9 @@ class Workflows(unittest.TestCase):
         good = (self.LIVE / "run-jobs.yml").read_text()
         self.assertEqual(check_workflows.run_jobs_problems(good), [])
         broken = {
-            "not always": good.replace("    if: always()\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n", "    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"),
+            "not always": good.replace("    if: always() && (vars", "    if: (vars"),
+            "under a Pause": good.replace(" && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n", "\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"),
+            "a hang that fails the Run": good.replace("run: timeout 60 gh api", "run: gh api"),
             "a key": good.replace("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
             "a failure that fails the Run": good.replace(' || echo "the next pass waits for the backstop"', ""),
             "another target": good.replace("workflows/poller.yml/dispatches", "workflows/run.yml/dispatches"),
@@ -3195,15 +3209,29 @@ class Workflows(unittest.TestCase):
         }
         for why, text in broken.items():
             self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's jobs"), why)
+        # The approving act's is the same job, needing its one job, and holds no secret: nor may either hold one.
+        act = (self.LIVE / "approve-job.yml").read_text()
+        self.assertEqual(check_workflows.approve_job_problems(act), [])
+        self.assertEqual(act[act.index("  wake:\n"):].replace("      - approve\n", ""),
+                         good[good.index("  wake:\n"):].replace("      - run\n      - verify\n      - apply\n", ""))
+        self.assertTrue(caught(check_workflows.approve_job_problems(act[:act.index("  wake:\n")]), "it is not the approving act's one job"))
+        for file, text in (("run-jobs.yml", good), ("approve-job.yml", act)):
+            self.assertEqual(check_workflows.wake_problems(check_workflows.read(text)[0]), [], file)
+            for why, change in (("a secret", ("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets.APPROVER_TOKEN }}\n")),
+                                ("an environment", ("    timeout-minutes: 5\n", "    timeout-minutes: 5\n    environment: factory-approve\n")),
+                                ("a checkout", ("    steps:\n      - name: Wake", "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n      - name: Wake"))):
+                held = check_workflows.read(text.replace(*change))[0]
+                self.assertTrue(caught(check_workflows.wake_problems(held), "the job wake holds a secret, an environment or a checkout"), (file, why))
+            self.assertTrue(caught(check_workflows.shim_problems(file, text.replace(*change)), "the job wake holds"), file)
         # The grant is theirs alone: another job given it is refused, and neither id may stand in another file.
         other = good.replace("  verify:\n    needs: run\n    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n    permissions:\n      contents: read\n",
                              "  verify:\n    needs: run\n    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n    permissions:\n      actions: write\n")
         self.assertNotEqual(other, good)
         self.assertTrue(caught(check_workflows.lint(other), "job verify is granted actions: write"))
         self.assertEqual(check_workflows.lint(check_workflows.RUN_SHIM % 41898282), [])
-        for job, home in (("wake", "run-jobs.yml"), ("lane", "run.yml")):
+        for job, homes in (("wake", "run-jobs.yml and approve-job.yml"), ("lane", "run.yml and approve.yml")):
             text = "name: x\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  %s:\n    runs-on: ubuntu-24.04\n" % job
-            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "the job %s is reserved for %s" % (job, home)), job)
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "the job %s is reserved for %s" % (job, homes)), job)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
         good = (self.LIVE / "run-jobs.yml").read_text()
@@ -9067,6 +9095,36 @@ class Rulesets(unittest.TestCase):
 
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
+
+    def test_the_tag_rulesets_that_guard_every_key_are_held(self):  # decision 0113
+        apps = (ROOT / "config" / "apps.json").read_text()
+
+        def run(rulesets, table=apps):
+            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets), "config/defaults.json": json.dumps(self.defaults),
+                                            "config/apps.json": table, ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
+
+        self.assertEqual(run(self.rulesets), [])
+        for name in ("factory release tags", "factory releases are immutable"):
+            for why, change in (("gone", None), ("off", {"enforcement": "disabled"}), ("no rules", {"rules": {}}),
+                                ("no tags", {"include": []}), ("another target", {"target": "branch"})):
+                with self.subTest(name=name, why=why):
+                    broken = copy.deepcopy(self.rulesets)
+                    if change is None:
+                        del broken["rulesets"][name]
+                    else:
+                        broken["rulesets"][name].update(change)
+                    self.assertTrue(caught(run(broken), "the tag ruleset %s is not recorded, active and holding its rules" % name))
+        # Who may bypass: another App, a writer, anyone on the immutable one; and the release App by the data's id alone.
+        other = {"actor_id": 7, "actor_type": "Integration", "bypass_mode": "always"}
+        for name in ("factory release tags", "factory releases are immutable"):
+            broken = copy.deepcopy(self.rulesets)
+            broken["rulesets"][name]["bypass_actors"].append(other)
+            self.assertTrue(caught(run(broken), "%s lets [('Integration', 7)] bypass it" % name))
+        moved = json.loads(apps)
+        moved["apps"]["release"]["app_id"] = 7
+        self.assertTrue(caught(run(self.rulesets, json.dumps(moved)), "factory release tags lets [('Integration', 5502359)] bypass it"))
+        del moved["apps"]["release"]
+        self.assertTrue(caught(run(self.rulesets, json.dumps(moved)), "config/apps.json names no release App"))
 
     def test_a_required_check_from_another_app_is_caught(self):
         self.main["required_status_checks"]["required_status_checks"][0]["integration_id"] = 57789

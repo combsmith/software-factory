@@ -7,6 +7,11 @@ what a ruling fixed (issues 62 and 95). This check holds the values written in t
 tool of the code-scanning rule is the check of a deterministic Lens that no workflow runs. Whether the live rulesets
 still say this is `tools/rulesets_drift.sh`'s, run by hand: nothing here reads GitHub.
 
+The two tag rulesets guard every key, since a shim inherits secrets and its environment's branch policy is met by the
+caller's `main` whatever commit the channel names (decision 0113). Each is recorded, active and over its tags; `factory
+release tags` lets by the admin role and the release App alone, whose id is `config/apps.json`'s, and no one bypasses
+`factory releases are immutable`.
+
 No external Lens's approval counts toward the merge (issue 366): CodeRabbit approves once its threads are resolved, by
 whoever resolves them (trials/P-25.json). A `main` ruleset counts an approval when it asks for any number of them, a
 code owner's, a required reviewer's, one of the last push, or an extra one for a change no person made. One that does
@@ -26,6 +31,10 @@ VERIFY = "verify"
 # The team through which the machine user is a code owner (issue 198's ruling 2).
 CODE_OWNER = "@combsmith/org-leads"
 CATCH_ALL = "*"     # the one spelling read as every path; another is refused, never guessed at
+# The tag rulesets that guard every key (decision 0113), and the rules each must hold.
+TAG_RULESETS = {"factory release tags": {"creation", "update", "deletion", "non_fast_forward"},
+                "factory releases are immutable": {"update", "deletion", "non_fast_forward"}}
+ADMIN_ROLE = 5
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -80,6 +89,28 @@ def _agree(root: pathlib.Path) -> list:
                             "owner's, of the last push, a stale one dismissed, with no required reviewer, so an "
                             "external Lens's approval could count; ask for exactly that" % BRANCH)
         problems += _code_owners(root)
+    return problems + _tags(rulesets, root)
+
+
+def _tags(rulesets: dict, root: pathlib.Path) -> list:
+    """What would let a Release tag, and so what every shim calls and every key it hands on, be moved by another."""
+    try:
+        app_id = json.loads((root / "config" / "apps.json").read_text())["apps"]["release"]["app_id"]
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        return ["config/apps.json names no release App, so who may write a Release tag cannot be told: %s" % err]
+    problems = []
+    for name, rules in TAG_RULESETS.items():
+        ruleset = rulesets.get(name)
+        if not isinstance(ruleset, dict) or ruleset.get("enforcement") != "active" or ruleset.get("target") != "tag" \
+                or not set(ruleset.get("rules") or ()) >= rules or not ruleset.get("include"):
+            problems.append("config/rulesets.json: the tag ruleset %s is not recorded, active and holding its rules; every "
+                            "key's guard is the tag rulesets (decision 0113)" % name)
+            continue
+        actors = {(a.get("actor_type"), a.get("actor_id")) for a in ruleset.get("bypass_actors") or ()}
+        allowed = {("RepositoryRole", ADMIN_ROLE), ("Integration", app_id)} if name == "factory release tags" else set()
+        if actors - allowed:
+            problems.append("config/rulesets.json: %s lets %s bypass it; only %s may, since it guards every key"
+                            % (name, sorted(actors - allowed), sorted(allowed) or "no one"))
     return problems
 
 

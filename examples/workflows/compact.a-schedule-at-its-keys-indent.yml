@@ -12,7 +12,6 @@ on:
     workflows:
     - factory
     - ci
-    - sf-run
     types:
     - completed
 permissions: {}

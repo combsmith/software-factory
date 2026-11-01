@@ -70,8 +70,9 @@ SHIM_TOP = {"name", "on", "permissions", "jobs", "run-name"}
 SHIM_JOB = {"uses", "permissions", "concurrency", "if", "with", "secrets"}
 SHIM_NEEDS = {"uses", "permissions", "concurrency", "secrets"}
 # A called job that names an environment reads its secrets only when its caller says `secrets: inherit` (trial P-55), so
-# a shim says that, in these words and no others. The called file can then name any secret of the repo or the org; an
-# environment's stays behind that environment's branch policy.
+# a shim says that, in these words and no others. The called file can then name any secret of the repo or the org, an
+# environment's where its job names that environment: its branch policy is met by the caller's main, whatever commit the
+# channel names, so the tag's ruleset is what guards every key (decision 0113).
 SHIM_SECRETS = "    secrets: inherit"
 # The one channel every shim calls (decision 0006), the Release's tag, never a local path, which would run main's copy.
 RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.yml@factory/v0-next$")
@@ -80,16 +81,18 @@ RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.y
 SHIMS = {}
 # A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
 # commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309); and the Run's
-# jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196). The release job
+# jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196); and the approving
+# act's, whose wake approve_job_problems holds the same way (trial P-55). The release job
 # moves the Release every Run calls, so it cannot be one: it runs main's file, and release_problems holds every line of
 # it (issue 197's ruling 4′).
-SHAPED = {"eval.yml": ("shim", "install"), "run-jobs.yml": ("install",), "release.yml": ("shim",)}
-# The one workflow that wakes on another's end, and the one job granted a write (issue 196's ruling 4).
-WAKES = "poller.yml"
+SHAPED = {"eval.yml": ("shim", "install"), "run-jobs.yml": ("install",), "approve-job.yml": ("install",), "release.yml": ("shim",)}
+# The one workflow that wakes on another's end, and the Run's, which it does not name (trial P-55).
+WAKES, RUN_WORKFLOW = "poller.yml", "sf-run"
 # The Run's lane (issue 196's ruling 6): one concurrency group for each Work item, on the one job that calls the Run's
 # jobs, so that it holds from run to apply and never cancels what runs. And the three places an expression may stand
 # whole beyond env:, with: and secrets:: the run's name, the lane, and a job's output of one of its steps.
 RUN_JOBS = "run-jobs.yml"
+APPROVE_JOB = "approve-job.yml"
 LANE = "${{ inputs.item }}"
 RUN_NAME = "${{ inputs.name }}"
 OUTPUT = re.compile(r"^\$\{\{ steps\.[a-z][\w-]*\.outputs\.[a-z][\w-]* \}\}$")
@@ -133,11 +136,13 @@ jobs:
 EVENT_READ = re.compile(r"(?<![./\w-])github(?![\w-])(?!\.token(?![\w.\[]))", re.I)
 GITHUB_ANY = re.compile(r"(?<![./\w-])github(?![\w-])", re.I)     # the poller names none of it, its token neither
 PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
-# The other two jobs that may hold actions: write, each in the one file named (trial P-55): the Run's last job, which
-# dispatches the poller, and the calling job above it, since a called job can be granted no more than its caller.
+# The other two jobs that may hold actions: write, each in the files named (trial P-55): a Run's last job, which
+# dispatches the poller, and the calling job above it, since a called job can be granted no more than its caller. A
+# wake holds no secret, no environment and no checkout in either file, so its write never stands beside a key.
 WAKE_JOB, LANE_JOB = "wake", "lane"
+WAKE_FILES, LANE_FILES = (RUN_JOBS, APPROVE_JOB), ("run.yml", "approve.yml")
 ACTIONS_WRITE = {PASS_JOB, WAKE_JOB, LANE_JOB}
-# The Run's three jobs and the approving act's one, each held word for word, as run.yml is (#196's ruling 7, decisions
+# The Run's jobs and the approving act's, each with its wake, each held word for word, as run.yml is (#196's ruling 7, decisions
 # 0050, 0054 and 0055; the Maintainer's answers (a) and (b) of 2026-10-21). Every job checks out the Release, never the
 # item's code. `run` reads with the reader's key in a step of its own, revoked before the model's step, which holds the
 # model's credential alone, the Engine setting the scrub and `--tools ""`; `verify` holds no secret and no cache; `apply`
@@ -147,7 +152,6 @@ ACTIONS_WRITE = {PASS_JOB, WAKE_JOB, LANE_JOB}
 # user's token alone. The CLI
 # is the second exempt install, its version the Engine's pin in config/harness.json, and its checksum CLI_CHECKSUM, the
 # one the vendor's release manifest gives for linux-x64; a pull request that moves the pin moves the checksum.
-APPROVE_JOB = "approve-job.yml"
 PASS_WORKFLOW = "pass.yml"
 # The pass, held word for word: the record uploaded before anything is dispatched, the Controller's key on its two steps
 # alone, the pass's own token on the writes' step alone, and the record of each write uploaded whatever failed.
@@ -360,7 +364,7 @@ jobs:
       - run
       - verify
       - apply
-    if: always()
+    if: always() && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -371,7 +375,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         timeout-minutes: 2
-        run: gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"
+        run: timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"
 """
 APPROVE_JOB_FILE = """name: sf-approve-job
 on:
@@ -426,6 +430,21 @@ jobs:
           name: outcome
           path: outcome/outcome.json
           if-no-files-found: error
+  wake:
+    needs:
+      - approve
+    if: always() && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Wake the next pass, since a Run the pass's token started wakes nothing when it ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        timeout-minutes: 2
+        run: timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"
 """
 # Each key and the environment it lives in, by the one file that may name them (decision 0035): no other workflow names
 # either, so no other job, and no job a fork's code could reach, holds the key.
@@ -787,7 +806,7 @@ def lint(text: str) -> list:
             found.append(("runner", "uses the image '%s'" % value))
         if key == "continue-on-error" and value != "false":
             found.append(("soft", "continues on error"))
-        if key == "secrets" and value and not (events & SHIM_EVENTS and len(e["path"]) == 2 and e["path"][0] == "jobs"
+        if key == "secrets" and value and not (events and events <= SHIM_EVENTS and len(e["path"]) == 2 and e["path"][0] == "jobs"
                                                and text.split("\n")[e["line"] - 1] == SHIM_SECRETS):
             found.append(("token", "inherits secrets"))
         if key == "shell":
@@ -909,6 +928,8 @@ def _wake(text: str, entries: list, top: dict) -> list:
         whys.append("it wakes on more than the completion of the workflows it names")
     if names and top.get("name", {}).get("value") in names:
         whys.append("it wakes on its own end")
+    if names and RUN_WORKFLOW in names:
+        whys.append("it names %s, whose runs the pass's token starts, and whose ends wake nothing: a Run's wake job does" % RUN_WORKFLOW)
     if any(e["path"][:2] == ["on", "workflow_dispatch"] for e in entries):
         whys.append("it takes an input")
     if GITHUB_ANY.search(_uncommented(text)):
@@ -1453,10 +1474,19 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
         problems.append("it reads the run that woke the poller, which says nothing a fork could not write")
     if any(e["path"] == ["jobs"] and e["key"] == PASS_JOB for e in entries) and name not in PASS_FILES:
         problems.append("the job %s is reserved for %s, a job granted a write" % (PASS_JOB, " and ".join(PASS_FILES)))
-    for job, home in ((WAKE_JOB, RUN_JOBS), (LANE_JOB, "run.yml")):
-        if any(e["path"] == ["jobs"] and e["key"] == job for e in entries) and name != home:
-            problems.append("the job %s is reserved for %s, a job granted a write" % (job, home))
+    for job, homes in ((WAKE_JOB, WAKE_FILES), (LANE_JOB, LANE_FILES)):
+        if any(e["path"] == ["jobs"] and e["key"] == job for e in entries) and name not in homes:
+            problems.append("the job %s is reserved for %s, a job granted a write" % (job, " and ".join(homes)))
+    problems += wake_problems(entries)
     return problems
+
+
+def wake_problems(entries: list) -> list:
+    """A wake that holds a secret, an environment or a checkout: its write would stand beside a key, or the item's code."""
+    held = [e for e in entries if e["path"][:2] == ["jobs", WAKE_JOB]]
+    if any("secrets." in e["value"].lower() or e["key"] == "environment" or _checkout(e) for e in held):
+        return ["the job %s holds a secret, an environment or a checkout, and holds a write" % WAKE_JOB]
+    return []
 
 
 def lens_job_problems(text: str, check: str) -> list:

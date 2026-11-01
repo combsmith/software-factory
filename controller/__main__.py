@@ -70,7 +70,7 @@ def utc(clock=time.time) -> str:
     return datetime.datetime.fromtimestamp(int(clock()), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dict:
+def read(transport, config: dict, run_id: str, previous, now: str, clock, started) -> dict:
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
@@ -103,7 +103,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
             pulls.append({"facts": facts, "title": title})
         except Unanswered:
             pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None})
-    return {"started": passes.started(transport, home, run_id), "pause": pause_.read(transport, home.split("/")[0], [home]),
+    return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": [], "usage": {}}
 
 
@@ -112,8 +112,9 @@ def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.s
     controller = config["controller"]
     previous = passes.records(transport, controller["home"]["repo"], controller["home"]["branch"],
                               controller["workflows"]["poller"], int(run_id))
-    sleep(pass_.wait_before_reading(previous, utc(clock), config))
-    reads = read(transport, config, run_id, previous, utc(clock), clock)
+    started = passes.started(transport, controller["home"]["repo"], run_id)
+    sleep(pass_.wait_before_reading(previous, utc(clock), config, started))
+    reads = read(transport, config, run_id, previous, utc(clock), clock, started)
     return pass_.run(reads, config, utc(clock), previous, mint_id)
 
 

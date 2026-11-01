@@ -10,7 +10,6 @@ on:
     workflows:
       - factory
       - ci
-      - sf-run
 permissions: {}
 jobs:
   pass:
