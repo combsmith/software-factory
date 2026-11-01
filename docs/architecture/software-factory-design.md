@@ -933,8 +933,12 @@ every item. The cost is accepted (issue 433): a Task the model cannot finish in 
 window can raise the automatic pause, which stops no act. No Run has a tool (decision 0050), so an
 item can slow its Run only by what the model reads. The design that first gives a Run a tool, issue
 314, rules on this again, since an item can then hang its Run. A Run `cancelled`
-with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which
-the records port reads as `cancelled`. Its concurrency group cancels a Run that waits behind another
+with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, and a
+first attempt an `if:` skipped, `skipped`, each of which the records port reads as `cancelled`. A row `skipped` on a later
+attempt reads `failure`, an attempt, since the shim's `if:` skips any re-run and the list shows only the latest
+(decision 0111, `tests/test_adapters.py::test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt`).
+The word is read live from `schedule` runs and a canary's `workflow_dispatch` of a shim; a fixture, and a re-run, wait
+on issue 196's ruling 9 trial. Its concurrency group cancels a Run that waits behind another
 as a newer one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
 the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
 port reads as `queued` (`adapters/records.py`). The simulator's lane holds this

@@ -21,6 +21,7 @@ from unittest import mock
 from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, \
     pause, rules, texts, threads, timeline
 from harness import task
+from kernel import brakes
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -984,6 +985,27 @@ class Records(unittest.TestCase):
         again = listing("P-17", 10, page=2, total=2, rows={"name": NAME})
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
+    def test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt(self):
+        # Decision 0111. The shim's `if:` runs a first attempt alone and the list shows the latest, so a row `skipped` on
+        # a later attempt, or one whose attempt cannot be read, may be a Run that ran and died: it is an attempt, and a
+        # person's re-run erases none. Only a first attempt ran no Role.
+        done = {"name": NAME, "status": "completed", "conclusion": "skipped"}
+        ident = listing("P-17", 3, rows=done)["response"]["body"]["workflow_runs"][0]["id"]
+        for attempt, read, counted in ((1, "cancelled", 0), (2, "failure", 1), (3, "failure", 1), (True, "failure", 1),
+                                       ("1", "failure", 1), (None, "failure", 1), (0, "failure", 1)):
+            row = listing("P-17", 3, rows=dict(done, run_attempt=attempt))
+            got, _ = self.read(row, stored(canary(), ident, None)[0])
+            one = got["runs"][0]
+            self.assertEqual((one["conclusion"], one["outcome"], got["complete"]), (read, None, True), attempt)
+            self.assertEqual(len(brakes._attempts(got["runs"], one["intent"])), counted, attempt)
+        # An outcome a later attempt's row still lists is read as any failed Run's.
+        row = listing("P-17", 3, rows=dict(done, run_attempt=2))
+        got, _ = self.read(row, *stored(canary(), ident, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
+        self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"]), ("failure", "environment"))
+        # The Run ceiling counts each, whichever it reads.
+        got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=1)), stored(canary(), ident, None)[0])
+        self.assertEqual(len(brakes._spent(got["runs"])), len(got["runs"]))
+
     def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):
         # Decisions 0039 and 0049: a failed Run's outcome is read from its artifact; a Run that succeeded has none
         # read, and one whose outcome cannot be read leaves the list not whole, never read as no attempt.
@@ -992,7 +1014,8 @@ class Records(unittest.TestCase):
         github_id = row["response"]["body"]["workflow_runs"][0]["id"]
         got, _ = self.read(row)
         self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]), ("success", None, True))
-        for conclusion, read in (("startup_failure", "cancelled"), ("timed_out", "timed_out"), ("cancelled", "cancelled")):
+        for conclusion, read in (("startup_failure", "cancelled"), ("skipped", "cancelled"), ("timed_out", "timed_out"),
+                                 ("cancelled", "cancelled")):
             failed = listing("P-17", 3, rows=dict(done, conclusion=conclusion))
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item"))))
             self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]),
