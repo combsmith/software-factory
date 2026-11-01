@@ -509,7 +509,8 @@ class Chain(unittest.TestCase):
         self.assertEqual(start("watch", RELAY, cfg=held), "public")
         self.assertEqual(start("workflow_dispatch", TOKEN, cfg=held), "dispatch")
         self.assertEqual({k: CONTROLLER["accounts"][k] for k in ("workflow_token", "relay", "controller", "maintainer")},
-                         {"workflow_token": {"id": 41898282, "type": "Bot"}, "relay": None, "controller": None,
+                         {"workflow_token": {"id": 41898282, "type": "Bot"}, "relay": None,
+                          "controller": {"login": "combsmith-sf-controller[bot]", "id": 344165726, "type": "Bot"},
                           "maintainer": {"login": "don-petry", "id": 36422719}})
         self.assertEqual(passed(dict(reads(), started=None))["record"]["started_by"], "dispatch")
 
@@ -939,12 +940,108 @@ class Entry(unittest.TestCase):
             _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
             self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
 
+    def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0109
+        # What each snapshot kept is handed to the seen port, each item once; the machine user's pushes are read; a pull
+        # request the pass before served and that has left is read as left; and the Effects are read by what no record
+        # before read. The window is a day and `not_run_seconds` back from the read.
+        spied, efforts = [], {}
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, opener, recorded, opened):
+            if number == 8:
+                raise github.Unanswered("no")
+            kept["reviews"] = "kept of %d" % number
+            transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number)})
+            transport.send({"method": "GET", "path": "/repos/%s/pulls/%d/later" % (repo, number)})
+            return support.facts(item=dict(support.ITEM, number=number)), "A title"
+
+        def read(transport, item, kept, identities, apps, since):
+            spied.append((item, kept, identities, apps, since))
+            return ([], [], since is not None)
+
+        def pushes(transport, repo, approver, since, clock):
+            spied.append(("pushes", repo, approver["id"], since, clock()))
+            return ([], True)
+
+        def applied_read(transport, repo, runs, since, known):
+            efforts["runs"] = (repo, since, known)
+            return {"applied": [], "read": ["r_01JA7Q"], "whole": True}
+
+        def written_read(transport, repo, branch, poller, own, since, known):
+            efforts["passes"] = (repo, branch, poller, own, since, known)
+            return {"written": [], "read": [41], "whole": True}
+
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before["now"] = "2026-10-12T11:00:00Z"
+        served = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
+            before["pull_requests"][0]["facts"]["item"], number=n))) for n in (7, 9)]
+        before["pull_requests"] = served
+        before["reconciled"] = {"runs": [{"id": "r_01JA00", "at": "2026-10-12T11:00:00Z"}],
+                                "passes": [{"id": 40, "at": "2026-10-12T11:00:00Z"}], "keys": [], "items": [], "dispatched": []}
+        table = self.table(numbers=[7, 8])
+        pull = copy.deepcopy(exchanges("P-17")[4]["response"])
+        pull["headers"] = {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}
+        table[("GET", "/repos/%s/pulls/7" % self.HOME)] = pull
+        table[("GET", "/repos/%s/pulls/7/later" % self.HOME)] = dict(pull, headers={"date": "Mon, 12 Oct 2026 11:59:40 GMT", "age": "0"})
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                unittest.mock.patch.object(entry.seen_, "read", read), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
+                unittest.mock.patch.object(entry.applied, "effects", applied_read), \
+                unittest.mock.patch.object(entry.passes, "written", written_read):
+            code, _, files, _ = self.run_entry(Hub(table))
+        self.assertEqual(code, 0)
+        since = "2026-10-11T06:00:00Z"
+        item = lambda n: {"repo": self.HOME, "type": "pull_request", "number": n}
+        identities, apps = spied[0][2], spied[0][3]
+        self.assertEqual([s[:2] for s in spied[:3]],
+                         [(item(7), {"reviews": "kept of 7"}), (item(8), None), (item(9), entry.seen_.LEFT)])
+        self.assertTrue(all(s[4] == since for s in spied[:3]))
+        self.assertEqual(identities[(344165726, "Bot")], "controller")
+        self.assertEqual(identities[(344166014, "Bot")], "pr-review")
+        catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        self.assertEqual(apps, {catalogue["controller"]["app_id"]: "controller", catalogue["pr-review"]["app_id"]: "pr-review"})
+        self.assertEqual(spied[3], ("pushes", self.HOME, CONTROLLER["accounts"]["approver"]["id"], since, "2026-10-12T12:00:00Z"))
+        self.assertEqual(efforts["runs"], (self.HOME, since, {"r_01JA00"}))
+        self.assertEqual(efforts["passes"], (self.HOME, "main", "poller.yml", int(self.RUN), since, {40}))
+        record = files["pass.json"]
+        # The read that began each snapshot is kept; one whose snapshot could not be read has none.
+        self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
+        # What it read goes into its record, for the next pass, after what the last one carried.
+        self.assertEqual(record["reconciled"]["runs"], before["reconciled"]["runs"] + [{"id": "r_01JA7Q", "at": record["now"]}])
+        self.assertEqual(record["reconciled"]["passes"], before["reconciled"]["passes"] + [{"id": 41, "at": record["now"]}])
+        self.assertEqual(shared.errors(record, "pass"), [])
+        # A seen read not answered, and the machine user's pushes not answered, are short, never a pass that fails.
+        def refused(*a, **k):
+            raise github.Unanswered("no")
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.seen_, "read", refused), unittest.mock.patch.object(entry.seen_, "pushes", refused), \
+                unittest.mock.patch.object(entry.applied, "effects", applied_read), \
+                unittest.mock.patch.object(entry.passes, "written", written_read):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual(code, 0)
+        self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"])
+        # What was recorded and could not be read whole is short, whichever half it was.
+        for runs_whole, passes_whole in ((False, True), (True, False)):
+            with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.seen_, "read", read), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
+                    unittest.mock.patch.object(entry.applied, "effects", lambda *a: {"applied": [], "read": [], "whole": runs_whole}), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a: {"written": [], "read": [], "whole": passes_whole}):
+                _, _, files, _ = self.run_entry(Hub(table))
+            self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"], (runs_whole, passes_whole))
+        # With no record before it, nothing is known, so everything in the window is read.
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: None), \
+                unittest.mock.patch.object(entry.seen_, "read", read), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
+                unittest.mock.patch.object(entry.applied, "effects", applied_read), \
+                unittest.mock.patch.object(entry.passes, "written", written_read):
+            self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual((efforts["runs"][2], efforts["passes"][5]), (set(), set()))
+
     def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
 
         whos = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener, *, recorded, opened):
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, opener, recorded, opened):
             handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener,
                            recorded))
             whos.append(who)
@@ -961,7 +1058,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(files["view/items.json"]["items"][0]["untrusted"]["title"], "A title")
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
-                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None, ({}, True, []))])
+                                   (281750570, "User"), {}, {(344165726, "Bot")}, True, "2026-10-12T12:00:00Z", None, ({}, True, []))])
         # What the opening Runs recorded is read once a pass, for the Role the configuration names, and handed to each
         # snapshot as it was read (issue 342).
         made, seen, got = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}, [], []

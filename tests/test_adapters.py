@@ -3709,6 +3709,105 @@ def pass_zip(record) -> bytes:
     return outcome_zip(record, passes.MEMBER)
 
 
+def written_stored(github_id: int, record, **listed) -> list:
+    """A pass's `written` artifact listed and downloaded, as `stored` gives an outcome's; `record` None lists none."""
+    found = stored(HOME, github_id, outcome_zip(record, passes.WRITTEN_MEMBER) if record is not None else None, **listed)
+    found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=written")
+    for artifact in found[0]["response"]["body"]["artifacts"]:
+        artifact["name"] = passes.WRITTEN
+    return found
+
+
+class EffectsRecorded(unittest.TestCase):
+    """What reconciliation reads of what the Factory recorded, each read once (decisions 0061, 0109)."""
+    SINCE = "2026-10-11T06:00:00Z"
+    OWN = 1
+    RUN = "r_01JA6Z"
+    DONE = {"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1", "writes": []}
+
+    def page(self, rows, total=None, page=1):
+        found = passes_listed(rows, total)
+        found["request"]["call"] = ("GET /repos/%s/actions/workflows/%s/runs?branch=main&status=completed&created=%%3E%%3D%s"
+                                    "&per_page=100&page=%d" % (HOME, POLLER, self.SINCE, page))
+        return found
+
+    def passes_(self, *found, known=()):
+        return passes.written(github.Replay([e for f in found for e in (f if isinstance(f, list) else [f])]), HOME, "main",
+                              POLLER, self.OWN, self.SINCE, set(known))
+
+    def test_each_pass_in_the_window_is_read_once_and_what_cannot_be_read_is_read_again(self):
+        got = self.passes_(self.page([a_pass(30), a_pass(20), a_pass(10), a_pass(self.OWN)]), written_stored(30, self.DONE),
+                           written_stored(20, None), known=[10])
+        # One that recorded, one that wrote nothing, and one a record read; its own is not read.
+        self.assertEqual(got, {"written": [self.DONE], "read": [30, 20], "whole": True})
+        # What is no pass of the poller from the default branch is passed over.
+        others = [a_pass(40, path=".github/workflows/run.yml"), a_pass(41, head_branch="other"), a_pass(43, event="push")]
+        self.assertEqual(self.passes_(self.page(others)), {"written": [], "read": [], "whole": True})
+        # Past its retention it recorded nothing that can be read.
+        self.assertEqual(self.passes_(self.page([a_pass(30)]), written_stored(30, None))["read"], [30])
+        # A second page is read, and bounded: more than the pages allow is read short, as a list shorter than it says is.
+        rows = [a_pass(100 + i) for i in range(100)]
+        got = self.passes_(self.page(rows, total=101), self.page([a_pass(99)], total=101, page=2), known=[r["id"] for r in rows] + [99])
+        self.assertEqual(got, {"written": [], "read": [], "whole": True})
+        with unittest.mock.patch.object(passes, "WINDOW_PAGES", 1):
+            self.assertIs(self.passes_(self.page(rows, total=101), known=[r["id"] for r in rows])["whole"], False)
+        self.assertIs(self.passes_(self.page([a_pass(30)], total=2), self.page([], total=2, page=2), known=[30])["whole"], False)
+        # A list that cannot be read is not whole, and reads nothing.
+        answered = self.page([])
+        answered["response"]["status"] = 500
+        for bad in (answered, self.page([], total="x"), self.page(["x"], total=1), self.page([{"id": 0}], total=1)):
+            self.assertEqual(self.passes_(bad), {"written": [], "read": [], "whole": False}, bad["response"]["body"])
+        self.assertIs(self.passes_()["whole"], False)
+        # A record that cannot be read leaves the pass unread, so a later pass reads it again, and the others stand.
+        refused = written_stored(30, None)
+        refused[0]["response"]["status"] = 500
+        self.assertEqual(self.passes_(self.page([a_pass(30), a_pass(20)]), refused, written_stored(20, self.DONE)),
+                         {"written": [self.DONE], "read": [20], "whole": False})
+        made = io.BytesIO()
+        with zipfile.ZipFile(made, "w") as archive:
+            archive.writestr(passes.WRITTEN_MEMBER, "not json")
+        no_json = stored(HOME, 30, made.getvalue())
+        no_json[0]["request"]["call"] = no_json[0]["request"]["call"].replace("name=outcome", "name=written")
+        for artifact in no_json[0]["response"]["body"]["artifacts"]:
+            artifact["name"] = passes.WRITTEN
+        self.assertEqual(self.passes_(self.page([a_pass(30)]), no_json), {"written": [], "read": [], "whole": False})
+        self.assertEqual(self.passes_(self.page([a_pass(30)])), {"written": [], "read": [], "whole": False})
+
+    def test_each_run_in_the_window_is_read_once_and_only_a_listed_one(self):
+        def run(name, **over):
+            return dict(lens_run(name), started_at="2026-10-11T12:00:00Z", **over)
+
+        def read(runs, *found, known=()):
+            return applied.effects(github.Replay(list(found)), "o/r", runs, self.SINCE, set(known))
+        done = lens_applied(self.RUN)
+        one = listed_runs(run(self.RUN))
+        self.assertEqual(read(one, *applied_stored("o/r", 39100000000, done)), {"applied": [done], "read": [self.RUN], "whole": True})
+        # Read once; one still running, or older than the window, is not read: the replay holds no answer.
+        self.assertEqual(read(one, known=[self.RUN]), {"applied": [], "read": [], "whole": True})
+        self.assertEqual(read(listed_runs(run(self.RUN, status="in_progress", conclusion=None))), {"applied": [], "read": [], "whole": True})
+        old = dict(lens_run(self.RUN), started_at="2026-10-11T05:59:59Z")
+        self.assertEqual(read(listed_runs(old)), {"applied": [], "read": [], "whole": True})
+        edge = dict(lens_run(self.RUN), started_at=self.SINCE)
+        self.assertEqual(read(listed_runs(edge), *applied_stored("o/r", 39100000000, done))["read"], [self.RUN])
+        # A Run that failed and listed none recorded nothing, and is read; nor is one past its retention held against it.
+        failed = listed_runs(run(self.RUN, conclusion="failure"))
+        self.assertEqual(read(failed, *applied_stored("o/r", 39100000000, None)), {"applied": [], "read": [self.RUN], "whole": True})
+        self.assertEqual(read(one, *applied_stored("o/r", 39100000000, done, expired=True)[:1]), {"applied": [], "read": [self.RUN], "whole": True})
+        # What cannot be read leaves the Run unread, so a later pass reads it again: one that succeeded and lists none, a read
+        # never answered, a Run named by two GitHub runs or by none.
+        for runs, found in ((one, applied_stored("o/r", 39100000000, None)), (one, []),
+                            (listed_runs(run(self.RUN), ids={self.RUN: [1, 2]}), []), (listed_runs(run(self.RUN), ids={}), [])):
+            self.assertEqual(read(runs, *found), {"applied": [], "read": [], "whole": False}, runs.get("github_ids"))
+        # A list that cannot be read whole is not whole, and reads nothing: only a Run the list names is read.
+        for runs in (None, listed_runs(run(self.RUN), complete=False), {"complete": True}, {"complete": True, "runs": [], "github_ids": None}):
+            self.assertEqual(read(runs), {"applied": [], "read": [], "whole": False}, runs)
+        # Though each could be answered.
+        self.assertEqual(read(listed_runs(run(self.RUN), complete=False), *applied_stored("o/r", 39100000000, done)),
+                         {"applied": [], "read": [], "whole": False})
+        self.assertEqual(read(listed_runs(run(self.RUN), ids={self.RUN: [39100000000, 2]}), *applied_stored("o/r", 39100000000, done)),
+                         {"applied": [], "read": [], "whole": False})
+
+
 class PassRecords(unittest.TestCase):
     OWN = 1
 

@@ -321,6 +321,14 @@ def seen(parts: list, since: str) -> dict:
     return {"schema": "seen/1", "since": since, "whole": whole, "writes": writes, "merged": merged}
 
 
+def apps_of(accounts: dict, apps: dict) -> dict:
+    """`{app_id: code}`, each Factory App whose account the configuration holds, by which a check run is told."""
+    codes = ["controller", "queue"] + sorted(accounts.get("roles") or {})
+    roles = accounts.get("roles") or {}
+    return {apps[code]["app_id"]: code for code in codes
+            if code in apps and isinstance(roles.get(code, accounts.get(code)), dict)}
+
+
 def identities(accounts: dict) -> tuple:
     """`(identities, known)` from the configuration's accounts: each writing identity's `(id, type)` and its code, and
     whether every one is known."""

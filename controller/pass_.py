@@ -246,7 +246,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
               "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
               "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
-              "reconciliation": reconcile_.entries(found)}
+              "reconciliation": reconcile_.entries(found),
+              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now)}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]

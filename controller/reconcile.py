@@ -4,8 +4,8 @@ Effect (I-33)", issue 306, with the Maintainer's answers).
 
 `reconcile(seen, effects, runs, before, accounts)` is pure, as the pass is. It is given:
 - `seen`: what `adapters/seen.py` read, `seen/1`, or None if it could not be read;
-- `effects`: the Effects the Factory recorded in the window, `{"applied": [applied/1], "written": [written/1], "whole"}`,
-  or None;
+- `effects`: the Effects the Factory recorded and this pass read, `{"applied": [applied/1], "written": [written/1], "read":
+  {"runs", "passes"}, "whole"}`, or None. What a record before it read is carried in that record, as `carried` says;
 - `runs`: the run records the pass read, held to their schema, each a dispatch the pass job's token made; None where
   the list could not be read whole. Dispatches are reconciled only once `accounts.workflow_token` is set (ruling 2);
 - `before`: the pass records before this one, whose Decisions say whether a merge had an approval standing;
@@ -59,10 +59,49 @@ def _identities(accounts) -> tuple:
     return found, known
 
 
-def _keys(effects: dict) -> tuple:
+def _last(before) -> dict:
+    """What the last record before this pass carried of what was reconciled; nothing if it holds none."""
+    held = before[-1].get("reconciled") if isinstance(before, list) and before else None
+    return held if isinstance(held, dict) else {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": []}
+
+
+def known(before) -> tuple:
+    """`(runs, passes)` that a record before this pass read: each is read once. With no last record, or one that holds
+    none, nothing is known, and everything in the window is read again (decision 0109)."""
+    held = _last(before)
+    return {e["id"] for e in held["runs"]}, {e["id"] for e in held["passes"]}
+
+
+def carried(before, effects, seen, now: str) -> dict:
+    """What this pass's record carries for the next: what was read in the window and the keys it held, each stamped with
+    when it was read, those older than the window dropped. So a record holds what the Effects it read said, not the
+    records themselves, and a pass reads only what is new (decision 0109)."""
+    since = seen.get("since") if isinstance(seen, dict) else None
+    held = {name: [e for e in rows if since is None or e["at"] >= since] for name, rows in _last(before).items()}
+    if not _readable(effects):
+        return held
+    read = effects.get("read") if isinstance(effects.get("read"), dict) else {}
+    keys, items = _keys(effects)
+    return {"runs": held["runs"] + [{"id": r, "at": now} for r in read.get("runs", [])],
+            "passes": held["passes"] + [{"id": p, "at": now} for p in read.get("passes", [])],
+            "keys": held["keys"] + [{"where": where, "type": kind, "key": k, "at": now}
+                                    for (where, kind), found in sorted(keys.items()) for k in sorted(found)],
+            "items": held["items"] + [{"type": kind, "item": item, "count": count, "at": now}
+                                      for (kind, item), count in sorted(items.items())],
+            "dispatched": held["dispatched"] + [{"run": r, "at": now} for r in sorted(_dispatched(effects))]}
+
+
+def _keys(effects: dict, before=None, since=None) -> tuple:
     """`(keys, items)`: the key of every Effect recorded as landed, by where it was recorded and its type; and of a
-    write matched by its item, how many were recorded on each."""
+    write matched by its item, how many were recorded on each. Those a record before this pass carried count too."""
     keys, items = {}, {}
+    held = _last(before)
+    for e in held["keys"]:
+        if since is None or e["at"] >= since:
+            keys.setdefault((e["where"], e["type"]), set()).add(e["key"])
+    for e in held["items"]:
+        if since is None or e["at"] >= since:
+            items[(e["type"], e["item"])] = items.get((e["type"], e["item"]), 0) + e["count"]
     for done in effects["applied"]:
         for e in done["effects"]:
             if e["state"] in LANDED and e["key"] is not None:
@@ -96,7 +135,8 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     readable = seen is not None and not errors(seen, "seen")
     recorded = _readable(effects)
     short = not (readable and seen["whole"] is True and recorded and effects.get("whole") is True and known)
-    keys, items = _keys(effects) if recorded else ({}, {})
+    since = seen["since"] if readable else None
+    keys, items = _keys(effects, before, since) if recorded else _keys({"applied": [], "written": []}, before, since)
     unmatched, override = [], []
     for w in seen["writes"] if readable else []:
         kind = identities.get(w["by"])
@@ -117,8 +157,8 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)
     if token and readable:
         # A dispatch whose record cannot be read is unmatched, as any write is (ruling 5).
-        since = seen["since"]
-        dispatched = _dispatched(effects) if recorded else set()
+        dispatched = (_dispatched(effects) if recorded else set()) \
+            | {e["run"] for e in _last(before)["dispatched"] if e["at"] >= since}
         for r in runs if isinstance(runs, list) else []:
             # A dispatch is read by when its run was made, which a re-run keeps; a re-run runs nothing (decision
             # 0058), and one the pass job's own token made is a write no Effect records (decision 0063).

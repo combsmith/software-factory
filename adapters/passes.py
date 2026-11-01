@@ -31,6 +31,9 @@ MEMBER = "pass.json"          # its one file
 HELD = 8 * 1024 * 1024        # bytes the file may be, as the zip says and as read out of it
 WANTED = 2                    # the records read: the last two passes'
 PAGE = 20                     # the runs read, newest first, to find them
+WRITTEN = "written"           # the artifact the pass job's last step uploads
+WRITTEN_MEMBER = "written.json"
+WINDOW_PAGE, WINDOW_PAGES = 100, 5  # the runs read for reconciliation's window, newest first; more is read short
 EVENTS = {"schedule", "workflow_dispatch", "workflow_run"}
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 
@@ -105,6 +108,51 @@ def records(transport, repo: str, branch: str, poller: str, own: int):
         if len(found) < WANTED and total > len(listed):
             return None
     return list(reversed(found))
+
+
+def written(transport, repo: str, branch: str, poller: str, own: int, since: str, known) -> dict:
+    """What each completed pass since `since` recorded of its writes and has not been read: `{"written": [written/1],
+    "read": [each run's id], "whole": bool}`, for reconciliation (decisions 0061, 0109). A pass is read once: `known` is
+    the runs a record before this one read. A pass that lists no record wrote nothing, and is read; one whose record cannot
+    be read is not, so a later pass reads it again, and what this one read is not whole."""
+    out, page, rows = {"written": [], "read": [], "whole": True}, 1, []
+    while True:
+        try:
+            answer = transport.send(request(
+                "GET", "/repos/%s/actions/workflows/%s/runs?branch=%s&status=completed&created=%%3E%%3D%s&per_page=%d&page=%d"
+                % (repo, poller, branch, since, WINDOW_PAGE, page), headers={"Cache-Control": "no-cache"}))
+        except Unanswered:
+            return dict(out, whole=False)
+        body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
+        listed, total = body.get("workflow_runs"), body.get("total_count")
+        if not isinstance(listed, list) or type(total) is not int or total < 0:
+            return dict(out, whole=False)
+        rows += listed
+        if len(rows) >= total or not listed:
+            break
+        if page == WINDOW_PAGES:
+            return dict(out, whole=False)
+        page += 1
+    if len(rows) != total:
+        return dict(out, whole=False)
+    for row in rows:
+        if not isinstance(row, dict) or not _id(row.get("id")):
+            return dict(out, whole=False)
+        if not _is_pass(row, repo, branch, poller, own) or row["id"] in known:
+            continue
+        try:
+            held, whole = artifacts.read(transport, repo, row["id"], name=WRITTEN, member=WRITTEN_MEMBER,
+                                         zipped_most=PASSED, held_most=HELD)
+            done = json.loads(held.decode("utf-8")) if held is not None else None
+        except (Unanswered, ValueError):
+            whole, done = False, None
+        if not whole:
+            out["whole"] = False
+            continue
+        out["read"].append(row["id"])
+        if done is not None:
+            out["written"].append(done)
+    return out
 
 
 PASS_ID = re.compile(r"p_[0-9A-Z]{6,26}")

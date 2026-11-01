@@ -708,7 +708,10 @@ class ControllerKey(unittest.TestCase):
             os.mkdir(os.path.join(d, "pass"))
             pathlib.Path(d, "pass", "pass.json").write_text(json.dumps(out["record"]))
             pathlib.Path(d, "pass", "writes.json").write_text(json.dumps(writes_.plan(out)))
-            with contextlib.redirect_stdout(io.StringIO()):
+            # With the Controller's account set the tracking issue is the Controller's to write, so it is told what that
+            # write came to: this is the step's form, not that write.
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    unittest.mock.patch.object(effects, "tracking", lambda *a, **k: ("applied", None, None)):
                 self.assertEqual(effects.main([], {}, d), 0)
             self.assertTrue(pathlib.Path(d, "pass", "written.json").is_file())
         # The step fails when GitHub did not revoke the token, and only then.
@@ -721,7 +724,8 @@ class ControllerKey(unittest.TestCase):
                 def send(self, req):
                     return {"status": 404, "headers": {}, "body": None}
             for revoked, code in ((True, 0), (False, 1)):
-                with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        unittest.mock.patch.object(effects, "tracking", lambda *a, **k: ("applied", None, None)):
                     self.assertEqual(effects.main(["pass.json", "writes.json", "."], {}, d,
                                                   mint=lambda e, c: (Quiet(), lambda: revoked)), code, revoked)
 

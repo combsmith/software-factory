@@ -204,6 +204,36 @@ OPENS = "open-pull-request"       # the Intent whose Run opens a pull request fo
 OPENED = "open_pull_request"      # the Effect that records the pull request it opened
 
 
+def effects(transport, repo: str, runs, since: str, known) -> dict:
+    """What each completed Run the records port lists recorded since `since` and has not been read: `{"applied":
+    [applied/1], "read": [each Run], "whole": bool}`, for reconciliation (decisions 0061, 0109). A Run is read once: `known`
+    is the Runs a record before this one read. One past its retention, or one that did not succeed and lists no record,
+    recorded nothing that can be read, and is read; one whose record cannot be read is not, so a later pass reads it again,
+    and what this one read is not whole. A record any job could upload could cover a stolen credential's write, so only a
+    Run the list names is read."""
+    listed = isinstance(runs, dict) and runs.get("complete") is True and isinstance(runs.get("github_ids"), dict) \
+        and isinstance(runs.get("runs"), list)
+    out = {"applied": [], "read": [], "whole": listed}
+    for record in runs["runs"] if listed else []:
+        if record["status"] != "completed" or record["started_at"] < since or record["run"] in known:
+            continue
+        github, succeeded = runs["github_ids"].get(record["run"]), record.get("conclusion") == "success"
+        if type(github) is not list or len(github) != 1:
+            out["whole"] = False
+            continue
+        try:
+            kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded)
+        except Unanswered:
+            kept, whole = None, False
+        if not whole:
+            out["whole"] = False
+            continue
+        out["read"].append(record["run"])
+        if isinstance(kept, dict):
+            out["applied"].append(kept)
+    return out
+
+
 def opened(transport, repo: str, runs, role) -> dict:
     """What the opening Runs recorded of the pull requests they opened (issue 342): `{"named": {number: [(run,
     issue)]}, "unreadable": {issue}, "whole"}`. A Run counts when the records port names it of `role`, the Role that

@@ -7,8 +7,8 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
 2. It reads the last two passes' records (`adapters/passes.py`) and waits out the read gap after the last one's read
    began (decision 0043).
 3. It reads what started the pass from its own run, `GITHUB_RUN_ID`; `FACTORY_PAUSED` on the org and the repo; the
-   run records, with the outcomes the records before it read (`records.known`); and the facts of each open pull
-   request. The issues' reads are the issue Lifecycle's port's, not built yet: none is read, and no issue is decided.
+   run records, with the outcomes the records before it read (`records.known`); the facts of each open pull request;
+   and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0109). The issues' reads are the issue Lifecycle's port's, not built yet: none is read, and no issue is decided.
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
@@ -26,10 +26,10 @@ import re
 import sys
 import time
 
-from adapters import applied, facts as facts_, identity, items, passes, pause as pause_, records, timeline
+from adapters import applied, facts as facts_, identity, items, passes, pause as pause_, records, seen as seen_, timeline
 from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher, opener_of as opener, queue_of
 from adapters.github import Live, Unanswered
-from controller import configuration as configured, pass_, reads as reads_, writes as writes_
+from controller import configuration as configured, pass_, reads as reads_, reconcile, writes as writes_
 from controller.shared import Refused
 from harness import steps
 
@@ -40,6 +40,7 @@ RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 VIEW = ("meta", "items", "health")
 FOLDER = "pass"     # what the workflow's form writes into, for the upload and the effects step
+WINDOW = 24 * 60 * 60   # reconciliation's window, with `not_run_seconds`, so a pass after a gap still covers it (decision 0061)
 
 
 class Stop(Exception):
@@ -70,6 +71,64 @@ def utc(clock=time.time) -> str:
     return datetime.datetime.fromtimestamp(int(clock()), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class Dated:
+    """The transport, keeping the first answer through it, whose date and age are a facts read's."""
+
+    def __init__(self, transport):
+        self.transport, self.first = transport, None
+
+    def send(self, req):
+        answer = self.transport.send(req)
+        self.first = answer if self.first is None else self.first
+        return answer
+
+
+def dated(answer) -> list:
+    """A facts read's `{"date", "age"}`, or nothing where its answer says neither."""
+    try:
+        at = records.read_at(answer) if isinstance(answer, dict) else None
+    except Unanswered:
+        return []
+    return [{"date": at["date"], "age": at["age"]}] if at else []
+
+
+def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock) -> dict:
+    """What each Factory identity wrote on what this pass served, or the pass before served and has left, `seen/1`
+    (decision 0061). What a snapshot could not read is short: nothing is guessed."""
+    controller = config["controller"]
+    home, accounts_held = controller["home"]["repo"], controller["accounts"]
+    identities, _ = seen_.identities(accounts_held)
+    apps = seen_.apps_of(accounts_held, config["apps"])
+    last = before[-1]["pull_requests"] if before else []
+    left = [e["facts"]["item"]["number"] for e in last if e["facts"]["item"]["number"] not in numbers]
+    parts = []
+    for number, held in [(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in left]:
+        try:
+            parts.append(seen_.read(transport, {"repo": home, "type": "pull_request", "number": number}, held, identities,
+                                    apps, since))
+        except Unanswered:
+            parts.append(([], [], False))
+    try:
+        parts.append(seen_.pushes(transport, home, accounts_held["approver"], since, clock=lambda: utc(clock)))
+    except Unanswered:
+        parts.append(([], False))
+    return seen_.seen(parts, since)
+
+
+def recorded_effects(transport, config: dict, runs, own: int, before, since: str) -> dict:
+    """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1` and each pass's
+    `written/1`, read once, and all of them again where the last record holds none (decision 0109)."""
+    controller = config["controller"]
+    home = controller["home"]["repo"]
+    known_runs, known_passes = reconcile.known(before)
+    from_runs = applied.effects(transport, home, runs, since, known_runs)
+    from_passes = passes.written(transport, home, controller["home"]["branch"], controller["workflows"]["poller"], own,
+                                 since, known_passes)
+    return {"applied": from_runs["applied"], "written": from_passes["written"],
+            "read": {"runs": from_runs["read"], "passes": from_passes["read"]},
+            "whole": from_runs["whole"] and from_passes["whole"]}
+
+
 def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dict:
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
@@ -95,16 +154,23 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
                              config["authority"])
     # What each opening Run recorded of the pull request it opened, which binds it to its issue (issue 342).
     made = applied.opened(transport, home, runs, facts_.opener_role(config["kernel"]))
-    pulls = []
+    pulls, kept, facts_reads = [], {}, []
     for number in numbers:
+        held, through = {}, Dated(transport)
         try:
-            facts, title = facts_.snapshot(transport, home, number, identities, who, runs_whole, lambda: utc(clock),
-                                           opener=opens, recorded=found[number], opened=made)
+            facts, title = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),
+                                           kept=held, opener=opens, recorded=found[number], opened=made)
             pulls.append({"facts": facts, "title": title})
+            kept[number] = held
+            facts_reads += dated(through.first)
         except Unanswered:
             pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None})
+    before = pass_.earlier(reads_.previous_records(previous), now)
+    since = utc(lambda: clock() - WINDOW - controller["not_run_seconds"])
     return {"started": passes.started(transport, home, run_id), "pause": pause_.read(transport, home.split("/")[0], [home]),
-            "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": [], "usage": {}}
+            "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": facts_reads, "usage": {},
+            "seen": writes_seen(transport, config, numbers, kept, before, since, clock),
+            "effects": recorded_effects(transport, config, runs, int(run_id), before, since)}
 
 
 def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.sleep) -> dict:
