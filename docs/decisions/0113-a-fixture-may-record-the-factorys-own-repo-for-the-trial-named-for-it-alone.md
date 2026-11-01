@@ -1,4 +1,4 @@
-# 0112. A fixture may record the Factory's own repo, for the trial named for it alone
+# 0113. A fixture may record the Factory's own repo, for the trial named for it alone
 
 Status: accepted. Preparing "Trial P-30: one identity cuts a Release and moves a channel tag under the tag ruleset" (issue 189), on the orchestrator's ruling of 2026-10-31.
 
