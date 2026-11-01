@@ -28,8 +28,8 @@ The Kernel reads a required Lens by its App and file because any job can post un
 
 | Boundary | Check |
 |---|---|
-| Once the real check is listed, a forged success does not make its Lens pass, in either order; until then it stands alone, and a null path makes the Lens unreadable | `tests/test_adapters.py::test_a_forged_success_stands_alone_until_the_real_check_is_listed` |
-| A created check under a required Lens's name does not make it pass, the port's rule above | `tests/test_adapters.py::test_a_created_check_under_a_lens_name_does_not_pass`, not held yet |
+| Once the real check is listed, a forged success does not make its Lens pass, in either order; until then it stands alone, and a null path makes the Lens unreadable | `tests/test_adapters.py::test_a_forged_success_is_foreign_before_and_beside_the_real_check` |
+| A created check under a required Lens's name does not make it pass, the port's rule above | `tests/test_adapters.py::test_a_created_check_under_a_lens_name_does_not_pass`, by decision 0104 |
 | A created check reads with the first suite's path, a real job's details say what a created check's do not, and it can be posted to another head | `tests/test_adapters.py::test_a_check_a_job_creates_reads_as_the_first_suites_and_only_a_jobs_own_details_say_otherwise` |
 | A job's token cannot change another job's status, conclusion, name or details | `tests/test_adapters.py::test_a_jobs_token_changes_no_verdict_name_or_details_of_another_jobs_check` |
 | An upload's `neutral` on CodeQL's check is read as unreadable | `tests/test_adapters.py::test_an_upload_turns_codeqls_verdict_neutral_though_it_failed_to_process` |

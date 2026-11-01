@@ -6955,6 +6955,38 @@ esac
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
+    def test_base64_nested_inside_keys_is_read_in_time_and_a_credential_inside_is_still_seen(self):
+        # A key was read twice at each level, and each reading reads what it decodes, so the work doubled per level
+        # while the text grew by a third. Sixteen levels, 5,600 characters, took four seconds of CPU and more.
+        def nested(inner: str, levels: int) -> str:
+            for _ in range(levels):
+                inner = base64.b64encode(json.dumps({inner: 1}).encode()).decode()
+            return inner
+        text = nested("abcdefghijklmnopqrstuvwxyz", 16)
+        with support.Spent() as spent:
+            self.assertEqual(check_trials._credentials({"body": text}, "$"), [])
+        self.assertLess(spent.cpu, 1.0)
+        # One level is read through, at any place: its key is a credential's shape.
+        hidden = nested("ghp_" + "a" * 36, 1)
+        self.assertTrue(check_trials.shaped(hidden))
+        said = check_trials._credentials({hidden: 1}, "$")
+        self.assertEqual(said, [("$.%s" % check_trials.KEY_SHAPED,
+                                 "is a key shaped like a credential; leave it out, and list where in removed")])
+
+    def test_a_status_line_of_spaces_is_read_in_time_and_reads_as_before(self):
+        # The phrase's spaces and the trailing ones overlapped, so a status line with a run of them and then what no
+        # status holds took time in its square: a crafted capture could hold the redactor up.
+        line = redact_trial.STATUS_LINE.fullmatch
+        read_in_linear_cpu(self, lambda spaces: line("HTTP/1.1 200 a" + spaces + "!"), " ", 16000)
+        read_in_linear_cpu(self, lambda words: line("HTTP/1.1 200 " + words + "!"), "a ", 16000)
+        for text, reads in (("HTTP/1.1 200", True), ("HTTP/1.1 200 ", True), ("HTTP/2 404 Not Found", True),
+                            ("HTTP/1.1 200 OK  \r", True), ("HTTP/1.1 200 a", True), ("HTTP/1.1 200 a   ", True),
+                            ("HTTP/1.1 200 a -", True), ("HTTP/1.1 200 it's", True), ("HTTP/1.1 200 a '", True),
+                            ("HTTP/1.1 203 Non-Authoritative Information", True), ("HTTP/1.1 207 Multi-Status", True),
+                            ("HTTP/1.1 200 OK!", False), ("HTTP/1.1 200 -a", False), ("HTTP/1.1 200  a", False),
+                            ("HTTP/1.1 200 a\nb", False), ("HTTP/1.1 20", False), ("http/1.1 200", False)):
+            self.assertEqual(line(text) is not None, reads, text)
+
     def redact(self, raw: str) -> tuple:
         out, said = io.StringIO(), io.StringIO()
         self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 0)
@@ -8660,7 +8692,7 @@ esac
     # lends to the next mutant, so each is removed after the test whether or not it was refused.
     # The scratch directory is one a test does make, so it stands where the walk leaves out: a test running beside this one
     # copies the tree, and a directory that goes while it copies fails that test.
-    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "__pycache__/scratch-of-the-reader")
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link")
 
     def tearDown(self):
         for name in self.INSIDE:
@@ -8746,8 +8778,10 @@ esac
     def test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted(self):
         # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
         # is refused and the directory mktemp made is removed (Codex on PR 298).
-        inside = ROOT / self.INSIDE[2]
-        inside.mkdir(parents=True)
+        # Of its own: this class's clean-up removes what INSIDE names, and a run deals its methods to parts run at once.
+        (ROOT / "__pycache__").mkdir(exist_ok=True)
+        inside = pathlib.Path(tempfile.mkdtemp(dir=str(ROOT / "__pycache__"), prefix="scratch-of-the-reader-"))
+        self.addCleanup(shutil.rmtree, inside, ignore_errors=True)
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
         link.symlink_to(inside)
         for tmpdir in (inside, link):

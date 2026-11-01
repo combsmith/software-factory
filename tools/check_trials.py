@@ -207,11 +207,14 @@ def _credentials(value, where: str) -> list:
     out = []
     if isinstance(value, dict):
         for key, item in value.items():
-            shown = KEY_SHAPED if shaped(key) else key     # a place is never named by a credential
+            # Read once: shaped reads what it decodes through this function, so a second reading doubled the work at each
+            # level of base64 inside a key, and a capture of a few kilobytes held up the redactor for a minute.
+            key_is_shaped = shaped(key)
+            shown = KEY_SHAPED if key_is_shaped else key     # a place is never named by a credential
             here = "%s.%s" % (where, shown) if where else shown
             if refused_key(key):
                 out.append((here, "is a field for a credential; leave it out, and list where in removed"))
-            elif shaped(key):
+            elif key_is_shaped:
                 out.append((here, "is a key shaped like a credential; leave it out, and list where in removed"))
             out += _credentials(item, here)
     elif isinstance(value, list):
