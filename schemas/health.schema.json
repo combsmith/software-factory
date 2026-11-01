@@ -196,7 +196,9 @@
           "outcome": {
             "enum": [
               "capacity",
-              "environment"
+              "environment",
+              "startup_failure",
+              "skipped"
             ]
           },
           "at": {

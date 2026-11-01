@@ -990,15 +990,16 @@ class Records(unittest.TestCase):
         # the flag is what tells them apart for the automatic pause.
         done = {"name": NAME, "status": "completed"}
         ident = listing("P-17", 3, rows=dict(done, conclusion="cancelled"))["response"]["body"]["workflow_runs"][0]["id"]
-        for change, flagged in (({"conclusion": "startup_failure"}, True), ({"conclusion": "skipped", "run_attempt": 1}, True),
-                                ({"conclusion": "startup_failure", "run_attempt": 2}, True),
-                                ({"conclusion": "skipped", "run_attempt": 2}, False),
-                                ({"conclusion": "skipped", "run_attempt": None}, False),
-                                ({"conclusion": "cancelled", "run_attempt": 1}, False),
-                                ({"conclusion": "failure", "run_attempt": 1}, False),
-                                ({"conclusion": "timed_out", "run_attempt": 1}, False)):
+        for change, word in (({"conclusion": "startup_failure"}, "startup_failure"),
+                             ({"conclusion": "skipped", "run_attempt": 1}, "skipped"),
+                             ({"conclusion": "startup_failure", "run_attempt": 2}, "startup_failure"),
+                             ({"conclusion": "skipped", "run_attempt": 2}, None),
+                             ({"conclusion": "skipped", "run_attempt": None}, None),
+                             ({"conclusion": "cancelled", "run_attempt": 1}, None),
+                             ({"conclusion": "failure", "run_attempt": 1}, None),
+                             ({"conclusion": "timed_out", "run_attempt": 1}, None)):
             got, _ = self.read(listing("P-17", 3, rows=dict(done, **change)), stored(canary(), ident, None)[0])
-            self.assertEqual(got["runs"][0].get("never_ran"), True if flagged else None, change)
+            self.assertEqual(got["runs"][0].get("never_ran"), word, change)
         running = listing("P-17", 3, rows={"name": NAME, "status": "in_progress", "conclusion": None})
         got, _ = self.read(running)
         self.assertNotIn("never_ran", got["runs"][0])

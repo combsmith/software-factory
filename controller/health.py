@@ -59,14 +59,15 @@ def thresholds(window: list, usage, rule: dict) -> dict:
 
 
 def alerts(reasons: list, context: dict, capacity, automatic: list, left_out: bool, not_run: bool, unnamed: dict,
-           reconciled=(), credentials: bool = False) -> list:
+           reconciled=(), credentials: bool = False, never_started: bool = False) -> list:
     """Each cause once, however many items it defers (L-48). A cause that holds the whole scope is raised from the
     context as well as from the Decisions, so that it is raised with no item to defer. The automatic pause defers as
     `capacity` does, and is the causes `automatic` names, what holds it, unless a capacity fault holds too. Facts left out are one cause,
     and so is six hours with no pass. `unnamed` is the Kernel's `unnamed_scope`: an unnamed Run inside the window
     defers, and past `max_unnamed_runs` of them past it every Run does (issue 270). `reconciled` is reconciliation's
     alerts: a write no Effect recorded, and a reconciliation that was short (decision 0061). `credentials` is whether a
-    stored credential is near its limit or cannot be read (issue 305)."""
+    stored credential is near its limit or cannot be read (issue 305). `never_started` is whether Runs that never ran
+    have stood since a Run last succeeded, which outlasts the pause they raise (decision 0114)."""
     causes = set(reasons) & t.SCOPE_DEFERRALS
     causes |= {"paused"} if context["paused"] is True else set()
     causes |= {"pause_unreadable"} if context["paused"] is None else set()
@@ -81,6 +82,7 @@ def alerts(reasons: list, context: dict, capacity, automatic: list, left_out: bo
     causes |= {"not_run"} if not_run else set()
     causes |= set(reconciled)
     causes |= {"credential_due"} if credentials else set()
+    causes |= {"runs_never_started"} if never_started else set()
     return sorted(causes)
 
 
@@ -99,8 +101,10 @@ def health(record: dict, before: list, pause: tuple, automatic: list, alerts: li
             break
         successors += 1
     recent = max(rules["capacity_window_seconds"], rules["automatic_pause"]["window_seconds"])
-    faults = [{"run": r["run"], "item": r["item"], "outcome": r["outcome"], "at": r["started_at"]}
-              for r in record["runs"] if r["outcome"] in (CAPACITY, ENVIRONMENT)
+    # A Run that never ran is shown by GitHub's word for it, which says what to look at: a shim's `if:` or the Release.
+    faults = [{"run": r["run"], "item": r["item"], "outcome": r["outcome"] or r["never_ran"], "at": r["started_at"]}
+              for r in record["runs"] if (r["outcome"] in (CAPACITY, ENVIRONMENT)
+                                         or ("never_ran" in r and r["outcome"] is None))
               and seconds(record["now"], r["started_at"]) is not None
               and 0 <= seconds(record["now"], r["started_at"]) <= recent]
     doc = {"schema": "health/1", "pass": record["pass"], "release": record["release"], "written_at": record["now"],

@@ -111,6 +111,12 @@ def human_pause(read, repos) -> tuple:
     return False, []
 
 
+def _never_ran(run_: dict) -> bool:
+    """Whether GitHub started no job of this Run and nothing says otherwise. A re-run can carry the word and an outcome
+    an earlier attempt left, and then the outcome is what it is (decision 0114)."""
+    return "never_ran" in run_ and run_["outcome"] is None
+
+
 def _streak(runs: list, now: str, rule: dict) -> list:
     """The faults since any Run last succeeded, inside the recent window: Runs that ended `environment`, and Runs GitHub
     started no job of (decision 0114), which write no outcome at all."""
@@ -119,7 +125,7 @@ def _streak(runs: list, now: str, rule: dict) -> list:
     recent.sort(key=lambda r: r["started_at"])
     succeeded = [i for i, r in enumerate(recent) if r["conclusion"] == "success"]
     since = recent[succeeded[-1] + 1:] if succeeded else recent
-    return [r for r in since if r["outcome"] == ENVIRONMENT or r.get("never_ran") is True]
+    return [r for r in since if r["outcome"] == ENVIRONMENT or _never_ran(r)]
 
 
 def automatic_pause(runs: list, now: str, rule: dict):
@@ -137,7 +143,18 @@ def automatic_pause(runs: list, now: str, rule: dict):
 def automatic_causes(runs: list, now: str, rule: dict) -> list:
     """What holds the automatic pause, asked once it holds: `environment` for Runs that said so, and `runs_never_started`
     for Runs GitHub started no job of, so one cause is named as itself and not as an outage."""
-    return sorted({NEVER_STARTED if r.get("never_ran") is True else ENVIRONMENT for r in _streak(runs, now, rule)})
+    return sorted({NEVER_STARTED if _never_ran(r) else ENVIRONMENT for r in _streak(runs, now, rule)})
+
+
+def never_started(runs: list, rule: dict) -> bool:
+    """Whether Runs that never ran have stood on different items since any Run last succeeded, by the pause's own counts
+    and with no window. The pause lapses each hour while the cause goes on, and a lasting cause runs each item to a Hold
+    that then dispatches nothing more, so the name outlasts the pause until a Run shows the cause is gone (decision 0114)."""
+    done = sorted((r for r in runs if r["status"] == "completed"), key=lambda r: r["started_at"])
+    succeeded = [i for i, r in enumerate(done) if r["conclusion"] == "success"]
+    faults = [r for r in (done[succeeded[-1] + 1:] if succeeded else done) if _never_ran(r)]
+    items = {(r["item"]["repo"], r["item"]["type"], r["item"]["number"]) for r in faults}
+    return len(faults) >= rule["faults"] and len(items) >= rule["items"]
 
 
 def capacity_until(runs: list, now: str, window: int):
@@ -293,7 +310,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     due, names_due = credentials_.due(config.get("credentials"), now)
     causes = automatic_causes(runs, now, rules["automatic_pause"]) if automatic is not None else []
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, causes,
-                            bool(left_out), raised, unnamed, reconcile_.alerts(found), due)
+                            bool(left_out), raised, unnamed, reconcile_.alerts(found), due,
+                            whole and never_started(runs, rules["automatic_pause"]))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
