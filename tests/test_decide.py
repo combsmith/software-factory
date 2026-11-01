@@ -3774,7 +3774,9 @@ class TheFactorysOwnRules(unittest.TestCase):
     # person. The review still counts, and none suffices.
     OWN = [e["path"] for e in HOOKS["lens_inputs"] if e["lens"] in CONFIG["required_lenses"]["model"]]
     WHAT_GRADES_IT = ["tools/eval_result.py", "tools/jsonschema_lite.py", "evals/pr-review/cases.json", "schemas/eval-case.schema.json",
-                      "schemas/eval-report.schema.json", "schemas/eval-set.schema.json", ".github/workflows/eval.yml"]
+                      "schemas/eval-report.schema.json", "schemas/eval-set.schema.json", ".github/workflows/eval.yml",
+                      "tools/eval_result/", "tools/jsonschema_lite/", "adapters/heldout.py", "adapters/heldout/", "kernel/coverage/",
+                      "kernel/gate/", "schemas/result.schema.json", "*/__init__.*", "*.py"]
 
     def waits_for_a_person(self, f, runs=REVIEWED, cfg=None):
         d = go(f, runs, cfg=cfg)
@@ -3815,18 +3817,23 @@ class TheFactorysOwnRules(unittest.TestCase):
 
     def test_a_change_to_what_grades_the_review_waits_for_a_person(self):  # issue 471
         # The scorer, the set's manifest and the eval's code: the reviewer the eval measures is no judge of them.
-        for path in self.WHAT_GRADES_IT:
-            f = changing(**AGENT, changed_paths=[path])
-            self.assertEqual(self.waits_for_a_person(f)["evidence"], [path])
+        for pattern in self.WHAT_GRADES_IT:
+            f = changing(**AGENT, changed_paths=[example(pattern)])
+            self.assertEqual(self.waits_for_a_person(f)["evidence"], [pattern])
             d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
             # The machine user's approval is no judgment of them.
             self.waits_for_a_person(dict(f, reviews=[review()]))
         # The job's own modules were on the list already, through the Harness.
         self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]))["evidence"], ["harness/"])
+        # A package of the scorer's name would be imported in place of it, and one at the top of the repo before the standard
+        # library (the security pass).
+        for path in ("tools/eval_result/__init__.py", "tools/__init__.py", "json.py", "json/__init__.py"):
+            self.waits_for_a_person(changing(**AGENT, changed_paths=[path]))
         # What the eval does not read, what only a change to the manifest can reach, and the Release's own files do not wait.
         for path in ("tests/test_evals.py", "evals/context/task.json", "evals/AGENTS.md", "schemas/context-eval.schema.json",
-                     "tools/eval_result_x.py", "release/cut.py", "release/rings.json", ".github/workflows/release.yml"):
+                     "tools/eval_result_x.py", "tools/x/__init__.py", "release/cut.py", "release/rings.json", ".github/workflows/release.yml",
+                     "adapters/candidate.py", "adapters/artifacts.py", "adapters/github.py", "kernel/derive.py"):
             d = go(changing(**AGENT, changed_paths=[path]), REVIEWED)
             self.assertNotEqual(d["reason"], "model_lens_input_needs_person", path)
 

@@ -3,6 +3,7 @@
 The cases live in the private home and never here (design §3.13); a synthetic case, made in the test, stands in."""
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import io
@@ -13,8 +14,10 @@ import shutil
 import unittest
 from unittest import mock
 
+from kernel import derive
 from tests.support import pending
 from tools import check_examples, eval_result, walk
+from tools.hooks import protected
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -235,6 +238,39 @@ class Scoring(unittest.TestCase):
 
 
 class TheSet(unittest.TestCase):
+    def test_what_the_eval_job_imports_is_on_the_reviews_list_or_left_out_by_name(self):  # issue 471
+        # The job's modules and all they reach, by their imports, read and never run. What the job shares with every Role is
+        # left out, by name, in decision 0110; a new import has to be weighed there, or listed.
+        left_out = ["adapters/github.py", "kernel/derive.py", "kernel/terms.py", "release/current.py", "tools/check_workflows.py"]
+        own = protected.model_lens_inputs(["pr-review"])
+        listed = lambda path: any(derive.matches(pattern, path) for pattern in own)
+        packages = {p.name for p in ROOT.iterdir() if p.is_dir() and (p / "__init__.py").exists()}
+
+        def path_of(name):
+            where = ROOT / name.replace(".", "/")
+            found = where / "__init__.py" if (where / "__init__.py").exists() else where.with_suffix(".py")
+            return found if found.exists() else None
+
+        seen, todo = {}, ["harness.eval"] + ["harness.eval." + m for m in ("plan", "fetch", "run", "judge", "canary")]
+        while todo:
+            name = todo.pop()
+            if name in seen or path_of(name) is None:
+                continue
+            seen[name] = path_of(name).relative_to(ROOT).as_posix()
+            for node in ast.walk(ast.parse(path_of(name).read_text())):
+                if isinstance(node, ast.Import):
+                    todo += [a.name for a in node.names if a.name.split(".")[0] in packages]
+                elif isinstance(node, ast.ImportFrom) and node.level == 0 and (node.module or "").split(".")[0] in packages:
+                    todo += [node.module] + [node.module + "." + a.name for a in node.names]
+            todo += [".".join(name.split(".")[:i]) for i in range(1, len(name.split(".")))]
+        reached = sorted(seen.values())
+        self.assertIn("adapters/heldout.py", reached)
+        self.assertEqual([path for path in reached if not listed(path)], sorted(left_out))
+        # A package of a module's name is imported in place of it, so it is on the list too.
+        for path in reached:
+            if path not in left_out and not path.endswith("/__init__.py"):
+                self.assertTrue(listed(path[:-len(".py")] + "/__init__.py"), path)
+
     def test_the_manifest_counts_its_cases_and_holds_no_case(self):
         # Only each case's id and hash are here: the count is the list's length, and no file under evals/ is a case.
         known = eval_result.schemas()

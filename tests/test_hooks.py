@@ -3188,9 +3188,17 @@ class RulesChanged(unittest.TestCase):
         for entry in inputs:
             self.write(where, rel(entry))
         said = self.told(where)
+        data = protected.load()
+        first = {e["path"]: protected.listed(data, [rel(e)])[0][1] for e in inputs}
         for entry in inputs:
-            self.assertIn("%s: %s" % (rel(entry), entry["is"]), said)
-        self.assertEqual(protected.load()["lens_inputs"], [(e["lens"], e["path"], e["is"]) for e in inputs])
+            self.assertIn("%s: %s" % (rel(entry), first[entry["path"]]), said)
+        # Each by its own words, but for a path a broader row names first, which gives its words (decision 0110).
+        self.assertEqual([e["path"] for e in inputs if first[e["path"]] != e["is"]],
+                         ["tools/eval_result.py", "tools/jsonschema_lite.py", "schemas/eval-case.schema.json",
+                          "schemas/eval-report.schema.json", "schemas/eval-set.schema.json", ".github/workflows/eval.yml",
+                          "tools/eval_result/", "tools/jsonschema_lite/", "adapters/heldout.py", "adapters/heldout/", "kernel/coverage/",
+                          "kernel/gate/", "schemas/result.schema.json"])
+        self.assertEqual(data["lens_inputs"], [(e["lens"], e["path"], e["is"]) for e in inputs])
         # A list of no Lens's inputs is not the shape the hooks read, as the schema says.
         data = json.loads((ROOT / "config" / "hooks.json").read_text())
         for value in ([], None):
