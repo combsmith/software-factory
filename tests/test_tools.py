@@ -3255,6 +3255,7 @@ class Workflows(unittest.TestCase):
         self.assertNotEqual(other, good)
         self.assertTrue(caught(check_workflows.lint(other), "job verify is granted actions: write"))
         self.assertEqual(check_workflows.lint(check_workflows.RUN_SHIM % 41898282), [])
+        self.assertEqual([p for p in check_workflows.lint(good) if p[0] == "permissions"], [])
         for job, homes in (("wake", "run-jobs.yml and approve-job.yml"), ("lane", "run.yml and approve.yml")):
             text = "name: x\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  %s:\n    runs-on: ubuntu-24.04\n" % job
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "the job %s is reserved for %s" % (job, homes)), job)
@@ -9178,6 +9179,10 @@ class Rulesets(unittest.TestCase):
         self.assertTrue(caught(run(self.rulesets, json.dumps(moved)), "factory release tags lets [('Integration', 5502359)] bypass it"))
         del moved["apps"]["release"]
         self.assertTrue(caught(run(self.rulesets, json.dumps(moved)), "config/apps.json names no release App"))
+        # The release App writes a Release tag, and moves none: the immutable ruleset is bypassed by no one, it included.
+        broken = copy.deepcopy(self.rulesets)
+        broken["rulesets"]["factory releases are immutable"]["bypass_actors"] = [{"actor_id": 5502359, "actor_type": "Integration", "bypass_mode": "always"}]
+        self.assertTrue(caught(run(broken), "factory releases are immutable lets [('Integration', 5502359)] bypass it"))
 
     def test_a_required_check_from_another_app_is_caught(self):
         self.main["required_status_checks"]["required_status_checks"][0]["integration_id"] = 57789
@@ -9351,11 +9356,11 @@ except OSError:
         head = "HTTP/2.0 200 OK\nContent-Type: application/json\n\n"
         listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
         bodies = [head + json.dumps(self.live[n]) for n in self.live]
-        self.assertEqual(run(head + json.dumps(listed), argv=["--ids"]), (0, "%d\n%d\n" % tuple(i["id"] for i in listed)))
+        self.assertEqual(run(head + json.dumps(listed), argv=["--ids"]), (0, "".join("%d\n" % i["id"] for i in listed)))
         self.assertEqual(run(head + json.dumps(listed), *bodies), (0, "no drift\n"))
         code, out = run(head + json.dumps(listed), bodies[0])
         self.assertEqual(code, 1)
-        self.assertIn("2 rulesets were listed and 1 answers given", out)
+        self.assertIn("%d rulesets were listed and 1 answers given" % len(listed), out)
         self.assertEqual(run("HTTP/2.0 404 Not Found\n\n{}", argv=["--ids"]), (0, "\n"))
 
     def test_only_a_whole_number_is_an_id(self):
