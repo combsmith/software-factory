@@ -10506,6 +10506,21 @@ MUTANTS = ISSUE + [
      '"const": 2', '"type": "integer"', ('tests.test_tools.Apps.test_what_the_machine_user_may_never_hold_has_a_counter_example',)),
     ('the teams may be any', 'schemas/machine-user.schema.json',
      '"const": [\n        "org-leads",\n        "organization-members"\n      ]', '"type": "array"', ('tests.test_tools.Apps.test_what_the_machine_user_may_never_hold_has_a_counter_example',)),
+    # Issue 471: what grades the review is an input of the review.
+    ('the scorer needs no person', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "tools/eval_result.py", "is": "the scorer: whether a held-out case passes"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_what_grades_the_review_waits_for_a_person',)),
+    ('what the scorer holds a case to needs no person', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "tools/jsonschema_lite.py", "is": "what the scorer and the eval job hold a case, a Result and a report to"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_what_grades_the_review_waits_for_a_person',)),
+    ("the set's manifest needs no person", 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "evals/pr-review/cases.json", "is": "the review\'s held-out set: each case\'s id and hash"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_what_grades_the_review_waits_for_a_person',)),
+    ('what the job reads as a case needs no person', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "schemas/eval-case.schema.json", "is": "what the eval job reads as a case"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_what_grades_the_review_waits_for_a_person',)),
+    ('what the report may say needs no person', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "schemas/eval-report.schema.json", "is": "what the eval job\'s report may say, and the gate reads"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_what_grades_the_review_waits_for_a_person',)),
+    ('what a manifest may be needs no person', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "schemas/eval-set.schema.json", "is": "what a set\'s manifest may be"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_what_grades_the_review_waits_for_a_person',)),
+    ("the eval job's workflow needs no person", 'config/hooks.json',
+     '    {"lens": "pr-review", "path": ".github/workflows/eval.yml", "is": "the eval job, whose verdict opens the Release\'s gate"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_what_grades_the_review_waits_for_a_person',)),
 ]
 
 

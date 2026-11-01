@@ -70,6 +70,13 @@
     {"lens": "pr-review", "path": "kernel/gate.py", "is": "the gate: the gate function and the severities that gate"},
     {"lens": "pr-review", "path": "kernel/coverage.py", "is": "coverage: whether a reviewing Result reports on every criterion of its rubric that applies"},
     {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},
+    {"lens": "pr-review", "path": "tools/eval_result.py", "is": "the scorer: whether a held-out case passes"},
+    {"lens": "pr-review", "path": "tools/jsonschema_lite.py", "is": "what the scorer and the eval job hold a case, a Result and a report to"},
+    {"lens": "pr-review", "path": "evals/pr-review/cases.json", "is": "the review's held-out set: each case's id and hash"},
+    {"lens": "pr-review", "path": "schemas/eval-case.schema.json", "is": "what the eval job reads as a case"},
+    {"lens": "pr-review", "path": "schemas/eval-report.schema.json", "is": "what the eval job's report may say, and the gate reads"},
+    {"lens": "pr-review", "path": "schemas/eval-set.schema.json", "is": "what a set's manifest may be"},
+    {"lens": "pr-review", "path": ".github/workflows/eval.yml", "is": "the eval job, whose verdict opens the Release's gate"},
     {"lens": "secret-scan", "path": ".gitleaks.toml", "is": "what the secret scan looks for, and what it lets pass"},
     {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"},
     {"lens": "verify", "path": "*", "is": "a file or a link at the top of the repo, which verify may import before the standard library"}

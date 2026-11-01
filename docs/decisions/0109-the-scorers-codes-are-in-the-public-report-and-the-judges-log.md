@@ -40,6 +40,7 @@ The eval is the Factory's one measure of its reviewer, and it had come to say on
 
 | Boundary | Check |
 |---|---|
+| A change to the scorer or the set waits for a person, past the sentence here that made it his call alone (decision 0110) | `tests/test_decide.py::test_a_change_to_what_grades_the_review_waits_for_a_person` |
 | A case the scorer failed carries the scorer's codes in the report and the judge's log, and the run says `case_failed` | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
 | A reason outside the enum reaches no log: the report is `report_unreadable`, alone | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
 | The judge's line counts the cases passed and each code, on `case_failed` and on `engine_fault` | `tests/test_evals.py::test_the_judges_line_counts_the_cases_passed_and_each_code`, `tests/test_evals.py::test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers` |

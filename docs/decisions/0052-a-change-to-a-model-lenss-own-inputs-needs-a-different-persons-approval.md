@@ -28,6 +28,7 @@ Lens of another family exists, its review of the head may stand for the person's
 
 | Boundary | Check |
 |---|---|
+| The scorer, the set's manifest and the eval's own code are listed paths too (decision 0110) | `tests/test_decide.py::test_a_change_to_what_grades_the_review_waits_for_a_person` |
 | A change to each listed path, or a rename or copy out of one, waits for a person after the model review, naming each pattern it matched; another Role's file, or one further down, does not | `tests/test_decide.py::test_a_change_to_a_model_lenss_own_input_waits_for_a_person` |
 | A standing approval of the current head by a different person with write access, as that person's latest verdict, lets it converge, an App's dismissal of it ending nothing; one a later request supersedes, an earlier head's, one a person dismissed, a comment, the machine user's, an App's, a Lens's, one with no write access, the author's or the last pusher's does not | `tests/test_decide.py::test_a_persons_approval_of_the_current_head_lets_it_converge` |
 | A model review alone never suffices, and a queued item without a person's approval leaves the queue | `tests/test_decide.py::test_a_model_review_alone_never_suffices` |
