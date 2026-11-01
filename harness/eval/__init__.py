@@ -10,8 +10,9 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too.
 
-Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails prints one code and
-exits 1, and no traceback, which could quote a case, reaches the log. Results and cases stay in the scratch directory;
+Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
+exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
+log. Results and cases stay in the scratch directory;
 only `eval-report.json`, of hashes, verdicts and codes, is written where the upload finds it."""
 from __future__ import annotations
 
@@ -33,9 +34,8 @@ REPORT = "eval-report.json"
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
-CASE_FAILED = "case_failed"
 # How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
-# held here, where the cases are, since the repo cannot hold a count of them true (decision 0099).
+# held here, where the cases are, since the repo cannot hold a count of them true (decision 0109).
 KIND_LEAST = 20
 
 
@@ -177,6 +177,13 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
     return "fetched %d of %d cases" % (len([c for c in why.values() if c is None]), found["count"])
 
 
+# The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
+# reviewer's. `result_invalid` stays the reviewer's: it is an answer that could not be read, and also a CLI that exited 0
+# with no answer at all, which the Engine does not yet tell apart (decision 0106).
+ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_failed", "engine_timeout", "task_too_large",
+                 "rubric_unreadable")
+
+
 # What facts/1 has required since the review Intent's set was made, at d556992, each with what the job gives a case that
 # lacks it, and what that means. The set stays as it is, and a case cannot exercise one of these until it is issued again
 # with it. Applied to a case's facts alone, in this job alone, before anything reads them; the live path never fills.
@@ -286,11 +293,13 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             interrupted = True
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
             continue
+        if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
+            assessed[entry["id"]] = ("unreadable", [result["reason"]])
+            continue
         said = eval_result.score(case, result)
-        # What the scorer says of a case that did not pass could tell anyone who reads the report the category, severity
-        # or place it expects, which are its content, and the report is public. It is one code, the same whatever the
-        # scorer said, and the scorer's own codes never leave this step (decisions 0078 and 0099).
-        assessed[entry["id"]] = (PASS, []) if said["verdict"] == PASS and not said["reasons"] else ("fail", [CASE_FAILED])
+        # What the scorer says is codes of the report's enum: nothing of a case's content, and no word of the model's. A
+        # case's kind is not worth hiding, and a run cannot be read without them (decision 0109).
+        assessed[entry["id"]] = (said["verdict"], said["reasons"])
     return assessed
 
 
@@ -302,7 +311,7 @@ def eval_result_codes() -> set:
 
 def split_ok(found: dict, place: pathlib.Path):
     """Whether the set's cases, as fetched into the scratch, hold KIND_LEAST of each kind: one word of the whole set,
-    never how many of either: the gate needs no more (decision 0099). None where a case was not read, or its answer is no
+    never how many of either: the gate needs no more (decision 0109). None where a case was not read, or its answer is no
     kind: such a run fails by that case."""
     counted = {"finding": 0, "met": 0}
     for entry in found["cases"]:
@@ -346,6 +355,8 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
     named = sorted((c["id"], c["sha256"]) for c in found["cases"])
     if sorted((c["id"], c["sha256"]) for c in document["cases"]) != named:
         return "cases_differ"
+    if any(set(c["reasons"]) & set(ENGINE_FAULTS) for c in document["cases"]):
+        return "engine_fault"
     if any(c["verdict"] != PASS or c["reasons"] for c in document["cases"]):
         return "case_failed"
     if document["passed"] != found["count"]:
@@ -365,6 +376,13 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
 
+def tally(document: dict) -> str:
+    """One line of a report that holds to its schema: how many cases passed, and how many carry each code."""
+    codes = [code for case in document["cases"] for code in case["reasons"]]
+    return "%d of %d passed; %s" % (document["passed"], len(document["cases"]),
+                                    ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code")
+
+
 def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     """The run's verdict on its own report: `verdict`'s, which must be `pass`."""
     kept, found, _ = _planned(env, root, workspace)
@@ -375,13 +393,17 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         raise Stop("report_unreadable") from None
     said = verdict(written, found, kept["set"]["sha256"], env.get("GITHUB_SHA"), kept["release"])
     if said != PASS:
+        # Either comes only once `verdict` has held the report to its schema, so what is printed is the enum's codes,
+        # whatever wrote the report.
+        if said in ("engine_fault", "case_failed"):
+            print(tally(written))
         raise Stop(said)
     return "passed %d of %d cases" % (found["count"], found["count"])
 
 
 def main(step, *given) -> int:
     """One step of the job, run in the workspace: what it says on success, or its one code on failure, and nothing
-    else. Whatever it raised is never printed, since its message could quote a case."""
+    else of its own. Whatever it raised is never printed, since its message could quote a case."""
     try:
         said = step(dict(os.environ), ROOT, pathlib.Path.cwd(), *given)
     except Stop as stop:
