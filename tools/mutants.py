@@ -10506,6 +10506,15 @@ MUTANTS = ISSUE + [
      '"const": 2', '"type": "integer"', ('tests.test_tools.Apps.test_what_the_machine_user_may_never_hold_has_a_counter_example',)),
     ('the teams may be any', 'schemas/machine-user.schema.json',
      '"const": [\n        "org-leads",\n        "organization-members"\n      ]', '"type": "array"', ('tests.test_tools.Apps.test_what_the_machine_user_may_never_hold_has_a_counter_example',)),
+    # Issue 471: what grades the review stays on model review, by the Maintainer's ruling.
+    ('the scorer needs a person', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n', '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n    {"lens": "pr-review", "path": "tools/eval_result.py", "is": "x"},\n', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
+    ("the set's manifest needs a person", 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n', '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n    {"lens": "pr-review", "path": "evals/pr-review/cases.json", "is": "x"},\n', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
+    ('what reads the gate needs a person', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n', '    {"lens": "pr-review", "path": "config/authority.json", "is": "the authority table"},\n    {"lens": "pr-review", "path": "release/cut.py", "is": "x"},\n', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
+    ('the Harness leaves the review\'s inputs', 'config/hooks.json',
+     '    {"lens": "pr-review", "path": "harness/", "is": "the Harness, which gives the review its Task and takes its answer"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
 ]
 
 
