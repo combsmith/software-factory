@@ -36,9 +36,10 @@ NAME = re.compile(r"sf ([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]
 ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms.ISSUE_APPROVAL}
 # GitHub's words for a run that has not started, and how each ends, as the run record holds them. A Run whose job never
 # started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
-# bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt. A Run `skipped`, as the
-# entry shim's `if:` may leave it, ran no Role either and reads the same; a word not here would leave the list not whole
-# for as long as GitHub serves the row, and admit nothing anywhere (issue 196's ruling 10).
+# bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt. A first attempt
+# `skipped`, as the entry shim's `if:` may leave it, ran no Role either and reads the same; `_record` reads any later
+# attempt otherwise (decision 0108). A word not here would leave the list not whole for as long as GitHub serves the
+# row, and admit nothing anywhere.
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "skipped": "cancelled", "timed_out": "timed_out"}
@@ -144,10 +145,15 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
             return None
         return (None, {"run": str(row["id"]), "created_at": created, "status": status})
     conclusion = row.get("conclusion")
+    attempt = row.get("run_attempt")
     if status == "completed":
         if conclusion not in CONCLUSIONS:
             return None
-        conclusion = CONCLUSIONS[conclusion]
+        # The shim's `if:` runs a first attempt alone, and the list shows only the latest attempt (P-27): a row `skipped`
+        # on any other may be a Run that ran and died, so it is an attempt, its outcome read as any failed Run's. Read as
+        # no attempt, a person's re-run would erase the attempts a Hold stands on (decision 0108).
+        first = isinstance(attempt, int) and not isinstance(attempt, bool) and attempt == 1
+        conclusion = "failure" if conclusion == "skipped" and not first else CONCLUSIONS[conclusion]
     elif conclusion is not None:
         return None
     started = row.get("run_started_at") or row.get("created_at")
@@ -165,7 +171,6 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     except ValueError:
         pass
     # An attempt, or a re-run's re-runner, GitHub gives none of that can be read is null: reconciliation cannot tell.
-    attempt = row.get("run_attempt")
     again = row.get("triggering_actor") if isinstance(row.get("triggering_actor"), dict) else {}
     if not (isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1):
         record["rerun_by_dispatcher"] = None
