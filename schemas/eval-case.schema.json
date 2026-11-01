@@ -34,6 +34,17 @@
     "diff": {
       "type": "string"
     },
+    "issue": {
+      "description": "The issue the change serves, as a live Run's Task holds it (decision 0110): optional, so a case without one is reviewed on its diff alone.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "by", "body"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "by": { "$ref": "facts.schema.json#/$defs/actor" },
+        "body": { "type": "string", "minLength": 1 }
+      }
+    },
     "expected": {
       "type": "object",
       "additionalProperties": false,

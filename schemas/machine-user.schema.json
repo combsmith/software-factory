@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "machine-user/1: the machine user's role, as GitHub answered the Maintainer's read of it. It holds write, never maintain or admin, on every repo, through an org role on the code owners' team, with no grant repo by repo (issue 89). What a ruling fixed is a const; the rest is recorded as read. tools/machine_user_drift.sh compares the live role with this file, by hand, and nothing in `make verify` reads GitHub. Two repos are counted and not named, the canary and the proof of concept's: tools/check_trials.py and tools/check_repo.py keep their names out of this file. The org role holds there as everywhere.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "login",
+    "id",
+    "org",
+    "teams",
+    "code_owner_team",
+    "code_owners",
+    "org_role",
+    "team_repo_grants",
+    "repos",
+    "repos_left_out",
+    "read_on"
+  ],
+  "properties": {
+    "schema": {
+      "const": "machine-user/1"
+    },
+    "login": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]+$"
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "org": {
+      "const": "combsmith"
+    },
+    "teams": {
+      "description": "The teams it belongs to: the code owners' team, which makes it a code owner, and the one every member is in. Nothing is granted to it directly",
+      "const": [
+        "org-leads",
+        "organization-members"
+      ]
+    },
+    "code_owner_team": {
+      "const": "org-leads"
+    },
+    "code_owners": {
+      "description": "Who is in the code owners' team, each a code owner of every path, as GitHub answers",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]+$"
+      }
+    },
+    "org_role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "id",
+        "teams"
+      ],
+      "properties": {
+        "name": {
+          "description": "The org role the code owners' team holds: write, on every repo",
+          "const": "all_repo_write"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "teams": {
+          "description": "Every team that holds the org role, as GitHub answers",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          }
+        }
+      }
+    },
+    "team_repo_grants": {
+      "description": "How many repos the team has a grant of its own on: none, so the org role alone governs",
+      "const": 0
+    },
+    "repos": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repo",
+          "role",
+          "team_permission"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "pattern": "^combsmith/[A-Za-z0-9._-]+$"
+          },
+          "role": {
+            "description": "Its role there, as GitHub's `role_name` says",
+            "const": "write"
+          },
+          "team_permission": {
+            "description": "The code owners' team's permission there. A team must itself have write to count as a code owner",
+            "const": "push"
+          }
+        }
+      }
+    },
+    "repos_left_out": {
+      "description": "The active repos of the org the file does not name: the canary and the proof of concept's",
+      "const": 2
+    },
+    "read_on": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    }
+  }
+}

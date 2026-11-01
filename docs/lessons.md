@@ -83,7 +83,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-14 The Maintainer's finding had no force where it was written
 **Failure.** The Maintainer reported a fault in a plain comment. The author never saw it, the reviewer approved, and the change merged eight minutes later with the fault in it.
 **Rule.** A person with write access blocks with a review thread, whatever its severity, or with an ordinary request for changes. The request stands until that person approves or a person with write access dismisses it: new content does not clear it, and nor does an App's dismissal. A plain comment gates nothing, because it has no resolved state (L-13); it is given to the next Run to steer it.
-**Check.** `tests/test_decide.py::test_a_writer_thread_gates_whatever_its_severity`, `tests/test_decide.py::test_a_writers_request_for_changes_does_not_converge`, `tests/test_decide.py::test_a_request_for_changes_stands_until_that_person_reviews_again`; a comment reaching the next Run is waiting on `adapters/texts.py`
+**Check.** `tests/test_decide.py::test_a_writer_thread_gates_whatever_its_severity`, `tests/test_decide.py::test_a_writers_request_for_changes_does_not_converge`, `tests/test_decide.py::test_a_request_for_changes_stands_until_that_person_reviews_again`; a comment reaching the next Run waits on the story that reads a comment's text, as `adapters/texts.py` reads an issue's so far
 
 ## Approval and merge
 
@@ -327,6 +327,11 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 **Failure.** A run of failures that had been fixed weeks before, on a repo with little traffic, was reported as an outage and held every scheduled run red. An outside reviewer's rate limit was at risk of counting toward the fleet's own breaker.
 **Rule.** An automatic pause needs faults that agree, from Runs on different items, of the Factory's own capacity, inside a recent window.
 **Check.** `tests/test_controller.py::test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window`
+
+### L-62 A broken Engine read as a reviewer that failed
+**Failure.** The second eval read 42 of 44 cases as failed in 8 seconds, and no model had run: the CLI refused to start with its scrub on and no bubblewrap on the runner. The trials' workflows had installed it, so no trial saw it, and the job's report blamed the reviewer.
+**Rule.** A fault of the Engine or the Factory is reported as that, never as the reviewer's. What a trial's workflow installs is part of what it measured, and a check runs the jobs' own install and one review on a real runner.
+**Check.** `tests/test_evals.py::test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers`, `tests/test_evals.py::test_the_canary_is_red_unless_the_cli_answered`
 
 ## Not carried over
 

@@ -53,7 +53,8 @@ limit; these add no GraphQL point.
 | The machine user's pushes are read from the repo's activity | `tests/test_reconcile.py::test_the_machine_users_pushes_are_read_from_the_repos_activity` |
 | A Run's `applied/1` is read whole or not at all | `tests/test_adapters.py::test_a_runs_applied_record_is_read_whole_or_not_at_all` |
 | The pass raises one alert, names each write in the view and keeps it in its record | `tests/test_controller.py::test_a_write_no_effect_recorded_raises_one_alert_and_is_named_in_the_view` |
-| `pull_requests: read` serves the comments on a pull request | `tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read`, not held yet: a trial of the second token window |
-| The pass's reads are gathered by the workflow that runs it | waiting on `.github/workflows/poller.yml` |
-| Only a listed Run of a Role workflow or of the approving act has its `applied/1` read, once, its keys kept as `reconciled` | waiting on `.github/workflows/poller.yml` |
+| `pull_requests: read` serves the comments on a pull request | `tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read` |
+| Trial P-56 answers that on a pull request of the public canary (`trials/P-56.json`): GitHub names `issues=read; pull_requests=read`, and any token reads there. An issue's comments and a private repo stay unasked | `tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read` |
+| The pass's reads are gathered by the workflow that runs it | `tests/test_controller.py::test_the_entry_gathers_what_reconciliation_reads` |
+| Only a listed Run of a Role workflow or of the approving act has its `applied/1` read, once, its keys kept as `reconciled` | `tests/test_adapters.py::test_each_run_in_the_window_is_read_once_and_only_a_listed_one`, `tests/test_reconcile.py::test_what_a_pass_read_matches_a_write_in_the_passes_after_it_for_the_window` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

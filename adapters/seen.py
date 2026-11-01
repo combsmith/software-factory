@@ -18,8 +18,9 @@ resolved it (decision 0067); a thread GitHub names no resolver for is `unattribu
 that cannot be read whole, or a write whose time or key cannot be read, leaves what was read `whole` false, so that
 reconciliation is short, never silent; nothing is guessed. Ids and codes alone: no body or title is kept.
 
-Whether the comments read is served by `pull_requests: read` alone is a trial of the second token window's
-(`tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read`, pending). An edit of
+GitHub names `pull_requests=read` among what serves a pull request's comments (trials/P-56.json,
+`tests/test_reconcile.py::test_the_comments_on_a_pull_request_are_read_with_pull_requests_read`); an issue's comments and
+a private repo are unasked, and a read refused leaves what was read not whole. An edit of
 a write the Factory recorded, a check run's conclusion changed among them, keeps its key, and is not seen.
 """
 from __future__ import annotations
@@ -319,6 +320,14 @@ def seen(parts: list, since: str) -> dict:
         merged += part[1] if len(part) == 3 else []
         whole &= part[-1] is True
     return {"schema": "seen/1", "since": since, "whole": whole, "writes": writes, "merged": merged}
+
+
+def apps_of(accounts: dict, apps: dict) -> dict:
+    """`{app_id: code}`, each Factory App whose account the configuration holds, by which a check run is told."""
+    codes = ["controller", "queue"] + sorted(accounts.get("roles") or {})
+    roles = accounts.get("roles") or {}
+    return {apps[code]["app_id"]: code for code in codes
+            if code in apps and isinstance(roles.get(code, accounts.get(code)), dict)}
 
 
 def identities(accounts: dict) -> tuple:
