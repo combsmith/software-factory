@@ -169,6 +169,14 @@
     "read:task.issue_texts": {
       "permission": "issues",
       "level": "read"
+    },
+    "write:workflow_commit_tag": {
+      "permission": "workflows",
+      "level": "write"
+    },
+    "read:release.repo": {
+      "permission": "metadata",
+      "level": "read"
     }
   },
   "apps": {
@@ -413,6 +421,57 @@
           "level": "read",
           "needs": [
             "read:facts.queue"
+          ]
+        }
+      }
+    },
+    "release": {
+      "name": "combsmith-sf-release",
+      "app_id": 5502359,
+      "key": {
+        "environment": "factory-release",
+        "secret": "RELEASE_APP_KEY"
+      },
+      "installed_on": [
+        "combsmith/software-factory"
+      ],
+      "permissions": {
+        "contents": {
+          "level": "write",
+          "needs": [
+            "write:release_tag",
+            "write:move_channel",
+            "read:release.refs"
+          ]
+        },
+        "workflows": {
+          "level": "write",
+          "needs": [
+            "write:workflow_commit_tag"
+          ]
+        },
+        "deployments": {
+          "level": "write",
+          "needs": [
+            "write:deployment"
+          ]
+        },
+        "actions": {
+          "level": "read",
+          "needs": [
+            "read:release.runs"
+          ]
+        },
+        "checks": {
+          "level": "read",
+          "needs": [
+            "read:release.checks"
+          ]
+        },
+        "metadata": {
+          "level": "read",
+          "needs": [
+            "read:release.repo"
           ]
         }
       }

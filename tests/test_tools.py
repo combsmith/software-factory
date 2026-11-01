@@ -989,6 +989,13 @@ class Authority(unittest.TestCase):
         del apps["apps"]["pr-review"]["permissions"]
         self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
 
+    def test_a_role_writes_through_no_app_that_is_no_roles(self):
+        # The Controller's App, the reader's and the release App are no Role's, the release App the one that holds
+        # `workflows` (decision 0112): a manifest may not name them, whatever it permits.
+        for app in ("combsmith-sf-controller", "combsmith-sf-reader", "combsmith-sf-release"):
+            quiet = self.review(app=app, intents=[dict(self.review()["intents"][0], permitted_effects=[])])
+            self.assertTrue(caught(self.team({"pr-review": quiet}), "pr-review names %s, which is no Role's App" % app), app)
+
     def test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one(self):  # the Claude review
         # An Intent that writes spends from gate, so it is held to an eval set before it writes.
         off = self.review(intents=[dict(self.review()["intents"][0], budget_class="shadow", evals="evals/nothing")])
