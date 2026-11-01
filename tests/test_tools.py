@@ -4502,6 +4502,29 @@ class Trials(unittest.TestCase):
         outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
         self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
 
+    def test_a_write_in_a_fixture_of_the_factory_is_held_to_a_node_of_the_factory(self):
+        # What holds a canary fixture's writes holds this one's, with the Factory's id in the canary's. Each node id is
+        # a prefix and base64url of msgpack [0, the repository's id, ...], as GitHub writes one.
+        def node(repo_id):
+            packed = b"\x93\x00\xce" + repo_id.to_bytes(4, "big") + b"\x01"
+            return "PR_" + base64.urlsafe_b64encode(packed).decode().rstrip("=")
+
+        self.assertEqual(check_trials.node_repo(node(check_trials.FACTORY_ID)), check_trials.FACTORY_ID)
+        data = json.loads((ROOT / "examples" / "trial.of-the-factorys-own-repo.json").read_text())
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        write = "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { clientMutationId } }"
+
+        def writing(repo_id):
+            held = json.loads(json.dumps(data))
+            ask = {"as": {"kind": "person", "name": "don-petry"}, "via": "graphql", "call": "POST /graphql",
+                   "headers": {}, "body": {"query": write, "variables": {"id": node(repo_id)}}}
+            held["exchanges"][1]["response"]["body"] = {"id": 4, "node_id": node(repo_id)}
+            held["exchanges"].append({"request": ask, "response": {"status": 200, "headers": {}, "body": {"data": {}}}})
+            return check_trials.fixture_problems(held)
+
+        self.assertEqual(writing(check_trials.FACTORY_ID), [])
+        self.assertTrue(any("that is not the Factory's repo's by its id" in p for p in writing(check_trials.CANARY_ID)))
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
         # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
@@ -4540,6 +4563,11 @@ class Trials(unittest.TestCase):
             "a-trial-of-forks-reading-an-outside-org": "names the owner outside",
             "a-star-beside-another-read": "names the owner outside",
             "a-star-that-climbs": "climbs out of its repo",
+            # The Factory's own repo is recorded by the trial named for it alone, which records nowhere else and is held
+            # to the same rules.
+            "another-trial-in-the-factorys-repo": "and P-12 is no trial of TRIALS_OF_THE_FACTORY",
+            "a-trial-of-the-factory-on-the-canary": "and P-30 runs in combsmith/software-factory",
+            "a-trial-of-the-factory-reading-another-owners-repo": "names the owner outside",
             # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
             "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
             "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
