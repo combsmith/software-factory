@@ -19,7 +19,7 @@ import zipfile
 from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, \
-    pause, rules, threads, timeline
+    pause, rules, texts, threads, timeline
 from harness import task
 from tests.support import pending
 
@@ -1896,6 +1896,59 @@ def label_event(action: str, actor=PERSON, label: str = "factory:contract", at: 
     login, account, kind = actor
     return {"event": action, "label": {"name": label}, "actor": {"login": login, "id": account, "type": kind},
             "created_at": at, "performed_via_github_app": via}
+
+
+class Texts(unittest.TestCase):
+    PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+    OPENED = dict(PULL, user={"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"},
+                  head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/r"}})
+    MADE = {"named": {26: []}, "unreadable": set(), "whole": True}
+
+    def issue(self, number, body="What it asks.", user=None, **over):
+        found = issue_answer("o/r", number, **over)
+        if body is not ...:
+            found["response"]["body"]["body"] = body
+        found["response"]["body"]["user"] = user or {"login": "don-petry", "id": PERSON[1], "type": "User"}
+        return found
+
+    def read(self, *found, pull=None, opener=None, opened=None):
+        router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
+        return texts.issues(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener, opened)
+
+    def test_a_task_is_given_the_body_of_each_issue_the_change_serves(self):  # decision 0116
+        said = self.read(closing_answer("o/r", 26, [36, 7]), self.issue(7, "First."), self.issue(36, "Second."))
+        self.assertEqual([(t["id"], t["body"]) for t in said], [("issue:7", "First."), ("issue:36", "Second.")])
+        # Who wrote it is read from the issue, as the facts name an actor, so that its class is never the text's own.
+        self.assertEqual((said[0]["by"]["kind"], said[0]["by"]["name"], said[0]["by"]["can_write"]), ("human", "don-petry", True))
+        self.assertEqual([t for t in said if set(t) != {"id", "by", "body"}], [])
+        other = self.read(closing_answer("o/r", 26, [7]), self.issue(7, user={"login": "reader", "id": 9, "type": "User"}))
+        self.assertEqual((other[0]["by"]["name"], other[0]["by"]["can_write"]), ("reader", False))
+        # An issue with no body has no text, and a change that serves none has none.
+        self.assertEqual(self.read(closing_answer("o/r", 26, [7]), self.issue(7, None)), [])
+        self.assertEqual(self.read(closing_answer("o/r", 26, [7]), self.issue(7, "")), [])
+        self.assertEqual(self.read(closing_answer("o/r", 26, [])), [])
+        # A pull request the opener's App opened serves the issue its branch binds it to, whatever it closes.
+        bound = self.read(closing_answer("o/r", 26, []), self.issue(36), pull=self.OPENED, opener=(12, "Bot"), opened=self.MADE)
+        self.assertEqual([t["id"] for t in bound], ["issue:36"])
+
+    def test_what_cannot_be_read_whole_builds_no_task(self):  # decision 0116
+        other_base = {"number": 26, "base": {"ref": "dev", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+        for why, found, given in (
+                ("a closing list read short", [closing_answer("o/r", 26, [7], total=11)], {}),
+                ("another repo's issue", [closing_answer("o/r", 26, [7], elsewhere="o/other")], {}),
+                ("a base with no closing reference", [], {"pull": other_base}),
+                ("a branch that binds nothing readable", [], {"pull": self.OPENED, "opener": (12, "Bot"), "opened": None}),
+                ("closing another than the bound one", [closing_answer("o/r", 26, [7])],
+                 {"pull": self.OPENED, "opener": (12, "Bot"), "opened": self.MADE}),
+                ("an issue that fails", [closing_answer("o/r", 26, [7]), self.issue(7, status=404)], {}),
+                ("a pull request listed as an issue", [closing_answer("o/r", 26, [7]), self.issue(7, pull=True)], {}),
+                ("a body of no text", [closing_answer("o/r", 26, [7]), self.issue(7, 3)], {})):
+            with self.subTest(why), self.assertRaises(github.Unanswered):
+                self.read(*found, **given)
+        answered = self.issue(7)
+        answered["response"]["body"]["number"] = 8
+        with self.assertRaises(github.Unanswered):
+            self.read(closing_answer("o/r", 26, [7]), answered)
 
 
 class Acceptance(unittest.TestCase):

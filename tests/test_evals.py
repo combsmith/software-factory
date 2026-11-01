@@ -1207,6 +1207,40 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("unanswered", said)
 
+    def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0116
+        from harness import engine, task
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        by = {"kind": "human", "name": "a-colleague", "can_write": False}
+        held = dict(case, issue={"number": 12, "by": by, "body": "Return early when the list is empty."})
+        self.assertEqual(validate(held, load("schemas/eval-case.schema.json"), schemas=eval_result.schemas()), [])
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(held)
+        asked, = cli.asked()
+        given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
+        config = dict(live.config(), release="factory/v0.1.0")
+        config["harness"] = live.HARNESS
+        text = {"id": "issue:12", "by": by, "body": held["issue"]["body"]}
+        self.assertEqual(given, task.build(live.record(), live.RUN, live.facts(), [text], load("roles/pr-review.json"), [], config, live.DIFF))
+        # Its class is read from who wrote it, never from the case, and a case with none holds the diff alone.
+        self.assertEqual([(t["id"], t["trust"], t["source"]) for t in given["texts"] if t["id"].startswith("issue:")],
+                         [("issue:12", "outside", "a-colleague")])
+
+    def test_the_review_is_told_to_cite_and_what_met_means(self):  # decision 0116
+        # Run 41329046436 read 10 cases as `finding_uncited`: the fault was found and no criterion cited. The rubric's ids
+        # do not move, and the set's answers hold to them; a logic error plainly falls under PR-3, whose evidence is the
+        # diff, as no Task holds test results.
+        rubric = {c["id"]: c for c in load("config/rubric-pr-review.json")["criteria"]}
+        self.assertEqual(sorted(rubric), ["PR-1", "PR-2", "PR-3", "PR-4", "PR-5"])
+        self.assertEqual((rubric["PR-3"]["category"], rubric["PR-3"]["severity_if_violated"]), ("functional", "major"))
+        self.assertIn("no logic error", rubric["PR-3"]["statement"])
+        self.assertEqual(rubric["PR-3"]["evidence"], "The diff.")
+        prompt = (ROOT / "roles" / "pr-review" / "prompt.md").read_text()
+        self.assertIn("Cite the criterion whenever the problem falls under one", " ".join(prompt.split()))
+        self.assertIn("which includes a change that gives it nothing to break", " ".join(prompt.split()))
+        self.assertIn("only when what the criterion judges is not in the Task", " ".join(prompt.split()))
+
     def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
         from harness.eval import run as step
         from harness import eval as job

@@ -2,7 +2,7 @@
   "schema": "rubric/1",
   "role": "pr-review",
   "intent": "review-change",
-  "version": 1,
+  "version": 2,
   "criteria": [
     {
       "id": "PR-1",
