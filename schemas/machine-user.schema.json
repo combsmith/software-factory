@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "machine-user/1: the machine user's role, as GitHub answered the Maintainer's read of it. It holds write, never maintain or admin, on every repo, through an org role on the code owners' team, with no grant repo by repo (issue 89). What a ruling fixed is a const; the rest is recorded as read. tools/machine_user_drift.sh compares the live role with this file, by hand, and nothing in `make verify` reads GitHub. Two repos are left out by name, the canary and the proof of concept's, as nothing here names them; the org role holds there as everywhere.",
+  "title": "machine-user/1: the machine user's role, as GitHub answered the Maintainer's read of it. It holds write, never maintain or admin, on every repo, through an org role on the code owners' team, with no grant repo by repo (issue 89). What a ruling fixed is a const; the rest is recorded as read. tools/machine_user_drift.sh compares the live role with this file, by hand, and nothing in `make verify` reads GitHub. Two repos are counted and not named, the canary and the proof of concept's: tools/check_trials.py and tools/check_repo.py keep their names out of this file. The org role holds there as everywhere.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,9 +10,11 @@
     "org",
     "teams",
     "code_owner_team",
+    "code_owners",
     "org_role",
     "team_repo_grants",
     "repos",
+    "repos_left_out",
     "read_on"
   ],
   "properties": {
@@ -39,6 +41,16 @@
     },
     "code_owner_team": {
       "const": "org-leads"
+    },
+    "code_owners": {
+      "description": "Who is in the code owners' team, each a code owner of every path, as GitHub answers",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]+$"
+      }
     },
     "org_role": {
       "type": "object",
@@ -89,6 +101,10 @@
           }
         }
       }
+    },
+    "repos_left_out": {
+      "description": "The active repos of the org the file does not name: the canary and the proof of concept's",
+      "const": 2
     },
     "read_on": {
       "type": "string",

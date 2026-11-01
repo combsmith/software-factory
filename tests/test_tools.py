@@ -1106,7 +1106,8 @@ class Apps(unittest.TestCase):
                  "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach),
                  "config/machine-user.json": (ROOT / "config" / "machine-user.json").read_text(),
                  "config/defaults.json": (ROOT / "config" / "defaults.json").read_text(),
-                 "config/rulesets.json": (ROOT / "config" / "rulesets.json").read_text()}
+                 "config/rulesets.json": (ROOT / "config" / "rulesets.json").read_text(),
+                 "config/controller.json": (ROOT / "config" / "controller.json").read_text()}
         return check_apps.run(tree({rel: text for rel, text in files.items() if rel not in leave_out.get("files", ())}))
 
     def test_the_machine_user_is_the_approver_and_a_code_owner_with_write_here(self):  # issue 89
@@ -1119,6 +1120,8 @@ class Apps(unittest.TestCase):
             return check_apps.machine_user(clone({"config/machine-user.json": json.dumps(dict(held, **changes))}), code_owner)
 
         self.assertTrue(caught(problems(login="someone-else"), "config/defaults.json's approver is donpetry-bot"))
+        self.assertTrue(caught(problems(id=2), "config/controller.json's approver is 281750570"))
+        self.assertTrue(caught(problems(code_owners=["don-petry"]), "donpetry-bot is not among org-leads's members"))
         self.assertTrue(caught(problems(code_owner_team="other"), "names the code owners' team other"))
         self.assertTrue(caught(problems(code_owner="@combsmith/other"), "the code owners file names @combsmith/other"))
         self.assertTrue(caught(problems(teams=["organization-members"]), "is not a member of org-leads"))
@@ -1126,30 +1129,59 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(problems(repos=[r for r in held["repos"] if r["repo"] != home]), "has no write on " + home))
         self.assertTrue(caught(problems(repos=[dict(r, team_permission="pull") if r["repo"] == home else r for r in held["repos"]]),
                                "has no write on " + home))
-        for broken in ("{", "[]", json.dumps(dict(held, repos=[1])), json.dumps({"login": "x"})):
+        for broken in ("{", "[]", json.dumps(dict(held, repos=[1])), json.dumps({"login": "x"}), json.dumps(dict(held, teams=1)),
+                       json.dumps(dict(held, teams="xorg-leadsx")), json.dumps(dict(held, code_owners="donpetry-bot"))):
             root = clone({"config/machine-user.json": broken})
             self.assertTrue(caught(check_apps.machine_user(root), "cannot be read, so the machine user's role"), broken)
         self.assertTrue(caught(check_apps.run(clone({"config/machine-user.json": "{"})), "the machine user's role"))
         self.assertIn("* " + check_apps.CODE_OWNER, (ROOT / ".github" / "CODEOWNERS").read_text())
 
+    def test_what_the_machine_user_may_never_hold_has_a_counter_example(self):  # issue 89
+        self.assertEqual([p for p in check_examples.run(ROOT) if "machine-user" in p], [])
+        names = {path.name for path in (ROOT / "examples" / "invalid").glob("machine-user.*.json")}
+        self.assertEqual(len(names), 6)
+
+    def machine_users_live_answers(self, held: dict) -> list:
+        """What GitHub answers when nothing has drifted: the org's repos hold the two left out, an archived one and an
+        advisory's fork, and each repo has another team beside the code owners'."""
+        team = held["code_owner_team"]
+        repos = [{"name": row["repo"].split("/")[-1], "archived": False} for row in held["repos"]]
+        repos += [{"name": "left-out-1"}, {"name": "left-out-2"}, {"name": "old", "archived": True}, {"name": "x-ghsa-ab12-cd34-ef56"}]
+        found = [(200, {"id": held["id"]}), (200, {"name": held["org_role"]["name"]}), (200, [{"slug": team}]), (200, {"repos_count": 0}),
+                 (200, [{"login": login} for login in reversed(held["code_owners"])]), (200, repos)]
+        found += [(200, {"state": "active"}) for _ in held["teams"]]
+        for _ in held["repos"]:
+            found += [(200, {"role_name": "write"}), (200, [{"slug": "others", "permission": "admin"}, {"slug": team, "permission": "push"}])]
+        return found
+
     def test_the_machine_users_live_role_is_compared_whole(self):  # issue 89
         held = json.loads((ROOT / "config" / "machine-user.json").read_text())
         calls = machine_user_drift.reads(held)
-        self.assertEqual(len(calls), 3 + 2 * len(held["repos"]))
+        self.assertEqual(len(calls), 6 + len(held["teams"]) + 2 * len(held["repos"]))
         team = held["code_owner_team"]
 
         def live():
-            found = [(200, {"id": held["id"]}), (200, [{"slug": team}]), (200, {"repos_count": 0})]
-            for row in held["repos"]:
-                found += [(200, {"role_name": "write"}), (200, [{"slug": team, "permission": "push"}])]
-            return found
+            return self.machine_users_live_answers(held)
 
         self.assertEqual(machine_user_drift.compare(held, live()), [])
-        for at, answer, said in ((0, (200, {"id": 1}), "records id"), (1, (200, []), "does not hold the org role"),
-                                 (2, (200, {"repos_count": 7}), "has 7 grants of its own"),
-                                 (3, (200, {"role_name": "maintain"}), "holds maintain"),
-                                 (4, (200, [{"slug": team, "permission": "maintain"}]), "has ['maintain']"),
-                                 (4, (200, []), "has nothing"), (3, (404, {}), "was answered 404")):
+        first, repos = 6 + len(held["teams"]), live()[5][1]
+        wrong = ((0, (200, {"id": 1}), "records id"), (1, (200, {"name": "all_repo_maintain"}), "is all_repo_maintain"),
+                 (2, (200, []), "does not hold the org role"), (3, (200, {"repos_count": 7}), "has 7 grants of its own"),
+                 (4, (200, [{"login": "donpetry-bot"}]), "org-leads holds ['donpetry-bot']"),
+                 (4, (200, [{"login": "don-petry"}, {"login": "donpetry-bot"}, {"login": "someone-else"}]), "someone-else"),
+                 (4, (200, [{"login": "x%d" % i} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
+                 (5, (200, repos + [{"name": "new"}]), "3 active repos are not recorded"),
+                 (5, (200, [r for r in repos if r["name"] != "left-out-1"]), "1 active repos are not recorded"),
+                 (5, (200, repos + [{"name": "x%d" % i, "archived": True} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
+                 (6, (200, {"state": "pending"}), "is not an active member of org-leads"),
+                 (6, (404, {}), "was answered 404"), (7, (200, {}), "is not an active member of organization-members"),
+                 (first, (200, {"role_name": "maintain"}), "holds maintain"),
+                 (first + 1, (200, [{"slug": team, "permission": "maintain"}]), "has ['maintain']"),
+                 (first + 1, (200, [{"slug": "others", "permission": "push"}]), "has nothing"),
+                 (first, (404, {}), "was answered 404"),
+                 (len(calls) - 2, (200, {"role_name": "maintain"}), "holds maintain"),
+                 (len(calls) - 1, (200, []), "has nothing"))
+        for at, answer, said in wrong:
             found = live()
             found[at] = answer
             self.assertTrue(caught(machine_user_drift.compare(held, found), said), said)
@@ -1164,6 +1196,44 @@ class Apps(unittest.TestCase):
         self.assertIn("was answered 404", done.stdout)
         said = (stand_in / "calls").read_text().splitlines()
         self.assertEqual(said, ["api --include " + call for call in calls])
+
+    def test_the_machine_users_script_keeps_each_answer_redacted_and_compares_them(self):  # issue 89
+        held = json.loads((ROOT / "config" / "machine-user.json").read_text())
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        scratch = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        # The stand-in looks, at each read, for a token in what the script has kept so far; it answers from a file, as
+        # the rulesets' does, so nothing here reads GitHub.
+        look = """
+for folder, _, names in os.walk(os.environ["TMPDIR"]):
+    for name in names:
+        if name == "answers" and "ghs_" in open(os.path.join(folder, name)).read():
+            open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaked"), "w").write("yes")
+"""
+        (bin_ / "gh").write_text(RulesetsDrift.STAND_IN.replace("import os, sys\n", "import os, sys\n" + look, 1))
+        (bin_ / "gh").chmod(0o755)
+        head = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nAuthorization: token ghs_%s\r\n\r\n" % ("x" * 36)
+        calls = machine_user_drift.reads(held)
+        answers = self.machine_users_live_answers(held)
+        for call, (_, body) in zip(calls, answers):
+            (bin_ / call.replace("/", "_").replace("?", "_")).write_text(head + json.dumps(body))
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch))
+        self.assertEqual(shutil.which("gh", path=env["PATH"]), str(bin_ / "gh"))
+        script = str(ROOT / "tools" / "machine_user_drift.sh")
+        done = subprocess.run(["sh", script], env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "no drift"), done.stderr)
+        self.assertFalse((bin_ / "leaked").exists())
+        self.assertEqual((bin_ / "calls").read_text().splitlines(), ["api --include " + call for call in calls])
+        self.assertEqual(os.listdir(str(scratch)), [])
+
+    def test_the_machine_users_script_refuses_a_scratch_directory_inside_the_repo(self):  # issue 89
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "into-the-repo"
+        text = (ROOT / "tools" / "machine_user_drift.sh").read_text().replace('dir=$(mktemp -d "${TMPDIR:-/tmp}/machine-user-drift.XXXXXX")', 'dir="%s"' % link)
+        root = clone({"tools/machine_user_drift.sh": text, "scratch/.keep": ""})
+        link.symlink_to(root / "scratch")
+        done = subprocess.run(["sh", str(root / "tools" / "machine_user_drift.sh")], env=dict(os.environ, PATH="/nowhere:/usr/bin:/bin"),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("is inside the repo", done.stderr)
 
     def test_the_data_is_held_to_what_github_granted_each_app(self):
         # P-39 recorded each installation's permissions. The data must name exactly those, at the same levels: a

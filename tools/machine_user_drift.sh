@@ -2,9 +2,9 @@
 # Compare the machine user's live role with config/machine-user.json (issue 89). Run by hand, never in CI. It reads through
 # whoever is logged in to gh, and mints nothing. Each answer is written outside the repo, redacted by tools/redact_trial.py,
 # and the raw answer deleted, before tools/machine_user_drift.py reads what is left on stdin.
-set -eu
+set -euf     # no globbing: a call holds a ?
 root=$(cd "$(dirname "$0")/.." && pwd -P)
-dir=$(mktemp -d)
+dir=$(mktemp -d "${TMPDIR:-/tmp}/machine-user-drift.XXXXXX")     # bare, macOS ignores TMPDIR
 trap 'rm -rf "$dir"' EXIT
 trap 'exit 1' HUP INT TERM
 # Each path resolved, links and all, so a TMPDIR that leads into the repo another way is refused too.

@@ -8,6 +8,10 @@
     "organization-members"
   ],
   "code_owner_team": "org-leads",
+  "code_owners": [
+    "don-petry",
+    "donpetry-bot"
+  ],
   "org_role": {
     "name": "all_repo_write",
     "id": 8134
@@ -20,5 +24,6 @@
       "team_permission": "push"
     }
   ],
+  "repos_left_out": 2,
   "read_on": "2026-10-31"
 }

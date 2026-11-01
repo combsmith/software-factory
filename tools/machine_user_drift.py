@@ -4,26 +4,42 @@
 written outside the repo, redacted by `tools/redact_trial.py`, the raw answer deleted, and what is left given to this on
 stdin, each ended by a NUL, in the order `reads` gives them. With `--reads`, this prints that list of calls for the
 script. It prints each difference, one sentence to a line, and exits 1 on any, or prints "no drift" and exits 0. It is no
-check: `make verify` reads nothing from GitHub. The script runs it as `python3 -I`.
+check: `make verify` reads nothing from GitHub. The script runs it from the repo's root, as `python3 -m`.
 """
 from __future__ import annotations
 
 import json
 import pathlib
+import re
 import sys
 
 from tools.rulesets_drift import answer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+PAGE = 100
+# GitHub's temporary private fork of a security advisory: it comes and goes, and is none of the org's active repos.
+ADVISORY = re.compile(r"-ghsa(-[a-z0-9]{4}){3}$")
 
 
 def reads(held: dict) -> list:
-    """The calls to read, in order: the user, the org role's teams, the team, then each repo's role and its teams."""
-    team = "orgs/%s/teams/%s" % (held["org"], held["code_owner_team"])
-    calls = ["users/%s" % held["login"], "orgs/%s/organization-roles/%d/teams" % (held["org"], held["org_role"]["id"]), team]
+    """The calls to read, in order: the user, the org role and its teams, the team and who is in it, the org's repos,
+    the user's membership of each team, then each repo's role and its teams."""
+    org, login, team = held["org"], held["login"], held["code_owner_team"]
+    role, place = "orgs/%s/organization-roles/%d" % (org, held["org_role"]["id"]), "orgs/%s/teams/%s" % (org, team)
+    calls = ["users/%s" % login, role, role + "/teams", place, "%s/members?per_page=%d" % (place, PAGE),
+             "orgs/%s/repos?per_page=%d" % (org, PAGE)]
+    calls += ["orgs/%s/teams/%s/memberships/%s" % (org, name, login) for name in held["teams"]]
     for row in held["repos"]:
-        calls += ["repos/%s/collaborators/%s/permission" % (row["repo"], held["login"]), "repos/%s/teams" % row["repo"]]
+        calls += ["repos/%s/collaborators/%s/permission" % (row["repo"], login), "repos/%s/teams" % row["repo"]]
     return calls
+
+
+def _listed(body, read: str, key: str, problems: list) -> list:
+    """The rows of a list GitHub answered; a whole page may have more after it, and that is said."""
+    rows = [r for r in body if isinstance(r, dict) and isinstance(r.get(key), str)] if isinstance(body, list) else []
+    if len(rows) >= PAGE:
+        problems.append("%s answered a whole page, so more may follow" % read)
+    return rows
 
 
 def compare(held: dict, answers: list) -> list:
@@ -38,15 +54,32 @@ def compare(held: dict, answers: list) -> list:
     team, problems = held["code_owner_team"], []
     if not isinstance(bodies[0], dict) or bodies[0].get("id") != held["id"]:
         problems.append("%s: config/machine-user.json records id %s and GitHub says otherwise" % (held["login"], held["id"]))
-    slugs = [t.get("slug") for t in bodies[1] if isinstance(t, dict)] if isinstance(bodies[1], list) else []
+    name = bodies[1].get("name") if isinstance(bodies[1], dict) else None
+    if name != held["org_role"]["name"]:
+        problems.append("the org role %d is %s, and config/machine-user.json records %s" % (held["org_role"]["id"], name, held["org_role"]["name"]))
+    slugs = [t.get("slug") for t in bodies[2] if isinstance(t, dict)] if isinstance(bodies[2], list) else []
     if team not in slugs:
         problems.append("%s does not hold the org role %s" % (team, held["org_role"]["name"]))
-    grants = bodies[2].get("repos_count") if isinstance(bodies[2], dict) else None
+    grants = bodies[3].get("repos_count") if isinstance(bodies[3], dict) else None
     if grants != held["team_repo_grants"]:
         problems.append("%s has %s grants of its own on repos, and config/machine-user.json records %s"
                         % (team, grants, held["team_repo_grants"]))
+    owners = sorted(row["login"] for row in _listed(bodies[4], calls[4], "login", problems))
+    if owners != sorted(held["code_owners"]):
+        problems.append("%s holds %s, and config/machine-user.json records %s" % (team, owners, sorted(held["code_owners"])))
+    active = [row["name"] for row in _listed(bodies[5], calls[5], "name", problems)
+              if not row.get("archived") and not ADVISORY.search(row["name"])]
+    recorded = {row["repo"].split("/")[-1] for row in held["repos"]}
+    left_out = len(set(active) - recorded)     # a count: the names are not for this file, or for what it prints
+    if left_out != held["repos_left_out"]:
+        problems.append("%d active repos are not recorded, and config/machine-user.json leaves out %d" % (left_out, held["repos_left_out"]))
+    for at, name in enumerate(held["teams"]):
+        body = bodies[6 + at]
+        if not isinstance(body, dict) or body.get("state") != "active":
+            problems.append("%s is not an active member of %s" % (held["login"], name))
+    first = 6 + len(held["teams"])
     for at, row in enumerate(held["repos"]):
-        permission, teams = bodies[3 + 2 * at], bodies[4 + 2 * at]
+        permission, teams = bodies[first + 2 * at], bodies[first + 1 + 2 * at]
         role = permission.get("role_name") if isinstance(permission, dict) else None
         if role != row["role"]:
             problems.append("%s: %s holds %s, and config/machine-user.json records %s" % (row["repo"], held["login"], role, row["role"]))

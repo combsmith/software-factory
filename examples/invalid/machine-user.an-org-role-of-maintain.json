@@ -1,0 +1,29 @@
+{
+  "schema": "machine-user/1",
+  "login": "donpetry-bot",
+  "id": 281750570,
+  "org": "combsmith",
+  "teams": [
+    "org-leads",
+    "organization-members"
+  ],
+  "code_owner_team": "org-leads",
+  "code_owners": [
+    "don-petry",
+    "donpetry-bot"
+  ],
+  "org_role": {
+    "name": "all_repo_maintain",
+    "id": 8134
+  },
+  "team_repo_grants": 0,
+  "repos": [
+    {
+      "repo": "combsmith/.github",
+      "role": "write",
+      "team_permission": "push"
+    }
+  ],
+  "repos_left_out": 2,
+  "read_on": "2026-10-31"
+}
