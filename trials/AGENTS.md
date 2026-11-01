@@ -1,8 +1,8 @@
 # trials/
 
 What GitHub was seen to do. Each file is the fixture of one platform trial from section 6 of the
-design: what was sent to GitHub in the canary repo, combsmith/software-factory-canary, or of the
-org itself for a trial about the org and its Apps (decision 0035), or, for a trial of a vendor's
+design: what was sent to GitHub in the canary repo, combsmith/software-factory-canary, of the
+org itself for a trial about the org and its Apps (decision 0035), in the Factory's repo for P-30 (decision 0113), or, for a trial of a vendor's
 CLI, in no repo (decision 0033), and what came back, with every credential removed. The fake
 GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is the skill
 `.claude/skills/run-a-platform-trial/SKILL.md`; P-13's script, `tools/trial_p13_cli.sh`, has its runbook beside it, `tools/trial_p13_runbook.md`.
@@ -13,7 +13,7 @@ which with P-50's stub, `tools/trial_p50_stub.py`, a trial runs only in the cana
 | Rule | Held by |
 |---|---|
 | A fixture is `<trial>.json` or `<trial>.<what>.json`, validates against `schemas/trial.schema.json`, and records the trial it is named for. Nothing else is kept here | `tests/test_tools.py::test_a_fixture_that_is_misnamed_or_invalid_is_caught` |
-| The trial ran in the canary repo, of the org `combsmith` (decision 0035), or, for a vendor's CLI, in no repo (decision 0033) | `examples/invalid/trial.run-outside-the-canary.json`, `examples/invalid/trial.neither-the-canary-nor-the-org.json` |
+| It ran in the canary, the org `combsmith` (0035), the Factory's repo for P-30 alone, or no repo for a vendor's CLI (0033) | `examples/invalid/trial.another-trial-in-the-factorys-repo.json`, `examples/invalid/trial.neither-the-canary-nor-the-org.json` |
 | No credential: no field named for one at any depth, no string shaped like one, plainly or in base64. Delete it and list where in `removed` | `tests/test_tools.py::test_a_credential_in_a_fixture_is_caught` |
 | A header is kept only if `HEADERS` in `tools/check_trials.py` names it | `tests/test_tools.py::test_a_header_a_fixture_may_not_keep_is_caught` |
 | The examples of a fixture, counter-examples too, and this file hold no credential either | `tests/test_tools.py::test_every_example_of_a_fixture_and_the_folder_notes_are_scanned` |
@@ -24,7 +24,7 @@ which with P-50's stub, `tools/trial_p50_stub.py`, a trial runs only in the cana
 | `repo` is null exactly when every request asks as `subscription`, as a trial of a vendor's CLI does (decision 0033) | `tests/test_tools.py::test_a_null_repo_goes_with_a_subscription_and_nothing_else` |
 | `repo` is the org exactly when every call is a REST call of an App, the org or an installation, climbing nowhere (decision 0035) | `tests/test_tools.py::test_the_org_is_the_repo_exactly_when_every_call_is_of_the_org_or_its_apps` |
 | Whoever asked is named in words, never by an address | `tests/test_tools.py::test_an_asker_named_by_an_address_is_caught` |
-| A canary fixture reads, and is answered with, the org's repos alone, an App's within reach; a GraphQL write, however sent, is in `WRITES`, on a canary node a read answered | `tests/test_tools.py::test_a_cost_measurements_exchanges_name_each_repo_they_span` |
+| A canary or P-30 fixture reads and is answered with the org's repos, an App's within reach; a write, however sent, is in `WRITES`, on a node a read of its repo answered | `tests/test_tools.py::test_a_cost_measurements_exchanges_name_each_repo_they_span` |
 | P-13's script gives the CLI only the environment it names, and no tool | `tests/test_tools.py::test_the_cli_is_given_only_the_named_environment_and_no_tool` |
 | It refuses the default configuration: the home directory, any directory holding it, anything under `~/.claude`, the repo | `tests/test_tools.py::test_each_refusal_stops_before_anything_is_asked` |
 | It stops unless `auth status` exits 0 and says logged in, and records that exit code | `tests/test_tools.py::test_the_logins_exit_code_is_recorded` |
