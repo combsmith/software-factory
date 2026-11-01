@@ -2220,7 +2220,7 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15, P-44, P-45 (the lane's concurrency group; a dependency bot's pin) | A detail changes |
 
-P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3. The first approval does not need W-2, since a Run's end starts its passes (decision 0043).
+P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0106). The first approval does not need W-2, since a Run's end starts its passes (decision 0043).
 
 P-32, P-33, P-34 and P-46 belong to the issue Lifecycle (§4.1). All four are run before the Factory's
 own author is built, since the hand-over reads labels, their actors and the closing reference. P-8 now measures a pass that lists every open issue.

@@ -10095,9 +10095,13 @@ MUTANTS = ISSUE + [
      '    if not isinstance(value, str) or not DAY.fullmatch(value):\n', '    if not isinstance(value, str):\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
     ('any row with no dates is skipped', 'controller/credentials.py',
      '        if readable and row.get("kind") == COORDINATE and row.get("expires") is False \\\n', '        if readable and row.get("expires") is False \\\n', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
-    # P-31 is the relay's trial, not the first approval's (decision 0043).
+    # P-31 is the relay's trial, not the first approval's (decision 0106).
+    ("the relay's host stands before any code", 'docs/architecture/software-factory-design.md',
+     "| **1. Before any code** | ", "| **1. Before any code** | P-31; ", ('tests.test_tools.Trials.test_the_relays_host_stands_in_no_batch_before_the_first_approval',)),
+    ("section 6.1 does not say why the first approval goes without the relay", 'docs/architecture/software-factory-design.md',
+     " The first approval does not need W-2, since a Run's end starts its passes (decision 0043).", "", ('tests.test_tools.Trials.test_the_relays_host_stands_in_no_batch_before_the_first_approval',)),
     ("the relay's host stands before the first approval", 'docs/architecture/software-factory-design.md',
-     "| P-9, P-20 (chaining and the outside tick", "| P-9, P-20, P-31 (chaining and the outside tick", ('tests.test_tools.Trials.test_the_relays_host_is_asked_before_the_relay_and_not_before_the_first_approval',)),
+     "| P-9, P-20 (chaining and the outside tick", "| P-9, P-20, P-31 (chaining and the outside tick", ('tests.test_tools.Trials.test_the_relays_host_stands_in_no_batch_before_the_first_approval',)),
 ]
 
 
