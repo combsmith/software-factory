@@ -45,6 +45,7 @@ REPO = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
 # What trial P-39 recorded: in trials/P-39.json or a fixture of it, as P-39.grants.json and P-39.reach.json. Each read
 # is found by its call: the org's installations, an App's registration, and the repos an installation reaches.
 TRIAL = "P-39"
+CODE_OWNER = "@combsmith/org-leads"     # as `.github/CODEOWNERS` names it, and `tools/check_rulesets.py` holds it
 INSTALLATIONS = "GET /orgs/combsmith/installations"
 REGISTRATION = "GET /apps/"
 REACH = "GET /installation/repositories"
@@ -341,6 +342,40 @@ def _grant(app: str, name: str, grant, needs: dict) -> list:
     return problems
 
 
+def machine_user(root: pathlib.Path, code_owner: str = CODE_OWNER) -> list:
+    """The machine user `config/machine-user.json` records is the approver the configuration names, by login and by id, a
+    member of the team the code owners file names, and that team has write on this repo (issue 89). What the file records is compared with
+    GitHub by `tools/machine_user_drift.sh`, by hand; nothing here reads GitHub."""
+    try:
+        held = json.loads((root / "config" / "machine-user.json").read_text())
+        approver = json.loads((root / "config" / "defaults.json").read_text())["approver"]
+        trusted = json.loads((root / "config" / "controller.json").read_text())["accounts"]["approver"]["id"]
+        home = json.loads((root / "config" / "rulesets.json").read_text())["repo"]
+        repos = {row["repo"]: row for row in held["repos"]}
+        login, team, teams, owners = held["login"], held["code_owner_team"], held["teams"], held["code_owners"]
+        if not isinstance(teams, list) or not isinstance(owners, list) or not isinstance(held["org_role"]["teams"], list):
+            raise TypeError("teams and code_owners are lists")
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        return ["config/machine-user.json cannot be read, so the machine user's role cannot be checked: %r" % err]
+    problems = []
+    if login != approver:
+        problems.append("config/machine-user.json records %s, and config/defaults.json's approver is %s" % (login, approver))
+    if held.get("id") != trusted:
+        problems.append("config/machine-user.json records id %s, and config/controller.json's approver is %s" % (held.get("id"), trusted))
+    if "@%s/%s" % (held.get("org"), team) != code_owner:
+        problems.append("config/machine-user.json names the code owners' team %s, and the code owners file names %s"
+                        % (team, code_owner))
+    if login not in owners:
+        problems.append("config/machine-user.json: %s is not among %s's members it records" % (login, team))
+    if team not in held["org_role"]["teams"]:
+        problems.append("config/machine-user.json: %s holds no org role, so it has no write" % team)
+    if team not in teams:
+        problems.append("config/machine-user.json: %s is not a member of %s, so its approval is no code owner's" % (login, team))
+    if not isinstance(repos.get(home), dict) or repos[home].get("team_permission") != "push":
+        problems.append("config/machine-user.json: %s has no write on %s, so it counts as no code owner there" % (team, home))
+    return problems
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     try:
         table = json.loads((root / "config" / "apps.json").read_text())
@@ -383,6 +418,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     for need, held in sorted(holders.items()):
         if len(held) > 1:
             problems.append("%s is held by %s; a write need belongs to one App" % (need, " and ".join(sorted(held))))
+    problems += machine_user(root)
     reads, unread = _reads(root)
     problems += unread
     for app, entry in sorted(apps.items()):
