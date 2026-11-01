@@ -43,6 +43,7 @@ The eval is the Factory's one measure of its reviewer, and it had come to say on
 | A case the scorer failed carries the scorer's codes in the report and the judge's log, and the run says `case_failed` | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
 | A reason outside the enum reaches no log: the report is `report_unreadable`, alone | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
 | The judge's line counts the cases passed and each code, on `case_failed` and on `engine_fault` | `tests/test_evals.py::test_the_judges_line_counts_the_cases_passed_and_each_code`, `tests/test_evals.py::test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers` |
+| An expected Finding that no Finding cited says what became of it, by a code that changes no verdict: at the place uncited or citing another, elsewhere in the file, or not raised | `tests/test_evals.py::test_a_finding_no_finding_cited_says_where_it_went` |
 | A case the scorer cannot read is `unreadable` in the report | `tests/test_evals.py::test_a_case_the_scorer_cannot_read_is_unreadable_in_the_report` |
 | Every code the scorer gives is one the report may carry, and `case_failed` is none of a case's | `tests/test_evals.py::test_every_code_the_scorer_gives_is_one_the_report_may_carry` |
 | A report that carries what a case expected is refused | `examples/invalid/eval-report.carries-what-the-case-expected.json` |
