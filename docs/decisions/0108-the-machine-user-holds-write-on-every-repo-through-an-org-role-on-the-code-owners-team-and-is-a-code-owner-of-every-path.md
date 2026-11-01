@@ -1,4 +1,4 @@
-# 0106. The machine user holds write on every repo through an org role on the code owners' team, and is a code owner of every path
+# 0108. The machine user holds write on every repo through an org role on the code owners' team, and is a code owner of every path
 
 Status: accepted. The Maintainer's answers of 2026-10-31, as the Factory Builder relayed them, on "Redesign the machine user's permissions: approve everywhere, own no rules" (issue 89). It corrects the eight-repo reading of his answer of 2026-10-21, given on "The ruleset switch: main requires the machine user's approval of the most recent commit, and slice 1's event is recorded" (issue 198). The Factory Builder ran the change on his word, with his approval by hand, on 2026-11-01.
 

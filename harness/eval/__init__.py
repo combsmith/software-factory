@@ -177,6 +177,13 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
     return "fetched %d of %d cases" % (len([c for c in why.values() if c is None]), found["count"])
 
 
+# The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
+# reviewer's. `result_invalid` stays the reviewer's: it is an answer that could not be read, and also a CLI that exited 0
+# with no answer at all, which the Engine does not yet tell apart (decision 0106).
+ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_failed", "engine_timeout", "task_too_large",
+                 "rubric_unreadable")
+
+
 # What facts/1 has required since the review Intent's set was made, at d556992, each with what the job gives a case that
 # lacks it, and what that means. The set stays as it is, and a case cannot exercise one of these until it is issued again
 # with it. Applied to a case's facts alone, in this job alone, before anything reads them; the live path never fills.
@@ -286,6 +293,9 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             interrupted = True
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
             continue
+        if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
+            assessed[entry["id"]] = ("unreadable", [result["reason"]])
+            continue
         said = eval_result.score(case, result)
         # What the scorer says of a case that did not pass could tell anyone who reads the report the category, severity
         # or place it expects, which are its content, and the report is public. It is one code, the same whatever the
@@ -346,6 +356,8 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
     named = sorted((c["id"], c["sha256"]) for c in found["cases"])
     if sorted((c["id"], c["sha256"]) for c in document["cases"]) != named:
         return "cases_differ"
+    if any(set(c["reasons"]) & set(ENGINE_FAULTS) for c in document["cases"]):
+        return "engine_fault"
     if any(c["verdict"] != PASS or c["reasons"] for c in document["cases"]):
         return "case_failed"
     if document["passed"] != found["count"]:
