@@ -388,6 +388,10 @@ class Context(unittest.TestCase):
         self.assertEqual(out["view"]["health"]["pause"], {"state": "none", "by": []})
         cleared = aged + [run("r_SUCCES", number=9, at="2026-10-11T10:00:00Z")]
         self.assertEqual(passed(reads(runs=cleared))["alerts"], [])
+        # In any order, since GitHub lists the newest first.
+        self.assertEqual(passed(reads(runs=cleared[::-1]))["alerts"], [])
+        self.assertEqual(passed(reads(runs=[cleared[-1]] + never(7, 8, 9, at="2026-10-11T11:00:00Z")))["alerts"],
+                         ["runs_never_started"])
         self.assertEqual(passed(reads(runs=never(7, 8, at="2026-10-11T09:00:00Z")))["alerts"], [])
         self.assertEqual(passed(reads(runs=never(7, 7, 7, at="2026-10-11T09:00:00Z")))["alerts"], [])
         # A list not read whole names nothing from what it read.
@@ -400,6 +404,7 @@ class Context(unittest.TestCase):
         self.assertEqual(passed(reads(runs=items))["view"]["health"]["faults"], [])
         outage = [dict(r, outcome="environment") for r in never(7, 8, 9)]
         self.assertEqual(passed(reads(runs=outage))["alerts"], ["environment"])
+        self.assertEqual({f["outcome"] for f in passed(reads(runs=outage))["view"]["health"]["faults"]}, {"environment"})
         # An outage a success ended is not named beside a streak after it.
         ended = [run("r_FAULT1", number=9, conclusion="failure", outcome="environment", at="2026-10-11T12:30:00Z"),
                  run("r_SUCCES", number=9, at="2026-10-11T12:31:00Z")] + never(7, 8, 9, at="2026-10-11T12:40:00Z")
