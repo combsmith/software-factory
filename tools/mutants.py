@@ -6956,7 +6956,7 @@ MUTANTS = ISSUE + [
      'told(call), clock)', 'call, clock)', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
-    # Decision 0116: the review cites, knows what met means, and reads the issue.
+    # Decision 0110: the review cites, knows what met means, and reads the issue.
     ("an issue is labelled by who opened it", 'harness/task.py', 'return "outside" if text["id"].startswith("issue:") else trust(text["by"], config)', 'return trust(text["by"], config)',
      ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
     ("a security fault may be filed under another criterion", 'roles/pr-review/prompt.md', 'A security fault no `security`', 'A fault no `security`', ("tests.test_evals.EvalJob.test_the_review_is_told_to_cite_and_what_met_means",)),

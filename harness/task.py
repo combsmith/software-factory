@@ -68,7 +68,7 @@ def readable_text(text) -> bool:
 
 def class_of(text: dict, config: dict) -> str:
     """A text's trust class. An issue's is `outside`, whoever opened it: anyone who can write can edit its body, and GitHub
-    gives its opener and not who wrote what it says now, so who wrote it cannot be read (decision 0116)."""
+    gives its opener and not who wrote what it says now, so who wrote it cannot be read (decision 0110)."""
     return "outside" if text["id"].startswith("issue:") else trust(text["by"], config)
 
 

@@ -1,4 +1,4 @@
-"""The texts a Run's Task holds beside its diff: for now, the body of each issue a pull request serves (decision 0116).
+"""The texts a Run's Task holds beside its diff: for now, the body of each issue a pull request serves (decision 0110).
 
 A review judges a change by what its issue asks (the rubric's PR-1), and a Task of the diff alone cannot. The issues are
 the ones `adapters/acceptance.py` reads for the contract, by one rule: the one its branch binds it to, and else those it

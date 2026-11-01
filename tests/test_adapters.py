@@ -1920,7 +1920,7 @@ class Texts(unittest.TestCase):
         router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
         return texts.issues(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener, opened)
 
-    def test_a_task_is_given_the_body_of_each_issue_the_change_serves(self):  # decision 0116
+    def test_a_task_is_given_the_body_of_each_issue_the_change_serves(self):  # decision 0110
         said = self.read(closing_answer("o/r", 26, [36, 7]), self.issue(7, "First."), self.issue(36, "Second."))
         self.assertEqual([(t["id"], t["body"]) for t in said], [("issue:7", "First."), ("issue:36", "Second.")])
         # Who wrote it is read from the issue, as the facts name an actor, so that its class is never the text's own.
@@ -1936,7 +1936,7 @@ class Texts(unittest.TestCase):
         bound = self.read(closing_answer("o/r", 26, []), self.issue(36), pull=self.OPENED, opener=(12, "Bot"), opened=self.MADE)
         self.assertEqual([t["id"] for t in bound], ["issue:36"])
 
-    def test_what_cannot_be_read_whole_builds_no_task(self):  # decision 0116
+    def test_what_cannot_be_read_whole_builds_no_task(self):  # decision 0110
         other_base = {"number": 26, "base": {"ref": "dev", "repo": {"full_name": "o/r", "default_branch": "main"}}}
         for why, found, given in (
                 ("a closing list read short", [closing_answer("o/r", 26, [7], total=11)], {}),

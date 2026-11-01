@@ -1,4 +1,4 @@
-# 0116. The review cites the criterion, knows what `met` means, and reads the issue a change serves
+# 0110. The review cites the criterion, knows what `met` means, and reads the issue a change serves
 
 Status: accepted. The Builder's ruling of 2026-11-01, on eval run 41329046436 on the commit 14a3b6e: 3 pass, 19 `criterion_not_met`, 10 `finding_uncited`, 6 `finding_elsewhere` and 4 `finding_not_raised`, of 42. The Maintainer ruled the same day that the scorer stays as it is, `met` only on a clean case and no change to the pass rule, so the fix is the Role's.
 

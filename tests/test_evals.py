@@ -1207,7 +1207,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("unanswered", said)
 
-    def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0116
+    def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0110
         from harness import engine, eval as job, task
         from harness.eval import run as step
         case, live = self.reviewed()
@@ -1241,7 +1241,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.case_fault(spaced), "issue_unreadable")
         self.assertIsNone(job.case_fault(held))
 
-    def test_the_review_is_told_to_cite_and_what_met_means(self):  # decision 0116
+    def test_the_review_is_told_to_cite_and_what_met_means(self):  # decision 0110
         # Run 41329046436 read 10 cases as `finding_uncited`: the fault was found and no criterion cited. The rubric's ids
         # do not move, and the set's answers hold to them; a logic error plainly falls under PR-3, whose evidence is the
         # diff, as no Task holds test results.
