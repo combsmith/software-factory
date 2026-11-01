@@ -3,7 +3,7 @@
 A need is a code. `effect:` is an Effect a Result requests and `apply` makes; `write:` is a write
 the Controller makes that is not an Effect; `read:` is something read. The table in
 `config/apps.json` maps each need to one GitHub permission and level, or says what it waits on.
-No App holds `workflows` or `security_events` (NEVER).
+No App holds `workflows` or `security_events` (NEVER), but the release App holds `workflows` (EXCEPT).
 A write permission serves a read of the same permission too, since GitHub's write includes read.
 
 The data is held to what GitHub granted (decision 0035). Trial P-39's fixtures record each App's registration, the
@@ -14,7 +14,8 @@ the installations' read records. For each App, its registration and its installa
 name, with exactly the permissions and levels here and no events; the installation is on `selected` repos; and it
 reaches exactly `installed_on`. Anything short of that is a fail, and no key is stored. Each App's key is kept in
 the environment of the one job that holds it (design §4.9): the Controller's in the poller's, the reader's in
-`run`'s, the queue App's in the queue step's (issue 381), and each Role's in `apply`'s. A job that names an
+`run`'s, the queue App's in the queue step's (issue 381), the release App's in the release job's (ruling 4′ of issue
+197), and each Role's in `apply`'s. A job that names an
 environment reads every secret in it, so no other job's environment may hold a key, and `run`, which reads untrusted
 text, never holds one that writes. The secret is named for the App.
 """
@@ -35,6 +36,11 @@ FACT = "read:facts."
 # .github/workflows/, so a Role cannot change what a required Lens runs; with `security_events` an App could upload to
 # code scanning under CodeQL's tool and category, and might stand for CodeQL's verdict (design, trial P-36).
 NEVER = ("workflows", "security_events")
+# The one App that holds one of them. A tag on a commit that touches .github/workflows/ needs `workflows` (ruling 4′ of
+# issue 197), and every Release is such a commit in time. Only release.yml names its key, whose every line
+# tools/check_workflows.py holds; factory-release's deployment branches, main's alone, are a setting nothing here reads
+# (decision 0112).
+EXCEPT = {"workflows": "release"}
 REPO = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
 # What trial P-39 recorded: in trials/P-39.json or a fixture of it, as P-39.grants.json and P-39.reach.json. Each read
 # is found by its call: the org's installations, an App's registration, and the repos an installation reaches.
@@ -46,10 +52,10 @@ REACH = "GET /installation/repositories"
 LISTS = {"installations": ("installations", "app_id"), "reach": ("repositories", "full_name")}
 # The job that holds each App's key (design §4.9), and the environment each job names (decision 0035). Every App not
 # named here is a Role's, whose key `apply` holds; so several Roles' keys share apply's environment, and nothing else.
-HOLDER = {"controller": "poller", READER: "run", "queue": "queue"}
+HOLDER = {"controller": "poller", READER: "run", "queue": "queue", "release": "release"}
 ROLE_HOLDER = "apply"
 ENVIRONMENT = {"poller": "factory-poller", "apply": "factory-apply", "run": "factory-run",
-               "queue": "factory-queue"}
+               "queue": "factory-queue", "release": "factory-release"}
 
 
 def _kind(call) -> str:
@@ -367,8 +373,9 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: no permissions can be read; give the App an object of permissions" % app)
             continue
         for name, grant in sorted(permissions.items()):
-            if name in NEVER:
-                problems.append("%s: holds %s; no Factory App may, at any level: take it out" % (app, name))
+            if name in NEVER and EXCEPT.get(name) != app:
+                problems.append("%s: holds %s; no Factory App %smay, at any level: take it out"
+                                % (app, name, "but the %s App " % EXCEPT[name] if name in EXCEPT else ""))
             problems += _grant(app, name, grant, needs)
             for need in grant.get("needs", []) if isinstance(grant, dict) else []:
                 if isinstance(need, str) and need.startswith(WRITES):

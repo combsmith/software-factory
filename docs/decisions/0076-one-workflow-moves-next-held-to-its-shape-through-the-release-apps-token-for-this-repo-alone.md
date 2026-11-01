@@ -29,6 +29,6 @@ grants above, puts its key in `factory-release`, and the eval set holds cases.
 | It keeps every workflow rule but the shim rule | `tests/test_release_workflow.py::test_the_live_file_is_the_shape_and_keeps_every_other_rule` |
 | No other workflow names its environment, key, token or step | `tests/test_release_workflow.py::test_only_release_yml_names_the_release_jobs_environment_key_token_or_step` |
 | A cut with no version is of the next patch, and none past a later major | `tests/test_release_workflow.py::test_a_cut_asked_with_no_version_is_of_the_next_patch_or_the_majors_first`, `tests/test_release_step.py::test_a_cut_asked_with_no_version_is_of_the_next_patch` |
-| The release App's needs, checks read among them, wait on its registration | `tests/test_release.py::test_the_release_apps_needs_wait_on_its_registration` |
+| The release App's needs, checks read among them, wait on its registration | `tests/test_release.py::test_each_of_the_release_apps_needs_is_its_own` |
 | A checkout at another pin, and a release step that runs another command, are no step of the job's | `tests/test_release_workflow.py::test_each_counter_example_is_refused_for_its_one_fault` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
