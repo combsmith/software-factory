@@ -3952,7 +3952,7 @@ class Trials(unittest.TestCase):
         before = check_trials.run(clone({}))
         after = check_trials.run(clone({"config/apps.json": json.dumps(dict(apps, apps=reach))}))
         self.assertEqual(before, [])
-        self.assertTrue(after, "a fixture read before the Apps' reach changed is read again")
+        self.assertTrue([p for p in after if p.startswith("trials/")], "a fixture read before the Apps' reach changed is read again")
         # Apps that cannot be decoded, or are gone, are said to be, as `_installed` says, and stop nothing (the security
         # pass and the Claude review of #441).
         root = clone({})
