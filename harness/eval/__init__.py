@@ -33,7 +33,6 @@ REPORT = "eval-report.json"
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
-CASE_FAILED = "case_failed"
 # How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
 # held here, where the cases are, since the repo cannot hold a count of them true (decision 0099).
 KIND_LEAST = 20
@@ -297,10 +296,9 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             assessed[entry["id"]] = ("unreadable", [result["reason"]])
             continue
         said = eval_result.score(case, result)
-        # What the scorer says of a case that did not pass could tell anyone who reads the report the category, severity
-        # or place it expects, which are its content, and the report is public. It is one code, the same whatever the
-        # scorer said, and the scorer's own codes never leave this step (decisions 0078 and 0099).
-        assessed[entry["id"]] = (PASS, []) if said["verdict"] == PASS and not said["reasons"] else ("fail", [CASE_FAILED])
+        # What the scorer says is codes of the report's enum: nothing of a case's content, and no word of the model's. A
+        # case's kind is not worth hiding, and a run cannot be read without them (decision 0107).
+        assessed[entry["id"]] = (said["verdict"], said["reasons"])
     return assessed
 
 
@@ -377,6 +375,13 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
 
+def tally(document: dict) -> str:
+    """One line of a report that holds to its schema: how many cases passed, and how many carry each code."""
+    codes = [code for case in document["cases"] for code in case["reasons"]]
+    return "%d of %d passed; %s" % (document["passed"], len(document["cases"]),
+                                    ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code")
+
+
 def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     """The run's verdict on its own report: `verdict`'s, which must be `pass`."""
     kept, found, _ = _planned(env, root, workspace)
@@ -387,6 +392,10 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         raise Stop("report_unreadable") from None
     said = verdict(written, found, kept["set"]["sha256"], env.get("GITHUB_SHA"), kept["release"])
     if said != PASS:
+        # Either comes only once `verdict` has held the report to its schema, so what is printed is the enum's codes,
+        # whatever wrote the report.
+        if said in ("engine_fault", "case_failed"):
+            print(tally(written))
         raise Stop(said)
     return "passed %d of %d cases" % (found["count"], found["count"])
 
