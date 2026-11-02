@@ -1,4 +1,4 @@
-# 0114. A Run GitHub started no job of counts toward the automatic pause, under its own name
+# 0116. A Run GitHub started no job of counts toward the automatic pause, under its own name
 
 Status: accepted. The Factory Builder's ruling of 2026-11-01 on "Many Runs with no outcome across items raise no alert: a skipped dispatch or a broken Release ends in Holds that name no cause" (issue 456).
 
@@ -10,7 +10,7 @@ Status: accepted. The Factory Builder's ruling of 2026-11-01 on "Many Runs with 
 | The pause | `automatic_pause` counts such a Run with no outcome as a fault, by the same rule as an `environment` outcome: 3 faults on 2 items in the hour, since a Run last succeeded | An alert alone would let each open item reach its `run_ceiling` Hold within minutes, and section 3.10 says one cause must never become fifty Holds. The pause slows the dispatches to a few each hour, which gives a person hours to act. It does not stop them: see the costs below. The Kernel reads it as `model_deferred_until`, as it does today, so it needs no change |
 | The name | One new alert, `runs_never_started`, and the same word in health's `by`, in place of `environment` where only such Runs hold the pause, beside it where both do. Health's `faults` lists each such Run by GitHub's word | Such a Run is not known to be an outage, and the Maintainer needs the cause: a shim's `if:` or a broken Release, not GitHub |
 | How long it is named | The alert stands, by the pause's own counts and with no window, until a Run succeeds. The pause itself still lapses by time | The pause lapses hourly while the cause goes on. Tied to the pause, the tracking issue would close and reopen each hour, and the name would be gone by the time every item held |
-| Attempts and the ceiling | Unchanged. Such a Run is still no attempt, and still counts toward the Run ceiling | Decisions 0049 and 0109 read it so, and only the pause is added |
+| Attempts and the ceiling | Unchanged. Such a Run is still no attempt, and still counts toward the Run ceiling | Decisions 0049 and 0111 read it so, and only the pause is added |
 
 ## Why
 

@@ -21,7 +21,11 @@
       "verdict": "fail",
       "reasons": [
         "finding_not_raised"
-      ]
+      ],
+      "expected": {
+        "verdict": "finding",
+        "criterion": "PR-3"
+      }
     }
   ],
   "passed": 1,

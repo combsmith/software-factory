@@ -44,8 +44,8 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
     held to `role/1`."""
     problems = []
     cats = authority["categories"]
-    # The Controller's App and the reader's are no Role's, and a Role writes through neither.
-    no_role = {entry.get("name") for key, entry in apps["apps"].items() if key in ("controller", "reader")}
+    # The Controller's App, the reader's and the release App are no Role's, and a Role writes through none of them.
+    no_role = {entry.get("name") for key, entry in apps["apps"].items() if key in ("controller", "reader", "release")}
     unread = sorted(stem for stem, m in roles.items() if not isinstance(m, dict))
     for stem in unread:
         problems.append("roles/%s.json cannot be read as a manifest" % stem)

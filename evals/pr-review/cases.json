@@ -2,7 +2,7 @@
   "schema": "eval-set/1",
   "role": "pr-review",
   "intent": "review-change",
-  "count": 44,
+  "count": 42,
   "cases": [
     {
       "id": "c-131f9a6cb1",
@@ -23,10 +23,6 @@
     {
       "id": "c-341d7de0f3",
       "sha256": "fb01bb6a92d21cad78f01f1b79e8b6d3463ab701ebbc508724fa75cefece826d"
-    },
-    {
-      "id": "c-385d00a860",
-      "sha256": "41cc920e32874f030f06deaced0d9b16a64573349c3a53e96dafe108b4d561d4"
     },
     {
       "id": "c-4021ef685a",
@@ -87,10 +83,6 @@
     {
       "id": "c-8597d2df44",
       "sha256": "f8a0ee7f5cd1478d4ff176ecb8264a532e0fa6a36e656592c3c436e81bd12748"
-    },
-    {
-      "id": "c-880f54b855",
-      "sha256": "354f67fc7c4ff7a19c5217baa71edce33f972ec72746612883e222c9d96322c8"
     },
     {
       "id": "c-9d95157d56",

@@ -22,6 +22,8 @@ SET = ROOT / "evals" / "pr-review" / "cases.json"
 # The eval job's workflow, the live file, as issue 309's ruling 10 and its first amendment shape it: the planted faults
 # below are made from it.
 EVAL_WORKFLOW = (ROOT / ".github" / "workflows" / "eval.yml").read_text()
+FETCH_STEP = EVAL_WORKFLOW[EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.fetch\n"):
+                          EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.run\n")]
 
 
 def load(rel: str):
@@ -73,6 +75,43 @@ class Scoring(unittest.TestCase):
         unfinished = copy.deepcopy(result)
         unfinished["status"], unfinished["reason"] = "incomplete", "turns_exhausted"
         self.assertEqual(eval_result.score(case, unfinished)["reasons"], ["result_not_completed"])
+
+    def test_a_finding_no_finding_cited_says_where_it_went(self):
+        # Run 41315433150 read 19 cases as `finding_not_raised`, and could not tell a miss from a Finding raised and not
+        # cited. Each of these fails the case alike: only what it says has changed.
+        case, right = load("examples/eval-case.json"), load("examples/result.json")
+        self.assertEqual(eval_result.score(case, right)["verdict"], "pass")
+        at = right["findings"][0]
+        place = at["location"]
+
+        def said(*findings):
+            made = [dict(at, **f) for f in findings]
+            result = dict(right, findings=[{k: v for k, v in f.items() if k != "location" or v is not None} for f in made])
+            scored = eval_result.score(case, result)
+            self.assertEqual(scored["verdict"], "fail", findings)
+            return [r for r in scored["reasons"] if r != "coverage_disagrees"]
+        self.assertEqual(said(dict(criterion=None)), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion="PR-1")), ["finding_cites_another"])
+        self.assertEqual(said(dict(criterion=None), dict(criterion="PR-1")), ["finding_uncited", "finding_cites_another"])
+        # What it has otherwise, of the nearest: the place is its being there.
+        self.assertEqual(said(dict(criterion=None, severity="minor")), ["finding_uncited", "severity_differs"])
+        self.assertEqual(said(dict(criterion=None, category="security")), ["finding_uncited", "category_differs"])
+        self.assertEqual(said(dict(criterion=None, severity="minor"), dict(criterion=None)), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion="PR-1", severity="minor")), ["finding_cites_another", "severity_differs"])
+        # In the file, on other lines; a Finding of the whole file is there; in another file, or none, is not raised.
+        away = dict(place, start_line=place["end_line"] + 1, end_line=place["end_line"] + 5)
+        self.assertEqual(said(dict(criterion=None, location=away)), ["finding_elsewhere"])
+        self.assertEqual(said(dict(criterion=None, location={"path": place["path"]})), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion=None, location={"path": "kernel/gate.py"})), ["finding_not_raised"])
+        self.assertEqual(said(), ["finding_not_raised"])
+        # A Finding of no location, which result/1 allows, is nowhere; so is one whose lines cannot be read, in the file or not.
+        self.assertEqual(said(dict(criterion=None, location=None)), ["finding_not_raised"])
+        self.assertEqual(said(dict(location=None)), ["location_differs"])
+        for lines in (dict(end_line=2), dict(start_line=9, end_line=2)):
+            self.assertEqual(said(dict(criterion=None, location=dict(path=place["path"], **lines))), ["finding_not_raised"])
+        # Beside the Finding that cites it, none of these is anything: the pass rule has not moved.
+        extra = dict(at, ref="n9", criterion=None)
+        self.assertEqual(eval_result.score(case, dict(right, findings=[at, extra]))["verdict"], "pass")
 
     def test_a_right_change_is_scored_by_its_coverage(self):
         case, result = load("examples/eval-case.met.json"), load("examples/result.json")
@@ -272,7 +311,7 @@ class TheSet(unittest.TestCase):
         self.assertEqual([r for r in check_workflows.lint(EVAL_WORKFLOW) if r[0] not in check_workflows.SHAPED["eval.yml"]], [])
         token = "          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}\n"
         install = EVAL_WORKFLOW[EVAL_WORKFLOW.index("      - env:\n          CLI_VERSION"):
-                                EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.run\n")]
+                                EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.fetch\n")]
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         broken = {
             "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "its fetch step is given under env"),
@@ -340,8 +379,13 @@ class TheSet(unittest.TestCase):
             "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
                                       "nothing else above its job"),
             "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
-            # The CLI's install, between the fetch and the model's step, at the Engine's pin by its checksum, word for
+            # The CLI's install, before the fetch, at the Engine's pin by its checksum, word for
             # word as the Run's jobs install it (issue 309, amendment 1).
+            # Bubblewrap is in the block, and the block comes before the fetch: it runs as root, before the cases are here.
+            "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo apt-get install -y --no-install-recommends bubblewrap\n", ""),
+                              "its steps are"),
+            "the install after the fetch": (EVAL_WORKFLOW.replace(FETCH_STEP, "").replace(
+                "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "its steps are"),
             "the CLI at another version": (EVAL_WORKFLOW.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.305"'),
                                            "its install step is given under env"),
             "the CLI by another checksum": (EVAL_WORKFLOW.replace('CLI_CHECKSUM: "520bc6', 'CLI_CHECKSUM: "000000'),
@@ -402,7 +446,7 @@ class TheSet(unittest.TestCase):
         # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
         # with a Finding and as many of a change that was right: forty at least. The manifest keeps no count of a kind,
         # since a session here cannot read a case to hold it true; the eval job holds the split where the cases are
-        # (decision 0099).
+        # (decision 0109).
         manifest = json.loads(SET.read_text())
         self.assertGreaterEqual(manifest["count"], 40)
 
@@ -539,7 +583,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
-        # Decision 0099: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
+        # Decision 0109: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
         # of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set, which
         # `verdict`, the Release's gate too, refuses. Neither says how many of a kind.
         from harness import eval as job
@@ -599,21 +643,27 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.fetch, self.home(dict(self.cases, **{first: b"changed"}))), "fetched 1 of 2 cases")
         self.assertEqual(json.loads((self.temp / "heldout" / "fetched.json").read_text()), {first: "hash_differs", "poc-two": None})
         self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
-        # The scorer says why the case failed, finding_not_raised; the report says only that it did, case_failed: what
-        # the scorer said would tell what the case expected, and the report is public (decision 0078). Nor does a step
-        # print it: the run step says counts, and judge one code.
+        # The report and the judge's log say what the scorer said, as codes: a run cannot be read without them, and a
+        # case's kind is not worth hiding (decision 0109, on the ruling that closed "Evals: the public report's per-case
+        # verdicts can publish each case's kind"). The run says `case_failed` all the same.
         self.assertEqual(eval_result.score(load("examples/eval-case.json"), wrong)["reasons"][0], "finding_not_raised")
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(job.main(lambda env, root, work: job.score(dict(self.env), self.root, self.work,
                                                                         lambda case: wrong)), 0)
             self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
-        self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 0 passed\ncase_failed\n")
+        self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 0 passed\n0 of 2 passed; finding_not_raised 1, hash_differs 1\n"
+                                         "case_failed\n")
         written = (self.work / job.REPORT).read_text()
         self.assertEqual([(c["verdict"], c["reasons"]) for c in json.loads(written)["cases"]],
-                         [("unreadable", ["hash_differs"]), ("fail", ["case_failed"])])
-        for code in ("finding_not_raised", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met",
-                     "category_differs", "severity_differs", "location_differs", "answer_disagrees_with_verdict"):
-            self.assertNotIn(code, written + out.getvalue(), code)
+                         [("unreadable", ["hash_differs"]), ("fail", ["finding_not_raised"])])
+        # Whatever else wrote the report, no word reaches the log: a reason outside the enum is `report_unreadable`, alone.
+        said = json.loads(written)
+        said["cases"][1]["reasons"] = ["the model wrote this"]
+        (self.work / job.REPORT).write_text(json.dumps(said))
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
+        self.assertEqual(out.getvalue(), "report_unreadable\n")
+        (self.work / job.REPORT).write_text(written)
         self.assertEqual(self.step(job.judge), "case_failed")
         # A set changed since the plan is no set of this run, and a report that is not there passes nothing.
         (self.work / job.REPORT).unlink()
@@ -945,6 +995,68 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["diff_not_whole"])
 
+    def test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers(self):  # decision 0106
+        # The first eval on a runner read 42 cases as failed in 8 s: the CLI never started, and each failed Result was
+        # scored as the reviewer's. A reason that says the model gave no answer is the case's code, tells nothing of what
+        # it expected, fails the run, and says so in a code of its own.
+        from harness import engine
+        from harness import eval as job
+        plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
+        first = next(iter(self.cases))
+        usage = load("examples/result.json")["usage"]
+        for reason in job.ENGINE_FAULTS:
+            with self.subTest(reason):
+                shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+                self.set(self.cases)
+                self.step(plan)
+                self.step(fetch, self.home(self.cases))
+                task = {"run": "r_ABC123", "release": "factory/v0.1.0"}
+                failed = engine.failed(task, reason, usage)
+                good = load("examples/result.json")
+                self.step(job.score, lambda case: failed if case["id"] == first else good)
+                written = json.loads((self.work / job.REPORT).read_text())
+                self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+                self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
+                                 [("unreadable", [reason]), ("pass", [])])
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                    self.assertEqual(self.step(judge), "engine_fault")
+                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1\n" % reason)
+        # The reviewer's own failure stays as it was: a Result it gave that does not pass, and one that cannot be read.
+        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        wrong = dict(load("examples/result.json"), findings=[])
+        invalid = engine.failed({"run": "r_ABC123", "release": "factory/v0.1.0"}, "result_invalid", usage)
+        self.step(job.score, lambda case: wrong if case["id"] == first else invalid)
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([c["reasons"] for c in written["cases"]],
+                         [["finding_not_raised"], ["result_not_completed", "finding_not_raised", "coverage_disagrees"]])
+        self.assertEqual(self.step(judge), "case_failed")
+        # A reason the model wrote is the reviewer's, whatever it says: a Result it refused, naming an Engine fault, is
+        # no fault of the Engine's, or a case's text could choose the report's code.
+        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        said = dict(load("examples/result.json"), status="refused", reason="engine_failed", findings=[])
+        self.step(job.score, lambda case: said)
+        report = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([c["reasons"] for c in report["cases"]],
+                         [["result_not_completed", "finding_not_raised"]] * 2)
+        self.assertEqual(self.step(judge), "case_failed")
+        # One Engine fault among failed cases says so: the run cannot say what the reviewer would have done.
+        mixed = copy.deepcopy(written)
+        mixed["cases"][1].update(verdict="unreadable", reasons=["engine_failed"])
+        found, digest = job.manifest(self.root)
+        self.assertEqual(job.verdict(mixed, found, digest, "a" * 40, "factory/v0.1.0"), "engine_fault")
+        # A reason the model wrote is never one of these: `status` failed is the Harness's alone. And every reason the
+        # Engine or the run can write is told: a new one is one or the other, by a decision.
+        said = (ROOT / "harness" / "engine.py").read_text() + (ROOT / "harness" / "run.py").read_text()
+        reasons = set(re.findall(r'failed\(task, "([a-z_]+)"', said)) | set(re.findall(r'reason = "([a-z_]+)"', said)) | \
+            set(re.findall(r'fault = "([a-z_]+)"', said))
+        self.assertGreater(len(reasons), 5)
+        self.assertEqual(sorted(reasons - set(job.ENGINE_FAULTS) - {"result_invalid", "diff_not_whole"}), [])
+        self.assertNotIn("result_invalid", job.ENGINE_FAULTS)
+
     def test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone(self):  # decision 0105
         # A case whose facts fail the schema after the fill is told from one of another set, or none: a code of its own,
         # asking nothing of the model, with no field's name in the report or the log.
@@ -994,6 +1106,156 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(asked["env"]["CLAUDE_CODE_OAUTH_TOKEN"], live.TOKEN)
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
+
+    def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0109
+        # A code the enum lacks would make the whole report unreadable, and the run would say so and nothing else.
+        from harness import eval as job
+        source = (ROOT / "tools" / "eval_result.py").read_text()
+        given = set(re.findall(r'"reasons": \["([a-z_]+)"\]|reasons\.append\("([a-z_]+)"\)', source))
+        codes = {code for pair in given for code in pair if code} | set(eval_result.MISSES) | set(eval_result.WENT)
+        self.assertGreater(len(codes), 10)
+        self.assertEqual(codes - job.eval_result_codes() - {"file", "file_outside"}, set())
+        self.assertNotIn("case_failed", job.eval_result_codes())
+
+    def test_the_judges_line_counts_the_cases_passed_and_each_code(self):
+        from harness import eval as job
+        cases = [{"verdict": "pass", "reasons": []}, {"verdict": "fail", "reasons": ["criterion_not_met"]},
+                 {"verdict": "fail", "reasons": ["criterion_not_met", "coverage_disagrees"]}]
+        self.assertEqual(job.tally({"passed": 1, "cases": cases}), "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2")
+        self.assertEqual(job.tally({"passed": 0, "cases": [{"verdict": "fail", "reasons": []}]}), "0 of 1 passed; no code")
+
+    def test_a_case_the_scorer_cannot_read_is_unreadable_in_the_report(self):
+        # What the scorer calls unreadable is no failure of the reviewer's, and the report says so by the scorer's verdict.
+        from harness import eval as job
+        first, kept = next(iter(self.cases.items()))
+        one = json.loads(kept)
+        one["expected"] = dict(one["expected"], criterion="PR-99")
+        cases = {first: (json.dumps(one) + "\n").encode()}
+        self.set(cases)
+        self.step(job.plan)
+        self.step(job.fetch, self.home(cases))
+        self.step(job.score, lambda case: load("examples/result.json"))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]], [("unreadable", ["criterion_unknown"])])
+        self.assertEqual(self.step(job.judge), "case_failed")
+
+    def test_the_canary_installs_the_block_the_jobs_hold(self):  # decision 0106
+        # Word for word what the eval job and the Run's jobs run, at the pin and by its checksum: a line taken from them
+        # is taken from the check, which a copy in the canary's workflow would not notice.
+        from harness.eval import canary
+        from tools import check_workflows
+        calls = []
+
+        def run(args, env, check):
+            calls.append((args, env, check))
+            return mock.Mock(returncode=7)
+        pin = load("config/harness.json")["engine"]["version"]
+        self.assertEqual(canary.install({"PATH": "/bin"}, run), 7)
+        (args, env, check), = calls
+        self.assertEqual(args, ["bash", "-e", "-c", "\n".join(check_workflows.CLI_INSTALL_RUN)])
+        self.assertIn("sudo apt-get update -q\nsudo apt-get install -y --no-install-recommends bubblewrap", args[3])
+        self.assertEqual(env, {"PATH": "/bin", "CLI_VERSION": pin, "CLI_CHECKSUM": check_workflows.CLI_CHECKSUMS[pin]})
+        self.assertFalse(check)
+
+    def test_the_canary_is_red_unless_the_cli_answered(self):  # decision 0106
+        from harness.eval import canary, run as step
+        from tests import test_harness as live
+
+        class Said(live.CLI):
+            """The CLI, with the stderr `harness/run.cli_call` always captures."""
+
+            def __call__(self, args, env, timeout):
+                done = super().__call__(args, env, timeout)
+                # The credential is cut across by where the end of it begins: taken out after the cut, a piece would be left.
+                last = "error: bubblewrap is required"
+                done.stderr = "x" * canary.TAIL + live.TOKEN + "x" * (canary.TAIL - 9 - len(last)) + last
+                return done
+
+        def checked(cli, env=None):
+            out = io.StringIO()
+            with mock.patch.object(step, "run_id", lambda: live.RUN), mock.patch("sys.stdout", out):
+                code = canary.review(dict(live.JOB) if env is None else env, cli, live.Clock(*[float(i) for i in range(9)]))
+            return code, out.getvalue()
+        # An answer the eval's path read and scored is green, on the repo's own case and by one call of the model.
+        answered = Said(said=live.answer(live.judged(findings=[], effects={})))
+        code, said = checked(answered)
+        self.assertEqual((code, len(answered.asked())), (0, 1), said)
+        self.assertIn("status completed", said)
+        # A healthy CLI's stderr stays out of a public log: only a failing one's is any use.
+        self.assertNotIn("bubblewrap is required", said)
+        # A model that refused or gave up has answered: that is the eval's matter, and the Engine is sound.
+        for status in ("incomplete", "refused"):
+            code, said = checked(Said(said=live.answer(live.judged(status=status, reason="too_large", findings=[], effects={}))))
+            self.assertEqual(code, 0, said)
+            self.assertIn("status %s" % status, said)
+        # A CLI that failed is red, and says the end of what it said, which names the cause, and no more of it.
+        code, said = checked(Said(said="", returncode=1))
+        self.assertEqual(code, 1)
+        self.assertIn("error: bubblewrap is required", said)
+        self.assertIn("engine_failed", said)
+        self.assertNotIn("x" * canary.TAIL, said)
+        self.assertNotIn(live.TOKEN[-9:], said)
+        self.assertIn("***", said)
+        # An answer the Harness cannot read, a CLI at another version and no credential are each red.
+        for cli, env in ((Said(said="not a result"), None), (Said(versions=("9.9.9", "9.9.9")), None),
+                         (Said(), {k: v for k, v in live.JOB.items() if k != "CLAUDE_CODE_OAUTH_TOKEN"})):
+            code, said = checked(cli, env)
+            self.assertEqual(code, 1, said)
+        # What never reached the model is red whatever is said of it, and a case the review raised on is unanswered.
+        with mock.patch.object(step, "reviewer", lambda *given: lambda case: (_ for _ in ()).throw(ValueError())):
+            code, said = checked(Said())
+        self.assertEqual(code, 1)
+        self.assertIn("unanswered", said)
+
+    def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0110
+        from harness import engine, eval as job, task
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        by = {"kind": "human", "name": "a-colleague", "can_write": False}
+        held = dict(case, issue={"number": 12, "by": by, "body": "Return early when the list is empty."})
+        self.assertEqual(validate(held, load("schemas/eval-case.schema.json"), schemas=eval_result.schemas()), [])
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(held)
+        asked, = cli.asked()
+        given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
+        config = dict(live.config(), release="factory/v0.1.0")
+        config["harness"] = live.HARNESS
+        text = {"id": "issue:12", "by": by, "body": held["issue"]["body"]}
+        self.assertEqual(given, task.build(live.record(), live.RUN, live.facts(), [text], load("roles/pr-review.json"), [], config, live.DIFF))
+        # Its class is read from who wrote it, never from the case, and a case with none holds the diff alone.
+        self.assertEqual([(t["id"], t["trust"], t["source"]) for t in given["texts"] if t["id"].startswith("issue:")],
+                         [("issue:12", "outside", "a-colleague")])
+        # Whoever opened it: anyone who can write can edit its body, so its opener's name is no label for what it says.
+        config_of = dict(live.config(), release="factory/v0.1.0")
+        mine = {"id": "issue:12", "by": live.MAINTAINER, "body": "x"}
+        self.assertEqual(task.class_of(mine, config_of), "outside")
+        self.assertEqual(task.class_of(dict(mine, id="thread:PRRT_kw1"), config_of), "maintainer")
+        # An issue no Task can carry whole, and one whose writer no Task can name, say so by a code and ask nothing.
+        too_long = dict(case, issue=dict(held["issue"], body="x" * (live.HARNESS["texts"]["characters"] + 1)))
+        cli = live.CLI()
+        with self.assertRaises(job.Stop) as stopped:
+            step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0))(too_long)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("issue_not_whole", []))
+        spaced = dict(case, issue=dict(held["issue"], by=dict(by, name="a colleague")))
+        self.assertEqual(job.case_fault(spaced), "issue_unreadable")
+        self.assertIsNone(job.case_fault(held))
+
+    def test_the_review_is_told_to_cite_and_what_met_means(self):  # decision 0110
+        # Run 41329046436 read 10 cases as `finding_uncited`: the fault was found and no criterion cited. The rubric's ids
+        # do not move, and the set's answers hold to them; a logic error plainly falls under PR-3, whose evidence is the
+        # diff, as no Task holds test results.
+        rubric = {c["id"]: c for c in load("config/rubric-pr-review.json")["criteria"]}
+        self.assertEqual(sorted(rubric), ["PR-1", "PR-2", "PR-3", "PR-4", "PR-5"])
+        self.assertEqual((rubric["PR-3"]["category"], rubric["PR-3"]["severity_if_violated"]), ("functional", "major"))
+        self.assertIn("no logic error", rubric["PR-3"]["statement"])
+        self.assertEqual(rubric["PR-3"]["evidence"], "The diff.")
+        prompt = (ROOT / "roles" / "pr-review" / "prompt.md").read_text()
+        self.assertIn("Cite the criterion whenever the problem falls under one", " ".join(prompt.split()))
+        self.assertIn("which includes a change that gives it nothing to break", " ".join(prompt.split()))
+        self.assertIn("only when what the criterion judges is not in the Task", " ".join(prompt.split()))
+        # Citing the nearest must not move a security fault out of `security`, whose thread `apply` holds apart (decision 0095).
+        self.assertIn("A security fault no `security` criterion reaches is cited to none, at category `security`", " ".join(prompt.split()))
 
     def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
         from harness.eval import run as step

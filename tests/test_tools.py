@@ -34,14 +34,14 @@ from sim import world
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, mutants, needs_passed, redact_trial,
-                   rulesets_drift, verify, walk)
+                   machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
-POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n      - sf-run\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n'
+POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n    secrets: inherit\n'
 STEP = "      - run: make verify\n"
 
 
@@ -989,6 +989,13 @@ class Authority(unittest.TestCase):
         del apps["apps"]["pr-review"]["permissions"]
         self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
 
+    def test_a_role_writes_through_no_app_that_is_no_roles(self):
+        # The Controller's App, the reader's and the release App are no Role's, the release App the one that holds
+        # `workflows` (decision 0114): a manifest may not name them, whatever it permits.
+        for app in ("combsmith-sf-controller", "combsmith-sf-reader", "combsmith-sf-release"):
+            quiet = self.review(app=app, intents=[dict(self.review()["intents"][0], permitted_effects=[])])
+            self.assertTrue(caught(self.team({"pr-review": quiet}), "pr-review names %s, which is no Role's App" % app), app)
+
     def test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one(self):  # the Claude review
         # An Intent that writes spends from gate, so it is held to an eval set before it writes.
         off = self.review(intents=[dict(self.review()["intents"][0], budget_class="shadow", evals="evals/nothing")])
@@ -1092,6 +1099,7 @@ class Apps(unittest.TestCase):
         self.apps, self.needs = self.table["apps"], self.table["needs"]
         self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
         self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        self.release = json.loads((ROOT / "trials" / "P-39.release.json").read_text())
         installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
         self.listing = installations[0]["response"]["body"]
         self.listed = self.listing["installations"]
@@ -1103,8 +1111,154 @@ class Apps(unittest.TestCase):
     def check(self, **leave_out) -> list:
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
         files = {"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
-                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach)}
+                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach),
+                 "trials/P-39.release.json": json.dumps(self.release),
+                 "config/machine-user.json": (ROOT / "config" / "machine-user.json").read_text(),
+                 "config/defaults.json": (ROOT / "config" / "defaults.json").read_text(),
+                 "config/rulesets.json": (ROOT / "config" / "rulesets.json").read_text(),
+                 "config/controller.json": (ROOT / "config" / "controller.json").read_text()}
         return check_apps.run(tree({rel: text for rel, text in files.items() if rel not in leave_out.get("files", ())}))
+
+    def test_the_machine_user_is_the_approver_and_a_code_owner_with_write_here(self):  # issue 89
+        # What config/machine-user.json records is held to the rest of the configuration: it is the approver, in the team
+        # the code owners file names, and that team has write on this repo.
+        self.assertEqual(check_apps.machine_user(ROOT), [])
+        held = json.loads((ROOT / "config" / "machine-user.json").read_text())
+
+        def problems(code_owner=check_apps.CODE_OWNER, **changes):
+            return check_apps.machine_user(clone({"config/machine-user.json": json.dumps(dict(held, **changes))}), code_owner)
+
+        self.assertTrue(caught(problems(login="someone-else"), "config/defaults.json's approver is donpetry-bot"))
+        self.assertTrue(caught(problems(id=2), "config/controller.json's approver is 281750570"))
+        self.assertTrue(caught(problems(code_owners=["don-petry"]), "donpetry-bot is not among org-leads's members"))
+        self.assertTrue(caught(problems(org_role=dict(held["org_role"], teams=["organization-members"])), "org-leads holds no org role"))
+        self.assertTrue(caught(problems(code_owner_team="other"), "names the code owners' team other"))
+        self.assertTrue(caught(problems(code_owner="@combsmith/other"), "the code owners file names @combsmith/other"))
+        self.assertTrue(caught(problems(teams=["organization-members"]), "is not a member of org-leads"))
+        home = "combsmith/software-factory"
+        self.assertTrue(caught(problems(repos=[r for r in held["repos"] if r["repo"] != home]), "has no write on " + home))
+        self.assertTrue(caught(problems(repos=[dict(r, team_permission="pull") if r["repo"] == home else r for r in held["repos"]]),
+                               "has no write on " + home))
+        for broken in ("{", "[]", json.dumps(dict(held, repos=[1])), json.dumps({"login": "x"}), json.dumps(dict(held, teams=1)),
+                       json.dumps(dict(held, teams="xorg-leadsx")), json.dumps(dict(held, code_owners="donpetry-bot")),
+                       json.dumps(dict(held, org_role=dict(held["org_role"], teams="xorg-leadsx")))):
+            root = clone({"config/machine-user.json": broken})
+            self.assertTrue(caught(check_apps.machine_user(root), "cannot be read, so the machine user's role"), broken)
+        self.assertTrue(caught(check_apps.run(clone({"config/machine-user.json": "{"})), "the machine user's role"))
+        self.assertIn("* " + check_apps.CODE_OWNER, (ROOT / ".github" / "CODEOWNERS").read_text())
+
+    def test_what_the_machine_user_may_never_hold_has_a_counter_example(self):  # issue 89
+        self.assertEqual([p for p in check_examples.run(ROOT) if "machine-user" in p], [])
+        names = {path.name for path in (ROOT / "examples" / "invalid").glob("machine-user.*.json")}
+        self.assertEqual(len(names), 6)
+
+    def machine_users_live_answers(self, held: dict) -> list:
+        """What GitHub answers when nothing has drifted: the org's repos hold the two left out, an archived one and an
+        advisory's fork, and each repo has another team beside the code owners'."""
+        team = held["code_owner_team"]
+        repos = [{"name": row["repo"].split("/")[-1], "archived": False} for row in held["repos"]]
+        repos += [{"name": "left-out-1"}, {"name": "left-out-2"}, {"name": "old", "archived": True}, {"name": "x-ghsa-ab12-cd34-ef56"}]
+        found = [(200, {"id": held["id"]}), (200, {"name": held["org_role"]["name"]}),
+                 (200, [{"slug": slug} for slug in reversed(held["org_role"]["teams"])]), (200, {"repos_count": 0}),
+                 (200, [{"login": login} for login in reversed(held["code_owners"])]), (200, repos)]
+        found += [(200, {"state": "active", "role": "member"}) for _ in held["teams"]]
+        for _ in held["repos"]:
+            found += [(200, {"role_name": "write"}), (200, [{"slug": "others", "permission": "admin"}, {"slug": team, "permission": "push"}])]
+        return found
+
+    def test_the_machine_users_live_role_is_compared_whole(self):  # issue 89
+        held = json.loads((ROOT / "config" / "machine-user.json").read_text())
+        calls = machine_user_drift.reads(held)
+        self.assertEqual(len(calls), 6 + len(held["teams"]) + 2 * len(held["repos"]))
+        # The paths themselves, which the script's tests take from this list.
+        self.assertEqual(calls[:8], ["users/donpetry-bot", "orgs/combsmith/organization-roles/8134",
+                                     "orgs/combsmith/organization-roles/8134/teams?per_page=100", "orgs/combsmith/teams/org-leads",
+                                     "orgs/combsmith/teams/org-leads/members?per_page=100", "orgs/combsmith/repos?per_page=100",
+                                     "orgs/combsmith/teams/org-leads/memberships/donpetry-bot",
+                                     "orgs/combsmith/teams/organization-members/memberships/donpetry-bot"])
+        self.assertEqual(calls[8:10], ["repos/%s/collaborators/donpetry-bot/permission" % held["repos"][0]["repo"],
+                                       "repos/%s/teams" % held["repos"][0]["repo"]])
+        team = held["code_owner_team"]
+
+        def live():
+            return self.machine_users_live_answers(held)
+
+        self.assertEqual(machine_user_drift.compare(held, live()), [])
+        first, repos = 6 + len(held["teams"]), live()[5][1]
+        wrong = ((0, (200, {"id": 1}), "records id"), (1, (200, {"name": "all_repo_maintain"}), "is all_repo_maintain"),
+                 (2, (200, []), "is held by []"), (2, (200, [{"slug": s} for s in held["org_role"]["teams"] + ["all-staff"]]), "all-staff"),
+                 (2, (200, [{"slug": "x%d" % i} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
+                 (3, (200, {"repos_count": 7}), "has 7 grants of its own"),
+                 (4, (200, [{"login": "donpetry-bot"}]), "org-leads holds ['donpetry-bot']"),
+                 (4, (200, [{"login": "don-petry"}, {"login": "donpetry-bot"}, {"login": "someone-else"}]), "someone-else"),
+                 (4, (200, [{"login": "x%d" % i} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
+                 (5, (200, repos + [{"name": "new"}]), "3 active repos are not recorded"),
+                 (5, (200, [r for r in repos if r["name"] != "left-out-1"]), "1 active repos are not recorded"),
+                 (5, (200, repos + [{"name": "x%d" % i, "archived": True} for i in range(machine_user_drift.PAGE)]), "answered a whole page"),
+                 (5, (200, [dict(r, archived=True) if r["name"] == "worldchest" else r for r in repos]), "['worldchest'] are recorded and"),
+                 (5, (200, {}), "are recorded and are not active"),
+                 (6, (200, {"state": "pending", "role": "member"}), "is not an active plain member of org-leads"),
+                 (6, (200, {"state": "active", "role": "maintainer"}), "is not an active plain member of org-leads"),
+                 (6, (404, {}), "was answered 404"), (7, (200, {}), "is not an active plain member of organization-members"),
+                 (first, (200, {"role_name": "maintain"}), "holds maintain"),
+                 (first + 1, (200, [{"slug": team, "permission": "maintain"}]), "has ['maintain']"),
+                 (first + 1, (200, [{"slug": "others", "permission": "push"}]), "has nothing"),
+                 (first, (404, {}), "was answered 404"),
+                 (len(calls) - 2, (200, {"role_name": "maintain"}), "holds maintain"),
+                 (len(calls) - 1, (200, []), "has nothing"))
+        for at, answer, said in wrong:
+            found = live()
+            found[at] = answer
+            self.assertTrue(caught(machine_user_drift.compare(held, found), said), said)
+        self.assertTrue(caught(machine_user_drift.compare(held, live()[:-1]), "read them again"))
+        # The script reads through a stand-in gh, and only reads: every call is an `api --include` GET.
+        stand_in = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (stand_in / "gh").write_text("#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/calls\"\nprintf 'HTTP/2.0 404 Not Found\\n\\n{}'\nexit 1\n")
+        (stand_in / "gh").chmod(0o755)
+        env = dict(os.environ, PATH=str(stand_in) + os.pathsep + os.environ["PATH"])
+        done = subprocess.run(["sh", str(ROOT / "tools" / "machine_user_drift.sh")], env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("was answered 404", done.stdout)
+        said = (stand_in / "calls").read_text().splitlines()
+        self.assertEqual(said, ["api --include " + call for call in calls])
+
+    def test_the_machine_users_script_keeps_each_answer_redacted_and_compares_them(self):  # issue 89
+        held = json.loads((ROOT / "config" / "machine-user.json").read_text())
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        scratch = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        # The stand-in looks, at each read, for a token in what the script has kept so far; it answers from a file, as
+        # the rulesets' does, so nothing here reads GitHub.
+        look = """
+for folder, _, names in os.walk(os.environ["TMPDIR"]):
+    for name in names:
+        if name == "answers" and "ghs_" in open(os.path.join(folder, name)).read():
+            open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaked"), "w").write("yes")
+"""
+        (bin_ / "gh").write_text(RulesetsDrift.STAND_IN.replace("import os, sys\n", "import os, sys\n" + look, 1))
+        (bin_ / "gh").chmod(0o755)
+        head = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nAuthorization: token ghs_%s\r\n\r\n" % ("x" * 36)
+        calls = machine_user_drift.reads(held)
+        answers = self.machine_users_live_answers(held)
+        for call, (_, body) in zip(calls, answers):
+            (bin_ / call.replace("/", "_").replace("?", "_")).write_text(head + json.dumps(body))
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch))
+        self.assertEqual(shutil.which("gh", path=env["PATH"]), str(bin_ / "gh"))
+        script = str(ROOT / "tools" / "machine_user_drift.sh")
+        done = subprocess.run(["sh", script], env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "no drift"), done.stderr)
+        self.assertFalse((bin_ / "leaked").exists())
+        self.assertEqual((bin_ / "calls").read_text().splitlines(), ["api --include " + call for call in calls])
+        self.assertEqual(list(scratch.glob("machine-user-drift.*")), [])     # macOS's python3 keeps xcrun_db beside it
+
+    def test_the_machine_users_script_refuses_a_scratch_directory_inside_the_repo(self):  # issue 89
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "into-the-repo"
+        text = (ROOT / "tools" / "machine_user_drift.sh").read_text().replace('dir=$(mktemp -d "${TMPDIR:-/tmp}/machine-user-drift.XXXXXX")', 'dir="%s"' % link)
+        root = clone({"tools/machine_user_drift.sh": text, "scratch/.keep": ""})
+        link.symlink_to(root / "scratch")
+        done = subprocess.run(["sh", str(root / "tools" / "machine_user_drift.sh")], env=dict(os.environ, PATH="/nowhere:/usr/bin:/bin"),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("is inside the repo", done.stderr)
 
     def test_the_data_is_held_to_what_github_granted_each_app(self):
         # P-39 recorded each installation's permissions. The data must name exactly those, at the same levels: a
@@ -1312,8 +1466,25 @@ class Apps(unittest.TestCase):
             for level in ("read", "write"):
                 self.setUp()
                 self.apps["controller"]["permissions"][name] = {"level": level, "needs": ["read:facts.checks"]}
-                said = "controller: holds %s; no Factory App may" % name
+                said = "controller: holds %s; no Factory App %smay" % (name, "but the release App " * (name == "workflows"))
                 self.assertTrue(caught(self.check(), said), (name, level))
+
+    def test_only_the_release_app_holds_workflows_and_it_holds_security_events_as_little_as_any(self):
+        # Ruling 4′ of issue 197: a tag on a commit that touches .github/workflows/ needs `workflows`. The exception is
+        # that App's alone, its key is kept in the release job's environment, and it opens nothing else in NEVER.
+        self.assertEqual(self.apps["release"]["permissions"]["workflows"]["level"], "write")
+        self.assertEqual(check_apps._keys(self.apps), [])
+        for app in sorted(set(self.apps) - {"release"}):
+            with self.subTest(app=app):
+                self.setUp()
+                self.apps[app]["permissions"]["workflows"] = {"level": "read", "needs": ["read:release.repo"]}
+                self.assertTrue(caught(self.check(), "%s: holds workflows; no Factory App but the release App may" % app))
+        self.setUp()
+        self.apps["release"]["permissions"]["security_events"] = {"level": "read", "needs": ["read:release.repo"]}
+        self.assertTrue(caught(self.check(), "release: holds security_events; no Factory App may"))
+        self.setUp()
+        self.apps["release"]["key"]["environment"] = "factory-apply"
+        self.assertTrue(caught(self.check(), "release: its key is kept in factory-apply, and the release job holds it"))
 
     def test_a_permission_nothing_needs_is_caught(self):
         self.apps["controller"]["permissions"]["checks"]["needs"] = []
@@ -2581,15 +2752,32 @@ class Workflows(unittest.TestCase):
     def test_a_shim_holds_no_step_and_calls_the_release_at_its_channel(self):
         # Issue 196's ruling 3: a workflow on schedule, workflow_dispatch or workflow_run runs the default branch's
         # file, so each job calls one file of the Release at its channel, with its grant and its concurrency group, an
-        # if: and with: values that pass its inputs on, and nothing else; only a called workflow names an environment.
+        # if: and with: values that pass its inputs on, `secrets: inherit` (trial P-55), and nothing else; only a called
+        # workflow names an environment.
         self.assertEqual(check_workflows.lint(POLLER), [])
+        # Those words alone, and on a shim alone: in quotes, or on a workflow of any other event, they are refused.
+        quoted = {rule for rule, _ in check_workflows.lint(POLLER.replace("secrets: inherit", 'secrets: "inherit"'))}
+        self.assertIn("token", quoted)
+        spaced = {rule for rule, _ in check_workflows.lint(POLLER.replace("secrets: inherit", "secrets:  inherit"))}
+        self.assertIn("token", spaced)
+        other = GOOD.replace("  verify:\n", "  c:\n    uses: ./.github/workflows/o.yml\n    secrets: inherit\n  verify:\n")
+        self.assertIn("token", {rule for rule, _ in check_workflows.lint(other)})
+        # Every event a shim's: a push, a pull request or a call beside a dispatch is no shim's to inherit for.
+        for beside in ("  push:\n    branches:\n      - main\n", "  pull_request:\n  merge_group:\n", "  workflow_call:\n"):
+            mixed = POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n" + beside)
+            self.assertIn("token", {rule for rule, _ in check_workflows.lint(mixed)}, beside)
+        # A job's own key: those words at that depth anywhere else are no shim's.
+        elsewhere = POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  schedule:\n    secrets: inherit\n", 1)
+        self.assertIn("token", {rule for rule, _ in check_workflows.lint(elsewhere)})
         call = "    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n"
         broken = {
             "a step": POLLER.replace(call, "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n"
                                            "      - run: python3 -m controller\n"),
             "main's copy": POLLER.replace(call, "    uses: ./.github/workflows/pass.yml\n"),
             "another repo's file": POLLER.replace("combsmith/software-factory/", "combsmith/other/"),
-            "a secret handed on": POLLER + "    secrets:\n      KEY: ${{ secrets.KEY }}\n",
+            "a secret handed on": POLLER.replace("    secrets: inherit\n", "    secrets:\n      KEY: ${{ secrets.KEY }}\n"),
+            "no secrets inherited": POLLER.replace("    secrets: inherit\n", ""),
+            "secrets given in another word": POLLER.replace("secrets: inherit", "secrets: all"),
             "an env above the jobs": POLLER.replace("permissions: {}\n", "permissions: {}\nenv:\n  A: b\n"),
             "no concurrency": POLLER.replace("    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n", ""),
             "no grant": POLLER.replace("    permissions:\n      actions: write\n      contents: read\n", ""),
@@ -2661,7 +2849,8 @@ class Workflows(unittest.TestCase):
             problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": POLLER})))
         self.assertTrue(caught(problems, "other.yml: only poller.yml wakes on another workflow's end"), problems)
         broken = {
-            "its own end": POLLER.replace("      - sf-run\n", "      - sf-run\n      - sf-poller\n"),
+            "its own end": POLLER.replace("      - ci\n", "      - ci\n      - sf-poller\n"),
+            "a Run's end, which never comes": POLLER.replace("      - ci\n", "      - ci\n      - sf-run\n"),
             "every stage": POLLER.replace("    types:\n      - completed\n", ""),
             "a request": POLLER.replace("      - completed\n", "      - requested\n"),
             "an input": POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n"
@@ -2669,8 +2858,8 @@ class Workflows(unittest.TestCase):
             "the run that woke it": POLLER.replace("  pass:\n    permissions:",
                                                    "  pass:\n    if: github.event.workflow_run.conclusion == 'success'\n"
                                                    "    permissions:"),
-            "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n      - sf-run\n", ""),
-            "an empty list of workflows": POLLER.replace("      - factory\n      - ci\n      - sf-run\n", ""),
+            "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n", ""),
+            "an empty list of workflows": POLLER.replace("      - factory\n      - ci\n", ""),
             "a branch filter": POLLER.replace("    types:\n", "    branches:\n      - main\n    types:\n"),
         }
         # The run that woke it is read in no form an expression can write: by an index, in another case, or whole.
@@ -3108,8 +3297,114 @@ class Workflows(unittest.TestCase):
             self.assertEqual(rules(text), [], name)
 
 
-    # The Run's three jobs, the approving act's one and the pass, each held word for word (issue 196, PR 2b-2).
+    # The Run's jobs, the approving act's one and the pass, each held word for word (issue 196, PR 2b-2).
     LIVE = ROOT / ".github" / "workflows"
+
+    def test_what_the_runs_files_rest_on_is_as_p55_saw_it(self):
+        # Trial P-55's fixture, read for what decision 0115 stands on.
+        fixture = json.loads((ROOT / "trials" / "P-55.json").read_text())
+        self.assertEqual(fixture["verdict"], "fail")
+        exchanges = fixture["exchanges"]
+
+        def run(run_id):
+            return next(e["response"]["body"] for e in exchanges if e["request"]["call"].endswith("/actions/runs/%d" % run_id))
+
+        def jobs(run_id):
+            found = next(e["response"]["body"] for e in exchanges if e["request"]["call"].endswith("/actions/runs/%d/jobs" % run_id))
+            return {j["name"]: j for j in found["jobs"]}
+
+        def said(run_id, job):
+            return next(e["response"]["body"] for e in exchanges if ", %s of run %d," % (job, run_id) in e["request"]["call"])
+
+        def secret(run_id, job):
+            return next(line for line in said(run_id, job) if line.startswith("secret: ")).split(",")[0]
+
+        # The secret: read by a job of the dispatched file, and by a called job only with secrets: inherit.
+        control = 41266627658
+        self.assertEqual(secret(control, "plain"), "secret: present")
+        for job, held in (("inherit / run", "present"), ("inherit / verify", "absent"), ("inherit / apply", "present"),
+                          ("nothing / run", "absent"), ("nothing / verify", "absent"), ("nothing / apply", "absent")):
+            self.assertEqual(secret(control, job), "secret: " + held, job)
+        # The wake-up: only the plain probe's two runs and the poller's one are workflow_run's, each after a person's run.
+        lists = [e for e in exchanges if "/runs?created=" in e["request"]["call"]]
+        by_token = {r["id"] for e in lists for r in e["response"]["body"]["workflow_runs"]
+                    if r["event"] == "workflow_dispatch" and r["actor"] == "github-actions[bot]" and "run.yml" in r["path"]}
+        self.assertTrue({41266503659, 41266939937} <= by_token)
+        woken = [r for e in lists for r in e["response"]["body"]["workflow_runs"] if r["event"] == "workflow_run"]
+        self.assertEqual(sorted(r["id"] for r in woken), [41266881601, 41266881638, 41266901602])
+        self.assertTrue(all(r["actor"] == "don-petry" for r in woken))
+        # The last job: on a Run that ended and one cancelled it ran and the next pass followed; force-cancelled, it did not.
+        for run_id, conclusion in ((41268095167, "success"), (41268293154, "cancelled")):
+            self.assertEqual(run(run_id)["conclusion"], conclusion)
+            self.assertEqual(jobs(run_id)["lane / wake"]["conclusion"], "success")
+            self.assertIn("dispatched the poller", said(run_id, "lane / wake"))
+        self.assertNotIn("lane / wake", jobs(41268705453))
+        pollers = {r["id"]: r for e in lists for r in e["response"]["body"]["workflow_runs"] if r["path"].endswith("poller.yml")}
+        for woke in (41268128013, 41268396024):
+            self.assertEqual((pollers[woke]["event"], pollers[woke]["actor"]), ("workflow_dispatch", "github-actions[bot]"))
+        # The lane: the second Run of an item waits for the first's last job, and another item's does not.
+        first, second, other = jobs(41267252367), jobs(41267262803), jobs(41267273785)
+        self.assertGreater(second["lane / run"]["started_at"], first["lane / apply"]["completed_at"])
+        self.assertLess(other["lane / run"]["started_at"], first["lane / apply"]["completed_at"])
+        # A person's dispatch, a Pause and a re-run are skipped, the run and its job alike.
+        for run_id in (41266877465, 41267134100):
+            self.assertEqual(run(run_id)["conclusion"], "skipped")
+            self.assertEqual(jobs(run_id)["lane"]["conclusion"], "skipped")
+        attempt = next(e["response"]["body"] for e in exchanges if e["request"]["call"].endswith("/attempts/2"))
+        self.assertEqual((attempt["conclusion"], attempt["triggering_actor"]), ("skipped", "don-petry"))
+        # What names the called workflow's own commit, and how the actor compares.
+        lines = said(41266503659, "lane / run")
+        tag = run(41266503659)["referenced_workflows"][0]["sha"]
+        self.assertIn("job.workflow_sha=" + tag, lines)
+        self.assertIn("commit=" + tag, lines)
+        self.assertNotIn("github.workflow_sha=" + tag, lines)
+        self.assertIn("as string: true; as number: true; run_attempt=1", lines)
+        # 7 successors in a row, each dispatched by the pass before, and no stop: as far as it was asked.
+        chain = [r for r in pollers.values() if "2026-11-01T03:05:50Z" < r["created_at"] < "2026-11-01T03:07:00Z"]
+        self.assertEqual({(r["event"], r["actor"]) for r in chain}, {("workflow_dispatch", "github-actions[bot]")})
+        self.assertEqual(len(chain), 7)
+
+    def test_the_last_job_alone_of_the_runs_wakes_the_poller_holding_nothing_else(self):
+        # Trial P-55: a Run the pass's token started wakes nothing when it ends, so its last job dispatches the poller,
+        # whatever the others did. It holds no key, no checkout and no input, and no other job of the Run holds its grant.
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        self.assertEqual(check_workflows.run_jobs_problems(good), [])
+        broken = {
+            "not always": good.replace("    if: always() && (vars", "    if: (vars"),
+            "under a Pause": good.replace(" && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n", "\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"),
+            "a hang that fails the Run": good.replace("run: timeout 60 gh api", "run: gh api"),
+            "a key": good.replace("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
+            "a failure that fails the Run": good.replace(' || echo "the next pass waits for the backstop"', ""),
+            "another target": good.replace("workflows/poller.yml/dispatches", "workflows/run.yml/dispatches"),
+            "gone": good[:good.index("  wake:\n")],
+        }
+        for why, text in broken.items():
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's jobs"), why)
+        # The approving act's is the same job, needing its one job, and holds no secret: nor may either hold one.
+        act = (self.LIVE / "approve-job.yml").read_text()
+        self.assertEqual(check_workflows.approve_job_problems(act), [])
+        self.assertEqual(act[act.index("  wake:\n"):].replace("      - approve\n", ""),
+                         good[good.index("  wake:\n"):].replace("      - run\n      - verify\n      - apply\n", ""))
+        self.assertTrue(caught(check_workflows.approve_job_problems(act[:act.index("  wake:\n")]), "it is not the approving act's one job"))
+        for file, text in (("run-jobs.yml", good), ("approve-job.yml", act)):
+            self.assertEqual(check_workflows.wake_problems(check_workflows.read(text)[0]), [], file)
+            for why, change in (("a secret", ("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets.APPROVER_TOKEN }}\n")),
+                                ("a secret by index", ("          GH_TOKEN: ${{ github.token }}\n", "          GH_TOKEN: ${{ github.token }}\n          K: ${{ secrets['APPROVER_TOKEN'] }}\n")),
+                                ("an environment", ("    timeout-minutes: 5\n", "    timeout-minutes: 5\n    environment: factory-approve\n")),
+                                ("a checkout", ("    steps:\n      - name: Wake", "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n      - name: Wake"))):
+                held = check_workflows.read(text.replace(*change))[0]
+                self.assertTrue(caught(check_workflows.wake_problems(held), "the job wake holds a secret, an environment or a checkout"), (file, why))
+            self.assertTrue(caught(check_workflows.shim_problems(file, text.replace(*change)), "the job wake holds"), file)
+        # The grant is theirs alone: another job given it is refused, and neither id may stand in another file.
+        other = good.replace("  verify:\n    needs: run\n    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n    permissions:\n      contents: read\n",
+                             "  verify:\n    needs: run\n    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n    permissions:\n      actions: write\n")
+        self.assertNotEqual(other, good)
+        self.assertTrue(caught(check_workflows.lint(other), "job verify is granted actions: write"))
+        self.assertEqual(check_workflows.lint(check_workflows.RUN_SHIM % 41898282), [])
+        self.assertEqual([p for p in check_workflows.lint(good) if p[0] == "permissions"], [])
+        for job, homes in (("wake", "run-jobs.yml and approve-job.yml"), ("lane", "run.yml and approve.yml")):
+            text = "name: x\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  %s:\n    runs-on: ubuntu-24.04\n" % job
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "the job %s is reserved for %s" % (job, homes)), job)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
         good = (self.LIVE / "run-jobs.yml").read_text()
@@ -3117,6 +3412,7 @@ class Workflows(unittest.TestCase):
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
         broken = {
+            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends bubblewrap\n", ""),
             "the reader's key beside the model": good.replace(model, model + reader),
             "the model beside the reader's key": good.replace(reader, reader + model),
             "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
@@ -3151,11 +3447,11 @@ class Workflows(unittest.TestCase):
         }
         for why, text in broken.items():
             self.assertNotEqual(text, good, why)
-            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's three jobs"), why)
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's jobs"), why)
         # Each file is held by its own name, wherever the check meets it.
         passed = (self.LIVE / "pass.yml").read_text()
         approving = (self.LIVE / "approve-job.yml").read_text()
-        for name, text, said in (("run-jobs.yml", broken["another checksum"], "it is not the Run's three jobs"),
+        for name, text, said in (("run-jobs.yml", broken["another checksum"], "it is not the Run's jobs"),
                                  ("pass.yml", passed.replace("      - if: always()\n        uses", "      - uses"),
                                   "it is not the pass"),
                                  ("approve-job.yml", approving.replace("timeout-minutes: 10", "timeout-minutes: 20"),
@@ -3168,7 +3464,7 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.run_jobs_problems(good.replace('"2.1.306"', '"2.1.307"'), moved),
                                "CLI_CHECKSUMS holds no checksum for it"))
         with mock.patch.dict(check_workflows.CLI_CHECKSUMS, {"2.1.307": "1" * 64}):
-            self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's three jobs"))
+            self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's jobs"))
             # The pin, the workflow's version and its checksum moved together pass.
             together = good.replace('"2.1.306"', '"2.1.307"').replace(check_workflows.CLI_CHECKSUMS["2.1.306"], "1" * 64)
             self.assertEqual(check_workflows.run_jobs_problems(together, moved), [])
@@ -3930,6 +4226,16 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
 
 
 class Trials(unittest.TestCase):
+    def test_the_relays_host_stands_in_no_batch_before_the_first_approval(self):  # decision 0107
+        # W-2 rests on the relay alone, and the first approval does not need it, so the relay's own trial is the relay's.
+        # It stands in no batch, and section 6.1 says why.
+        section = (ROOT / check_trials.DESIGN).read_text().split("### 6.1 ")[1].split("\n### ")[0]
+        batches = [line for line in section.split("\n") if line.startswith("| **")]
+        self.assertEqual(len(batches), 4)
+        self.assertFalse([line for line in batches if "P-31" in line])
+        self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0107). "
+                      "The first approval does not need W-2, since a Run's end starts its passes (decision 0043).", section)
+
     def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438
         # The check keeps each fixture's finding between runs in one process, by its name, its text, the schema and the
         # Apps' reach; a change to any of them is read afresh, and what a run finds is what a first run would.
@@ -3952,7 +4258,7 @@ class Trials(unittest.TestCase):
         before = check_trials.run(clone({}))
         after = check_trials.run(clone({"config/apps.json": json.dumps(dict(apps, apps=reach))}))
         self.assertEqual(before, [])
-        self.assertTrue(after, "a fixture read before the Apps' reach changed is read again")
+        self.assertTrue([p for p in after if p.startswith("trials/")], "a fixture read before the Apps' reach changed is read again")
         # Apps that cannot be decoded, or are gone, are said to be, as `_installed` says, and stop nothing (the security
         # pass and the Claude review of #441).
         root = clone({})
@@ -4109,6 +4415,10 @@ class Trials(unittest.TestCase):
     def test_a_fixture_of_the_org_asks_by_rest_of_this_org_alone_and_climbs_nowhere(self):
         # Another org, a GraphQL query whose call looks like an App's, and a path that climbs out of /apps/ are each
         # a call of something else; the fixture's own calls are not.
+        # A Factory App's bot account is the org's to read, by the one form its login takes; no other account is.
+        for call, fine in (("GET /users/combsmith-sf-controller[bot]", True), ("GET /users/octocat", False),
+                           ("GET /users/combsmith-sf-controller[bot]/repos", False), ("GET /users/other-sf-x[bot]", False)):
+            self.assertEqual(bool(check_trials.ORG_CALL.match(call)), fine, call)
         reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
         n = len(reach["exchanges"])
         reach["exchanges"] += [json.loads(json.dumps(reach["exchanges"][0])) for _ in range(4)]
@@ -4502,6 +4812,45 @@ class Trials(unittest.TestCase):
         outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
         self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
 
+    def test_a_write_in_a_fixture_of_the_factory_is_held_to_a_node_of_the_factory(self):
+        # What holds a canary fixture's writes holds this one's, with the Factory's id in the canary's. Each node id is
+        # a prefix and base64url of msgpack [0, the repository's id, ...], as GitHub writes one.
+        def node(repo_id):
+            packed = b"\x93\x00\xce" + repo_id.to_bytes(4, "big") + b"\x01"
+            return "PR_" + base64.urlsafe_b64encode(packed).decode().rstrip("=")
+
+        self.assertEqual(check_trials.node_repo(node(check_trials.FACTORY_ID)), check_trials.FACTORY_ID)
+        data = json.loads((ROOT / "examples" / "trial.of-the-factorys-own-repo.json").read_text())
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        write = "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { clientMutationId } }"
+
+        def writing(repo_id):
+            held = json.loads(json.dumps(data))
+            ask = {"as": {"kind": "person", "name": "don-petry"}, "via": "graphql", "call": "POST /graphql",
+                   "headers": {}, "body": {"query": write, "variables": {"id": node(repo_id)}}}
+            held["exchanges"][1]["response"]["body"] = {"id": 4, "node_id": node(repo_id)}
+            held["exchanges"].append({"request": ask, "response": {"status": 200, "headers": {}, "body": {"data": {}}}})
+            return check_trials.fixture_problems(held)
+
+        self.assertEqual(writing(check_trials.FACTORY_ID), [])
+        self.assertTrue(any("that is not the Factory's repo's by its id" in p for p in writing(check_trials.CANARY_ID)))
+
+        # A write carried inside an answer is held the same, and only a read of this repo alone ties a node to it.
+        def carrying(repo_id, named="combsmith/software-factory"):
+            held = json.loads(json.dumps(data))
+            held["exchanges"][1]["response"]["body"] = {"id": 4, "node_id": node(repo_id), "repository": {"nameWithOwner": named}}
+            held["exchanges"].append({"request": held["exchanges"][0]["request"], "response": {
+                "status": 200, "headers": {}, "body": {"query": write, "variables": {"id": node(repo_id)}}}})
+            return check_trials.fixture_problems(held)
+
+        self.assertEqual(carrying(check_trials.FACTORY_ID), [])
+        said = "carries a write of enqueuePullRequest on a node no read of the Factory's repo alone answered"
+        self.assertTrue(any(said in p for p in carrying(check_trials.CANARY_ID)))
+        canary = "combsmith/" + check_trials.CANARY
+        self.assertTrue(any(said in p for p in carrying(check_trials.FACTORY_ID, canary)))
+        # A trial the schema refuses for its form is left to the schema, with no fault from this rule.
+        self.assertEqual(check_trials.fixture_problems({"trial": ["P-12"], "repo": None, "exchanges": []}), [])
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
         # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
@@ -4540,6 +4889,14 @@ class Trials(unittest.TestCase):
             "a-trial-of-forks-reading-an-outside-org": "names the owner outside",
             "a-star-beside-another-read": "names the owner outside",
             "a-star-that-climbs": "climbs out of its repo",
+            # The Factory's own repo is recorded by the trial named for it alone, which records nowhere else and is held
+            # to the same rules.
+            "another-trial-in-the-factorys-repo": "and P-12 is no trial of TRIALS_OF_THE_FACTORY",
+            "a-trial-of-the-factory-on-the-canary": "and P-30 runs in combsmith/software-factory",
+            "a-trial-of-the-factory-reading-another-owners-repo": "names the owner outside",
+            # An App is held to its reach there too, and one the data does not know reaches nothing there.
+            "a-trial-of-the-factory-beyond-an-apps-reach": "asks of combsmith/other, which the App's installation does not reach",
+            "a-trial-of-the-factory-by-an-app-the-data-does-not-know": "asks of combsmith/software-factory, which the App's installation does not reach",
             # A write a trial records is one of WRITES on one node a read of the org's repos in the fixture answered.
             "a-write-on-a-node-no-read-answered": "writes enqueuePullRequest on a node no read",
             "a-write-on-a-node-another-repos-read-answered": "writes enqueuePullRequest on a node no read of the canary alone",
@@ -5205,10 +5562,12 @@ class OutputMadeAlone(unittest.TestCase):
               if r != "combsmith/software-factory"][0]
     CONTROLLER = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
                   if r != "combsmith/software-factory"][0]
-    SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("KEY", "KEY", "KEY", "KEY"),
+    SCRIPTS = {"trial_p4_narrow.sh": ("KEY", "x/canary", "x/other"), "trial_p39_reach.sh": ("controller=KEY", "pr-review=KEY", "reader=KEY", "queue=KEY"),
                "trial_p52_pause.sh": ("KEY",), "trial_p8_cost.sh": ("KEY", "x/canary"),
                "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
-               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42")}
+               "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
+               "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
+               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42")}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -5225,7 +5584,7 @@ class OutputMadeAlone(unittest.TestCase):
                 for name in ("mktemp", "curl"):
                     (folder / "bin" / name).chmod(0o755)
                 (folder / "key.pem").write_text("not a key\n")
-                argv = [str(folder / "key.pem") if a == "KEY" else a for a in args]
+                argv = [a.replace("KEY", str(folder / "key.pem")) for a in args]
                 done = subprocess.run(["sh", str(ROOT / "tools" / script), str(out), *argv], capture_output=True, text=True,
                                       env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder),
                                            "LANG": "C", "TMPDIR": str(folder)},
@@ -5272,7 +5631,7 @@ class OutputMadeAlone(unittest.TestCase):
         (folder / "cli").chmod(0o755)
         (folder / "stub.py").write_text("")
         if script in self.SCRIPTS:
-            argv = ["sh", str(ROOT / "tools" / script), str(out)] + [str(folder / "key.pem") if a == "KEY" else a
+            argv = ["sh", str(ROOT / "tools" / script), str(out)] + [a.replace("KEY", str(folder / "key.pem"))
                                                                       for a in self.SCRIPTS[script]]
         else:
             argv = ["bash", str(ROOT / "tools" / script), str(out), self.SANDBOX[script], str(folder / "cli"),
@@ -5345,6 +5704,8 @@ class OutputMadeAlone(unittest.TestCase):
         # The scripts this cannot run so plainly hold to the same line.
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
+                       "trial_p12_status.sh",
+                       "trial_p56_comments.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -5407,7 +5768,8 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
         self.keys = []
         for app in ("controller", "pr-review", "reader", "queue"):
             (self.folder / app).write_text("not a key\n")
-            self.keys.append(str(self.folder / app))
+            self.keys.append("%s=%s" % (app, self.folder / app))
+        self.key_file = str(self.folder / "controller")
         self.out = self.folder / "out"
 
     def run_script(self, plan, scratch_closed=False, stop=False, script=None, args=None):
@@ -5441,6 +5803,32 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
 
     def revoked(self, calls):
         return [c["auth"] for c in calls if c["method"] == "DELETE"]
+
+    def test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted(self):
+        # One App's key alone reads that App's reach, for the installation P-39 found, and nothing else is asked.
+        (self.folder / "release").write_text("not a key\n")
+        code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}},
+                                                  args=["release=%s" % (self.folder / "release")])
+        self.assertEqual(code, 0, told)
+        self.assertEqual(len(self.minted(calls)), 1)
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        release = [i for i in listed["response"]["body"]["installations"] if i["app_slug"] == "combsmith-sf-release"][0]
+        self.assertIn("/app/installations/%d/access_tokens" % release["id"], calls[0]["url"])
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([(a["n"], a["app"], a["as"], a["app_id"]) for a in asked],
+                         [(1, "release", "combsmith-sf-release", release["app_id"])])
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["clean-1", "ran_at", "redacted-1", "requests.json"])
+        for args, why in (([], "usage:"), (["nobody=%s" % self.key_file], "is no App this reads"), (["controller"], "cannot read the key file for controller"),
+                          (["release=/no/such/key"], "cannot read the key file for release"),
+                          (["release=%s" % self.key_file, "release=%s" % self.key_file], "named twice")):
+            with self.subTest(args=args):
+                self.setUp()
+                ran = subprocess.run(["sh", str(self.SCRIPT), str(self.out), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                     cwd=str(self.folder), env={"PATH": "%s:%s" % (self.folder / "bin", os.environ["PATH"]), "HOME": str(self.folder), "LANG": "C"})
+                self.assertEqual(ran.returncode, 2, ran.stderr)
+                self.assertIn(why, ran.stderr)
+                self.assertFalse((self.folder / "calls").exists() or self.out.exists())
 
     def test_each_token_minted_is_revoked_and_out_holds_no_credential(self):
         code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}})
@@ -5482,7 +5870,7 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
                     ({"status": 422, "body": self.MINTED}, True, "held a token all the same")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
-                    argv = [self.keys[0] if a == "KEY" else a for a in args]
+                    argv = [a.replace("KEY", self.key_file) for a in args]
                     code, said, told_, calls = self.run_script({"mint": plan}, scratch_closed=True,
                                                                script=ROOT / "tools" / name, args=argv)
                     self.assertEqual(code, 1, told_)
@@ -8862,6 +9250,9 @@ class IssueLookupTrial(ReaderTrialScript):
               if r != "combsmith/software-factory"][0]
     GIVEN = (CANARY, "42")
     FIRST = "issues"
+    READ = "issues/42"
+    KEPT = ('"number": 42', '"name": "question"')
+    NOT_A_NUMBER = "is not an issue's number"
     # The reader trial's stand-in GitHub, which also answers an issue: to a token narrowed to issues, and to any token
     # where the repo is public, as a file beside it says. A file beside it puts a proxy's block before the answer.
     CURL = ReaderTrialScript.CURL.replace('elif "/activity" in url:', '''elif "/issues/" in url:
@@ -8896,22 +9287,22 @@ sys.stdout.write("HTTP/2 %d''', 1)
                 self.assertEqual([m["url"].split("/app/")[1] for m in mints],
                                  ["installations/%d/access_tokens" % installation] * 2)
                 self.assertEqual([json.loads(m["body"]) for m in mints],
-                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {"issues": "read"}},
+                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {self.FIRST: "read"}},
                                   {"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}}])
                 self.assertEqual([c["url"].split("/repos/")[1] for c in calls if c["method"] == "GET"],
-                                 ["%s/issues/42" % self.CANARY] * 2)
+                                 ["%s/%s" % (self.CANARY, self.READ)] * 2)
                 self.assertEqual(len([c for c in calls if c["method"] == "DELETE"]), 2)
                 self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
                 texts = {p.name: p.read_text() for p in self.out.iterdir()}
                 self.assertEqual(sorted(texts), ["clean-1", "clean-2", "ran_at", "redacted-1", "redacted-2", "requests.json"])
                 asked = json.loads(texts["requests.json"])
                 self.assertEqual([(a["narrowed_to"], a["call"], a["status"]) for a in asked if "call" in a],
-                                 [("issues: read", "GET /repos/%s/issues/42" % self.CANARY, 200),
-                                  ("metadata: read", "GET /repos/%s/issues/42" % self.CANARY, metadata)])
+                                 [(self.FIRST + ": read", "GET /repos/%s/%s" % (self.CANARY, self.READ), 200),
+                                  ("metadata: read", "GET /repos/%s/%s" % (self.CANARY, self.READ), metadata)])
                 self.assertEqual([a for a in asked if "revoked" in a],
-                                 [{"revoked": "issues: read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
-                self.assertIn('"number": 42', texts["clean-1"])
-                self.assertIn('"name": "question"', texts["clean-1"])
+                                 [{"revoked": self.FIRST + ": read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
+                for kept in self.KEPT:
+                    self.assertIn(kept, texts["clean-1"])
                 self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
@@ -8943,11 +9334,11 @@ sys.stdout.write("HTTP/2 %d''', 1)
                                  (("combsmith/software-factory", "42"), None, "is not the canary the Controller is installed on"),
                                  (("combsmith/elsewhere", "42"), None, "is not the canary the Controller is installed on"),
                                  (("combsmith", "42"), None, "is not owner/name"),
-                                 ((self.CANARY, "0"), None, "is not an issue's number"),
-                                 ((self.CANARY, "12a"), None, "is not an issue's number"),
-                                 ((self.CANARY, "-1"), None, "is not an issue's number"),
-                                 ((self.CANARY, "1/../2"), None, "is not an issue's number"),
-                                 ((self.CANARY, ""), None, "is not an issue's number"),
+                                 ((self.CANARY, "0"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "12a"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "-1"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "1/../2"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, ""), None, self.NOT_A_NUMBER),
                                  ((self.CANARY,), None, "usage:"), ((self.CANARY, "42", "43"), None, "usage:")):
             ran = self.run_script(*given, out=out)
             self.assertNotEqual(ran.returncode, 0, given)
@@ -8959,6 +9350,183 @@ sys.stdout.write("HTTP/2 %d''', 1)
         self.assertEqual(self.calls(), [])
 
 
+class StatusTrial(IssueLookupTrial):
+    """`tools/trial_p12_status.sh`, run against the same stand-ins and never GitHub (issue 454). It is P-54's script with
+    one token, narrowed to what the status write needs, and writes among its calls, so every test of that one that is not
+    about what is asked runs over it too, by inheritance."""
+
+    SCRIPT = ROOT / "tools" / "trial_p12_status.sh"
+    HEAD = "a" * 40
+    GIVEN = (IssueLookupTrial.CANARY, HEAD)
+    FIRST = "checks: write and metadata: read"
+    # The stand-in answers the check-run calls: a create and an edit by what was sent, kept for the test to read, and a
+    # list or a read by a run of one id. A file beside it refuses the first create.
+    CURL = IssueLookupTrial.CURL.replace('if "/collaborators/" in url:', """if "/check-runs" in url:
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")) or (method == "GET" and os.path.exists(os.path.join(here, "get.cut"))):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    sent = json.load(open(body[1:])) if body and body.startswith("@") else None
+    if sent is not None:
+        with open(os.path.join(here, "sent"), "a") as kept:
+            kept.write(json.dumps(sent) + "\\n")
+    if method == "POST" and os.path.exists(os.path.join(here, "no-create")):
+        status, answer = 422, {"message": "Validation Failed"}
+    elif method == "POST" and os.path.exists(os.path.join(here, "odd.id")):
+        status, answer = 201, {"id": "7/../../../../x", "external_id": sent["external_id"]}
+    elif method == "POST":
+        status, answer = 201, {"id": 7, "external_id": sent["external_id"]}
+    elif method == "PATCH" and os.path.exists(os.path.join(here, "no-patch")):
+        status, answer = 422, {"message": "Validation Failed"}
+    elif "/commits/" in url:
+        status, answer = 200, {"total_count": 1, "check_runs": [{"id": 7}]}
+    else:
+        status, answer = 200, {"id": 7, "external_id": "read back"}
+elif "/collaborators/" in url:""", 1)
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        calls = self.calls()
+        self.assertEqual([c["url"].split("/app/")[1] for c in calls if c["url"].endswith("/access_tokens")],
+                         ["installations/%d/access_tokens" % installation])
+        self.assertEqual(json.loads(calls[0]["body"]), {"repositories": [self.CANARY.split("/")[1]],
+                                                        "permissions": {"checks": "write", "metadata": "read"}})
+        runs = "%s/check-runs" % self.CANARY
+        named = "%s/commits/%s/check-runs?check_name=status_on_item" % (self.CANARY, self.HEAD)
+        mine = "%s&app_id=%d" % (named, app["app_id"])
+        asked = [("POST", runs), ("GET", runs + "/7"), ("GET", mine + "&filter=latest&per_page=100"),
+                 ("GET", named + "&filter=all&per_page=100"), ("PATCH", runs + "/7"), ("GET", runs + "/7"),
+                 ("GET", mine + "&filter=all&per_page=100"), ("POST", runs), ("GET", mine + "&filter=latest&per_page=100"),
+                 ("GET", mine + "&filter=all&per_page=100"), ("PATCH", runs + "/7"), ("GET", runs + "/7"),
+                 ("PATCH", runs + "/7"), ("GET", runs + "/7"), ("PATCH", runs + "/7"), ("GET", runs + "/7")]
+        self.assertEqual([(c["method"], c["url"].split("/repos/")[1]) for c in calls[1:-1]], asked)
+        self.assertEqual(calls[-1]["method"], "DELETE")
+        self.assertEqual(calls[-1]["url"].rsplit("/", 2)[1:], ["installation", "token"])
+        self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+        self.assertEqual(self.out.stat().st_mode & 0o777, 0o700)
+        sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
+        self.assertEqual(sent[0]["name"], "status_on_item")
+        # What the trial's findings rest on: an edit with its whole output, and one with no output at all.
+        self.assertEqual(sorted(sent[1]), ["external_id", "output"])
+        self.assertEqual(sorted(sent[1]["output"]), ["summary", "text", "title"])
+        self.assertEqual(sorted(sent[3]), ["external_id"])
+        self.assertRegex(sent[0]["external_id"], r"^d[0-9a-f]{32}$")
+        self.assertEqual((sent[2]["name"], sent[2]["head_sha"]), ("status_on_item", self.HEAD))
+        self.assertEqual(sorted(sent[2]["output"]), ["summary", "text", "title"])
+        self.assertEqual((sent[0]["head_sha"], sent[0]["status"], sent[0]["conclusion"]), (self.HEAD, "completed", "neutral"))
+        self.assertEqual([len(s["external_id"]) for s in sent[:4]], [33, 33, 33, 1000])
+        self.assertEqual(len({s["external_id"] for s in sent[:4]}), 4)
+        self.assertEqual([len(sent[4]["output"][k]) for k in ("title", "summary", "text")], [255, 65535, 65535])
+        self.assertEqual([len(sent[5]["output"][k]) for k in ("title", "summary", "text")], [256, 65536, 65536])
+        texts = {p.name: p.read_text() for p in self.out.iterdir()}
+        self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json"] + ["%s-%d" % (kind, n) for n in range(1, 17)
+                                                                              for kind in ("clean", "redacted")]))
+        said = json.loads(texts["requests.json"])
+        self.assertEqual([(a["call"].split(" ")[0], a["status"]) for a in said[:2]], [("POST", 201), ("GET", 200)])
+        self.assertEqual(said[-1], {"revoked": self.FIRST, "status": 204})
+        self.assertIn('"external_id": "d', texts["clean-1"])
+        self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+
+    def test_a_first_create_refused_stops_the_run_and_its_token_is_revoked(self):
+        (self.stand_in / "no-create").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("the first create gave no run's id, status 422; nothing else is asked", ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+        self.assertIn('"message": "Validation Failed"', (self.out / "clean-1").read_text())
+
+    def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
+        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
+                self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_an_id_that_is_no_number_reaches_no_address_the_token_calls(self):
+        (self.stand_in / "odd.id").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+        self.assertIn("the first create gave no run's id", ran.stderr)
+
+    def test_a_later_call_github_refuses_is_kept_and_the_run_goes_on(self):
+        (self.stand_in / "no-patch").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = [a for a in json.loads((self.out / "requests.json").read_text()) if "call" in a]
+        self.assertEqual(len(asked), 16)
+        self.assertEqual([a["status"] for a in asked if a["call"].startswith("PATCH")], [422] * 4)
+
+    def test_a_later_call_the_redaction_refused_stops_the_run(self):
+        # The first create read, the read after it is cut short: nothing further is asked, and its token is revoked.
+        (self.stand_in / "get.cut").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "GET", "DELETE"])
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+        self.assertFalse((self.out / "requests.json").exists())
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the call's.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual(asked[0]["status"], 201)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        not_a_commit = "is not a commit's 40 hex digits"
+        for given, out, said in (((self.CANARY, self.HEAD), self.out.parent, "exists"),
+                                 ((self.CANARY, self.HEAD), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", self.HEAD), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith/elsewhere", self.HEAD), None, "is not the canary the Controller is installed on"),
+                                 (("combsmith", self.HEAD), None, "is not owner/name"),
+                                 ((self.CANARY, "a" * 39), None, not_a_commit),
+                                 ((self.CANARY, "a" * 41), None, not_a_commit),
+                                 ((self.CANARY, "A" * 40), None, not_a_commit),
+                                 ((self.CANARY, "../" + "a" * 37), None, not_a_commit),
+                                 ((self.CANARY, ""), None, not_a_commit),
+                                 ((self.CANARY,), None, "usage:"), ((self.CANARY, self.HEAD, "43"), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+
+class CommentsReadTrial(IssueLookupTrial):
+    """`tools/trial_p56_comments.sh`, run against the same stand-ins and never GitHub (decision 0061). It is P-54's script
+    with another permission and another read, so every test of that one runs over it too, by inheritance."""
+
+    SCRIPT = ROOT / "tools" / "trial_p56_comments.sh"
+    FIRST = "pull_requests"
+    READ = "issues/42/comments?since=2020-01-01T00:00:00Z&per_page=100"
+    KEPT = ('"id": 7', '"type": "User"')
+    NOT_A_NUMBER = "is not a pull request's number"
+    CURL = IssueLookupTrial.CURL.replace('if grant == "issues" or', 'if grant == "pull_requests" or', 1).replace(
+        '''status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}''',
+        '''status, answer = 200, [{"id": 7, "user": {"id": 9, "type": "User"}, "leak": "gh" + "s_" + "L" * 36}]''', 1)
+
+
 class Rulesets(unittest.TestCase):
     """`config/rulesets.json` against `config/defaults.json` (issues 62 and 95): a value held in both agrees."""
 
@@ -8968,11 +9536,45 @@ class Rulesets(unittest.TestCase):
         self.main = self.rulesets["rulesets"]["main"]["rules"]
 
     def run_on(self) -> list:
-        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                         "config/defaults.json": json.dumps(self.defaults)}))
 
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
+
+    def test_the_tag_rulesets_that_guard_every_key_are_held(self):  # decision 0115
+        apps = (ROOT / "config" / "apps.json").read_text()
+
+        def run(rulesets, table=apps):
+            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets), "config/defaults.json": json.dumps(self.defaults),
+                                            "config/apps.json": table, ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
+
+        self.assertEqual(run(self.rulesets), [])
+        for name in ("factory release tags", "factory releases are immutable"):
+            for why, change in (("gone", None), ("off", {"enforcement": "disabled"}), ("no rules", {"rules": {}}),
+                                ("no tags", {"include": []}), ("another target", {"target": "branch"})):
+                with self.subTest(name=name, why=why):
+                    broken = copy.deepcopy(self.rulesets)
+                    if change is None:
+                        del broken["rulesets"][name]
+                    else:
+                        broken["rulesets"][name].update(change)
+                    self.assertTrue(caught(run(broken), "the tag ruleset %s is not recorded, active and holding its rules" % name))
+        # Who may bypass: another App, a writer, anyone on the immutable one; and the release App by the data's id alone.
+        other = {"actor_id": 7, "actor_type": "Integration", "bypass_mode": "always"}
+        for name in ("factory release tags", "factory releases are immutable"):
+            broken = copy.deepcopy(self.rulesets)
+            broken["rulesets"][name]["bypass_actors"].append(other)
+            self.assertTrue(caught(run(broken), "%s lets [('Integration', 7)] bypass it" % name))
+        moved = json.loads(apps)
+        moved["apps"]["release"]["app_id"] = 7
+        self.assertTrue(caught(run(self.rulesets, json.dumps(moved)), "factory release tags lets [('Integration', 5502359)] bypass it"))
+        del moved["apps"]["release"]
+        self.assertTrue(caught(run(self.rulesets, json.dumps(moved)), "config/apps.json names no release App"))
+        # The release App writes a Release tag, and moves none: the immutable ruleset is bypassed by no one, it included.
+        broken = copy.deepcopy(self.rulesets)
+        broken["rulesets"]["factory releases are immutable"]["bypass_actors"] = [{"actor_id": 5502359, "actor_type": "Integration", "bypass_mode": "always"}]
+        self.assertTrue(caught(run(broken), "factory releases are immutable lets [('Integration', 5502359)] bypass it"))
 
     def test_a_required_check_from_another_app_is_caught(self):
         self.main["required_status_checks"]["required_status_checks"][0]["integration_id"] = 57789
@@ -9000,7 +9602,7 @@ class Rulesets(unittest.TestCase):
                       dismiss_stale_reviews_on_push=True, required_reviewers=[],
                       require_extra_approval_for_unattributed_changes=False)
         owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
-        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                         "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
 
     def test_an_approval_counts_only_a_code_owners_of_the_last_push(self):  # issue 366
@@ -9043,13 +9645,13 @@ class Rulesets(unittest.TestCase):
                 self.assertTrue(caught(self.counted(owners), words), (owners, self.counted(owners)))
         # Code owners that cannot be read, under a ruleset that counts an approval, are a problem, never none.
         self.counted()
-        self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                                         "config/defaults.json": json.dumps(self.defaults)})),
                                ".github/CODEOWNERS cannot be read"))
         # A ruleset that counts no approval, of anyone, reads no code owners at all.
         self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
                                          require_last_push_approval=False)
-        self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+        self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                                   "config/defaults.json": json.dumps(self.defaults),
                                                   ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
 
@@ -9146,11 +9748,11 @@ except OSError:
         head = "HTTP/2.0 200 OK\nContent-Type: application/json\n\n"
         listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
         bodies = [head + json.dumps(self.live[n]) for n in self.live]
-        self.assertEqual(run(head + json.dumps(listed), argv=["--ids"]), (0, "%d\n%d\n" % tuple(i["id"] for i in listed)))
+        self.assertEqual(run(head + json.dumps(listed), argv=["--ids"]), (0, "".join("%d\n" % i["id"] for i in listed)))
         self.assertEqual(run(head + json.dumps(listed), *bodies), (0, "no drift\n"))
         code, out = run(head + json.dumps(listed), bodies[0])
         self.assertEqual(code, 1)
-        self.assertIn("2 rulesets were listed and 1 answers given", out)
+        self.assertIn("%d rulesets were listed and 1 answers given" % len(listed), out)
         self.assertEqual(run("HTTP/2.0 404 Not Found\n\n{}", argv=["--ids"]), (0, "\n"))
 
     def test_only_a_whole_number_is_an_id(self):

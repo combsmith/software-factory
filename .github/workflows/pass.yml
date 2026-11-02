@@ -1,6 +1,6 @@
 # One pass of the Controller, called by poller.yml at the Release's channel, one running and one waiting (#196's ruling 4; decisions 0043, 0051, 0060).
 # It reads nothing of the run that woke the poller: what started it is read from its own run. The pass record is uploaded before anything is dispatched, so no Run starts from a Decision with no record, and the record of each write after them, whatever failed.
-# The one job granted a write: actions: write, the pass's own token, which dispatches the Runs and the successor. The Controller's key is on its two steps alone.
+# A job granted a write, as a Run's wake is: actions: write, the pass's own token, which dispatches the Runs and the successor. The Controller's key is on its two steps alone.
 name: sf-pass
 on:
   workflow_call:

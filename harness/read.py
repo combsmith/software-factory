@@ -17,8 +17,8 @@ that token, on the commit the job checked out, `steps.commit()`, the one the job
 Run whose own Release is not its pass record's builds no Task: OUT holds its `outcome/1` alone, `superseded`,
 `release_moved`, and the step stops by that code. One whose own Release cannot be named stops `release_unresolved` and
 writes nothing; the pass record's Release is never taken for it; a checkout `steps.commit()` cannot read stops
-`release_unreadable`, before any key is read. Not read yet, by the stories that hold them: the texts
-(`adapters/texts.py`), so the Task carries the diff alone; the Finding records a Decision names (`harness/apply.py`
+`release_unreadable`, before any key is read. Of the texts, the issues the change serves are read (`adapters/texts.py`).
+Not read yet, by the stories that hold them: a thread's text; the Finding records a Decision names (`harness/apply.py`
 writes them, and `adapters/applied.py` reads them for the threads alone), so the review Intent, which names none, is
 the one a Run can carry; an issue's Run, whose reads are the issue Lifecycle's."""
 from __future__ import annotations
@@ -29,7 +29,7 @@ import re
 import sys
 import time
 
-from adapters import applied, facts as facts_, identity, passes, pull, records, tags, timeline
+from adapters import applied, facts as facts_, identity, passes, pull, records, tags, texts, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import approve, shared, steps, task
@@ -126,11 +126,10 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
                           facts_.dispatcher_of(controller))
     found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
                              config["authority"])
+    opener = facts_.opener_of(controller, config["kernel"], config["apps"])
+    opened = applied.opened(transport, home, listed, facts_.opener_role(config["kernel"]))
     facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True,
-                                     opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
-                                     recorded=found[number],
-                                     opened=applied.opened(transport, home, listed,
-                                                           facts_.opener_role(config["kernel"])))
+                                     opener=opener, recorded=found[number], opened=opened)
     first = pull.read(transport, home, number)
     if str(first["head"]["sha"]) != head:
         raise Stop("head_moved")
@@ -139,7 +138,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
         raise Stop("content_moved")
     role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % admit["role"]))
     return {"record.json": record, "run": (parts["run"] + "\n").encode(), "facts.json": facts, "diff": change,
-            "texts.json": [], "role.json": role, "findings.json": []}
+            "texts.json": texts.issues(transport, first, who, opener, opened), "role.json": role, "findings.json": []}
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:

@@ -1,4 +1,4 @@
-# The approving act's one job, called by approve.yml at the Release's channel, with the item's lane on the calling job (decision 0055; #196's ruling 2).
+# The approving act's job and its wake, called by approve.yml at the Release's channel, with the item's lane on the calling job (decision 0055; #196's ruling 2).
 # `approve`, on `factory-approve`, holds the machine user's token alone, and every request it makes goes through the effects port's `Approving`, held to its item. It checks out the Release, never the item's code; it leaves the Run's outcome whatever failed.
 name: sf-approve-job
 on:
@@ -53,3 +53,18 @@ jobs:
           name: outcome
           path: outcome/outcome.json
           if-no-files-found: error
+  wake:
+    needs:
+      - approve
+    if: always() && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Wake the next pass, since a Run the pass's token started wakes nothing when it ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        timeout-minutes: 2
+        run: timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"

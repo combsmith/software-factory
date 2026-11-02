@@ -38,7 +38,7 @@ ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms
 # started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
 # bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt. A first attempt
 # `skipped`, as the entry shim's `if:` may leave it, ran no Role either and reads the same; `_record` reads any later
-# attempt otherwise (decision 0109). A word not here would leave the list not whole for as long as GitHub serves the
+# attempt otherwise (decision 0111). A word not here would leave the list not whole for as long as GitHub serves the
 # row, and admit nothing anywhere.
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
@@ -81,7 +81,7 @@ def _http_date(text: str) -> str:
     return when
 
 
-def _read_at(answer: dict) -> dict:
+def read_at(answer: dict) -> dict:
     """The answer's date and age, as the pass record keeps them; one that cannot be read is refused."""
     headers = answer.get("headers") or {}
     age = str(headers.get("age", "0"))
@@ -100,7 +100,7 @@ def _list(transport, repo: str, workflow: str, branch: str, per_page: int) -> tu
         answer = transport.send(request("GET", base if page == 1 else "%s&page=%d" % (base, page), headers=FRESH))
         if answer["status"] != 200 or not isinstance(answer["body"], dict):
             raise Unanswered("the runs of %s answered %d" % (workflow, answer["status"]))
-        reads.append(_read_at(answer))
+        reads.append(read_at(answer))
         listed, total = answer["body"].get("workflow_runs"), answer["body"].get("total_count")
         if not isinstance(listed, list) or not isinstance(total, int) or isinstance(total, bool) or total < 0:
             return rows, reads, False
@@ -151,7 +151,7 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
             return None
         # The shim's `if:` runs a first attempt alone, and the list shows only the latest attempt (P-27): a row `skipped`
         # on any other may be a Run that ran and died, so it is an attempt, its outcome read as any failed Run's. Read as
-        # no attempt, a person's re-run would erase the attempts a Hold stands on (decision 0109).
+        # no attempt, a person's re-run would erase the attempts a Hold stands on (decision 0111).
         first = isinstance(attempt, int) and not isinstance(attempt, bool) and attempt == 1
         never_ran = conclusion if conclusion == "startup_failure" or (conclusion == "skipped" and first) else None
         conclusion = "failure" if conclusion == "skipped" and not first else CONCLUSIONS[conclusion]
@@ -164,7 +164,7 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
         return None
     record = dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started)
     # What `cancelled` alone cannot say: GitHub started no job, in its own word, since the two have different remedies. A
-    # person's cancel and a concurrency group's say nothing here, so only this counts toward the automatic pause (0114).
+    # person's cancel and a concurrency group's say nothing here, so only this counts toward the automatic pause (0116).
     if status == "completed" and never_ran:
         record["never_ran"] = never_ran
     # When it was dispatched, which a re-run keeps, and whether the pass job's own token re-ran it: reconciliation reads
@@ -273,6 +273,6 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             continue
         record["outcome"], read_whole = artifacts.outcome(
             transport, repo, github_id, record["run"],
-            lambda answer: reads.append(dict(_read_at(answer), read="outcome")))
+            lambda answer: reads.append(dict(read_at(answer), read="outcome")))
         whole = whole and read_whole
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}

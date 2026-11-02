@@ -67,7 +67,7 @@ def alerts(reasons: list, context: dict, capacity, automatic: list, left_out: bo
     defers, and past `max_unnamed_runs` of them past it every Run does (issue 270). `reconciled` is reconciliation's
     alerts: a write no Effect recorded, and a reconciliation that was short (decision 0061). `credentials` is whether a
     stored credential is near its limit or cannot be read (issue 305). `never_started` is whether Runs that never ran
-    have stood since a Run last succeeded, which outlasts the pause they raise (decision 0114)."""
+    have stood since a Run last succeeded, which outlasts the pause they raise (decision 0116)."""
     causes = set(reasons) & t.SCOPE_DEFERRALS
     causes |= {"paused"} if context["paused"] is True else set()
     causes |= {"pause_unreadable"} if context["paused"] is None else set()

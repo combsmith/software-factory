@@ -60,6 +60,11 @@ def earlier(previous, now: str):
     return sorted(previous, key=lambda r: r["now"])
 
 
+# How long a pass its own token started waits before it reads. In P-55 a Run read as ended 2 and 3 seconds after its wake
+# dispatched the pass, whose job began 5 and 6 seconds after: the margin was a few seconds, and nothing held it.
+SUCCESSOR_WAIT = 30
+
+
 def started_by(started, accounts: dict) -> str:
     """What started the pass, read from its run and never from anything a dispatch carries (decision 0043).
 
@@ -113,13 +118,13 @@ def human_pause(read, repos) -> tuple:
 
 def _never_ran(run_: dict) -> bool:
     """Whether GitHub started no job of this Run and nothing says otherwise. A re-run can carry the word and an outcome
-    an earlier attempt left, and then the outcome is what it is (decision 0114)."""
+    an earlier attempt left, and then the outcome is what it is (decision 0116)."""
     return "never_ran" in run_ and run_["outcome"] is None
 
 
 def _streak(runs: list, now: str, rule: dict) -> list:
     """The faults since any Run last succeeded, inside the recent window: Runs that ended `environment`, and Runs GitHub
-    started no job of (decision 0114), which write no outcome at all."""
+    started no job of (decision 0116), which write no outcome at all."""
     recent = [r for r in runs if r["status"] == "completed" and seconds(now, r["started_at"]) is not None
               and 0 <= seconds(now, r["started_at"]) < rule["window_seconds"]]
     recent.sort(key=lambda r: r["started_at"])
@@ -149,7 +154,7 @@ def automatic_causes(runs: list, now: str, rule: dict) -> list:
 def never_started(runs: list, rule: dict) -> bool:
     """Whether Runs that never ran have stood on different items since any Run last succeeded, by the pause's own counts
     and with no window. The pause lapses each hour while the cause goes on, and a lasting cause runs each item to a Hold
-    that then dispatches nothing more, so the name outlasts the pause until a Run shows the cause is gone (decision 0114)."""
+    that then dispatches nothing more, so the name outlasts the pause until a Run shows the cause is gone (decision 0116)."""
     done = sorted((r for r in runs if r["status"] == "completed"), key=lambda r: r["started_at"])
     succeeded = [i for i, r in enumerate(done) if r["conclusion"] == "success"]
     faults = [r for r in (done[succeeded[-1] + 1:] if succeeded else done) if _never_ran(r)]
@@ -206,18 +211,21 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
     return listed, whole, runs, pause, automatic, capacity, context
 
 
-def wait_before_reading(previous, now: str, config: dict) -> int:
+def wait_before_reading(previous, now: str, config: dict, started=None) -> int:
     """Seconds to wait before this pass reads: none sooner than the gap after the last pass's read began, whatever
-    started it (decision 0043). If the records cannot be read, the whole gap."""
+    started it (decision 0043). If the records cannot be read, the whole gap. A pass its own token started waits at
+    least SUCCESSOR_WAIT, since a Run's wake dispatches it from inside the Run, which must end before it is read as ended
+    (decision 0115)."""
     gap = config["controller"]["read_gap_seconds"]
+    least = SUCCESSOR_WAIT if started_by(started, config["controller"]["accounts"]) == "successor" else 0
     before = earlier(reads_.previous_records(previous), now)
     if before is None:
-        return gap
+        return max(gap, least)
     if not before:
-        return 0
+        return least
     last = before[-1]
     began = min([r["date"] for r in last["reads"] if moment(r["date"]) is not None] or [last["now"]])
-    return max(0, gap - seconds(now, began))
+    return max(least, gap - seconds(now, began))
 
 
 def rebuild(records: list, titles: dict, config: dict) -> list:
@@ -276,7 +284,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
               "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
               "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
-              "reconciliation": reconcile_.entries(found)}
+              "reconciliation": reconcile_.entries(found),
+              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or ())}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]

@@ -21,6 +21,7 @@ def schemas(root: pathlib.Path = ROOT) -> dict:
 
 
 MISSES = ("category_differs", "severity_differs", "location_differs")
+WENT = ("finding_not_raised", "finding_elsewhere", "finding_uncited", "finding_cites_another")
 
 
 def _lines(location: dict):
@@ -43,6 +44,28 @@ def _overlaps(expected: dict, raised: dict) -> bool:
     if theirs is None or ours is None:
         return True
     return theirs[0] <= ours[1] and ours[0] <= theirs[1]
+
+
+def _misses(expected: dict, raised: dict) -> list:
+    """The codes of what a raised Finding has otherwise than the expected one."""
+    return [code for ok, code in ((raised["category"] == expected["category"], MISSES[0]),
+                                  (raised["severity"] == expected["severity"], MISSES[1]),
+                                  (_overlaps(expected["location"], raised.get("location", {})), MISSES[2])) if not ok]
+
+
+def _where_it_went(expected: dict, raised: list) -> list:
+    """The codes of what became of an expected Finding that no Finding cited its criterion for: each fails the case alike,
+    and tells a miss from a Finding that was raised and not cited. At the expected place, cited to no criterion, or to
+    another, with what the nearest has otherwise; in the file but elsewhere; or nowhere in it."""
+    there = [f for f in raised if _overlaps(expected["location"], f.get("location", {}))]
+    if there:
+        return ([WENT[2]] if any(f["criterion"] is None for f in there) else []) + \
+               ([WENT[3]] if any(f["criterion"] is not None for f in there) else []) + \
+               min((_misses(expected, f) for f in there), key=len)
+    # A location whose lines cannot be read is nowhere, as `_overlaps` reads it.
+    in_file = any(f.get("location", {}).get("path") == expected["location"]["path"] and _lines(f["location"]) is not False
+                  for f in raised)
+    return [WENT[1] if in_file else WENT[0]]
 
 
 def _criteria(role: str, root: pathlib.Path = ROOT):
@@ -101,16 +124,12 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     citing = [f for f in result["findings"] if f["criterion"] == want["criterion"]]
     covered = [c["verdict"] for c in result["coverage"] if c["criterion"] == want["criterion"]]
     if want["verdict"] == "finding":
+        expected = want["finding"]
         if not citing:
-            reasons.append("finding_not_raised")
+            reasons += _where_it_went(expected, result["findings"])
         else:
             # One Finding must be the expected one in every respect; the nearest says what it missed.
-            expected = want["finding"]
-            misses = [[code for ok, code in ((f["category"] == expected["category"], MISSES[0]),
-                                             (f["severity"] == expected["severity"], MISSES[1]),
-                                             (_overlaps(expected["location"], f.get("location", {})), MISSES[2]))
-                       if not ok] for f in citing]
-            reasons += min(misses, key=len)
+            reasons += min((_misses(expected, f) for f in citing), key=len)
         if covered != ["finding"]:
             reasons.append("coverage_disagrees")
     else:

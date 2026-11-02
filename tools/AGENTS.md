@@ -6,7 +6,7 @@ it, and reads the index as a file, so no git is needed. CI checks out the commit
 ignores, to hold another implementation to this one; the required check does not depend on it. `hooks/` holds the session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell command as words for any of them. `eval_result.py` scores one Result
 against one held-out case, where the case is, and is no check; `context_eval.sh` runs the context's test at the Maintainer's terminal and `context_eval.py` records a run, and neither is a check.
 `rulesets_drift.sh` reads the repo's live rulesets through whoever is logged in to gh and redacts each answer outside the repo,
-and `rulesets_drift.py` compares what is left with `config/rulesets.json`; it is run by hand and is no check.
+and `rulesets_drift.py` compares what is left with `config/rulesets.json`; it is run by hand and is no check. `machine_user_drift.sh` and `machine_user_drift.py` do the same for the machine user's role, in `config/machine-user.json`.
 
 | Rule | Held by |
 |---|---|
