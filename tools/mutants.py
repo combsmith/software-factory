@@ -7168,6 +7168,11 @@ MUTANTS = ISSUE + [
      'told(call), clock)', 'call, clock)', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
+    # Issue 440: the fake GitHub does what P-36 recorded.
+    ("the fake's upload changes nothing", 'sim/world.py', '            self.checks[SCANNING] = "neutral"\n', '', ("tests.test_simulator.Simulation.test_the_seeds_upload_under_codeqls_tool",)),
+    ("a job stays unstarted past its check", 'sim/world.py', '            self.not_started.discard(lens)\n', '', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
+    ("a job with no check run yet lists one", 'sim/world.py', ' if k not in self.not_started] + copy', '] + copy', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
+    ("every seed serves an upload", 'sim/world.py', 'if seed % UPLOAD_EVERY == UPLOAD else None', 'if True else None', ("tests.test_simulator.Simulation.test_the_seeds_upload_under_codeqls_tool",)),
     # Decision 0121: a CLI with no answer is told from an answer that fails, closes the eval's gate, and stays an attempt.
     ("a CLI with no answer reads as an answer that fails", 'harness/engine.py', 'return failed(task, "no_answer", usage)', 'return failed(task, "result_invalid", usage)', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),
     ("an answer that fails reads as no answer", 'harness/engine.py', '            or not sound(result, task)):\n        return failed(task, "result_invalid", usage)\n', '            or not sound(result, task)):\n        return failed(task, "no_answer", usage)\n', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),
