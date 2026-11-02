@@ -6523,7 +6523,11 @@ if not (here / "first").exists():
             os.killpg(running.pid, second)
             time.sleep(0.2)
             (self.bin / "go").write_text("")
-            self.assertEqual(running.wait(timeout=60), 1 if extra.get("STANDIN_REVOKE") else 130)
+            # Bash runs the EXIT trap on a hangup with no trap of its own, which is why none is set (issue 480), then dies by
+            # the hangup whatever finish says, so only an interrupt or a termination has an exit to hold here.
+            code = running.wait(timeout=60)
+            if first != signal.SIGHUP:
+                self.assertEqual(code, 1 if extra.get("STANDIN_REVOKE") else 130)
             told = "" if closed else running.stderr.read().decode()
         finally:
             if running.poll() is None:

@@ -225,7 +225,7 @@ json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), 
     exit "$status"
 }
 trap finish EXIT
-trap 'exit 130' HUP INT TERM
+trap 'exit 130' INT TERM
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\n'; }
 
