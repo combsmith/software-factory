@@ -913,7 +913,7 @@ cost is not known exactly; its duration is the estimate.
 |---|---|---|---|
 | `item` | The Engine produced an invalid Result; a reviewing Result left a criterion uncovered; the fix did not pass | Yes | The item's attempt ceiling applies |
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
-| `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds |
+| `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds. A Run GitHub started no job of counts the same, named `runs_never_started` (decision 0116) |
 | `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
@@ -2023,7 +2023,7 @@ it is long-lived, it can approve, and it can merge.
 | The poller job's own token | Start Runs: `actions: write`, of the jobs a Run does not hold declared on that job only | The poller job | Not stored: GitHub mints it for the job | Expires when the job ends |
 | A Run's `wake` job's own token | Dispatch the poller when the Run ends: `actions: write`, on that job and the shim job that calls it (decision 0115). The grant could also start or cancel runs, which only its one fixed line, held word for word, stops | The `wake` job, which holds no secret, no environment, no checkout and no input | Not stored: GitHub mints it for the job | Expires when the job ends |
 | The reader App's key | Read public repos | The `run` job | Environment secret, default branch only | On a fixed period |
-| The release App's key | Write Release and channel tags, on this repo alone: the one App that holds `workflows` (decision 0114) | The `release` job | Environment secret, default branch only | On a fixed period |
+| The release App's key | Write Release and channel tags, on this repo alone: the one App that holds `workflows` (decision 0116) | The `release` job | Environment secret, default branch only | On a fixed period |
 | The held-out sets' credential | Read the held-out repo | The eval job's `fetch` step alone, for reads, though any code running in that job could read it (decision 0053) | The Maintainer's fine-grained personal token, read-only on the held-out repo alone, with the repo's coordinates, secrets of `factory-eval`, default branch only (decision 0053) | At its expiry, and on any suspicion |
 | The relay's webhook secret | Prove that a webhook came from GitHub | The relay | The relay's host | On a fixed period |
 | The relay itself | Nothing over the Factory repo | The relay's host | None needed | Not applicable |
