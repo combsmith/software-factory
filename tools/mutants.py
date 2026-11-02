@@ -7115,7 +7115,7 @@ MUTANTS = ISSUE + [
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     # Decision 0110: the review cites, knows what met means, and reads the issue.
     ("an issue is labelled by who opened it", 'harness/task.py', 'return "outside" if text["id"].startswith("issue:") else trust(text["by"], config)', 'return trust(text["by"], config)',
-     ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
+     ("tests.test_harness.Task.test_each_text_is_labelled_by_who_wrote_it_never_by_the_text",)),
     ("a security fault may be filed under another criterion", 'roles/pr-review/prompt.md', 'A security fault no `security`', 'A fault no `security`', ("tests.test_evals.EvalJob.test_the_review_is_told_to_cite_and_what_met_means",)),
     ("an issue no Task carries whole is asked anyway", 'harness/eval/run.py', '        if any(o["kind"] == "issue" for o in the_task["omitted"]):\n            raise Stop("issue_not_whole")\n', '', ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
     ("an issue no Task can name is asked anyway", 'harness/eval/__init__.py', '    if "issue" in case and not re.fullmatch(source, case["issue"]["by"]["name"]):\n        return "issue_unreadable"\n', '', ("tests.test_evals.EvalJob.test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is",)),
