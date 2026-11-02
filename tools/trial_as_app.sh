@@ -11,8 +11,8 @@
 # KEY is the path of the App's private key. Only openssl opens it, to sign; this script never
 # reads, prints or copies what it holds. FILE is a new file's path in REPO; the commit adds it.
 # The script mints one installation token, which no command line ever holds, revokes it before it
-# exits, on a failure too, and keeps in a new scratch directory outside this repo only what
-# tools/redact_trial.py let through. It prints that directory, the pull request and its head.
+# exits, on a failure or a signal too, a second signal among them, and keeps in a new scratch directory outside this repo
+# only what tools/redact_trial.py let through, with what its clean-up said in finish.log. It prints that directory, the pull request and its head.
 # Run it from anywhere in a checkout of this repo, with bash 3.2 or later, curl, openssl, gh, python3.
 set -euo pipefail
 set +x
@@ -175,8 +175,13 @@ print(said)' "$1" "$2" "$3" "$APP"
 # Revoke the token first, whatever happened; then redact what is left and gather the exchanges.
 finish() {
     status=$?
-    trap - EXIT INT TERM
+    # A closed terminal can send its hangup twice (issue 481). Nothing past here stops at a second signal: this shell and
+    # what it runs ignore them, so the token is revoked and each capture redacted. What it says goes to OUT as well as to
+    # the terminal, which may be gone, so that a token left live is said somewhere. A KILL still stops it.
+    trap - EXIT
+    trap '' HUP INT TERM PIPE
     set +e
+    exec 3>&1 4>&2 > "$out/finish.log" 2>&1
     if [ -n "$token" ]; then
         as_installation DELETE installation/token
         [ "$(sed -n 1p "$out/$id.clean" 2>/dev/null | cut -d' ' -f2)" = 204 ] ||
@@ -211,14 +216,16 @@ for asked in sorted(p for p in out.iterdir() if p.name.endswith(".request.json")
 json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), "w"), indent=2)' "$out"
     redact_json="$out/exchanges.unchecked.json"
     (cd "$root" && python3 -m tools.redact_trial < "$redact_json" > "$out/exchanges.json") 2> /dev/null ||
-        { echo "trial_as_app: the redaction of the exchanges failed" >&2; exit 1; }
+        { echo "trial_as_app: the redaction of the exchanges failed" >&2; cat "$out/finish.log" >&4; exit 1; }
     rm -f "$redact_json"
+    cat "$out/finish.log" >&4
+    exec 1>&3 2>&4 3>&- 4>&-
     echo "Done, status $status. Give the session this directory; it reads only exchanges.json and the .clean files:"
     echo "  $out"
     exit "$status"
 }
 trap finish EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' HUP INT TERM
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\n'; }
 

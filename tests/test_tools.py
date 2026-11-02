@@ -6458,6 +6458,109 @@ esac
         self.assertIn("installation/token", said[-1])
 
 
+class AppCleanUp(unittest.TestCase):
+    """`tools/trial_as_app.sh` stopped by a signal, against the stand-ins and never GitHub (issue 481): a second signal,
+    as a closed terminal can send, stops neither the revocation nor the redaction, and what it says reaches OUT."""
+
+    SCRIPT = AppThreads.SCRIPT
+    # The stand-in gh, holding its first call until it is signalled, and the revocation until it is told to go.
+    GH = AppThreads.GH.replace("""args = sys.argv[1:]
+""", """args = sys.argv[1:]
+def wait_for(name, then):
+    (here / then).write_text("")
+    for _ in range(600):
+        if (here / name).exists():
+            return
+        time.sleep(0.05)
+""", 1).replace("import json, os, pathlib, sys\n", "import json, os, pathlib, sys, time\n", 1).replace("""if path == "installation/token":
+    answer(204, None)
+""", """if path == "installation/token":
+    wait_for("go", "revoking")
+    (here / "revoke-answered").write_text("")
+    answer(int(os.environ.get("STANDIN_REVOKE", "204")), None)
+if not (here / "first").exists():
+    (here / "first").write_text("")
+    time.sleep(60)
+""", 1)
+
+    def start(self, **extra):
+        self.bin = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.scratch = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        # mktemp -d alone does not always read TMPDIR, so the stand-in says where OUT is.
+        made = '#!/bin/sh\nexec /usr/bin/mktemp -d "%s/out.XXXXXX"\n' % self.scratch
+        for name, text in (("gh", self.GH), ("curl", AppThreads.CURL), ("openssl", AppThreads.OPENSSL), ("mktemp", made)):
+            (self.bin / name).write_text(text)
+            (self.bin / name).chmod(0o755)
+        (self.bin / "key.pem").write_text("not a key: the stand-in openssl never reads it\n")
+        env = {"PATH": "%s:/usr/bin:/bin" % self.bin, "HOME": str(self.bin), "LANG": "C", "STANDIN_REPO": AppThreads.REPO,
+               "TMPDIR": str(self.scratch), **extra}
+        return subprocess.Popen(["bash", str(self.SCRIPT), "push", str(self.bin / "key.pem"), AppThreads.REPO, "7", "trial-notes/x.md"],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
+
+    def wait_for(self, name):
+        for _ in range(600):
+            if (self.bin / name).exists():
+                return
+            time.sleep(0.05)
+        self.fail("the stand-in never reached %s" % name)
+
+    def out(self):
+        made = [p for p in self.scratch.iterdir() if p.is_dir()]
+        self.assertEqual(len(made), 1)
+        return made[0]
+
+    def stopped_twice(self, first, second, closed=False, **extra):
+        """The run stopped by `first` at its first read and by `second` during its revocation, with the pipes it writes
+        to closed before the second if `closed`; (exit, what it said on stderr, OUT)."""
+        running = self.start(**extra)
+        try:
+            self.wait_for("first")
+            os.killpg(running.pid, first)
+            self.wait_for("revoking")
+            if closed:
+                running.stdout.close()
+                running.stderr.close()
+            os.killpg(running.pid, second)
+            time.sleep(0.2)
+            (self.bin / "go").write_text("")
+            self.assertEqual(running.wait(timeout=60), 1 if extra.get("STANDIN_REVOKE") else 130)
+            told = "" if closed else running.stderr.read().decode()
+        finally:
+            if running.poll() is None:
+                os.killpg(running.pid, signal.SIGKILL)
+                running.wait()
+            for pipe in (running.stdout, running.stderr):
+                if not pipe.closed:
+                    pipe.close()
+        return running.returncode, told, self.out()
+
+    def test_a_second_signal_stops_neither_the_revocation_nor_the_redaction(self):
+        for first, second in ((signal.SIGHUP, signal.SIGHUP), (signal.SIGINT, signal.SIGHUP), (signal.SIGTERM, signal.SIGINT),
+                              (signal.SIGHUP, signal.SIGTERM)):
+            with self.subTest(first=first, second=second):
+                _, told, out = self.stopped_twice(first, second)
+                self.assertTrue((self.bin / "revoke-answered").exists())
+                self.assertNotIn("THE TOKEN WAS NOT REVOKED", told)
+                self.assertEqual(list(out.glob("*.raw")), [])
+                exchanges = json.loads((out / "exchanges.json").read_text())["exchanges"]
+                revoked = [e for e in exchanges if e["request"]["call"] == "DELETE /installation/token"]
+                self.assertEqual([e["response"]["status"] for e in revoked], [204])
+                self.assertNotIn("gh" + "s_", "".join(p.read_text() for p in out.iterdir()))
+
+    def test_with_the_terminal_gone_what_it_says_stays_in_out(self):
+        # The pipes it writes to are closed, as a closed terminal's are, and the revocation is refused: nothing it writes
+        # stops it, the redaction is whole, and the token left live is said where the session reads.
+        _, _, out = self.stopped_twice(signal.SIGHUP, signal.SIGHUP, closed=True, STANDIN_REVOKE="500")
+        self.assertIn("THE TOKEN WAS NOT REVOKED", (out / "finish.log").read_text())
+        self.assertEqual(list(out.glob("*.raw")), [])
+        self.assertTrue((out / "exchanges.json").exists())
+
+    def test_on_a_terminal_still_there_it_says_the_same(self):
+        _, told, out = self.stopped_twice(signal.SIGHUP, signal.SIGHUP, STANDIN_REVOKE="500")
+        self.assertIn("THE TOKEN WAS NOT REVOKED", told)
+        self.assertIn("THE TOKEN WAS NOT REVOKED", (out / "finish.log").read_text())
+
+
 class LinuxSandboxTrial(unittest.TestCase):
     """`tools/trial_p50_linux_sandbox.sh` and its stub, `tools/trial_p50_stub.py` (issue 287), run against a stand-in CLI
     that asks the real stub over HTTP, as the pinned CLI would, and runs the probe it is told to against a /proc of the
