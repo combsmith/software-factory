@@ -457,7 +457,9 @@ repo's settings and then in that file, and the Kernel's pin does not wait on it.
 `factory release tags` refuses the creation, update and deletion of a `factory/*` tag to all but the
 repository's admin role, which the Maintainer alone holds today, though nothing here records who
 holds it, and the release App, and `factory releases are immutable` refuses anyone the update or
-deletion of a Release's. Since a shim inherits secrets, these two guard every key (decision 0115). A Lens
+deletion of a Release's. Since a shim inherits secrets, these two guard every key (decision 0115), with
+`factory channel branches`, which refuses any branch under `factory/`, since `uses:` resolves a branch of a
+Channel's name while no tag has it (decision 0124). A Lens
 no workflow runs has a gap of its own: whether an upload to code scanning under CodeQL's tool and
 category, by an identity holding `security_events: write`, can replace the CodeQL verdict is
 unverified (trial P-36). Such an upload would be reported by the Lens's own App under its own

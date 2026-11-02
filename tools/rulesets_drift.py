@@ -82,6 +82,14 @@ def compare(recorded: dict, listed, live: dict) -> list:
     return problems
 
 
+def branch_problems(status: int, refs) -> list:
+    """A branch under factory/ is drift, since one made before the ruleset outlasts it (decision 0124)."""
+    if status != 200 or not isinstance(refs, list):
+        return ["the branches under factory/ were answered %s, not a list; read them again" % status]
+    return ["the branch %s stands under factory/, where a Channel's tag belongs; delete it"
+            % (r.get("ref") if isinstance(r, dict) else r) for r in refs]
+
+
 def main(argv: list, stdin=None) -> int:
     data = (stdin if stdin is not None else sys.stdin.buffer).read().decode("utf-8", "replace")
     if argv == ["--ids"]:
@@ -96,9 +104,10 @@ def main(argv: list, stdin=None) -> int:
     status, listed = answer(chunks[0])
     numbers = ids(listed if status == 200 else None)
     answers = [answer(chunk) for chunk in chunks[1:1 + len(numbers)]]
+    branches = branch_problems(*answer(chunks[1 + len(numbers)] if len(chunks) > 1 + len(numbers) else ""))
     problems = [] if len(answers) == len(numbers) else [
         "%d rulesets were listed and %d answers given; read them again" % (len(numbers), len(answers))]
-    problems += compare(recorded, listed if status == 200 else None, dict(zip(numbers, answers)))
+    problems += compare(recorded, listed if status == 200 else None, dict(zip(numbers, answers))) + branches
     print("\n".join(problems) or "no drift")
     return 1 if problems else 0
 

@@ -32,6 +32,9 @@ a workflow on `workflow_call` alone names an environment, so no shim, push or pu
 shim is held word for word by its hash in `SHIMS`, as `.github/workflows/ci.yml` is in `EXEMPT`. The eval job runs main's own file on a
 dispatch, since it judges main's commit, and is spared this rule for its own shape, `eval_problems` (decision 0053).
 
+No shim stands on main until the ruleset `factory channel branches` is applied and its id recorded: `uses:` resolves a
+branch of the Channel's name while no tag has it, and a shim inherits every secret (decision 0124).
+
 Org standard: none for a shim; the org's reusable workflows are called at their channel tags, ci-standards.md, "Centralization tiers".
 Held by: `examples/workflows/invalid/shim.a-step-in-the-shim.yml`, `examples/workflows/invalid/shim.the-default-branchs-own-copy.yml`, `examples/workflows/invalid/shim.a-secret-handed-to-the-release.yml`, `examples/workflows/invalid/shim.a-key-beside-a-pull-request.yml`, `tests/test_tools.py::test_a_shim_holds_no_step_and_calls_the_release_at_its_channel`, `tests/test_tools.py::test_a_shim_is_held_word_for_word`, `tests/test_tools.py::test_every_shim_calls_one_channel`
 

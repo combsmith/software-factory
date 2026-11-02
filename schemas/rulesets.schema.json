@@ -447,10 +447,14 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "creation"
+                "creation",
+                "update"
               ],
               "properties": {
                 "creation": {
+                  "const": {}
+                },
+                "update": {
                   "const": {}
                 }
               }

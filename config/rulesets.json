@@ -113,7 +113,8 @@
       "exclude": [],
       "bypass_actors": [],
       "rules": {
-        "creation": {}
+        "creation": {},
+        "update": {}
       }
     }
   }

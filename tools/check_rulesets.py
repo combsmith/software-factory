@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import pathlib
 
+from tools.check_workflows import SHIMS
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BRANCH = "main"
 VERIFY = "verify"
@@ -37,6 +39,7 @@ TAG_RULESETS = {"factory release tags": {"creation", "update", "deletion", "non_
 ADMIN_ROLE = 5
 # No branch may stand where a Channel's tag should (decision 0124): a caller's `@factory/v0-next` also resolves a branch
 # of that name while no tag has it, and a shim inherits every secret. No one bypasses it, and it covers branches alone.
+# `update` as well as `creation`, since creation alone leaves a branch made before it pushable (the canary's reading).
 CHANNEL_BRANCHES, CHANNEL_REFS = "factory channel branches", ["refs/heads/factory/**/*"]
 
 
@@ -121,12 +124,15 @@ def _channel_branches(rulesets: dict) -> list:
     """What would let a branch stand where a Channel's tag should, and so take every key a shim hands on."""
     guard = rulesets.get(CHANNEL_BRANCHES)
     if not isinstance(guard, dict) or guard.get("enforcement") != "active" or guard.get("target") != "branch" \
-            or guard.get("include") != CHANNEL_REFS or "creation" not in (guard.get("rules") or ()):
-        return ["config/rulesets.json: the ruleset %s is not recorded, active, over %s and refusing their creation; a "
+            or guard.get("include") != CHANNEL_REFS or guard.get("rules") != {"creation": {}, "update": {}}:
+        return ["config/rulesets.json: the ruleset %s is not recorded, active, over %s and refusing their creation and update; a "
                 "branch of a Channel's name would take every key a shim hands on (decision 0124)"
                 % (CHANNEL_BRANCHES, CHANNEL_REFS[0])]
     if guard.get("bypass_actors") or guard.get("exclude"):
         return ["config/rulesets.json: %s lets someone bypass it or leaves a name out; no one may" % CHANNEL_BRANCHES]
+    if SHIMS and type(guard.get("id")) is not int:
+        return ["config/rulesets.json: %s has no id read back from GitHub, and a shim is held; apply it and record its id "
+                "before any shim stands on main" % CHANNEL_BRANCHES]
     return []
 
 
