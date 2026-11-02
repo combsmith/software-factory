@@ -13,10 +13,10 @@ case "$real/" in "$root"/*) echo "the scratch directory $real is inside the repo
 cd "$root"
 repo=$(python3 -c 'import json; print(json.load(open("config/rulesets.json"))["repo"])')
 read_one() {
-  gh api --include "$2" > "$dir/raw" 2>/dev/null || true
-  python3 -m tools.redact_trial < "$dir/raw" > "$dir/$1" 2> /dev/null ||
+  gh api --include "$2" > "$dir/raw-$1" 2>/dev/null || true
+  python3 -m tools.redact_trial < "$dir/raw-$1" > "$dir/$1" 2> /dev/null ||
       { echo "environments_drift: the redaction of $1 failed" >&2; exit 1; }
-  rm -f "$dir/raw"
+  rm -f "$dir/raw-$1"
 }
 read_one list "repos/$repo/environments?per_page=100"     # environments_drift.py: PAGE
 { cat "$dir/list"; printf '\0'; } > "$dir/first"

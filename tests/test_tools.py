@@ -9838,6 +9838,14 @@ class EnvironmentsDrift(unittest.TestCase):
         found = environments_drift.named(root)
         for name in ("factory-a-job", "factory-a-credential", "factory-an-app"):
             self.assertIn(name, found)
+        # A job's environment in any spelling GitHub takes, and a value that is no name is kept, so the read looks for it.
+        spellings = {"plain": "environment: factory-x\n", "comment": "environment: factory-x   # why\n", "double": 'environment: "factory-x"\n',
+                     "single": "environment: 'factory-x'\n", "mapping": "environment:\n      name: factory-x\n",
+                     "commented": "environment: # why\n      name: factory-x\n"}
+        for what, text in spellings.items():
+            for rel in (".github/workflows/x.yml", ".github/workflows/x.yaml"):
+                self.assertIn("factory-x", environments_drift.named(clone({rel: "jobs:\n  a:\n    " + text})), (what, rel))
+        self.assertIn("${{ inputs.where }}", environments_drift.named(clone({".github/workflows/x.yml": "    environment: ${{ inputs.where }}\n"})))
         self.assertNotIn(environments_drift.RECORDS_ONLY, self.WANTED)
 
     def test_each_environment_on_main_alone_is_no_drift(self):
@@ -9879,6 +9887,22 @@ class EnvironmentsDrift(unittest.TestCase):
             self.setUp()
             del self.policies[name]
             self.assertTrue(caught(self.compare(), "%s: its deployment branches were answered 0" % name))
+            self.setUp()
+            self.policies[name] = (200, {})
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches were answered 200" % name))
+            self.setUp()
+            self.policies[name] = (200, [])
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches were answered 200" % name))
+            # What GitHub or the redactor gives in place of a name is a sentence, and no raw control character reaches a terminal.
+            for policy, said in (("x", "deploys from None (None)"), ({"type": "branch"}, "deploys from None"), ({"name": 3, "type": "branch"}, "deploys from 3"),
+                                 ({"name": "\x1b[2K\rno drift", "type": "branch"}, "deploys from '\\x1b[2K\\rno drift'")):
+                self.setUp()
+                self.policies[name] = (200, {"total_count": 1, "branch_policies": [policy]})
+                self.assertTrue(caught(self.compare(), said), said)
+                self.assertFalse([p for p in self.compare() if "\x1b" in p], said)
+            self.setUp()
+            self.policies[name] = (200, {"total_count": "\x1b[2K", "branch_policies": [{"name": "main", "type": "branch"}]})
+            self.assertFalse([p for p in self.compare() if "\x1b" in p])
 
     def test_an_environment_the_repo_names_or_gets_wrong_is_drift(self):
         self.listed["environments"].pop(0)
@@ -9900,6 +9924,13 @@ class EnvironmentsDrift(unittest.TestCase):
         self.assertTrue(caught(environments_drift.compare({"environments": 1}, {}, set()), "could not be read"))
         self.listed["total_count"] += 1
         self.assertTrue(caught(self.compare(), "GitHub counts 8 environments and gave 7"))
+        self.listed["total_count"] = "\x1b[2K"
+        self.assertFalse([p for p in self.compare() if "\x1b" in p])
+        self.setUp()
+        # A row that is no object, or a name no set can hold, is no crash.
+        self.listed["environments"] += ["x", {"name": ["a"]}]
+        self.listed["total_count"] = len(self.WANTED) + 1
+        self.assertTrue(caught(self.compare(), "cannot be read into a call"))
         self.setUp()
         many = ["x%d" % i for i in range(environments_drift.PAGE)]
         rows = [dict(self.row("factory-run"), name=name) for name in many]
@@ -9908,7 +9939,8 @@ class EnvironmentsDrift(unittest.TestCase):
         self.assertEqual(environments_drift.compare({"total_count": len(rows) - 1, "environments": rows[1:]}, answers, set()), [])
 
     def test_only_a_plain_name_is_read_into_a_call(self):
-        rows = [{"name": "factory-run"}, {"name": "../../user"}, {"name": "a b"}, {"name": 3}, "x", {"name": environments_drift.RECORDS_ONLY}]
+        rows = [{"name": "factory-run"}, {"name": "../../user"}, {"name": "a b"}, {"name": 3}, "x", {"name": environments_drift.RECORDS_ONLY},
+                {"name": ".."}, {"name": "x?y"}, {"name": "x\n"}]
         listed = {"total_count": len(rows), "environments": rows}
         self.assertEqual(environments_drift.names(listed), ["factory-run"])
         self.assertEqual(environments_drift.names(None), [])
@@ -9945,8 +9977,11 @@ class EnvironmentsDrift(unittest.TestCase):
         look = """
 for folder, _, names in os.walk(os.environ["TMPDIR"]):
     for name in names:
-        if name != "raw" and "ghs_" in open(os.path.join(folder, name)).read():
-            open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaked"), "w").write("yes")
+        if name == "xcrun_db":     # macOS's python3 keeps it there
+            continue
+        # The one raw answer is this read's, which the shell has just opened empty; any other was left behind.
+        if b"ghs_" in open(os.path.join(folder, name), "rb").read():
+            open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaked"), "w").write(name)
 """
         (bin_ / "gh").write_text(RulesetsDrift.STAND_IN.replace("import os, sys\n", "import os, sys\n" + look, 1))
         (bin_ / "gh").chmod(0o755)
@@ -9972,6 +10007,18 @@ for folder, _, names in os.walk(os.environ["TMPDIR"]):
         self.assertEqual(done.returncode, 1)
         self.assertIn("factory-release: deploys from dev", done.stdout)
         self.assertNotIn("ghs_", done.stdout + done.stderr)
+        # A read gh refuses, which it says by its exit, is a sentence, and the script goes on to the rest.
+        self.setUp()
+        del self.policies["factory-release"]
+        done, calls = self.run_script()
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("factory-release: its deployment branches were answered 404", done.stdout)
+        self.assertEqual(len(calls), len(self.WANTED) + 1)
+
+    def test_the_skill_reads_it_before_a_cut_is_dispatched(self):
+        skill = (ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md").read_text()
+        before = skill[skill.index("## Before anything runs"):skill.index("## The plan, in this session")]
+        self.assertIn("sh tools/environments_drift.sh", before)
 
     def test_a_scratch_directory_inside_the_repo_is_refused_however_it_is_reached(self):
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "into-the-repo"

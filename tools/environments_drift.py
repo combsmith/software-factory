@@ -21,7 +21,8 @@ from tools.rulesets_drift import answer
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PAGE = 100     # the script reads one page of this many; a full page may not be all
 PLAIN = re.compile(r"[A-Za-z0-9_-]+")
-WORKFLOW = re.compile(r"^\s*environment:\s*([A-Za-z0-9_-]+)\s*$", re.M)
+# A job's environment: its value, or, in the mapping's form, the `name:` on the next line.
+WORKFLOW = re.compile(r"^[ \t]*environment:[ \t]*(?:#[^\n]*)?(?:\n[ \t]*name:[ \t]*)?([^\n]*)$", re.M)
 MAIN_ALONE = [("main", "branch")]
 OWN_LIST = {"custom_branch_policies": True, "protected_branches": False}
 
@@ -35,10 +36,20 @@ def _environments(value) -> list:
 
 def named(root: pathlib.Path) -> set:
     """Each environment the repo says holds a key: as a workflow's job, a stored credential's, or an App's."""
-    found = {name for path in (root / ".github" / "workflows").glob("*.yml") for name in WORKFLOW.findall(path.read_text())}
+    found = {_value(name) for path in (root / ".github" / "workflows").glob("*.y*ml") for name in WORKFLOW.findall(path.read_text())}
     for rel in ("credential-ages.json", "apps.json"):
         found.update(_environments(json.loads((root / "config" / rel).read_text())))
     return found
+
+
+def _value(text: str) -> str:
+    """A YAML value as a name: no comment, no quotes. What is left is the name, or what the read will not find."""
+    return text.split(" #")[0].strip().strip("\"'")
+
+
+def _said(value) -> str:
+    """A value from GitHub, safe to print: a plain name as it is, and anything else, a control character among it, in repr."""
+    return value if isinstance(value, str) and PLAIN.fullmatch(value) else repr(value)
 
 
 def _rows(listed) -> list:
@@ -58,10 +69,10 @@ def compare(listed, policies: dict, wanted: set) -> list:
         return ["GitHub's list of the repo's environments could not be read; read it again"]
     rows, problems = [r for r in listed["environments"] if isinstance(r, dict)], []
     if listed.get("total_count") != len(rows):
-        problems.append("GitHub counts %s environments and gave %d; read it again" % (listed.get("total_count"), len(rows)))
+        problems.append("GitHub counts %s environments and gave %d; read it again" % (_said(listed.get("total_count")), len(rows)))
     if len(rows) >= PAGE:
         problems.append("GitHub listed %d environments, a whole page, so more may follow unread" % len(rows))
-    seen = {r.get("name") for r in rows}
+    seen = {r.get("name") for r in rows if isinstance(r.get("name"), str)}
     for name in sorted(wanted - seen - {RECORDS_ONLY}):
         problems.append("%s is named here for a key, and GitHub has no such environment" % name)
     if RECORDS_ONLY in wanted:
@@ -83,9 +94,9 @@ def compare(listed, policies: dict, wanted: set) -> list:
             continue
         shown = [(p.get("name"), p.get("type")) if isinstance(p, dict) else (None, None) for p in body["branch_policies"]]
         if body.get("total_count") != len(shown):
-            problems.append("%s: GitHub counts %s policies and gave %d" % (name, body.get("total_count"), len(shown)))
+            problems.append("%s: GitHub counts %s policies and gave %d" % (name, _said(body.get("total_count")), len(shown)))
         if shown != MAIN_ALONE:
-            said = ", ".join(n if t == "branch" else "%s (%s)" % (n, t) for n, t in shown) or "nothing"
+            said = ", ".join(_said(n) if t == "branch" else "%s (%s)" % (_said(n), _said(t)) for n, t in shown) or "nothing"
             problems.append("%s: deploys from %s, and not main alone" % (name, said))
     return problems
 
