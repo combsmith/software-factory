@@ -6540,6 +6540,10 @@ exit 9
         self.assertNotIn("NEVER-SEEN", env)
 
     def test_it_refuses_before_anything_is_asked(self):
+        # A place inside the repo, gone after the test however it ends: a mutant that writes there must not fail the next run.
+        (ROOT / "__pycache__").mkdir(exist_ok=True)     # where nothing scans it while the checks run
+        inside = pathlib.Path(tempfile.mkdtemp(dir=ROOT / "__pycache__"))
+        self.addCleanup(shutil.rmtree, inside, True)
         (self.bin / "version").write_text("0.0.1 (Claude Code)\n")
         done = self.run_script(self.folder / "out")
         self.assertEqual(done.returncode, 2, done.stderr)
@@ -6550,14 +6554,11 @@ exit 9
         self.assertEqual(self.run_script(self.folder / "out").returncode, 2)
         self.assertFalse((self.folder / "out").exists())
         (self.bin / "version.exit").write_text("0\n")
-        self.assertEqual(self.run_script(ROOT / "no-such-output").returncode, 2)
-        self.assertFalse((ROOT / "no-such-output").exists())
+        self.assertEqual(self.run_script(inside / "out").returncode, 2)
+        self.assertFalse((inside / "out").exists())
         made = self.folder / "made"
         made.mkdir()
         self.assertEqual(self.run_script(made).returncode, 2)
-        (ROOT / "__pycache__").mkdir(exist_ok=True)     # inside the repo, where nothing scans it while the checks run
-        inside = pathlib.Path(tempfile.mkdtemp(dir=ROOT / "__pycache__"))
-        self.addCleanup(shutil.rmtree, inside)
         apart = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"     # inside none of them, so each is refused for itself
         # The file system may not tell .claude from .CLAUDE, so neither does the refusal.
         (self.home / ".CLAUDE").mkdir(exist_ok=True)
