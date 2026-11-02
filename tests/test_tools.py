@@ -6023,7 +6023,9 @@ exit 9
         self.assertEqual(harness["engine"]["version"], self.PIN)
         # The pin moves only by a run of P-13 at the new version: it is the version the newest P-13 fixture ran at, before
         # and after its Task, and that run passed.
-        runs = sorted((json.loads(p.read_text()) for p in (ROOT / "trials").glob("P-13*.json")), key=lambda f: f["ran_at"])
+        # `P-13.ended.json` asks how a run ends, not P-13's Task, so no pin moves by it.
+        runs = sorted((json.loads(p.read_text()) for p in (ROOT / "trials").glob("P-13*.json") if p.name != "P-13.ended.json"),
+                      key=lambda f: f["ran_at"])
         pinned = [next(e for e in f["exchanges"] if e["request"]["call"].startswith("claude -p"))["request"]["body"]["pinned"]
                   for f in runs]
         newest = runs[-1]
@@ -6467,8 +6469,8 @@ class EndedTrial(unittest.TestCase):
     STAND_IN = """#!/bin/sh
 here=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
-  --version) cat "$here/version"; exit 0 ;;
-  -p) env > "$here/env"; printf '%s\\n' "$@" >> "$here/args"; echo "THIS-PROSE-ON-STDERR" >&2; cat "$here/answer"; exit 3 ;;
+  --version) cat "$here/version"; exit "$(cat "$here/version.exit")" ;;
+  -p) env > "$here/env"; pwd > "$here/where"; ls -A > "$here/there"; printf '%s\\n' "$@" >> "$here/args"; echo "THIS-PROSE-ON-STDERR" >&2; cat "$here/answer"; exit 3 ;;
 esac
 exit 9
 """
@@ -6482,14 +6484,16 @@ exit 9
         self.bin = self.folder / "bin"
         self.bin.mkdir()
         (self.bin / "version").write_text("%s (Claude Code)\n" % self.PIN)
+        (self.bin / "version.exit").write_text("0\n")
         (self.bin / "answer").write_text(json.dumps({
             "type": "result", "subtype": "error_max_turns", "is_error": True, "num_turns": 2, "stop_reason": "THIS PROSE HAS SPACES",
             "terminal_reason": "max_turns", "result": "THIS-PROSE-IN-RESULT", "a_new_field": "THIS-PROSE-IN-A-NEW-FIELD"}))
         (self.bin / "claude").write_text(self.STAND_IN)
         (self.bin / "claude").chmod(0o755)
 
-    def run_script(self, out, cfg=None) -> subprocess.CompletedProcess:
+    def run_script(self, out, cfg=None, **more) -> subprocess.CompletedProcess:
         env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C", "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN"}
+        env.update(more)
         return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg or self.cfg), str(self.bin / "claude")], env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -6507,11 +6511,13 @@ exit 9
                          {"exit": 3, "structured_output": False, "type": "result", "subtype": "error_max_turns", "is_error": True,
                           "num_turns": 2, "stop_reason": None, "terminal_reason": "max_turns"})
         # It is told apart whether the answer held an output, without keeping it.
-        (self.bin / "answer").write_text(json.dumps({"structured_output": {"a": "THIS-PROSE-AS-OUTPUT"}, "num_turns": True}))
+        (self.bin / "answer").write_text(json.dumps({"structured_output": {"a": "THIS-PROSE-AS-OUTPUT"}, "num_turns": -1,
+                                                     "is_error": "THIS PROSE WHERE A BOOL IS", "type": ["THIS-PROSE-IN-A-LIST"]}))
         out = self.folder / "again"
         self.assertEqual(self.run_script(out).returncode, 0)
         self.assertNotIn("THIS", (out / "answers.json").read_text())
-        self.assertTrue(json.loads((out / "answers.json").read_text())[0]["structured_output"])
+        row = json.loads((out / "answers.json").read_text())[0]
+        self.assertEqual((row["structured_output"], row["num_turns"], row["is_error"], row["type"]), (True, None, None, None))
         # No answer at all is kept as none.
         (self.bin / "answer").write_text("not json")
         out = self.folder / "none"
@@ -6521,6 +6527,12 @@ exit 9
         args = (self.bin / "args").read_text()
         self.assertEqual(args.count("--tools\n\n"), 9)
         self.assertEqual(args.count("try again"), 6)
+        # As the Engine calls it: nothing but the Task reaches the model, and an empty directory is where it stands.
+        for flag in ("--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--permission-prompts\nnone",
+                     "--output-format\njson", "--model\nopus"):
+            self.assertEqual(args.count(flag + "\n"), 9, flag)
+        self.assertEqual((self.bin / "there").read_text(), "")
+        self.assertNotIn(str(ROOT), (self.bin / "where").read_text())
         env = (self.bin / "env").read_text()
         self.assertIn("CLAUDE_CONFIG_DIR=%s" % self.cfg, env)
         self.assertNotIn("NEVER-SEEN", env)
@@ -6531,13 +6543,34 @@ exit 9
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertFalse((self.folder / "out").exists())
         (self.bin / "version").write_text("%s (Claude Code)\n" % self.PIN)
+        # The pin said by a CLI that then fails has not cleanly given its version.
+        (self.bin / "version.exit").write_text("3\n")
+        self.assertEqual(self.run_script(self.folder / "out").returncode, 2)
+        self.assertFalse((self.folder / "out").exists())
+        (self.bin / "version.exit").write_text("0\n")
         self.assertEqual(self.run_script(ROOT / "no-such-output").returncode, 2)
         self.assertFalse((ROOT / "no-such-output").exists())
         made = self.folder / "made"
         made.mkdir()
         self.assertEqual(self.run_script(made).returncode, 2)
-        for cfg in (self.home / ".claude", self.home, self.folder / "no-such"):
-            self.assertEqual(self.run_script(self.folder / "out", cfg).returncode, 2, cfg)
+        (ROOT / "__pycache__").mkdir(exist_ok=True)     # inside the repo, where nothing scans it while the checks run
+        inside = pathlib.Path(tempfile.mkdtemp(dir=ROOT / "__pycache__"))
+        self.addCleanup(shutil.rmtree, inside)
+        apart = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"     # inside none of them, so each is refused for itself
+        # The file system may not tell .claude from .CLAUDE, so neither does the refusal.
+        (self.home / ".CLAUDE").mkdir(exist_ok=True)
+        for cfg in (self.home / ".claude", self.home / ".CLAUDE", self.home, self.folder, self.folder / "no-such", inside):
+            self.assertEqual(self.run_script(apart, cfg).returncode, 2, cfg)
+        # The raw answer is never kept in the repo or beside the login, whatever TMPDIR says.
+        stub = self.folder / "stub"
+        stub.mkdir()
+        (stub / "mktemp").write_text('#!/bin/sh\nmkdir "$WHERE/made"\necho "$WHERE/made"\n')
+        (stub / "mktemp").chmod(0o755)
+        for where in (inside, self.cfg):
+            done = self.run_script(apart, PATH="%s:%s" % (stub, os.environ["PATH"]), WHERE=str(where))
+            self.assertEqual(done.returncode, 2, where)
+            self.assertIn("scratch directory", done.stderr)
+            self.assertEqual(list(where.iterdir()), [], where)
         self.assertEqual(self.run_script(self.cfg / "out").returncode, 2)
         self.assertFalse((self.bin / "args").exists(), "the model was asked")
 

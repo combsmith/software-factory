@@ -589,12 +589,18 @@ class Engine(unittest.TestCase):
         # An unknown word for how it ended, or the word without is_error exactly true, is still the Factory's (decision 0122).
         for said in (answer(is_error=True, subtype="error_max_budget_usd"), answer(is_error=True, subtype="ERROR_MAX_TURNS"),
                      answer(is_error=True, subtype=None), answer(is_error=True, subtype=["error_max_turns"]),
-                     answer(is_error="true", subtype="error_max_turns"), answer(is_error=None, subtype="error_max_turns")):
+                     answer(is_error="true", subtype="error_max_turns"), answer(is_error=None, subtype="error_max_turns"),
+                     answer(is_error=1, subtype="error_max_turns")):
             r = engined(CLI(said=said))
             self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"), said[:120])
         # A failing exit with no word of how it ended, even one saying it did not err, is the Factory's.
         r = engined(CLI(said=answer(is_error=False, subtype="error_max_turns"), returncode=1))
         self.assertEqual(r["reason"], "engine_failed")
+        # is_error false and exit 0 is no error, whatever the subtype: the answer is read as any answer is.
+        r = engined(CLI(said=answer(is_error=False, subtype="error_max_turns")))
+        self.assertEqual(r["status"], "completed")
+        r = engined(CLI(said=answer(is_error=False, subtype="error_max_turns", structured_output=None)))
+        self.assertEqual(r["reason"], "no_answer")
         # A CLI that cannot be started, at the call or when its version is asked, is a failed Result (Argon's read).
         r = engined(CLI(raises=OSError("gone")))
         self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"))

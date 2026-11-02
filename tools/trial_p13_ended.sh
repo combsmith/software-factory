@@ -18,6 +18,7 @@
 set -euo pipefail
 set +x
 export LC_ALL=C
+shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE
 
 PIN=2.1.306
 MODEL=opus
@@ -50,6 +51,7 @@ cli=$(cd "$(dirname "$cli")" && pwd -P)/$(basename "$cli")
 
 made=$(mktemp -d)
 scratch=$(cd "$made" && pwd -P)
+case "$scratch/" in "$root"/* | "$cfg"/*) rm -rf "$scratch"; refuse "the scratch directory is inside the repo or CONFIG_DIR" ;; esac
 trap 'rm -rf "$scratch"' EXIT
 trap 'exit 130' INT TERM
 mkdir "$scratch/work"
@@ -60,8 +62,10 @@ run_cli() {
         CLAUDE_CONFIG_DIR="$cfg" DISABLE_AUTOUPDATER=1 "$cli" "$@")
 }
 
-said=$(run_cli --version 2>/dev/null | sed -n 1p | cut -d' ' -f1 || true)
-[[ "$said" == "$PIN" ]] || refuse "the CLI is version '$said', not $PIN; nothing was asked of the model"
+code=0
+said=$(run_cli --version 2>/dev/null) || code=$?
+said=$(printf '%s\n' "$said" | sed -n 1p | cut -d' ' -f1)
+[[ "$code" -eq 0 && "$said" == "$PIN" ]] || refuse "the CLI is version '$said', exit $code, not $PIN; nothing was asked of the model"
 
 mkdir "$out"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
