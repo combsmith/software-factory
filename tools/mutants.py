@@ -7681,7 +7681,7 @@ MUTANTS = ISSUE + [
     ('a schema pattern may backtrack behind its literal text', 'schemas/acceptance.schema.json',
      '"^AC-[0-9]+$"', '"^AC-([0-9]+)+$"',
      ('tests.test_tools.Validator.test_no_schema_pattern_backtracks_on_a_long_value',)),
-    # Decision 0122: a called workflow checks out its own commit.
+    # Decision 0123: a called workflow checks out its own commit.
     ("the pass checks out the tag again", '.github/workflows/pass.yml',
      '          ref: ${{ job.workflow_sha }}\n', '          ref: factory/v0-next\n',
      ('tests.test_tools.Workflows.test_the_pass_uploads_its_record_before_it_dispatches',)),

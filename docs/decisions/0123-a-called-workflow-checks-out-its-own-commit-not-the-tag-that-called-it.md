@@ -1,4 +1,4 @@
-# 0122. A called workflow checks out its own commit, not the tag that called it
+# 0123. A called workflow checks out its own commit, not the tag that called it
 
 Status: accepted. The Factory Builder's ruling of 2026-11-02 on ruling 14 of "Workflows: the frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape" (issue 196), once trial P-55 answered it.
 
