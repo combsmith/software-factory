@@ -2743,9 +2743,16 @@ MUTANTS = ISSUE + [
      ("tests.test_controller.Context.test_runs_that_never_ran_pause_admission_and_are_named_as_themselves",)),
     ("the name reads a Run said to start after the pass", "controller/pass_.py",
      '                   and seconds(now, r["started_at"]) >= 0), key=', '                   ), key=', ("tests.test_controller.Context.test_runs_that_never_ran_pause_admission_and_are_named_as_themselves",)),
+    ("the name fails on a time that is no moment", "controller/pass_.py",
+     'if r["status"] == "completed" and seconds(now, r["started_at"]) is not None\n                   and',
+     'if r["status"] == "completed"\n                   and', ("tests.test_controller.Context.test_runs_that_never_ran_pause_admission_and_are_named_as_themselves",)),
+    ("the name reads no Run in the second of the pass", "controller/pass_.py",
+     '                   and seconds(now, r["started_at"]) >= 0), key=', '                   and seconds(now, r["started_at"]) > 0), key=', ("tests.test_controller.Context.test_runs_that_never_ran_pause_admission_and_are_named_as_themselves",)),
     ("the name reads the list unsorted", "controller/pass_.py",
-     'and seconds(now, r["started_at"]) >= 0), key=lambda r: r["started_at"])',
-     'and seconds(now, r["started_at"]) >= 0))', ("tests.test_controller.Context.test_runs_that_never_ran_pause_admission_and_are_named_as_themselves",)),
+     'done = sorted((r for r in runs if r["status"] == "completed" and seconds(now, r["started_at"]) is not None\n'
+     '                   and seconds(now, r["started_at"]) >= 0), key=lambda r: r["started_at"])',
+     'done = [r for r in runs if r["status"] == "completed" and seconds(now, r["started_at"]) is not None\n'
+     '        and seconds(now, r["started_at"]) >= 0]', ("tests.test_controller.Context.test_runs_that_never_ran_pause_admission_and_are_named_as_themselves",)),
     ("health shows the word over the outcome", "controller/health.py",
      '"outcome": r["outcome"] or r["never_ran"]', '"outcome": r.get("never_ran") or r["outcome"]', ("tests.test_controller.Context.test_runs_that_never_ran_pause_admission_and_are_named_as_themselves",)),
     ("the name lapses with the pause", "controller/pass_.py",

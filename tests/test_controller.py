@@ -392,6 +392,10 @@ class Context(unittest.TestCase):
         ahead = "2026-10-11T13:00:01Z"
         self.assertEqual(passed(reads(runs=aged + [run("r_SUCCES", number=9, at=ahead)]))["alerts"], ["runs_never_started"])
         self.assertEqual(passed(reads(runs=never(7, 8, 9, at=ahead)))["alerts"], [])
+        # In the second of the pass it counts, as the pause reads it; and a time that is no moment counts for neither.
+        self.assertEqual(passed(reads(runs=aged + [run("r_SUCCES", number=9, at="2026-10-11T13:00:00Z")]))["alerts"], [])
+        impossible = never(7, 8, at="2026-10-11T09:00:00Z") + [dict(never(9)[0], run="r_NOTIME", started_at="2026-02-31T00:00:00Z")]
+        self.assertEqual(passed(reads(runs=impossible))["alerts"], [])
         # In any order, since GitHub lists the newest first.
         self.assertEqual(passed(reads(runs=cleared[::-1]))["alerts"], [])
         self.assertEqual(passed(reads(runs=[cleared[-1]] + never(7, 8, 9, at="2026-10-11T11:00:00Z")))["alerts"],
