@@ -27,5 +27,9 @@
   "split": {
     "finding": 1,
     "met": 1
+  },
+  "kinds_pass": {
+    "finding": true,
+    "met": true
   }
 }

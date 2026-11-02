@@ -1,6 +1,6 @@
 # 0109. The scorer's codes are in the public report and the judge's log
 
-Status: accepted. Replaces `docs/decisions/0078-a-held-out-case-is-reviewed-by-the-task-and-the-engine-a-live-run-and-its-report-tells-nothing-it-expected.md` and `docs/decisions/0099-the-eval-job-holds-a-sets-split-where-its-cases-are-since-the-repo-cannot-hold-the-counts-true.md`. The Maintainer's word of 2026-11-01, "Yes, publish the codes", given to the Builder's direct question, which said that this goes beyond his ruling that closed issue 430, "Evals: the public report's per-case verdicts can publish each case's kind", cannot be taken back, and shows each case's kind and the exact split. That ruling said the report keeps its reason code as 0078 has it, with no change to `eval-report/1`'s cases, and 0099 said 0078's one code stands: this overturns both on those points, and on nothing else.
+Status: replaced by `docs/decisions/0120-the-gate-holds-a-bar-of-the-set-and-of-each-kind-and-a-fault-of-the-engine-or-the-run-still-closes-it.md`.
 
 ## Decision
 

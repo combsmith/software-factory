@@ -1,6 +1,6 @@
 # 0100. An eval case's expected Finding is as its rubric gives it, read at run time, where the case is
 
-Status: accepted. The Factory Builder's ruling of 2026-10-30 on issue 421, "An eval case's expected Finding has its criterion's severity and category, as a Result's must", which the Maintainer may overturn in review. It extends `docs/decisions/0088-a-finding-that-cites-a-criterion-has-the-rubrics-severity-or-the-result-is-uncovered.md` and `docs/decisions/0095-a-finding-that-cites-a-criterion-is-of-the-rubrics-category-or-the-result-is-uncovered.md` to the set that measures them, and adds a code to the report of `docs/decisions/0078-a-held-out-case-is-reviewed-by-the-task-and-the-engine-a-live-run-and-its-report-tells-nothing-it-expected.md`.
+Status: replaced by `docs/decisions/0120-the-gate-holds-a-bar-of-the-set-and-of-each-kind-and-a-fault-of-the-engine-or-the-run-still-closes-it.md`.
 
 ## Decision
 

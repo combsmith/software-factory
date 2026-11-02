@@ -25,5 +25,9 @@
     }
   ],
   "passed": 1,
-  "split_ok": true
+  "split_ok": true,
+  "kinds_pass": {
+    "finding": true,
+    "met": true
+  }
 }

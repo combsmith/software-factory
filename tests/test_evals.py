@@ -446,7 +446,7 @@ class TheSet(unittest.TestCase):
         # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
         # with a Finding and as many of a change that was right: forty at least. The manifest keeps no count of a kind,
         # since a session here cannot read a case to hold it true; the eval job holds the split where the cases are
-        # (decision 0109).
+        # (decision 0120).
         manifest = json.loads(SET.read_text())
         self.assertGreaterEqual(manifest["count"], 40)
 
@@ -580,10 +580,10 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
         self.assertEqual((written["passed"], written["commit"], written["release"]), (2, "a" * 40, "factory/v0.1.0"))
         self.assertNotIn("diff", (self.work / job.REPORT).read_text())
-        self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
-        # Decision 0109: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
+        # Decision 0120: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
         # of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set, which
         # `verdict`, the Release's gate too, refuses. Neither says how many of a kind.
         from harness import eval as job
@@ -618,8 +618,8 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 2 passed\neval_split_short\n")
             written = json.loads((self.work / job.REPORT).read_text())
             self.assertIs(written["split_ok"], False)
-            self.assertEqual(sorted(written), ["cases", "commit", "intent", "passed", "release", "role", "schema", "set",
-                                               "split_ok"], "no count of a kind, nor any field of one")
+            self.assertEqual(sorted(written), ["cases", "commit", "intent", "kinds_pass", "passed", "release", "role", "schema",
+                                               "set", "split_ok"], "no count of a kind, nor any field of one")
             self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "verdict"])
             self.assertEqual(self.step(job.judge), "eval_split_short")
         # The answer of a case that is read as no kind, or not read at all, says nothing: its run fails by that case.
@@ -644,7 +644,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(json.loads((self.temp / "heldout" / "fetched.json").read_text()), {first: "hash_differs", "poc-two": None})
         self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
         # The report and the judge's log say what the scorer said, as codes: a run cannot be read without them, and a
-        # case's kind is not worth hiding (decision 0109, on the ruling that closed "Evals: the public report's per-case
+        # case's kind is not worth hiding (decision 0120, on the ruling that closed "Evals: the public report's per-case
         # verdicts can publish each case's kind"). The run says `case_failed` all the same.
         self.assertEqual(eval_result.score(load("examples/eval-case.json"), wrong)["reasons"][0], "finding_not_raised")
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
@@ -652,7 +652,7 @@ class EvalJob(unittest.TestCase):
                                                                         lambda case: wrong)), 0)
             self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
         self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 0 passed\n0 of 2 passed; finding_not_raised 1, hash_differs 1\n"
-                                         "case_failed\n")
+                                         "run_fault\n")
         written = (self.work / job.REPORT).read_text()
         self.assertEqual([(c["verdict"], c["reasons"]) for c in json.loads(written)["cases"]],
                          [("unreadable", ["hash_differs"]), ("fail", ["finding_not_raised"])])
@@ -664,7 +664,7 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
         self.assertEqual(out.getvalue(), "report_unreadable\n")
         (self.work / job.REPORT).write_text(written)
-        self.assertEqual(self.step(job.judge), "case_failed")
+        self.assertEqual(self.step(job.judge), "run_fault")
         # A set changed since the plan is no set of this run, and a report that is not there passes nothing.
         (self.work / job.REPORT).unlink()
         self.assertEqual(self.step(job.judge), "report_unreadable")
@@ -760,7 +760,7 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         found, digest = job.manifest(self.root)
         good = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}},
-                          found, {i: ("pass", []) for i in self.cases}, True)
+                          found, {i: ("pass", []) for i in self.cases}, True, {"finding": True, "met": True})
         self.assertEqual(job.verdict(good, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
 
         def changed(**change):
@@ -775,10 +775,11 @@ class EvalJob(unittest.TestCase):
                                (changed(cases=[first, dict(first, verdict="fail")]), "cases_differ"),
                                (changed(cases=[first, dict(good["cases"][1], sha256="0" * 64)]), "cases_differ"),
                                (changed(cases=[first, dict(good["cases"][1], verdict="fail", reasons=["schema"])]),
-                                "case_failed"),
-                               (changed(cases=[first, dict(good["cases"][1], reasons=["schema"])]), "case_failed"),
-                               (changed(cases=[first, dict(good["cases"][1], verdict="fail")]), "case_failed"),
-                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable")]), "case_failed"),
+                                "run_fault"),
+                               (changed(cases=[first, dict(good["cases"][1], reasons=["schema"])]), "run_fault"),
+                               (changed(cases=[first, dict(good["cases"][1], reasons=["finding_uncited"])]), "count_differs"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="fail")], passed=1), "case_failed"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable")], passed=1), "case_failed"),
                                (changed(role="devops-lead"), "another_set"),
                                (changed(passed="2"), "report_unreadable"),
                                (changed(passed=1), "count_differs")):
@@ -786,6 +787,83 @@ class EvalJob(unittest.TestCase):
         empty = dict(found, count=0, cases=[])
         self.assertEqual(job.verdict(changed(set={"count": 0, "sha256": digest}, cases=[], passed=0), empty, digest,
                                      "a" * 40, "factory/v0.1.0"), "eval_set_empty")
+
+    def test_the_gate_holds_its_bar_of_the_set_and_of_each_kind(self):  # decision 0120
+        from harness import eval as job
+        found_of = lambda count: {"role": "pr-review", "intent": "review-change", "count": count,
+                                  "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i} for i in range(count)]}
+
+        def read(count, passed, kinds=None, others=(("fail", ["criterion_not_met"]),)):
+            """The verdict on a report of `count` cases, the first `passed` passed and the rest as `others` says in turn."""
+            found = found_of(count)
+            assessed = {c["id"]: ("pass", []) if i < passed else others[i % len(others)] for i, c in enumerate(found["cases"])}
+            told = {"finding": True, "met": True} if kinds is None else kinds
+            document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": count, "sha256": "0" * 64}},
+                                  found, assessed, True, told)
+            return job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0")
+        # Of the whole set: exactly 90% clears, and just under does not, whatever the size.
+        for count, least in ((10, 9), (20, 18), (40, 36), (42, 38), (39, 36), (1, 1)):
+            self.assertEqual(read(count, least), "pass", (count, least))
+            self.assertEqual(read(count, least - 1), "case_failed", (count, least))
+        self.assertEqual(read(42, 42), "pass")
+        # A word for each kind closes it by itself, the set's bar cleared; a report that can't say is short.
+        self.assertEqual(read(10, 10, {"finding": False, "met": True}), "case_failed")
+        self.assertEqual(read(10, 10, {"finding": True, "met": False}), "case_failed")
+        found = found_of(10)
+        document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 10, "sha256": "0" * 64}},
+                              found, {c["id"]: ("pass", []) for c in found["cases"]}, True, None)
+        self.assertEqual(job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0"), "eval_split_short")
+        # A case's own fault counts as not passing, and the bar can hold it.
+        for code in ("diff_not_whole", "not_this_set", "answer_off_rubric", "issue_not_whole", "criterion_unknown"):
+            self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "pass", code)
+            self.assertEqual(read(10, 8, others=(("unreadable", [code]),)), "case_failed", code)
+        # What stops the run reaching or trusting a case closes it, however many passed.
+        for code in job.RUN_FAULTS:
+            self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "run_fault", code)
+        for code in job.ENGINE_FAULTS:
+            self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "engine_fault", code)
+        # No code is left out of telling the two apart: each of the report's is a Fault, the reviewer's or a case's own.
+        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | {"result_not_completed", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met"}
+        own = {"not_this_set", "facts_not_current", "facts_read_short", "diff_unreadable", "diff_not_content", "pusher_unnamed",
+               "diff_not_whole", "issue_not_whole", "issue_unreadable", "answer_off_rubric", "answer_disagrees_with_verdict",
+               "location_unreadable", "criterion_unknown"}
+        self.assertEqual(job.eval_result_codes(), scorer | own | set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS))
+
+    def test_each_kind_is_held_to_its_bar_where_the_cases_are(self):  # decision 0120
+        from harness import eval as job
+
+        def told(finding_cases, finding_passed, met_cases, met_passed):
+            place = self.temp / "bar"
+            shutil.rmtree(str(place), ignore_errors=True)
+            (place / "cases").mkdir(parents=True)
+            found, assessed, made = {"cases": []}, {}, [("finding", finding_cases, finding_passed), ("met", met_cases, met_passed)]
+            for kind, cases, passed in made:
+                for i in range(cases):
+                    name = "c-%s-%d" % (kind, i)
+                    (place / "cases" / (name + ".json")).write_text(json.dumps({"expected": {"verdict": kind}}))
+                    found["cases"].append({"id": name})
+                    assessed[name] = ("pass", []) if i < passed else ("fail", ["criterion_not_met"])
+            return job.kinds_pass(found, place, assessed)
+        # Exactly 80% clears, and just under does not; each kind by itself.
+        self.assertEqual(told(20, 16, 20, 16), {"finding": True, "met": True})
+        self.assertEqual(told(20, 15, 20, 16), {"finding": False, "met": True})
+        self.assertEqual(told(20, 16, 20, 15), {"finding": True, "met": False})
+        self.assertEqual(told(5, 4, 22, 18), {"finding": True, "met": True})
+        self.assertEqual(told(5, 3, 22, 17), {"finding": False, "met": False})
+        self.assertEqual(told(43, 34, 5, 4)["finding"], False, "79.07% is under the bar, however near")
+        self.assertEqual(told(5, 4, 43, 35)["met"], True)
+        # A verdict of pass with a code is not passed, and a case not read leaves nothing to say.
+        place = self.temp / "bar"
+        found = {"cases": [{"id": "c-finding-0"}]}
+        self.assertEqual(job.kinds_pass(found, place, {"c-finding-0": ("pass", ["criterion_not_met"])})["finding"], False)
+        self.assertIsNone(job.kinds_pass({"cases": [{"id": "c-none"}]}, place, {"c-none": ("pass", [])}))
+        # Through the job: the report carries the word, and no count of a kind.
+        self.step(job.plan)
+        self.step(job.fetch, self.home(self.cases))
+        self.step(job.score, lambda case: load("examples/result.json"))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(set(written["kinds_pass"]), {"finding", "met"})
+        self.assertTrue(all(isinstance(v, bool) for v in written["kinds_pass"].values()))
 
     def test_the_job_reads_and_writes_a_file_of_its_own_directory_alone(self):
         # Every file the job reads or writes is named by one part, a case's id or the step's own, and resolves inside
@@ -1107,7 +1185,7 @@ class EvalJob(unittest.TestCase):
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
 
-    def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0109
+    def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0120
         # A code the enum lacks would make the whole report unreadable, and the run would say so and nothing else.
         from harness import eval as job
         source = (ROOT / "tools" / "eval_result.py").read_text()
@@ -1331,7 +1409,7 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
                          [("unreadable", ["unanswered"]), ("unreadable", ["not_this_set"])])
-        self.assertEqual(self.step(judge), "case_failed")
+        self.assertEqual(self.step(judge), "run_fault")
         # The step itself, as the workflow runs it: the checkout's Role and configuration, each case stopped before the
         # model because its facts do not name its diff, and the report written.
         (self.work / job.REPORT).unlink()

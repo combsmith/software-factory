@@ -1,9 +1,6 @@
 # 0071. A Release is cut from main through the eval gate and never moved, and next is rolled back with no gate
 
-Status: accepted. The working rulings of "Release: cut an immutable tag, move next, and roll back in one action"
-(issue 197), with the Maintainer's answer of 2026-10-21 replacing rulings 4, 5, 9 and 10 by 4′, 4″, 5′, 9′ and 10′. It
-holds rulings 2 to 8 and 11. It extends decision 0006, on one Release and one path, and decision 0010, on one line
-serving each repo and family, and leaves both as they are.
+Status: replaced by `docs/decisions/0120-the-gate-holds-a-bar-of-the-set-and-of-each-kind-and-a-fault-of-the-engine-or-the-run-still-closes-it.md`.
 
 ## Decision
 

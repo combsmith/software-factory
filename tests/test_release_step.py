@@ -45,7 +45,7 @@ def report(commit=D, release=VERSION, verdict="pass", **change):
     document = {"schema": "eval-report/1", "release": release, "commit": commit, "role": SET["role"],
                 "intent": SET["intent"], "set": {"count": SET["count"], "sha256": hashlib.sha256(SET_BYTES).hexdigest()},
                 "cases": [dict(SET["cases"][0], verdict=verdict, reasons=[])], "passed": 1 if verdict == "pass" else 0,
-                "split_ok": True}
+                "split_ok": True, "kinds_pass": {"finding": True, "met": True}}
     document.update(change)
     return document
 
@@ -246,7 +246,7 @@ class Candidate(unittest.TestCase):
             (gate_reads(document=report(commit=A)), "another_commit"),
             (gate_reads(document=report(verdict="fail")), "case_failed"),
             # A set short of a kind closes the gate by the report's one word, which says neither count; and so does a
-            # report that cannot say, and a run the job failed for it, whatever its report (decision 0109).
+            # report that cannot say, and a run the job failed for it, whatever its report (decision 0120).
             (gate_reads(document=report(split_ok=False)), "eval_split_short"),
             (gate_reads(document=report(split_ok=None)), "eval_split_short"),
             (gate_reads(document={k: v for k, v in report().items() if k != "split_ok"}), "report_unreadable"),
