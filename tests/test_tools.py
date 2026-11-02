@@ -6303,6 +6303,8 @@ sys.stdin.read()
 url = args[-1]
 if url.endswith("/installation"):
     print("HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"id": 42, "app_id": 5363178}))
+elif url.endswith("/installation/token"):
+    print("HTTP/2.0 204 No Content\r\n\r\n")
 elif url.endswith("/access_tokens"):
     print("HTTP/2.0 201 Created\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"token": "''' + "ghs_" + "S" * 36 + r'''", "expires_at": "2026-10-22T00:00:00Z", "permissions": {"contents": "write", "pull_requests": "write"}}))
 else:
@@ -6402,7 +6404,11 @@ esac
                 kinds.append("delete")
             elif "installation/token" in line:
                 kinds.append("revoke")
-        self.assertEqual(kinds, ["review", "read", "resolve", "read", "review", "read", "reply", "read", "delete", "read", "revoke"])
+        self.assertEqual(kinds, ["review", "read", "resolve", "read", "review", "read", "reply", "read", "delete", "read"])
+        last = json.loads((bin_ / "curl-calls").read_text().splitlines()[-1])["argv"]
+        self.assertEqual((last[last.index("-X") + 1], last[-1]), ("DELETE", "https://api.github.com/installation/token"))
+        self.assertIn("--max-time", last)
+        self.assertNotIn(self.TOKEN, " ".join(last))
         # The mutation was sent the id of the App's own thread, by -f, and every reply and deletion was answered.
         mutation = [c["argv"] for c in calls if any(a.startswith("query=mutation") for a in c["argv"])]
         self.assertEqual(len(mutation), 1)
@@ -6443,7 +6449,7 @@ esac
             self.assertNotEqual(ran.returncode, 0, name)
             calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
             self.assertFalse([c for c in calls if any(a.startswith("query=mutation") for a in c["argv"])], name)
-            self.assertIn("installation/token", " ".join(calls[-1]["argv"]), name)
+            self.assertIn("installation/token", (bin_ / "curl-calls").read_text().splitlines()[-1], name)
             out = next(pathlib.Path(line.strip()) for line in ran.stdout.splitlines() if line.startswith("  /"))
             self.assertNotIn(self.TOKEN, "".join(p.read_text() for p in out.iterdir()), name)
 
@@ -6455,47 +6461,80 @@ esac
         calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
         said = [" ".join(c["argv"]) for c in calls]
         self.assertFalse([c for c in said if "/replies" in c or "pulls/comments/" in c or "issues/1" in c])
-        self.assertIn("installation/token", said[-1])
+        self.assertIn("installation/token", (bin_ / "curl-calls").read_text().splitlines()[-1])
 
 
 class AppCleanUp(unittest.TestCase):
-    """`tools/trial_as_app.sh` stopped by a signal, against the stand-ins and never GitHub (issue 481): a second signal,
-    as a closed terminal can send, stops neither the revocation nor the redaction, and what it says reaches OUT."""
+    """`tools/trial_as_app.sh` stopped by signals, against the stand-ins and never GitHub (issue 481): a closed terminal's
+    hangup, twice, stops nothing; a second signal stops neither the revocation nor the redaction; and what the clean-up
+    says reaches OUT, in the script's own words alone."""
 
     SCRIPT = AppThreads.SCRIPT
-    # The stand-in gh, holding its first call until it is signalled, and the revocation until it is told to go.
-    GH = AppThreads.GH.replace("""args = sys.argv[1:]
+    # The stand-in gh holds its first call until the test says go on.
+    GH = AppThreads.GH.replace("import json, os, pathlib, sys\n", "import json, os, pathlib, sys, time\n", 1).replace("""args = sys.argv[1:]
 """, """args = sys.argv[1:]
+if not (here / "first").exists():
+    (here / "first").write_text("")
+    for _ in range(600):
+        if (here / "on").exists():
+            break
+        time.sleep(0.05)
+""", 1)
+    # The stand-in curl holds the mint or answers it as it is told to. It holds the revocation until it is told to go, says
+    # that it began, and repeats on standard error what it was answered, token-shaped, as a real one can.
+    CURL = AppThreads.CURL.replace("import json, pathlib, sys\n", "import json, os, pathlib, sys, time\n", 1).replace("""url = args[-1]
+""", """url = args[-1]
 def wait_for(name, then):
     (here / then).write_text("")
     for _ in range(600):
         if (here / name).exists():
             return
         time.sleep(0.05)
-""", 1).replace("import json, os, pathlib, sys\n", "import json, os, pathlib, sys, time\n", 1).replace("""if path == "installation/token":
-    answer(204, None)
-""", """if path == "installation/token":
+if url.endswith("/access_tokens") and os.environ.get("STANDIN_HOLD_MINT"):
+    wait_for("never", "minting")
+if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "403":
+    print("HTTP/2.0 403 Forbidden\\r\\nContent-Type: application/json\\r\\n\\r\\n{\\"message\\": \\"no\\"}")
+    sys.exit(22)
+if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "empty":
+    print("HTTP/2.0 201 Created\\r\\nContent-Type: application/json\\r\\n\\r\\n{}")
+    sys.exit(0)
+if url.endswith("/installation/token"):
     wait_for("go", "revoking")
     (here / "revoke-answered").write_text("")
-    answer(int(os.environ.get("STANDIN_REVOKE", "204")), None)
-if not (here / "first").exists():
-    (here / "first").write_text("")
-    time.sleep(60)
+    sys.stderr.write("curl: reflected gh" + "s_%s\\n" % ("Z" * 36))
+    print("HTTP/2.0 %s Status\\r\\n\\r\\n" % os.environ.get("STANDIN_REVOKE", "204"))
+    sys.exit(0)
 """, 1)
+
+    # bash cannot trap what it was started ignoring, as under nohup or a script's `&`, so each run starts with none ignored.
+    DEFAULTS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT)
 
     def start(self, **extra):
         self.bin = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         self.scratch = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         # mktemp -d alone does not always read TMPDIR, so the stand-in says where OUT is.
         made = '#!/bin/sh\nexec /usr/bin/mktemp -d "%s/out.XXXXXX"\n' % self.scratch
-        for name, text in (("gh", self.GH), ("curl", AppThreads.CURL), ("openssl", AppThreads.OPENSSL), ("mktemp", made)):
+        # python3 stands in only for a redaction it is told to fail: of the exchanges, or of a capture.
+        python = """#!/bin/sh
+if [ "$1 $2" = "-m tools.redact_trial" ]; then
+    input=$(cat)
+    case "$input" in
+        '{'*) [ -e "%(bin)s/bad-exchanges" ] && exit 3 ;;
+        *) [ -e "%(bin)s/bad-captures" ] && exit 3 ;;
+    esac
+    printf '%%s\\n' "$input" | exec "%(real)s" "$@"
+fi
+exec "%(real)s" "$@"
+""" % {"bin": self.bin, "real": sys.executable}
+        for name, text in (("gh", self.GH), ("curl", self.CURL), ("openssl", AppThreads.OPENSSL), ("mktemp", made), ("python3", python)):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
         (self.bin / "key.pem").write_text("not a key: the stand-in openssl never reads it\n")
         env = {"PATH": "%s:/usr/bin:/bin" % self.bin, "HOME": str(self.bin), "LANG": "C", "STANDIN_REPO": AppThreads.REPO,
                "TMPDIR": str(self.scratch), **extra}
         return subprocess.Popen(["bash", str(self.SCRIPT), "push", str(self.bin / "key.pem"), AppThreads.REPO, "7", "trial-notes/x.md"],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True,
+                                preexec_fn=lambda: [signal.signal(s, signal.SIG_DFL) for s in self.DEFAULTS])
 
     def wait_for(self, name):
         for _ in range(600):
@@ -6510,12 +6549,14 @@ if not (here / "first").exists():
         return made[0]
 
     def stopped_twice(self, first, second, closed=False, **extra):
-        """The run stopped by `first` at its first read and by `second` during its revocation, with the pipes it writes
-        to closed before the second if `closed`; (exit, what it said on stderr, OUT)."""
+        """The run signalled with `first` at its first gh call and with `second` during its revocation, with the pipes it
+        writes to closed before the second if `closed`; (exit, what it said on stderr, OUT)."""
         running = self.start(**extra)
         try:
             self.wait_for("first")
             os.killpg(running.pid, first)
+            time.sleep(0.2)
+            (self.bin / "on").write_text("")
             self.wait_for("revoking")
             if closed:
                 running.stdout.close()
@@ -6523,11 +6564,7 @@ if not (here / "first").exists():
             os.killpg(running.pid, second)
             time.sleep(0.2)
             (self.bin / "go").write_text("")
-            # Bash runs the EXIT trap on a hangup with no trap of its own, which is why none is set (issue 480), then dies by
-            # the hangup whatever finish says, so only an interrupt or a termination has an exit to hold here.
             code = running.wait(timeout=60)
-            if first != signal.SIGHUP:
-                self.assertEqual(code, 1 if extra.get("STANDIN_REVOKE") else 130)
             told = "" if closed else running.stderr.read().decode()
         finally:
             if running.poll() is None:
@@ -6536,15 +6573,18 @@ if not (here / "first").exists():
             for pipe in (running.stdout, running.stderr):
                 if not pipe.closed:
                     pipe.close()
-        return running.returncode, told, self.out()
+        return code, told, self.out()
 
     def test_a_second_signal_stops_neither_the_revocation_nor_the_redaction(self):
-        for first, second in ((signal.SIGHUP, signal.SIGHUP), (signal.SIGINT, signal.SIGHUP), (signal.SIGTERM, signal.SIGINT),
-                              (signal.SIGHUP, signal.SIGTERM)):
+        # A hangup or a quit first is ignored, so the run goes on to its end; an interrupt or a termination first is its exit.
+        for first, second, want in ((signal.SIGHUP, signal.SIGHUP, 0), (signal.SIGINT, signal.SIGHUP, 130),
+                                    (signal.SIGTERM, signal.SIGINT, 130), (signal.SIGINT, signal.SIGTERM, 130),
+                                    (signal.SIGQUIT, signal.SIGQUIT, 0)):
             with self.subTest(first=first, second=second):
-                _, told, out = self.stopped_twice(first, second)
+                code, told, out = self.stopped_twice(first, second)
+                self.assertEqual(code, want, told)
                 self.assertTrue((self.bin / "revoke-answered").exists())
-                self.assertNotIn("THE TOKEN WAS NOT REVOKED", told)
+                self.assertNotIn("WAS NOT REVOKED", told)
                 self.assertEqual(list(out.glob("*.raw")), [])
                 exchanges = json.loads((out / "exchanges.json").read_text())["exchanges"]
                 revoked = [e for e in exchanges if e["request"]["call"] == "DELETE /installation/token"]
@@ -6553,16 +6593,98 @@ if not (here / "first").exists():
 
     def test_with_the_terminal_gone_what_it_says_stays_in_out(self):
         # The pipes it writes to are closed, as a closed terminal's are, and the revocation is refused: nothing it writes
-        # stops it, the redaction is whole, and the token left live is said where the session reads.
-        _, _, out = self.stopped_twice(signal.SIGHUP, signal.SIGHUP, closed=True, STANDIN_REVOKE="500")
+        # stops it, the redaction is whole, and the token left live is said beside what the session reads.
+        code, _, out = self.stopped_twice(signal.SIGHUP, signal.SIGHUP, closed=True, STANDIN_REVOKE="500")
+        self.assertEqual(code, 1)
         self.assertIn("THE TOKEN WAS NOT REVOKED", (out / "finish.log").read_text())
         self.assertEqual(list(out.glob("*.raw")), [])
         self.assertTrue((out / "exchanges.json").exists())
 
-    def test_on_a_terminal_still_there_it_says_the_same(self):
-        _, told, out = self.stopped_twice(signal.SIGHUP, signal.SIGHUP, STANDIN_REVOKE="500")
-        self.assertIn("THE TOKEN WAS NOT REVOKED", told)
+    def test_on_a_terminal_still_there_it_says_the_same_and_where_out_is_first(self):
+        running = self.start(STANDIN_REVOKE="500")
+        try:
+            self.wait_for("first")
+            (self.bin / "on").write_text("")
+            self.wait_for("revoking")
+            (self.bin / "go").write_text("")
+            said, told = running.communicate(timeout=60)
+        finally:
+            if running.poll() is None:
+                os.killpg(running.pid, signal.SIGKILL)
+                running.wait()
+        self.assertEqual(running.returncode, 1)
+        out = self.out()
+        self.assertEqual(said.decode().splitlines()[0], "trial_as_app: OUT is %s" % out)
+        self.assertIn("THE TOKEN WAS NOT REVOKED", told.decode())
         self.assertIn("THE TOKEN WAS NOT REVOKED", (out / "finish.log").read_text())
+
+    def test_finish_log_holds_the_scripts_words_and_nothing_curl_said(self):
+        # What curl says on standard error can repeat an answer. It reaches neither a file of OUT nor the terminal.
+        code, told, out = self.stopped_twice(signal.SIGHUP, signal.SIGHUP, STANDIN_REVOKE="500")
+        self.assertEqual(code, 1)
+        self.assertNotIn("curl: reflected", told)
+        self.assertEqual((out / "finish.log").read_text().splitlines(),
+                         ["THE TOKEN WAS NOT REVOKED: it lapses within the hour; say so to the session"])
+
+    def test_a_signal_during_the_mint_says_a_token_may_be_live(self):
+        running = self.start(STANDIN_HOLD_MINT="1")
+        try:
+            self.wait_for("minting")
+            os.killpg(running.pid, signal.SIGTERM)
+            self.assertEqual(running.wait(timeout=60), 130)
+            told = running.stderr.read().decode()
+        finally:
+            if running.poll() is None:
+                os.killpg(running.pid, signal.SIGKILL)
+                running.wait()
+            running.stdout.close()
+            running.stderr.close()
+        self.assertIn("A TOKEN MAY BE LIVE", told)
+        self.assertIn("A TOKEN MAY BE LIVE", (self.out() / "finish.log").read_text())
+
+    def test_a_mint_that_was_answered_says_no_token_may_be_live(self):
+        for answer in ("403", "empty"):
+            with self.subTest(answer=answer):
+                running = self.start(STANDIN_MINT=answer)
+                _, told = running.communicate(timeout=60)
+                self.assertNotEqual(running.returncode, 0)
+                self.assertNotIn("A TOKEN MAY BE LIVE", told.decode())
+
+    def test_a_redaction_that_fails_is_said_and_nothing_unchecked_stays(self):
+        running = self.start()
+        try:
+            self.wait_for("first")
+            (self.bin / "bad-exchanges").write_text("")
+            (self.bin / "on").write_text("")
+            self.wait_for("revoking")
+            (self.bin / "go").write_text("")
+            _, told = running.communicate(timeout=60)
+        finally:
+            if running.poll() is None:
+                os.killpg(running.pid, signal.SIGKILL)
+                running.wait()
+        self.assertEqual(running.returncode, 1)
+        self.assertIn("the redaction of the exchanges failed", told.decode())
+        self.assertIn("the redaction of the exchanges failed", (self.out() / "finish.log").read_text())
+        self.assertEqual(list(self.out().glob("*.unchecked.json")), [])
+
+    def test_a_capture_left_whose_redaction_fails_is_said_and_deleted(self):
+        running = self.start()
+        try:
+            self.wait_for("first")
+            (self.bin / "bad-captures").write_text("")
+            (self.bin / "go").write_text("")
+            os.killpg(running.pid, signal.SIGTERM)
+            self.assertEqual(running.wait(timeout=60), 1)
+        finally:
+            if running.poll() is None:
+                os.killpg(running.pid, signal.SIGKILL)
+                running.wait()
+            running.stdout.close()
+            running.stderr.close()
+        out = self.out()
+        self.assertEqual(list(out.glob("*.raw")), [])
+        self.assertIn("is deleted unread", (out / "finish.log").read_text())
 
 
 class LinuxSandboxTrial(unittest.TestCase):
