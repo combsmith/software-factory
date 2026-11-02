@@ -5,7 +5,7 @@ design: what was sent to GitHub in the canary repo, combsmith/software-factory-c
 org itself for a trial about the org and its Apps (decision 0035), in the Factory's repo for P-30 (decision 0113), or, for a trial of a vendor's
 CLI, in no repo (decision 0033), and what came back, with every credential removed. The fake
 GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is the skill
-`.claude/skills/run-a-platform-trial/SKILL.md`; P-13's script, `tools/trial_p13_cli.sh`, has its runbook beside it, `tools/trial_p13_runbook.md`.
+`.claude/skills/run-a-platform-trial/SKILL.md`; P-13's script, `tools/trial_p13_cli.sh`, has its runbook beside it, `tools/trial_p13_runbook.md`; `tools/trial_p13_ended.sh` asks how a run ends.
 P-26's script, `tools/trial_p26_sandbox.sh`, holds its runbook and its pass condition at its top; so do P-50's and P-51's, `tools/trial_p50_linux_sandbox.sh` and `tools/trial_p51_sandbox_writes.sh`,
 which with P-50's stub, `tools/trial_p50_stub.py`, a trial runs only in the canary's workflow; this repo's tests run them against a stand-in CLI, the stub on 127.0.0.1.
 `python3 -m tools.check_trials` checks this folder alone, before a fixture is added to git.

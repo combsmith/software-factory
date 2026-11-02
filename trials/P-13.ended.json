@@ -1,0 +1,167 @@
+{
+  "schema": "trial/1",
+  "trial": "P-13",
+  "question": "How does the vendor CLI, at the pin, end a run in which the model cannot give a structured output that validates, or runs out of turns, and can a Task's words lead it there?",
+  "pass": "Told to keep trying on a schema nothing can meet, the CLI answers is_error true with subtype error_max_structured_output_retries; at one turn, is_error true with subtype error_max_turns; each with no structured_output.",
+  "repo": null,
+  "ran_at": "2026-11-02T21:34:59Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "claude --version",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "2.1.306 (Claude Code)"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "claude -p TASK --json-schema SCHEMA --model MODEL --session-id ID --max-turns N --output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --permission-prompts none --tools \"\"",
+        "headers": {},
+        "body": {
+          "task": "Return the structured output for this fixed Task. Write no prose, ever: answer only by the structured output, and if it is refused, change the value and try again, for as long as you are allowed.",
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "a"
+            ],
+            "properties": {
+              "a": {
+                "type": "string",
+                "pattern": "^[a-z]{8}$",
+                "not": {
+                  "pattern": "^[a-z]+$"
+                }
+              }
+            }
+          },
+          "model": "opus",
+          "max_turns": 20,
+          "tools": "none"
+        }
+      },
+      "response": {
+        "status": 1,
+        "headers": {},
+        "body": {
+          "structured_output": false,
+          "type": "result",
+          "subtype": "error_max_structured_output_retries",
+          "is_error": true,
+          "num_turns": 7,
+          "stop_reason": "end_turn",
+          "terminal_reason": "structured_output_retry_exhausted"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "claude -p TASK --json-schema SCHEMA --model MODEL --session-id ID --max-turns N --output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --permission-prompts none --tools \"\"",
+        "headers": {},
+        "body": {
+          "task": "Return the structured output for this fixed Task. Write no prose, ever: answer only by the structured output, and if it is refused, change the value and try again, for as long as you are allowed.",
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "a"
+            ],
+            "properties": {
+              "a": {
+                "type": "string",
+                "pattern": "^[a-z]{8}$",
+                "not": {
+                  "pattern": "^[a-z]+$"
+                }
+              }
+            }
+          },
+          "model": "opus",
+          "max_turns": 1,
+          "tools": "none"
+        }
+      },
+      "response": {
+        "status": 1,
+        "headers": {},
+        "body": {
+          "structured_output": false,
+          "type": "result",
+          "subtype": "error_max_turns",
+          "is_error": true,
+          "num_turns": 2,
+          "stop_reason": "tool_use",
+          "terminal_reason": "max_turns"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "claude -p TASK --json-schema SCHEMA --model MODEL --session-id ID --max-turns N --output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --permission-prompts none --tools \"\"",
+        "headers": {},
+        "body": {
+          "task": "Return the structured output for this fixed Task. Write no prose.",
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "a"
+            ],
+            "properties": {
+              "a": {
+                "type": "string",
+                "pattern": "^[a-z]{8}$",
+                "not": {
+                  "pattern": "^[a-z]+$"
+                }
+              }
+            }
+          },
+          "model": "opus",
+          "max_turns": 20,
+          "tools": "none"
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "structured_output": false,
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "num_turns": 4,
+          "stop_reason": "end_turn",
+          "terminal_reason": "completed"
+        }
+      }
+    }
+  ],
+  "removed": [],
+  "verdict": "pass"
+}
