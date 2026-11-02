@@ -1016,6 +1016,8 @@ class Status(unittest.TestCase):
             "hands-off on a draft": {"label_events": [person], "is_draft": True},
             "hands-off with the checks not read": {"label_events": [person], "complete": dict(whole, checks=False)},
             "not served": {"targets_protected": False},
+            # The Kernel reads an incomplete read before the base, too.
+            "not served with the checks not read": {"targets_protected": False, "complete": dict(whole, checks=False)},
             "merged": {"state": "merged"},
             "closed": {"state": "closed"},
             # With the label events not read whole, nothing says a person did not.

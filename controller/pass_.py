@@ -211,11 +211,12 @@ def _acts(record: dict) -> set:
             if e["decision"]["outcome"] == t.ACT and e["decision"]["action"] != "issue_approval"}
 
 
-def status_head(entry: dict, decision: dict, kernel: dict) -> dict:
+def status_head(entry: dict, kernel: dict) -> dict:
     """The head to carry, where a status goes on this item (#193's ruling 6): an open pull request, read with a commit,
-    that is served and that a person has not left alone, as the Kernel reads that."""
+    that is served and that a person has not left alone, as the Kernel reads that. Each is read from the facts, not the Decision:
+    `derive` stops at an incomplete read before it reads either."""
     facts = entry["facts"]
-    if not COMMIT.fullmatch(str(entry.get("head"))) or facts["state"] != "open" or decision.get("state") == t.NOT_SERVED:
+    if not COMMIT.fullmatch(str(entry.get("head"))) or facts["state"] != "open" or facts.get("targets_protected") is not True:
         return {}
     return {} if pull_request.left_alone(facts, kernel) else {"head": entry["head"]}
 
@@ -247,7 +248,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             d = decide(facts, runs, context, kernel, now)
             minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"
             out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
-                            **status_head(entry, d, kernel)))
+                            **status_head(entry, kernel)))
         return out
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
