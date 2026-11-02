@@ -9,7 +9,7 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: the
-  bar of decision 0120, and no fault of the Engine or the run.
+  bar of decision 0120, every case that expects a blocking Finding, and no fault of the Engine or the run.
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
 exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
@@ -43,6 +43,7 @@ BAR_OF_THE_SET, BAR_OF_A_KIND = (9, 10), (4, 5)
 KIND_LEAST = 20
 KINDS = ("finding", "met")
 BLOCKING = "blocking"       # a case that expects a Finding of this severity must pass, whatever the bar (decision 0120)
+BLOCKING_LEAST = 1          # and a set holds one, or a true word for them could mean none exist
 
 
 class Stop(Exception):
@@ -345,12 +346,13 @@ def kinds_of(found: dict, place: pathlib.Path):
 
 
 def split_ok(found: dict, place: pathlib.Path):
-    """Whether the set's cases hold KIND_LEAST of each kind: one word of the whole set, never how many of either: the gate
-    needs no more (decision 0120). None where `kinds_of` can say nothing."""
+    """Whether the set's cases hold KIND_LEAST of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
+    the whole set, never how many of any: the gate needs no more (decision 0120). None where `kinds_of` can say nothing."""
     kinds = kinds_of(found, place)
     if kinds is None:
         return None
-    return min(list(kinds.values()).count(kind) for kind in KINDS) >= KIND_LEAST
+    return min(list(kinds.values()).count(kind) for kind in KINDS) >= KIND_LEAST \
+        and len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST
 
 
 def _clears(passed: int, of: int, bar: tuple) -> bool:
@@ -373,15 +375,31 @@ def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     return said
 
 
+def _blocking_criteria(role) -> set:
+    """The criteria of the rubric `role` reviews by whose Finding is blocking; none where it cannot be read, as a case is
+    then off it and is not asked."""
+    try:
+        rubric = json.loads((ROOT / "config" / ("rubric-%s.json" % role)).read_text())
+        return {c["id"] for c in rubric["criteria"] if c["severity_if_violated"] == BLOCKING}
+    except (OSError, ValueError, KeyError, TypeError):
+        return set()
+
+
+def blocking_cases(found: dict, expected: dict) -> list:
+    """The cases that expect a blocking Finding: by what a case states or by what the rubric gives its criterion, so that
+    one off its rubric cannot leave the rule by stating less (decision 0120)."""
+    criteria = _blocking_criteria(found.get("role"))
+    return [case for case, said in expected.items() if isinstance(said.get("finding"), dict)
+            and (said["finding"].get("severity") == BLOCKING or said.get("criterion") in criteria)]
+
+
 def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
-    """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many, and
-    true of a set with none (decision 0120). None where `_expected` can say nothing."""
+    """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many. True
+    of a set with none, which `split_ok` closes on. None where `_expected` can say nothing."""
     expected = _expected(found, place)
     if expected is None:
         return None
-    blocking = [case for case, said in expected.items()
-                if isinstance(said.get("finding"), dict) and said["finding"].get("severity") == BLOCKING]
-    return all(assessed[case] == (PASS, []) for case in blocking)
+    return all(assessed[case] == (PASS, []) for case in blocking_cases(found, expected))
 
 
 def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None) -> dict:
@@ -444,10 +462,13 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
 
 
 def tally(document: dict) -> str:
-    """One line of a report that holds to its schema: how many cases passed, and how many carry each code."""
+    """One line of a report that holds to its schema: how many cases passed, how many carry each code, and what of its
+    words closed the gate, as a share alone may not say why."""
     codes = [code for case in document["cases"] for code in case["reasons"]]
-    return "%d of %d passed; %s" % (document["passed"], len(document["cases"]),
-                                    ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code")
+    closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
+    closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
+    return "; ".join(["%d of %d passed" % (document["passed"], len(document["cases"])),
+                      ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed)
 
 
 def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
