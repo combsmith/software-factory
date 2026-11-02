@@ -3822,6 +3822,9 @@ class TheFactorysOwnRules(unittest.TestCase):
                 self.waits_for_review([path], cls=cls)
                 d = go(changing(**cls, changed_paths=[path]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), path)
+        # All of evals/ is on model review, the context's test with the manifest, and it waits for no person.
+        for cls in (AGENT, DEPENDENCY):
+            self.waits_for_review(["evals/context/task.json"], cls=cls)
         # The job's modules stay on the list, through the Harness (decision 0052).
         self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]))["evidence"], ["harness/"])
 

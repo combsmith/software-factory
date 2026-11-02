@@ -10517,6 +10517,8 @@ MUTANTS = ISSUE + [
      '    {"lens": "pr-review", "path": "harness/", "is": "the Harness, which gives the review its Task and takes its answer"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
     ('the set\'s manifest has no model review', 'config/hooks.json',
      '    {"lens": "verify", "path": "evals/", "is": "the held-out set\'s manifest and the context\'s test, which verify holds"},\n', '', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
+    ('only the manifest of evals/ has a model review', 'config/hooks.json',
+     '    {"lens": "verify", "path": "evals/", "is": "the held-out set\'s manifest and the context\'s test, which verify holds"},\n', '    {"lens": "verify", "path": "evals/pr-review/", "is": "the held-out set\'s manifest and the context\'s test, which verify holds"},\n', ('tests.test_decide.TheFactorysOwnRules.test_what_grades_the_review_stays_on_model_review',)),
 ]
 
 
