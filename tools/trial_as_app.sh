@@ -177,8 +177,8 @@ print(said)' "$1" "$2" "$3" "$APP"
 # Revoke the token first, whatever happened; then redact what is left and gather the exchanges.
 say() { echo "$*" >> "$out/finish.log"; }
 
-finish() {
-    status=$?
+finish() {   # [STATUS]
+    status=${1:-$?}
     trap '' HUP INT TERM QUIT PIPE
     # Nothing past here stops at a signal: this shell and curl ignore them, curl is what revokes since gh stops at a TERM
     # whatever it inherits, and a bound keeps a hung revocation from holding a shell nothing can interrupt. The terminal
@@ -189,17 +189,17 @@ finish() {
     # bash 3.2 keeps what it could not write to a dead terminal, and hands it to the next command substitution, a capture's
     # name or the revocation's status among them. This writes it away.
     echo
-    # A mint GitHub refused issued nothing. Any other that did not end, one with no answer yet or one cut short, may have.
+    # A mint GitHub refused issued nothing. Any other that did not end may have: no answer yet, one cut short, or a gateway's.
     if [ -z "$token" ] && [ -n "$minting" ]; then
         case "$(sed -n '1s/^[^ ]* \([0-9]*\).*/\1/p' "$raw" 2>/dev/null)" in
-            4*|5*) ;;
+            4*) ;;
             *) say "A TOKEN MAY BE LIVE: the run stopped during its mint, so none was read to revoke; it lapses within the hour" ;;
         esac
     fi
     if [ -n "$token" ]; then
         record "DELETE /installation/token" "${APP}[bot], by an installation token" ""
-        printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i --max-time 30 -X DELETE -H @- -H "Accept: $ACCEPT" \
-            -H "X-GitHub-Api-Version: $VERSION" "$API/installation/token" | tr -d '\r' > "$raw"
+        printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i --suppress-connect-headers --max-time 30 -X DELETE -H @- \
+            -H "Accept: $ACCEPT" -H "X-GitHub-Api-Version: $VERSION" "$API/installation/token" | tr -d '\r' > "$raw"
         redact "$raw"
         [ "$(sed -n 1p "$out/$id.clean" 2>/dev/null | cut -d' ' -f2)" = 204 ] ||
             { say "THE TOKEN WAS NOT REVOKED: it lapses within the hour; say so to the session"; status=1; }
@@ -241,11 +241,12 @@ json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), 
     echo "  $out"
     exit "$status"
 }
-# The second line is unlike the other scripts': a closed terminal's second hangup must find this one's clean-up already deaf
-# to it, and bash left to die by one dies at the second before the exit trap is under way (issue 481). What runs in the
+# The second line is unlike the other scripts' (issue 481). A closed terminal's second hangup must find this one's clean-up
+# already deaf to it, and bash left to die by one dies at the second before the exit trap is under way. It runs the clean-up
+# itself, for an `exit` here on a signal as the exit trap starts would end the shell with nothing revoked. What runs in the
 # foreground has these at their defaults, so it stops at the same signal and this trap is not kept waiting.
 trap finish EXIT
-trap "trap '' HUP INT TERM QUIT PIPE; exit 130" HUP INT TERM QUIT PIPE
+trap "trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130" HUP INT TERM QUIT PIPE
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\n'; }
 

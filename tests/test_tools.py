@@ -6297,9 +6297,9 @@ answer(404, {"message": "the stand-in does not know " + path})
 import json, pathlib, sys
 here = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
+said = sys.stdin.read()
 with open(here / "curl-calls", "a") as calls:
-    calls.write(json.dumps({"argv": args, "stdin_has_bearer": None}) + "\n")
-sys.stdin.read()
+    calls.write(json.dumps({"argv": args, "said": said}) + "\n")
 url = args[-1]
 if url.endswith("/installation"):
     print("HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"id": 42, "app_id": 5363178}))
@@ -6405,10 +6405,13 @@ esac
             elif "installation/token" in line:
                 kinds.append("revoke")
         self.assertEqual(kinds, ["review", "read", "resolve", "read", "review", "read", "reply", "read", "delete", "read"])
-        last = json.loads((bin_ / "curl-calls").read_text().splitlines()[-1])["argv"]
+        revocation = json.loads((bin_ / "curl-calls").read_text().splitlines()[-1])
+        self.assertEqual(revocation["said"], "Authorization: Bearer %s\n" % self.TOKEN)
+        last = revocation["argv"]
         self.assertEqual((last[last.index("-X") + 1], last[-1]), ("DELETE", "https://api.github.com/installation/token"))
         self.assertIn("--max-time", last)
         self.assertEqual(last[0], "-q")
+        self.assertIn("--suppress-connect-headers", last)
         self.assertNotIn(self.TOKEN, " ".join(last))
         # The mutation was sent the id of the App's own thread, by -f, and every reply and deletion was answered.
         mutation = [c["argv"] for c in calls if any(a.startswith("query=mutation") for a in c["argv"])]
@@ -6493,9 +6496,12 @@ def wait_for(name, then):
         time.sleep(0.05)
 if url.endswith("/access_tokens") and os.environ.get("STANDIN_HOLD_MINT"):
     wait_for("never", "minting")
-if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "403":
-    print("HTTP/2.0 403 Forbidden\\r\\nContent-Type: application/json\\r\\n\\r\\n{\\"message\\": \\"no\\"}")
+if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") in ("403", "504"):
+    print("HTTP/2.0 %s Status\\r\\nContent-Type: application/json\\r\\n\\r\\n{\\"message\\": \\"no\\"}" % os.environ["STANDIN_MINT"])
     sys.exit(22)
+if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "cut-after-its-token":
+    print("HTTP/2.0 201 Created\\r\\nContent-Type: application/json\\r\\n\\r\\n{\\"token\\": \\"gh" + "s_" + "S" * 36 + "\\", \\"expires_at\\": \\"2026")
+    sys.exit(18)
 if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "cut":
     print("HTTP/2.0 201 Created\\r\\nContent-Ty")
     sys.exit(18)
@@ -6681,11 +6687,21 @@ exec "%(real)s" "$@"
         self.assertIn("A TOKEN MAY BE LIVE", told)
         self.assertIn("A TOKEN MAY BE LIVE", (self.out() / "finish.log").read_text())
 
-    def test_a_mint_cut_short_says_a_token_may_be_live(self):
-        running = self.start(STANDIN_MINT="cut")
-        running.communicate(timeout=60)
+    def test_a_mint_cut_short_or_a_gateways_says_a_token_may_be_live(self):
+        for answer in ("cut", "504"):
+            with self.subTest(answer=answer):
+                running = self.start(STANDIN_MINT=answer)
+                running.communicate(timeout=60)
+                self.assertNotEqual(running.returncode, 0)
+                self.assertIn("A TOKEN MAY BE LIVE", (self.out() / "finish.log").read_text())
+
+    def test_a_mint_cut_short_after_its_token_revokes_it_and_says_none_is_unread(self):
+        running = self.start(STANDIN_MINT="cut-after-its-token")
+        (self.bin / "go").write_text("")
+        _, told = running.communicate(timeout=60)
         self.assertNotEqual(running.returncode, 0)
-        self.assertIn("A TOKEN MAY BE LIVE", (self.out() / "finish.log").read_text())
+        self.assertTrue((self.bin / "revoke-answered").exists())
+        self.assertNotIn("A TOKEN MAY BE LIVE", told.decode())
 
     def test_a_mint_that_was_answered_says_no_token_may_be_live(self):
         for answer in ("403", "empty"):
@@ -6729,7 +6745,10 @@ exec "%(real)s" "$@"
             running.stderr.close()
         out = self.out()
         self.assertEqual(list(out.glob("*.raw")), [])
-        self.assertIn("is deleted unread", (out / "finish.log").read_text())
+        # Its own capture failed too, so both are said, the one that matters most first.
+        said = (out / "finish.log").read_text().splitlines()
+        self.assertIn("NOT REVOKED", said[0])
+        self.assertIn("is deleted unread", said[-1])
 
 
 class LinuxSandboxTrial(unittest.TestCase):
@@ -9283,7 +9302,7 @@ class SignalTraps(unittest.TestCase):
         lines_of = {"#!/bin/sh": "trap 'exit 1' HUP INT TERM", "#!/usr/bin/env bash": "trap 'exit 130' INT TERM"}
         # One script holds a live token through a clean-up a closed terminal can signal twice, so its line also makes it deaf
         # to the next signal (issue 481).
-        own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; exit 130\" HUP INT TERM QUIT PIPE"}
+        own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130\" HUP INT TERM QUIT PIPE"}
         scripts = sorted((ROOT / "tools").glob("*.sh"))
         self.assertGreaterEqual(len(scripts), 17)
         for script in scripts:
