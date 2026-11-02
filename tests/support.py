@@ -38,7 +38,7 @@ MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 
 class Spent:
     """What a block of a test spent: `cpu`, the CPU time of this process and of every child it waited for, and `wall`,
-    the time by the clock (issue 253). A busy machine stretches `wall` and leaves `cpu` as the hook's own."""
+    the time by the clock (issue 253). A busy machine stretches `wall`, and raises `cpu` less (issue 484)."""
 
     def __enter__(self):
         self._times, self._started = os.times(), time.monotonic()
@@ -87,7 +87,7 @@ def faster_than_linear(quarter: Spent, half: Spent, whole: Spent) -> str:
     growth gives three times and quadratic five, and what does not grow, such as the git the hook runs, falls away. The
     line was at four and a half while the hook read escaped backticks in double quotes as n to the 1.6 ("Identity hook:
     escaped backticks in double quotes are read in more than linear time", issue 260); a quarter, not size 0, because a reading of nothing may take another path, as an arithmetic the hook refuses
-    does not at size 0. All three are measured in the same run, so a loaded machine slows them alike (issue 253)."""
+    does not at size 0. Load can change between the three, and `measured` takes them again when one reads as growth (issue 484)."""
     if half.cpu < quarter.cpu:    # the measures disagree, as a warm-up the quarter paid makes them: no growth is told
         return ""
     grew, grew_half = whole.cpu - quarter.cpu, half.cpu - quarter.cpu
@@ -115,10 +115,18 @@ def grows_linearly(test, quarter: Spent, half: Spent, whole: Spent, what: str = 
     test.assertEqual(faster_than_linear(quarter, half, whole), "", what)
 
 
-def measured(run, size: int, good) -> tuple:
-    """What `run` spends at each of the `sizes` of `size`, and its last result. One pass is enough when `good` says so. A
-    measure that is not good is taken again, up to `MEASURES` in all, and each size keeps the least it spent: CPU time rises
-    under load too, and one noisy measure reads as growth, but a reading that is faster than linear is so every time (issue 484)."""
+def _least(a: Spent, b: Spent) -> Spent:
+    """`a` with the least CPU and the least time by the clock of the two, each apart: one measure may be the quieter by CPU and
+    have stalled by the clock."""
+    a.cpu, a.wall = min(a.cpu, b.cpu), min(a.wall, b.wall)
+    return a
+
+
+def measured(run, size: int, problem) -> tuple:
+    """What `run` spends at each of the `sizes` of `size`, and its last result. One pass is enough when `problem` finds
+    none. Otherwise it is measured again, up to `MEASURES` in all, and each size keeps the least it spent: CPU time rises under
+    load too, and one noisy measure reads as growth. What is faster than linear on a quiet machine is so on each pass. A
+    reading that kept its answers between passes would hide that, as nothing it reads does today (issue 484)."""
     least = None
     for _ in range(MEASURES):
         spent = []
@@ -126,17 +134,37 @@ def measured(run, size: int, good) -> tuple:
             with Spent() as one:
                 result = run(n)
             spent.append(one)
-        least = spent if least is None else [min(a, b, key=lambda s: s.cpu) for a, b in zip(least, spent)]
-        if good(least):
+        least = spent if least is None else [_least(a, b) for a, b in zip(least, spent)]
+        if not problem(least):
             break
     return least, result
+
+
+def linear_problem(spent: list, budget: float) -> str:
+    """Why three `sizes`' spends did not keep to `budget` at the whole or grew faster than linearly, or ""."""
+    return over(spent[-1], budget) or faster_than_linear(*spent)
+
+
+def scripted_spends(values):
+    """A stand-in for `Spent` whose measures spend each of `values` in turn: a number for both, or (cpu, wall). No clock is read."""
+    left = iter(values)
+
+    class Scripted:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            value = next(left)
+            self.cpu, self.wall = value if isinstance(value, tuple) else (value, value)
+            return False
+    return Scripted
 
 
 def linear(test, run, size: int, budget: float, what: str = ""):
     """`run(size)`'s result, failing `test` unless it kept to `budget` and grew linearly from `run(size // 4)` and
     `run(size // 2)`, the `sizes` of it."""
     run(sizes(size)[0])    # once, untimed, so what the first run warms is not counted to it (Codex on PR 257)
-    spent, result = measured(run, size, lambda each: not over(each[-1], budget) and not faster_than_linear(*each))
+    spent, result = measured(run, size, lambda each: linear_problem(each, budget))
     within(test, spent[-1], budget, what)
     grows_linearly(test, *spent, what)
     return result

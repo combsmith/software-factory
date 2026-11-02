@@ -23,6 +23,7 @@ import unittest
 import unittest.mock
 from unittest import mock
 
+from tests import support
 from tests.support import Spent, cores, faster_than_linear, linear, over, sizes, slack, wall_clock, within
 from tools.hooks import after_edit, before_stop, identity, make, protected, rules_changed, shell
 
@@ -175,39 +176,33 @@ class Budgets(unittest.TestCase):
             self.assertEqual(cores(), 1)
 
     def test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time(self):  # issue 484
+        # The measures are scripted, so no clock is read, and this runs when mutating, as a test through `linear` would not.
         def run_with(cpus, budget=10.0):
-            """`linear` with each measure spending the next of `cpus`, and how many times it ran, the warm-up among them."""
-            left, ran = iter(cpus), []
+            """What `linear` would judge of measures spending each of `cpus`, and how many it took."""
+            ran = []
+            with mock.patch("tests.support.Spent", support.scripted_spends(cpus)), mock.patch("tests.support.slack", return_value=2.0):
+                spent, _ = support.measured(ran.append, 8, lambda each: support.linear_problem(each, budget))
+            return support.linear_problem(spent, budget), len(ran)
 
-            class Scripted:
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *_):
-                    self.cpu = self.wall = next(left)
-
-            with mock.patch("tests.support.Spent", Scripted):
-                linear(self, ran.append, 8, budget)
-            return len(ran)
-
-        # Good at once: the three sizes once, and the warm-up.
-        self.assertEqual(run_with([1.0, 2.0, 4.0]), 4)
-        # The noise this was found by, then a clean measure. Each size keeps the least it spent.
-        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.50, 2.10, 3.00]), 7)
+        # Good at once: the three sizes once.
+        self.assertEqual(run_with([1.0, 2.0, 4.0]), ("", 3))
+        # The noise this was found by, then a clean measure.
+        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.50, 2.10, 3.00]), ("", 6))
         # The second alone would pass, but the least of each size does not, so it goes on: the latest does not stand for the rest.
-        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.50, 2.50, 4.35, 1.40, 1.96, 3.00]), 10)
-        # Noisy twice, and good on the last measure allowed.
-        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.40, 1.96, 4.35, 1.40, 1.96, 3.00]), 10)
+        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.50, 2.50, 4.35, 1.40, 1.96, 3.00]), ("", 9))
+        # The last alone fails, and the least of each size passes: what is judged and returned is the least.
+        self.assertEqual(run_with([1.0, 1.5, 4.0, 2.0, 2.2, 3.0]), ("", 6))
         # A budget missed once is measured again too, and kept to.
-        self.assertEqual(run_with([0.1, 0.2, 0.5, 0.1, 0.2, 0.3], budget=0.4), 7)
-        # What is faster than linear every time fails, at most three times over.
-        with self.assertRaisesRegex(AssertionError, "at half"):
-            run_with([0.25, 1.0, 4.0] * 3)
-        with self.assertRaisesRegex(AssertionError, "past its budget"):
-            run_with([0.1, 0.2, 0.5] * 3, budget=0.4)
-        # Noisy three times in the same place fails: the measures are not taken for ever.
-        with self.assertRaisesRegex(AssertionError, "at half"):
-            run_with([1.40, 1.96, 4.35] * 3)
+        self.assertEqual(run_with([0.1, 0.2, 0.5, 0.1, 0.2, 0.3], budget=0.4), ("", 6))
+        # A stall by the clock is measured away, though that measure had the least CPU; and CPU keeps its own least.
+        stalled = [(0.1, 0.1), (0.2, 0.2), (0.3, 5.0), (0.1, 0.1), (0.2, 0.2), (0.31, 0.31)]
+        self.assertEqual(run_with(stalled, budget=1.0), ("", 6))
+        # What is wrong every time is wrong at the end, after three measures and no more.
+        for cpus, budget, said in (([0.25, 1.0, 4.0] * 3, 10.0, "at half"), ([0.1, 0.2, 0.5] * 3, 0.4, "past its budget"),
+                                   ([1.40, 1.96, 4.35] * 3, 10.0, "at half"), ([(0.1, 0.1), (0.2, 0.2), (0.3, 5.0)] * 3, 1.0, "by the clock")):
+            problem, taken = run_with(cpus, budget)
+            self.assertIn(said, problem)
+            self.assertEqual(taken, 9)
 
     def test_a_reading_that_grows_faster_than_its_size_fails(self):
         # Spends at a quarter, half and whole of a size. Past the quarter, linear growth is three times the half's and
