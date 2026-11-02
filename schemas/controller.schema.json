@@ -8,6 +8,7 @@
     "accounts",
     "read_gap_seconds",
     "not_run_seconds",
+    "max_status_writes",
     "capacity_window_seconds",
     "automatic_pause",
     "thresholds",
@@ -289,6 +290,11 @@
       "minimum": 1
     },
     "not_run_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_status_writes": {
+      "description": "How many statuses on items one pass writes at most, in item order; the rest wait for the next pass. GitHub limits requests that create content, and a first pass or a Pause changes every status at once.",
       "type": "integer",
       "minimum": 1
     },

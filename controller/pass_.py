@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import re
 
 from controller import credentials as credentials_
 from controller import feed as feed_
@@ -40,6 +41,9 @@ from controller.shared import Refused, checked, key, moment, seconds, text
 from kernel import decide as pull_request
 from kernel import issue
 from kernel import terms as t
+
+# A head commit, as `pass/1` holds one.
+COMMIT = re.compile(r"[0-9a-f]{40}")
 
 # What started a pass, by the run that started it (decision 0043). Any other event is the relay's public one.
 SCHEDULE, OWN_REPO, DISPATCHED = "schedule", "workflow_run", "workflow_dispatch"
@@ -215,6 +219,16 @@ def _acts(record: dict) -> set:
             if e["decision"]["outcome"] == t.ACT and e["decision"]["action"] != "issue_approval"}
 
 
+def status_head(entry: dict, kernel: dict) -> dict:
+    """The head to carry, where a status goes on this item (#193's ruling 6): an open pull request, read with a commit,
+    that is served and that a person has not left alone, as the Kernel reads that. Each is read from the facts, not the Decision:
+    `derive` stops at an incomplete read before it reads either."""
+    facts = entry["facts"]
+    if not COMMIT.fullmatch(str(entry.get("head"))) or facts["state"] != "open" or facts.get("targets_protected") is not True:
+        return {}
+    return {} if pull_request.left_alone(facts, kernel) else {"head": entry["head"]}
+
+
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     """One pass: the record, the Runs to dispatch, the acts, the view, the alerts and whether a successor starts."""
     rules = reads_.configured(config["controller"])
@@ -241,7 +255,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             facts["complete"]["runs"] = facts["complete"].get("runs") is True and whole
             d = decide(facts, runs, context, kernel, now)
             minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"
-            out.append({"facts": facts, "decision": d, "run": mint("r") if minted else None})
+            out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
+                            **status_head(entry, kernel)))
         return out
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and

@@ -1,0 +1,63 @@
+{
+  "schema": "controller/1",
+  "accounts": {
+    "workflow_token": {
+      "id": 41898282,
+      "type": "Bot"
+    },
+    "relay": null,
+    "controller": {
+      "login": "combsmith-sf-controller[bot]",
+      "id": 344165726,
+      "type": "Bot"
+    },
+    "queue": null,
+    "maintainer": {
+      "login": "don-petry",
+      "id": 36422719
+    },
+    "approver": {
+      "login": "donpetry-bot",
+      "id": 281750570
+    },
+    "lenses": [],
+    "agents": [],
+    "dependencies": [
+      {
+        "login": "dependabot[bot]",
+        "id": 49699333
+      }
+    ],
+    "roles": {
+      "pr-review": {
+        "login": "combsmith-sf-pr-review[bot]",
+        "id": 344166014,
+        "type": "Bot"
+      }
+    }
+  },
+  "home": {
+    "repo": "combsmith/software-factory",
+    "branch": "main"
+  },
+  "workflows": {
+    "run": "run.yml",
+    "approval": "approve.yml",
+    "poller": "poller.yml"
+  },
+  "read_gap_seconds": 180,
+  "not_run_seconds": 21600,
+  "max_status_writes": 0,
+  "capacity_window_seconds": 18000,
+  "automatic_pause": {
+    "faults": 3,
+    "items": 2,
+    "window_seconds": 3600
+  },
+  "thresholds": {
+    "window_seconds": 1209600,
+    "job_minutes_share": 0.1,
+    "graphql_points_per_hour": 3000,
+    "decision_delay_p95_minutes": 15
+  }
+}

@@ -5,7 +5,7 @@ The order is the one they are sent in: first the acts no write serves yet, each 
 place, ruling 5's first, comes with its write); then the dispatches of Runs and approvals, in the record's item order,
 so that a Run waits for a runner from as early as it can; then the tracking issue, one each pass keeps, last but one so
 that it can say a write before it failed; and last the successor, so that the next pass starts after this one's
-writes. The status on the item takes its place before the tracking issue when its write is built.
+writes. The status on each item goes before the tracking issue, so that it can say one failed.
 """
 from __future__ import annotations
 
@@ -30,6 +30,9 @@ def plan(out: dict) -> dict:
         decision = runs[dispatch["run"]]
         kind = "dispatch_run" if decision["outcome"] == t.ADMIT else "dispatch_approval"
         add(kind, decision["item"], dispatch["run"], dispatch["name"])
+    for e in record["pull_requests"]:
+        if e.get("head"):
+            add("status_on_item", e["decision"]["item"])
     add("tracking_issue", None)
     if out["successor"]:
         add("dispatch_successor", None)
