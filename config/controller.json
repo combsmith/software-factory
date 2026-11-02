@@ -6,7 +6,11 @@
       "type": "Bot"
     },
     "relay": null,
-    "controller": null,
+    "controller": {
+      "login": "combsmith-sf-controller[bot]",
+      "id": 344165726,
+      "type": "Bot"
+    },
     "queue": null,
     "maintainer": {
       "login": "don-petry",
@@ -25,7 +29,11 @@
       }
     ],
     "roles": {
-      "pr-review": null
+      "pr-review": {
+        "login": "combsmith-sf-pr-review[bot]",
+        "id": 344166014,
+        "type": "Bot"
+      }
     }
   },
   "home": {

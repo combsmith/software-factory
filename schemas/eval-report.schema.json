@@ -97,6 +97,8 @@
                 "diff_not_content",
                 "pusher_unnamed",
                 "diff_not_whole",
+                "issue_not_whole",
+                "issue_unreadable",
                 "credential_missing",
                 "engine_version",
                 "engine_failed",

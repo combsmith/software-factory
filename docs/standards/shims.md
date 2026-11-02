@@ -18,10 +18,14 @@ jobs:
       group: sf-poller
       cancel-in-progress: false
     uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next
+    secrets: inherit
 ```
 
-Each job holds `uses`, `permissions` and `concurrency`, and may hold `if` and `with`: no steps, runner, env, secrets,
-environment, strategy, needs or timeout, which the called job has. It calls one file of this repo at the channel,
+Each job holds `uses`, `permissions`, `concurrency` and `secrets: inherit`, in those words, and may hold `if` and
+`with`: no steps, runner, env, named secret, environment, strategy, needs or timeout, which the called job has. A called
+job that names an environment reads its secrets only with `secrets: inherit` on its caller (trial P-55). The called file
+can then name any secret of the repo or the org, and an environment's where its job names that environment. The branch
+policy is met by the caller's `main`, whatever commit the channel names, so the tag's ruleset guards every key. It calls one file of this repo at the channel,
 `factory/v0-next`, never a local path, which would run main's copy; and a `with:` value is `${{ inputs.<the same
 name> }}`. Above its jobs it holds `name`, `on`, `permissions`, `jobs` and, for the Run's shim alone, `run-name`. Only
 a workflow on `workflow_call` alone names an environment, so no shim, push or pull request's job is handed a key. Each
@@ -40,16 +44,18 @@ on:
     workflows:
       - factory            # never sf-poller, its own name
       - ci
-      - sf-run
     types:
       - completed          # never requested, nor every stage
 ```
 
 poller.yml alone runs on `workflow_run`: it wakes when a workflow of this repo ends, on the completion alone of those
-it names, never its own, and reads nothing of the run that woke it: it names the `github` context in no form, in any case, outside a whole-line comment (decision 0043). The pass it calls names it only for its own token, `github.token`. Its
-dispatch takes no input. Its schedule is three lines an hour, none at minute 0. Its job, `pass`, is the one job
-anywhere granted a write, `actions: write`, which starts the Runs and the successor with the job's own token (§4.9,
-P-9); the id `pass` is poller.yml's and pass.yml's alone. Every shim's job holds a group of its own that waits,
+it names, never its own nor `sf-run`, and reads nothing of the run that woke it: it names the `github` context in no form, in any case, outside a whole-line comment (decision 0043). The pass it calls names it only for its own token, `github.token`. Its
+dispatch takes no input. Its schedule is three lines an hour, none at minute 0. Its job, `pass`, is granted a write,
+`actions: write`, which starts the Runs and the successor with the job's own token (§4.9, P-9); the id `pass` is
+poller.yml's and pass.yml's alone. Two others hold that grant and no other write: `wake`, a Run's last job in
+run-jobs.yml and approve-job.yml, with no secret, environment, checkout or input, since a Run that token started wakes
+nothing when it ends (trial P-55); and `lane`, the calling job in run.yml and approve.yml, since a called job can be
+granted no more than its caller. Each id is those files' alone. Every shim's job holds a group of its own that waits,
 never cancelling the run in progress.
 
 Org standard: none; the org's workflows do not wake on another's end.

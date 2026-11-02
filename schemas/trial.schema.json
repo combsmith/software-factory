@@ -35,10 +35,11 @@
       "minLength": 1
     },
     "repo": {
-      "description": "Where the trial ran: the canary repo; the org itself for a trial about the org and its Apps, such as P-39 (decision 0035); or null for a trial that asks a vendor's CLI and not GitHub, such as P-13 (decision 0033). Nothing else.",
+      "description": "Where the trial ran: the canary repo; the org itself for a trial about the org and its Apps, such as P-39 (decision 0035); the Factory's own repo for a trial tools/check_trials.py names in TRIALS_OF_THE_FACTORY, such as P-30; or null for a trial that asks a vendor's CLI and not GitHub, such as P-13 (decision 0033). Nothing else.",
       "enum": [
         "combsmith/software-factory-canary",
         "combsmith",
+        "combsmith/software-factory",
         null
       ]
     },

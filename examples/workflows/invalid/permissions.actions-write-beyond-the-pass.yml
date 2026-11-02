@@ -1,4 +1,4 @@
-# Must be rejected. Only the pass job is granted a write, its actions: write, which starts the Runs; any other could delete run records.
+# Must be rejected. Only the pass job, a Run's wake and its lane are granted a write, its actions: write, which starts the Runs; any other could delete run records.
 name: factory
 on:
   pull_request:

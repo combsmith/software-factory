@@ -65,10 +65,30 @@
           "actor_id": 5,
           "actor_type": "RepositoryRole",
           "bypass_mode": "always"
+        },
+        {
+          "actor_id": 5502359,
+          "actor_type": "Integration",
+          "bypass_mode": "always"
         }
       ],
       "rules": {
         "creation": {},
+        "update": {},
+        "deletion": {},
+        "non_fast_forward": {}
+      }
+    },
+    "factory releases are immutable": {
+      "id": 25996980,
+      "target": "tag",
+      "enforcement": "active",
+      "include": [
+        "refs/tags/factory/v*.*.*"
+      ],
+      "exclude": [],
+      "bypass_actors": [],
+      "rules": {
         "update": {},
         "deletion": {},
         "non_fast_forward": {}
