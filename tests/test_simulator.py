@@ -447,6 +447,30 @@ class Simulation(unittest.TestCase):
                                                                                  cfg, now)):
             self.assertRaisesRegex(world.Broken, "I-46", w.poll)
 
+    def test_the_seeds_upload_under_codeqls_tool(self):  # P-36
+        # An upload turns CodeQL's success to neutral on the same check run, at any time after it passed. It posts no second
+        # check, the Kernel then gets no verdict from code scanning, and every invariant holds throughout.
+        turned, withheld = 0, 0
+
+        def recording(f, r, c, cfg, now):
+            nonlocal withheld
+            d = decide(f, r, c, cfg, now)
+            scanning = [x for x in f["checks"] if x["name"] == world.CHECKS[world.SCANNING]]
+            if [x["conclusion"] for x in scanning] == ["neutral"] and d.get("action") not in ("issue_approval", "enqueue"):
+                withheld += 1
+            return d
+
+        with mock.patch.object(world, "decide", recording):
+            for seed in sorted(SEEDS):
+                w = World(seed)
+                for _ in range(250):
+                    w.step()
+                said = [line for line in w.trace if "an upload under its tool" in line]
+                turned += len(said)
+                self.assertTrue(not said or (w.faults and seed % world.UPLOAD_EVERY == world.UPLOAD), seed)
+        self.assertTrue(turned)
+        self.assertTrue(withheld)
+
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
         # would admit or approve; every invariant holds throughout.

@@ -3289,6 +3289,9 @@ NOT_READ = {
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
     # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs.
     "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
+    # P-36 recorded the check run as a script's lines, not the rollup the port reads. The conclusion is read as any is, and
+    # the Kernel's reading of it is held by test_an_upload_turns_codeqls_verdict_neutral_though_it_failed_to_process.
+    "an_upload_turns_codeqls_success_neutral": "shape",
     # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
     "the_queue_can_eject": "shape",
 }
@@ -3419,6 +3422,7 @@ class Contract(unittest.TestCase):
             "a_persons_push_names_the_person_as_dismisser": ({"P-38"}, self.persons_push_read()),
             "actions_runs_a_job_under_any_name": ({"P-35"}, self.job_under_a_lens_name_read()),
             "a_job_creates_a_check_in_another_suite": ({"P-35"}, self.created_check_read()),
+            "a_check_is_read_with_its_own_jobs_file": ({"P-35"}, self.own_jobs_file_read()),
             # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
             "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
@@ -3586,6 +3590,21 @@ class Contract(unittest.TestCase):
         lens = {"lens": "a-lens", "check": "p35-created", "app_id": 15368, "workflow": ".github/workflows/p35-token-check.yml"}
         self.assertEqual(derive.foreign_checks([created], dict(config, required_lenses={"deterministic": [lens]})),
                          ["a-lens:from_workflow:unreadable"])
+
+    def own_jobs_file_read(self) -> bool:
+        """P-35: only a check whose details are its own job's reads with a file. A created one does not, here or on another
+        branch's head; nor does a dynamic run's, whose file is null; nor CodeQL's, which has no run."""
+        at, gate = rollup("P-35", 7), self.p35_at("as the port reads them, gate")
+        by_name = {n["name"]: n for n in at}
+        jobs = [n for n in at if n["checkSuite"]["app"]["databaseId"] == 15368 and "/job/" in n["detailsUrl"]
+                and n["checkSuite"]["workflowRun"]["file"]]
+        real = [n for n in rollup("P-35", gate) if n["name"] == "p35-gated-lens" and "/job/" in n["detailsUrl"]]
+        elsewhere = {n["name"]: n for n in rollup("P-35", self.p35_at("as the port reads them, other"))}["p35-from-elsewhere"]
+        return bool(jobs and real) and all(checks.check(n)["workflow"] == n["checkSuite"]["workflowRun"]["file"]["path"] for n in jobs + real) \
+            and checks.check(by_name["p35-created"])["workflow"] is None and checks.check(elsewhere)["workflow"] is None \
+            and "/job/" not in elsewhere["detailsUrl"] and elsewhere["checkSuite"]["workflowRun"]["file"]["path"] is not None \
+            and checks.check(by_name["Analyze (actions)"])["workflow"] is None and by_name["CodeQL"]["checkSuite"]["workflowRun"] is None \
+            and checks.check(by_name["CodeQL"])["workflow"] is None
 
     def p35_at(self, ending: str) -> int:
         return [i for i, e in enumerate(exchanges("P-35")) if e["request"]["call"].endswith(ending)][0]

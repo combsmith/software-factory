@@ -66,26 +66,23 @@ RULES = (
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
      "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
      None),
-    # Contradicted in part by P-35 (trials/P-35.json). GraphQL's file is null for a dynamic run, so a dynamic/ path is read
-    # as none, not verbatim. And a check run a job creates through the API reads with the path of the first Actions suite
-    # on the head, not the file that ran it. Left unverified, as the fake applies it: changing it is a story of its own.
-    # The fake models that created check by a_job_creates_a_check_in_another_suite, as the port reads it (decision 0104).
-    ("a_check_names_the_workflow_that_ran_it", "Every check run GitHub Actions reports is read with the path of the "
-     "workflow file that ran it, the path of its check suite's workflow run as GitHub gives it, a dynamic/ one "
-     "verbatim, with the permissions the reader and the Controller hold; a check run no workflow ran, as GitHub "
-     "Advanced Security's, is read with none", ("P-35",), None, None),
+    ("a_check_is_read_with_its_own_jobs_file", "A check run GitHub Actions reports is read with the path of its check "
+     "suite's workflow run only where its details are that job's own, with the permissions the reader and the Controller "
+     "hold. A check a job creates with GITHUB_TOKEN lands in the first Actions suite on the head, with that suite's path "
+     "and its details at /runs/ID, on another branch's head too, so it reads with none. A dynamic run's file is null, and "
+     "a check run no workflow ran, as GitHub Advanced Security's, has no run: each reads with none", ("P-35",),
+     "trials/P-35.json", None),
     ("a_job_creates_a_check_in_another_suite", "A job with checks: write can create a check run that lands in another "
      "workflow's suite and reads with its name, App and path; GitHub keeps its details at /runs/ID, and only a real job's "
      "are that job's own", ("P-35",), "trials/P-35.json", None),
     ("actions_runs_a_job_under_any_name", "GitHub Actions reports every job in the repo as one App, 15368, one a pull "
      "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
      "names that file", ("P-35",), "trials/P-35.json", None),
-    # Contradicted by P-36 (trials/P-36.json): an upload that failed processing turned CodeQL's success to neutral, on the
-    # same check run, twice. Overturning a failure is not shown. Left unverified, as the fake applies it.
-    ("only_codeql_gives_the_code_scanning_verdict", "Only CodeQL's own analysis gives the conclusion of the check run "
-     "CodeQL that GitHub Advanced Security, 57789, reports: an upload to code scanning under CodeQL's tool and "
-     "category, by an identity holding security_events: write, cannot replace that verdict on the head",
-     ("P-36",), None, None),
+    # Overturning a failure is not shown, so the fake does not do it.
+    ("an_upload_turns_codeqls_success_neutral", "An upload to code scanning under CodeQL's tool and category, by an "
+     "identity holding security_events: write, turns the conclusion of the check run CodeQL that GitHub Advanced Security, "
+     "57789, reports from success to neutral, on the same check run, whether or not GitHub processes the upload",
+     ("P-36",), "trials/P-36.json", None),
     # Contradicted by P-2 (trials/P-2.queue.json): GitHub refuses an App's push, through the contents API, to a queued
     # pull request's branch (409), and the queue merges it unchanged; a git push while queued is not asked. Left
     # unverified, as the fake applies it: changing the fake is a story of its own.
@@ -309,7 +306,7 @@ ASKS = {
         "P-42": "can any App with `checks: write`, or any Actions job, post a check run under a required Lens's "
               "check name",
     },
-    "a_check_names_the_workflow_that_ran_it": {
+    "a_check_is_read_with_its_own_jobs_file": {
         "P-35": "Can it be read as the `path` of the check run's check suite's workflow run, with the permissions "
               "the reader and the Controller hold",
     },
@@ -320,7 +317,7 @@ ASKS = {
         "P-35": "does a job a pull request adds in a file of its own, under a required Lens's check name, report "
               "under GitHub Actions with that file's path?",
     },
-    "only_codeql_gives_the_code_scanning_verdict": {
+    "an_upload_turns_codeqls_success_neutral": {
         "P-36": "change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports?",
     },
     "a_push_leaves_the_queue": {"P-2": "Does a push take a queued pull request out"},
