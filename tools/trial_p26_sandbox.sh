@@ -147,7 +147,7 @@ finish() {
     rm -f "$outside"
 }
 trap finish EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' HUP INT TERM
 case "$scratch/" in "$root"/* | "$cfg"/*) refuse "the scratch directory is inside the repo or CONFIG_DIR" ;; esac
 
 # The probe the model is asked to run, as a template: each @NAME@ is set in a Task's copy before the Task. It takes no

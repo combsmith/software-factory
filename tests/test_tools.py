@@ -8978,6 +8978,39 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertFalse((wrong / "args").exists(), "the agent was not asked")
 
 
+# A shell that a signal ends without its EXIT trap, so a test of a script's signal trap can tell the trap's work from the
+# shell's. dash is one, which is `sh` on the runners and at /bin/dash on a Mac. A Mac's `sh` is bash, which runs the EXIT trap
+# all the same, so there a script with no signal trap passes (issue 458).
+SIGNAL_SHELL = shutil.which("dash") or "sh"
+
+
+class SignalTraps(unittest.TestCase):
+    def test_the_signal_tests_shell_leaves_an_exit_trap_unrun(self):  # issue 458
+        if shutil.which("dash") is None:
+            self.skipTest("no dash here")
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (folder / "a.sh").write_text("trap 'echo ran' EXIT\necho up\nread x\n")
+        running = subprocess.Popen([SIGNAL_SHELL, str(folder / "a.sh")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.assertEqual(running.stdout.readline(), "up\n")
+        running.terminate()
+        out, _ = running.communicate(timeout=60)
+        self.assertEqual(out, "")
+
+    def test_every_script_turns_a_signal_into_its_exit(self):  # issue 458
+        # A script's EXIT trap is what revokes a live token or removes its scratch, and some shells do not run it on a signal.
+        # So one line, the same in each, stands right after it, and the clean-up takes it off the same signals.
+        scripts = sorted((ROOT / "tools").glob("*.sh"))
+        self.assertGreaterEqual(len(scripts), 17)
+        for script in scripts:
+            lines = script.read_text().splitlines()
+            exits = [at for at, line in enumerate(lines) if re.fullmatch(r"trap \S.* EXIT", line) and not line.startswith("trap - ")]
+            self.assertEqual(len(exits), 1, script.name)
+            self.assertRegex(lines[exits[0] + 1], r"^trap 'exit \d+' HUP INT TERM$", script.name)
+            for line in lines:
+                if line.strip().startswith("trap - "):
+                    self.assertEqual(line.strip(), "trap - EXIT HUP INT TERM", script.name)
+
+
 class ReaderTrialScript(unittest.TestCase):
     """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
     refusal before anything is minted, two tokens each narrowed to one permission on the canary alone, every read made
@@ -9195,7 +9228,7 @@ esac
         held_r, held_w = os.pipe()
         (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
-        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
                                    cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                                    pass_fds=(told_w, held_r))
         os.close(told_w)

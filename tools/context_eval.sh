@@ -136,7 +136,7 @@ finish() {
     rm -rf "$scratch"
 }
 trap finish EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' HUP INT TERM
 work="$scratch/work"
 pristine="$scratch/pristine"
 agent_home="$scratch/home"

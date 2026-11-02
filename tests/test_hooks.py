@@ -1975,6 +1975,15 @@ class MakeLeavesNothing(unittest.TestCase):
         (bin_dir / "make").chmod(0o755)
         return environment(str(bin_dir) + ":/usr/bin:/bin", TMPDIR=str(self.place), OUTSIDE=str(self.outside))
 
+    def out_of_time(self, env: dict) -> tuple:
+        """make.make given too little time, once its stand-in has had time to start. A second is enough on a quiet machine, so
+        the test stays quick; on a busy one the run is ended before the stand-in writes its pid, so it is given longer (issue 458)."""
+        for budget in (1, 2, 4, 8, 16):
+            result = make.make("verify", a_project(), env, budget)
+            if (self.outside / "pid").is_file() and (self.outside / "pid").read_text().strip():
+                return result
+        self.fail("the stand-in make never started")
+
     def started(self) -> None:
         """Wait for the stand-in make to have started its background process."""
         for _ in range(100):
@@ -1998,7 +2007,7 @@ class MakeLeavesNothing(unittest.TestCase):
     def test_a_run_killed_for_its_time_leaves_the_temporary_folder_as_it_found_it(self):
         env = self.slow()
         before = sorted(os.listdir(self.place))
-        passed, said = make.make("verify", a_project(), env, 1)
+        passed, said = self.out_of_time(env)
         self.assertEqual((passed, said.split(" in ")[0]), (False, "`make verify` did not finish"))
         self.assertEqual(sorted(os.listdir(self.place)), before)
         # Every process the run started is ended with it.
@@ -2052,7 +2061,8 @@ class MakeLeavesNothing(unittest.TestCase):
                                       % (sys.executable, sleeper.replace('"', '\\"')))
         (bin_dir / "make").chmod(0o755)
         env = environment(str(bin_dir) + ":/usr/bin:/bin", TMPDIR=str(folder()), OUTSIDE=str(outside))
-        self.assertEqual(make.make("verify", a_project(), env, 1)[0], False)
+        self.outside = outside
+        self.assertEqual(self.out_of_time(env)[0], False)
         pid = int((outside / "pid").read_text())
         try:
             # It returned while the process that holds its output still lives.

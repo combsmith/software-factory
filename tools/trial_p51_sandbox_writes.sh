@@ -107,7 +107,7 @@ for name in unset plain scrubbed; do
     done < <(targets_of "$name")
 done
 trap finish EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' HUP INT TERM
 
 # The stub, on a port of its own, which it prints once it listens; it is read through a pipe, never polled for.
 mkfifo "$scratch/port.fifo"
