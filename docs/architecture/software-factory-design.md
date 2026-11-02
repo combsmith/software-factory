@@ -684,7 +684,8 @@ fraction of what was read; the tokens written to and read from the cache are the
 the cost and the seconds. For a Run the CLI never answered the counts are null and `seconds` is
 the measured duration; the Harness names the model and the session before the call, so both are
 known. An answer that does not validate is not a Result: the Harness writes the whole Result
-itself, `failed` with the reason `result_invalid`, empty lists and `usage`. A Result has no field
+itself, `failed` with the reason `result_invalid`, empty lists and `usage`; a CLI that exits 0 with no
+answer to validate is `engine_failed`, the Engine's and never the Role's. A Result has no field
 for a Role, an App, an actor, a `content_id` or a commit hash: each is the Task's, so a model
 cannot claim one, and code changes are local commits handed over as a bundle, whose hash `apply`
 writes after it has pushed and read back. `bundle` and `preflight` come with the author Intents;

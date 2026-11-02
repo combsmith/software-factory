@@ -7159,6 +7159,8 @@ MUTANTS = ISSUE + [
      'told(call), clock)', 'call, clock)', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
+    # Decision 0121: a CLI with no answer is the Engine's, never the reviewer's.
+    ("a CLI with no answer reads as the reviewer's", 'harness/engine.py', '    if not isinstance(found, dict):\n        return failed(task, "engine_failed", usage)\n', '    if not isinstance(found, dict):\n        return failed(task, "result_invalid", usage)\n', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),
     # Decision 0120: the gate's bar, of the set and of each kind, and what closes it whatever the bar.
     ("a missed blocking case is left to the bar", 'harness/eval/__init__.py', ' \\\n            or blocking is False:', ':', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("a report that can't say of its blocking cases passes", 'harness/eval/__init__.py', ' or kinds is None or blocking is None:', ' or kinds is None:', ("tests.test_evals.EvalJob.test_the_gate_holds_its_bar_of_the_set_and_of_each_kind",)),

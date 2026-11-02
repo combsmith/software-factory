@@ -534,11 +534,13 @@ class Engine(unittest.TestCase):
                answer(result=judged(status="superseded", reason="x")),
                answer(result=judged(effects={"comment": [{"id": "e1", "body": "x"}]})),       # not permitted
                answer(result=judged(release="factory/v9.9.9")), answer(result=judged(commit="5d0c7e2")),
-               answer(structured_output=None), answer(structured_output="{}"), "not json", "[]", json.dumps(["x"]),
                answer(result=judged(findings=[{"ref": "n1"}]))]
-        for said in bad:
+        # A CLI that exited 0 and gave nothing to hold to the schema is the Engine's failure, never the Role's (decision 0121).
+        none = ["", "not json", "[]", json.dumps(["x"]), json.dumps([{"type": "other"}]), "null", json.dumps({"is_error": False}),
+                answer(structured_output=None), answer(structured_output="{}"), answer(structured_output=[1])]
+        for said, reason in [(s, "result_invalid") for s in bad] + [(s, "engine_failed") for s in none]:
             r = engined(CLI(said=said))
-            self.assertEqual((r["status"], r["reason"]), ("failed", "result_invalid"), said[:120])
+            self.assertEqual((r["status"], r["reason"]), ("failed", reason), said[:120])
             self.assertEqual((r["dispositions"], r["findings"], r["effects"], r["coverage"]), ([], [], {}, []))
             self.assertEqual((r["usage"]["model"], r["usage"]["session"]), (HARNESS["engine"]["model"], SESSION))
             self.assertEqual(shared.errors(r, "result"), [])
