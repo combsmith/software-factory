@@ -45,7 +45,7 @@ def report(commit=D, release=VERSION, verdict="pass", **change):
     document = {"schema": "eval-report/1", "release": release, "commit": commit, "role": SET["role"],
                 "intent": SET["intent"], "set": {"count": SET["count"], "sha256": hashlib.sha256(SET_BYTES).hexdigest()},
                 "cases": [dict(SET["cases"][0], verdict=verdict, reasons=[] if verdict == "pass" else ["finding_not_raised"])], "passed": 1 if verdict == "pass" else 0,
-                "split_ok": True, "kinds_pass": {"finding": True, "met": True}}
+                "split_ok": True, "kinds_pass": {"finding": True, "met": True}, "blocking_pass": True}
     document.update(change)
     return document
 
@@ -259,6 +259,11 @@ class Candidate(unittest.TestCase):
             (gate_reads(document=report(kinds_pass={"finding": False, "met": True})), "case_failed"),
             (gate_reads(document=report(kinds_pass={"finding": True, "met": False})), "case_failed"),
             (gate_reads(document=report(kinds_pass=None)), "eval_split_short"),
+            # A case that expects a blocking Finding must pass, whatever the bar, and the word is never a count.
+            (gate_reads(document=report(blocking_pass=False)), "case_failed"),
+            (gate_reads(document=report(blocking_pass=None)), "eval_split_short"),
+            (gate_reads(document=report(blocking_pass=1)), "report_unreadable"),
+            (gate_reads(document={k: v for k, v in report().items() if k != "blocking_pass"}), "report_unreadable"),
             (gate_reads(document="not json"), "report_unreadable"),
             ([manifest(), eval_runs()], "report_unreadable"),
         )

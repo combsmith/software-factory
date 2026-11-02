@@ -27,5 +27,6 @@
   "kinds_pass": {
     "finding": 16,
     "met": true
-  }
+  },
+  "blocking_pass": true
 }

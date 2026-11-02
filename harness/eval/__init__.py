@@ -42,6 +42,7 @@ BAR_OF_THE_SET, BAR_OF_A_KIND = (9, 10), (4, 5)
 # held here, where the cases are, since the repo cannot hold a count of them true (decision 0120).
 KIND_LEAST = 20
 KINDS = ("finding", "met")
+BLOCKING = "blocking"       # a case that expects a Finding of this severity must pass, whatever the bar (decision 0120)
 
 
 class Stop(Exception):
@@ -320,21 +321,27 @@ def eval_result_codes() -> set:
     return set(known["eval-report"]["properties"]["cases"]["items"]["properties"]["reasons"]["items"]["enum"])
 
 
-def kinds_of(found: dict, place: pathlib.Path):
-    """`{id: kind}` of the set's cases, as fetched into the scratch, or None where a case was not read, or its answer is no
-    kind: such a run fails by that case."""
-    kinds = {}
+def _expected(found: dict, place: pathlib.Path):
+    """`{id: what it expects}` of the set's cases, as fetched into the scratch, or None where a case was not read, or its
+    answer is no kind: such a run fails by that case."""
+    expected = {}
     for entry in found["cases"]:
         try:
             case = _read(place / "cases", "%s.json" % entry["id"])
         except Stop:
             return None
         said = case.get("expected") if isinstance(case, dict) else None
-        said = said.get("verdict") if isinstance(said, dict) else None
-        if not isinstance(said, str) or said not in KINDS:
+        kind = said.get("verdict") if isinstance(said, dict) else None
+        if not isinstance(kind, str) or kind not in KINDS:
             return None
-        kinds[entry["id"]] = said
-    return kinds
+        expected[entry["id"]] = said
+    return expected
+
+
+def kinds_of(found: dict, place: pathlib.Path):
+    """`{id: kind}` of the set's cases, or None where `_expected` can say nothing."""
+    expected = _expected(found, place)
+    return None if expected is None else {case: said["verdict"] for case, said in expected.items()}
 
 
 def split_ok(found: dict, place: pathlib.Path):
@@ -366,20 +373,32 @@ def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     return said
 
 
-def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None) -> dict:
+def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
+    """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many, and
+    true of a set with none (decision 0120). None where `_expected` can say nothing."""
+    expected = _expected(found, place)
+    if expected is None:
+        return None
+    blocking = [case for case, said in expected.items()
+                if isinstance(said.get("finding"), dict) and said["finding"].get("severity") == BLOCKING]
+    return all(assessed[case] == (PASS, []) for case in blocking)
+
+
+def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None) -> dict:
     """The `eval-report/1` of this run: the plan's Release, commit and set, each case by id and hash, in the manifest's
-    order, with its verdict and codes, whether the set holds `split_ok`'s kinds, and whether each cleared its bar."""
+    order, with its verdict and codes, whether the set holds `split_ok`'s kinds, whether each cleared its bar, and whether
+    every case that expects a blocking Finding passed."""
     cases = [{"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1]}
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "cases": cases,
-            "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held, "kinds_pass": kinds}
+            "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held, "kinds_pass": kinds, "blocking_pass": blocking}
 
 
 def verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
     """`pass` only for the report of this set on this commit for this Release, with a case at least, every case the
-    manifest names once by its id and hash, no case stopped by a fault of the Engine or the run, and at least
-    BAR_OF_THE_SET of them and BAR_OF_A_KIND of each kind passed (decision 0120); otherwise the one code that says why not.
+    manifest names once by its id and hash, no case stopped by a fault of the Engine or the run, at least BAR_OF_THE_SET
+    of them and BAR_OF_A_KIND of each kind passed, and every case that expects a blocking Finding (decision 0120); otherwise the one code that says why not.
     The Release's gate reads the report it downloads with this function too (the ruling on issue 197, 4″)."""
     if _errors(document, "eval-report"):
         return "report_unreadable"
@@ -404,10 +423,11 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
     passed = len([c for c in document["cases"] if c["verdict"] == PASS])
     if any((c["verdict"] == PASS) == bool(c["reasons"]) for c in document["cases"]) or document["passed"] != passed:
         return "count_differs"
-    kinds = document["kinds_pass"]
-    if not _clears(passed, found["count"], BAR_OF_THE_SET) or (kinds is not None and not all(kinds.values())):
+    kinds, blocking = document["kinds_pass"], document["blocking_pass"]
+    if not _clears(passed, found["count"], BAR_OF_THE_SET) or (kinds is not None and not all(kinds.values())) \
+            or blocking is False:
         return "case_failed"
-    if document["split_ok"] is not True or kinds is None:
+    if document["split_ok"] is not True or kinds is None or blocking is None:
         return "eval_split_short"
     return PASS
 
@@ -417,7 +437,8 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     the upload finds it, whatever the verdicts, so that a set that fails is uploaded too and `judge` fails the run."""
     kept, found, place = _planned(env, root, workspace)
     assessed = assess(found, _read(place, "fetched.json"), place, review)
-    written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed))
+    written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
+                     blocking_pass(found, place, assessed))
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 

@@ -618,8 +618,8 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 2 passed\neval_split_short\n")
             written = json.loads((self.work / job.REPORT).read_text())
             self.assertIs(written["split_ok"], False)
-            self.assertEqual(sorted(written), ["cases", "commit", "intent", "kinds_pass", "passed", "release", "role", "schema",
-                                               "set", "split_ok"], "no count of a kind, nor any field of one")
+            self.assertEqual(sorted(written), ["blocking_pass", "cases", "commit", "intent", "kinds_pass", "passed", "release", "role",
+                                               "schema", "set", "split_ok"], "no count of a kind, nor any field of one")
             self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "verdict"])
             self.assertEqual(self.step(job.judge), "eval_split_short")
         # The answer of a case that is read as no kind, or not read at all, says nothing: its run fails by that case.
@@ -760,7 +760,7 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         found, digest = job.manifest(self.root)
         good = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}},
-                          found, {i: ("pass", []) for i in self.cases}, True, {"finding": True, "met": True})
+                          found, {i: ("pass", []) for i in self.cases}, True, {"finding": True, "met": True}, True)
         self.assertEqual(job.verdict(good, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
 
         def changed(**change):
@@ -796,13 +796,13 @@ class EvalJob(unittest.TestCase):
         found_of = lambda count: {"role": "pr-review", "intent": "review-change", "count": count,
                                   "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i} for i in range(count)]}
 
-        def read(count, passed, kinds=None, others=(("fail", ["criterion_not_met"]),)):
+        def read(count, passed, kinds=None, others=(("fail", ["criterion_not_met"]),), blocking=True):
             """The verdict on a report of `count` cases, the first `passed` passed and the rest as `others` says in turn."""
             found = found_of(count)
             assessed = {c["id"]: ("pass", []) if i < passed else others[i % len(others)] for i, c in enumerate(found["cases"])}
             told = {"finding": True, "met": True} if kinds is None else kinds
             document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": count, "sha256": "0" * 64}},
-                                  found, assessed, True, told)
+                                  found, assessed, True, told, blocking)
             return job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0")
         # Of the whole set: exactly 90% clears, and just under does not, whatever the size.
         for count, least in ((10, 9), (20, 18), (40, 36), (42, 38), (39, 36), (1, 1)):
@@ -812,9 +812,12 @@ class EvalJob(unittest.TestCase):
         # A word for each kind closes it by itself, the set's bar cleared; a report that can't say is short.
         self.assertEqual(read(10, 10, {"finding": False, "met": True}), "case_failed")
         self.assertEqual(read(10, 10, {"finding": True, "met": False}), "case_failed")
+        # So does a case that expects a blocking Finding and did not pass, every bar cleared; and a report that can't say.
+        self.assertEqual(read(10, 10, blocking=False), "case_failed")
+        self.assertEqual(read(10, 10, blocking=None), "eval_split_short")
         found = found_of(10)
         document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 10, "sha256": "0" * 64}},
-                              found, {c["id"]: ("pass", []) for c in found["cases"]}, True, None)
+                              found, {c["id"]: ("pass", []) for c in found["cases"]}, True, None, True)
         self.assertEqual(job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0"), "eval_split_short")
         # A case's own fault counts as not passing, and the bar can hold it.
         own = {"not_this_set", "facts_not_current", "facts_read_short", "diff_unreadable", "diff_not_content", "pusher_unnamed",
@@ -867,6 +870,47 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.kinds_pass(found, place, {"c-finding-0": ("pass", ["criterion_not_met"])})["finding"], False)
         self.assertIsNone(job.kinds_pass({"cases": [{"id": "c-none"}]}, place, {"c-none": ("pass", [])}))
 
+    def test_a_case_that_expects_a_blocking_finding_must_pass(self):  # decision 0120
+        from harness import eval as job
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        place = self.temp / "blocking"
+        (place / "cases").mkdir(parents=True)
+        made = {"c-blocking": {"verdict": "finding", "finding": {"severity": "blocking"}}, "c-major": {"verdict": "finding", "finding": {"severity": "major"}},
+                "c-met": {"verdict": "met", "finding": None}, "c-minor": {"verdict": "finding", "finding": {"severity": "minor"}}}
+        for name, said in made.items():
+            (place / "cases" / (name + ".json")).write_text(json.dumps({"expected": said}))
+        found = {"cases": [{"id": name} for name in made]}
+        passed = {name: ("pass", []) for name in made}
+
+        def told(**then):
+            return job.blocking_pass(found, place, dict(passed, **then))
+        miss = ("fail", ["finding_not_raised"])
+        self.assertIs(told(), True)
+        self.assertIs(told(**{"c-blocking": miss}), False)
+        self.assertIs(told(**{"c-blocking": ("unreadable", ["diff_not_whole"])}), False, "a case's own fault is not passed")
+        self.assertIs(told(**{"c-blocking": ("pass", ["finding_not_raised"])}), False)
+        # Any other severity, and a clean case, is the bar's to weigh.
+        self.assertIs(told(**{"c-major": miss, "c-minor": miss, "c-met": ("fail", ["criterion_not_met"])}), True)
+        # A set with none has nothing to hold; a case not read leaves nothing to say.
+        self.assertIs(job.blocking_pass({"cases": [{"id": "c-major"}]}, place, passed), True)
+        self.assertIsNone(job.blocking_pass({"cases": [{"id": "c-none"}]}, place, {"c-none": ("pass", [])}))
+        # Through the job, every bar cleared: 23 of 24, each kind cleared, and the one miss is the blocking one.
+        expected = {"verdict": "finding", "criterion": "PR-2", "finding": {"category": "security", "severity": "blocking",
+                    "location": {"path": "kernel/decide.py", "start_line": 86, "end_line": 94}}}
+        base = json.loads(next(iter(self.cases.values())))
+        cases = {"poc-b%d" % i: (json.dumps(dict(base, id="poc-b%d" % i, expected=expected if i == 0 else base["expected"])) + "\n").encode()
+                 for i in range(24)}
+        self.set(cases)
+        self.step(plan)
+        self.step(fetch, self.home(cases))
+        said = lambda case, result: {"case": case["id"], "verdict": "fail" if case["id"] == "poc-b0" else "pass",
+                                     "reasons": ["finding_not_raised"] if case["id"] == "poc-b0" else []}
+        with mock.patch.object(job.eval_result, "score", said):
+            self.step(job.score, lambda case: load("examples/result.json"))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["passed"], written["kinds_pass"]["finding"], written["blocking_pass"]), (23, True, False))
+        self.assertEqual(self.step(job.judge), "case_failed")
+
     def test_the_job_writes_each_kinds_word_and_the_judge_holds_it(self):  # decision 0120
         # Plan, fetch, score and judge over a set: 23 of 24 clears the set's bar, and a kind at 3 of 4 does not clear its own.
         from harness import eval as job
@@ -895,6 +939,7 @@ class EvalJob(unittest.TestCase):
         # A kind under its bar: the set's clears at 23 of 24, and the job's own word closes the gate.
         written = run({"poc-k0"})
         self.assertEqual((written["passed"], written["kinds_pass"]), (23, {"finding": False, "met": True}))
+        self.assertIs(written["blocking_pass"], True)
         self.assertEqual(self.step(job.judge), "case_failed")
         # Each kind on or over its bar: it opens, and the judge says what did not pass.
         written = run({"poc-k4"})

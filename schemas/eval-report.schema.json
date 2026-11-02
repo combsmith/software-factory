@@ -13,7 +13,8 @@
     "cases",
     "passed",
     "split_ok",
-    "kinds_pass"
+    "kinds_pass",
+    "blocking_pass"
   ],
   "properties": {
     "schema": {
@@ -130,6 +131,10 @@
     "passed": {
       "type": "integer",
       "minimum": 0
+    },
+    "blocking_pass": {
+      "description": "Whether every case that expects a blocking Finding passed (decision 0120): one word, never how many. Null where a case was not read or its answer is no kind.",
+      "type": ["boolean", "null"]
     },
     "kinds_pass": {
       "description": "Whether at least the bar of each kind passed (decision 0120): one word for each, never how many. Null where a case was not read or its answer is no kind.",

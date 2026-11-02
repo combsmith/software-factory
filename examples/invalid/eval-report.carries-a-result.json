@@ -30,5 +30,6 @@
   "kinds_pass": {
     "finding": true,
     "met": true
-  }
+  },
+  "blocking_pass": true
 }
