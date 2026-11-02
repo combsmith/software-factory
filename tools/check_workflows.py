@@ -171,7 +171,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: factory/v0-next
+          ref: ${{ job.workflow_sha }}
           fetch-tags: true
           persist-credentials: false
       - name: Read and decide
@@ -230,7 +230,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: factory/v0-next
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
       - name: Hand on the commit it checked out, which every later job checks out
         id: commit
@@ -404,7 +404,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: factory/v0-next
+          ref: ${{ job.workflow_sha }}
           fetch-tags: true
           persist-credentials: false
       - name: Approve the commit it read, if the Kernel still wants it
