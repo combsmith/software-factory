@@ -174,6 +174,41 @@ class Budgets(unittest.TestCase):
         with mock.patch("os.sched_getaffinity", side_effect=AttributeError, create=True), mock.patch("os.cpu_count", return_value=None):
             self.assertEqual(cores(), 1)
 
+    def test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time(self):  # issue 484
+        def run_with(cpus, budget=10.0):
+            """`linear` with each measure spending the next of `cpus`, and how many times it ran, the warm-up among them."""
+            left, ran = iter(cpus), []
+
+            class Scripted:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_):
+                    self.cpu = self.wall = next(left)
+
+            with mock.patch("tests.support.Spent", Scripted):
+                linear(self, ran.append, 8, budget)
+            return len(ran)
+
+        # Good at once: the three sizes once, and the warm-up.
+        self.assertEqual(run_with([1.0, 2.0, 4.0]), 4)
+        # The noise this was found by, then a clean measure. Each size keeps the least it spent.
+        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.50, 2.10, 3.00]), 7)
+        # The second alone would pass, but the least of each size does not, so it goes on: the latest does not stand for the rest.
+        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.50, 2.50, 4.35, 1.40, 1.96, 3.00]), 10)
+        # Noisy twice, and good on the last measure allowed.
+        self.assertEqual(run_with([1.40, 1.96, 4.35, 1.40, 1.96, 4.35, 1.40, 1.96, 3.00]), 10)
+        # A budget missed once is measured again too, and kept to.
+        self.assertEqual(run_with([0.1, 0.2, 0.5, 0.1, 0.2, 0.3], budget=0.4), 7)
+        # What is faster than linear every time fails, at most three times over.
+        with self.assertRaisesRegex(AssertionError, "at half"):
+            run_with([0.25, 1.0, 4.0] * 3)
+        with self.assertRaisesRegex(AssertionError, "past its budget"):
+            run_with([0.1, 0.2, 0.5] * 3, budget=0.4)
+        # Noisy three times in the same place fails: the measures are not taken for ever.
+        with self.assertRaisesRegex(AssertionError, "at half"):
+            run_with([1.40, 1.96, 4.35] * 3)
+
     def test_a_reading_that_grows_faster_than_its_size_fails(self):
         # Spends at a quarter, half and whole of a size. Past the quarter, linear growth is three times the half's and
         # passes, quadratic is five and fails, whatever the load; what does not grow falls away.

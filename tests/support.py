@@ -97,6 +97,9 @@ def faster_than_linear(quarter: Spent, half: Spent, whole: Spent) -> str:
     return ""
 
 
+MEASURES = 3
+
+
 def sizes(size: int) -> tuple:
     """The sizes a reading is run at to tell how it grows: a quarter, half and whole."""
     return size // 4, size // 2, size
@@ -112,15 +115,28 @@ def grows_linearly(test, quarter: Spent, half: Spent, whole: Spent, what: str = 
     test.assertEqual(faster_than_linear(quarter, half, whole), "", what)
 
 
+def measured(run, size: int, good) -> tuple:
+    """What `run` spends at each of the `sizes` of `size`, and its last result. One pass is enough when `good` says so. A
+    measure that is not good is taken again, up to `MEASURES` in all, and each size keeps the least it spent: CPU time rises
+    under load too, and one noisy measure reads as growth, but a reading that is faster than linear is so every time (issue 484)."""
+    least = None
+    for _ in range(MEASURES):
+        spent = []
+        for n in sizes(size):
+            with Spent() as one:
+                result = run(n)
+            spent.append(one)
+        least = spent if least is None else [min(a, b, key=lambda s: s.cpu) for a, b in zip(least, spent)]
+        if good(least):
+            break
+    return least, result
+
+
 def linear(test, run, size: int, budget: float, what: str = ""):
     """`run(size)`'s result, failing `test` unless it kept to `budget` and grew linearly from `run(size // 4)` and
     `run(size // 2)`, the `sizes` of it."""
     run(sizes(size)[0])    # once, untimed, so what the first run warms is not counted to it (Codex on PR 257)
-    spent = []
-    for n in sizes(size):
-        with Spent() as one:
-            result = run(n)
-        spent.append(one)
+    spent, result = measured(run, size, lambda each: not over(each[-1], budget) and not faster_than_linear(*each))
     within(test, spent[-1], budget, what)
     grows_linearly(test, *spent, what)
     return result

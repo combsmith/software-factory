@@ -4216,11 +4216,7 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
     what a busy machine does not stretch, and no clock is judged, so a pattern read in time in its square is a mutant
     this kills (issues 369 and 370); where it was so, the reading at `size` took a second or more of CPU."""
     read(unit * (size // 4))    # once, untimed, so what the first reading warms is not counted to it
-    spent = []
-    for n in support.sizes(size):
-        with support.Spent() as one:
-            read(unit * n)
-        spent.append(one)
+    spent, _ = support.measured(lambda n: read(unit * n), size, lambda each: not support.faster_than_linear(*each) and each[-1].cpu < 0.5)
     test.assertEqual(support.faster_than_linear(*spent), "", unit)
     test.assertLess(spent[-1].cpu, 0.5, unit)
 

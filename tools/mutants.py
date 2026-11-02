@@ -11181,6 +11181,21 @@ MUTANTS = ISSUE + [
      "trap 'exit 1' HUP INT TERM\n", "trap 'exit 1' HUP INT TERM\ntrap '' HUP\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
     ('P-39 leaves its token live on a signal', 'tools/trial_p39_reach.sh',
      "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.ReachScript.test_a_stop_with_a_token_live_revokes_it',)),
+    # Issue 484: one noisy measure is not growth.
+    ('one noisy measure is growth', 'tests/support.py',
+     'MEASURES = 3\n', 'MEASURES = 1\n', ('tests.test_hooks.Budgets.test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time',)),
+    ('a noisy read is measured for longer', 'tests/support.py',
+     'MEASURES = 3\n', 'MEASURES = 4\n', ('tests.test_hooks.Budgets.test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time',)),
+    ('each measure stands alone', 'tests/support.py',
+     'least = spent if least is None else [min(a, b, key=lambda s: s.cpu) for a, b in zip(least, spent)]', 'least = spent', ('tests.test_hooks.Budgets.test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time',)),
+    ('each size keeps the most it spent', 'tests/support.py',
+     '[min(a, b, key=lambda s: s.cpu) for a, b', '[max(a, b, key=lambda s: s.cpu) for a, b', ('tests.test_hooks.Budgets.test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time',)),
+    ('a good measure is taken again', 'tests/support.py',
+     '        if good(least):\n            break\n', '', ('tests.test_hooks.Budgets.test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time',)),
+    ('a budget missed is not measured again', 'tests/support.py',
+     'lambda each: not over(each[-1], budget) and not faster_than_linear(*each)', 'lambda each: not faster_than_linear(*each)', ('tests.test_hooks.Budgets.test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time',)),
+    ('growth is not measured again', 'tests/support.py',
+     'lambda each: not over(each[-1], budget) and not faster_than_linear(*each)', 'lambda each: not over(each[-1], budget)', ('tests.test_hooks.Budgets.test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time',)),
 ]
 
 
