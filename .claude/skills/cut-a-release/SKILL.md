@@ -29,6 +29,8 @@ next, and roll back in one action".
   `evals/pr-review` names at that commit, scored against the review's rubric, the count equal to the set's, and the set
   not empty. Today the set's `count` is 0, so the gate is closed and every cut and move is refused,
   `eval_gate_closed`. That is right: a gate-deciding Intent does not serve without its eval set (design section 9.1).
+- **The release key's environment.** Only `factory-release`'s deployment branches keep the App's key from another ref's copy
+  of a workflow, and nothing in the repo can hold them. Have the Maintainer run `sh tools/environments_drift.sh` at a terminal, and stop if it says anything but `no drift`.
 - **Which step.** A cut, a move forward to an existing Release, or a rollback.
 
 ## The plan, in this session
