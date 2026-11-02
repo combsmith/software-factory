@@ -6409,7 +6409,8 @@ esac
         self.assertEqual(revocation["said"], "Authorization: Bearer %s\n" % self.TOKEN)
         last = revocation["argv"]
         self.assertEqual((last[last.index("-X") + 1], last[-1]), ("DELETE", "https://api.github.com/installation/token"))
-        self.assertIn("--max-time", last)
+        self.assertEqual(last[last.index("--max-time") + 1], "30")
+        self.assertEqual(last[last.index("-H") + 1], "@-")
         self.assertEqual(last[0], "-q")
         self.assertIn("--suppress-connect-headers", last)
         self.assertNotIn(self.TOKEN, " ".join(last))
@@ -6453,7 +6454,9 @@ esac
             self.assertNotEqual(ran.returncode, 0, name)
             calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
             self.assertFalse([c for c in calls if any(a.startswith("query=mutation") for a in c["argv"])], name)
-            self.assertIn("installation/token", (bin_ / "curl-calls").read_text().splitlines()[-1], name)
+            revocation = json.loads((bin_ / "curl-calls").read_text().splitlines()[-1])
+            self.assertEqual(revocation["argv"][-1], "https://api.github.com/installation/token", name)
+            self.assertEqual(revocation["said"], "Authorization: Bearer %s\n" % self.TOKEN, name)
             out = next(pathlib.Path(line.strip()) for line in ran.stdout.splitlines() if line.startswith("  /"))
             self.assertNotIn(self.TOKEN, "".join(p.read_text() for p in out.iterdir()), name)
 
