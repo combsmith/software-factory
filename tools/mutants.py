@@ -11206,6 +11206,25 @@ MUTANTS = ISSUE + [
      '    if spent[-1].cpu >= 0.5:\n', '    if False:\n', ('tests.test_tools.CpuReadings.test_one_noisy_measure_of_a_reading_is_measured_again',)),
     ('a reading in CPU may grow', 'tests/test_tools.py',
      '        return "spent %.2f s of CPU at its size, past half a second" % spent[-1].cpu\n    return support.faster_than_linear(*spent)\n', '        return "spent %.2f s of CPU at its size, past half a second" % spent[-1].cpu\n    return ""\n', ('tests.test_tools.CpuReadings.test_one_noisy_measure_of_a_reading_is_measured_again',)),
+    # A read beside a script names no write.
+    ('a read beside a script names a write', 'tools/hooks/identity.py',
+     '        if _only_reads(tool, words):\n            reading.add(index)\n', '', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ('any gh command only reads', 'tools/hooks/identity.py',
+     '    return words[:1] == ["api"] or words[:2] in GH_READS\n', '    return True\n', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ('gh api never only reads', 'tools/hooks/identity.py',
+     '    return words[:1] == ["api"] or words[:2] in GH_READS\n', '    return words[:2] in GH_READS\n', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ('any git command only reads', 'tools/hooks/identity.py',
+     '        return next((w for w in words if not w.startswith("-")), "") in GIT_READS\n', '        return True\n', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ('a write the hook parsed may stand beside a script', 'tools/hooks/identity.py',
+     '        names = writes or WRITE_TEXT.search(rest) or', '        names = WRITE_TEXT.search(rest) or', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ("a write in another command's words may stand beside a script", 'tools/hooks/identity.py',
+     '        names = writes or WRITE_TEXT.search(rest) or', '        names = writes or', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ("a here-document's text is no write", 'tools/hooks/identity.py',
+     '(shell.without_heredocs(text, raw=True) != text and WRITE_TEXT.search(text))', 'False', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ('any text is a write beside a script', 'tools/hooks/identity.py',
+     '(shell.without_heredocs(text, raw=True) != text and WRITE_TEXT.search(text))', 'WRITE_TEXT.search(text)', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ("every reason goes with the script's", 'tools/hooks/identity.py',
+     'for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]', 'for why in dict.fromkeys(blind) if names]', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
 ]
 
 

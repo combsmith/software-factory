@@ -1479,6 +1479,39 @@ class Identity(unittest.TestCase):
         self.assertEqual(shell.grown(kept + "b", "c"), kept + "b")
         self.assertTrue(all(len(word) <= shell.WORD_KEPT for word in shell.AGAIN | {"in", "case"}))
 
+    def test_a_read_beside_a_script_names_no_commit_or_push(self):  # issue 488
+        script = "a shell reads a script the hook cannot see"
+
+        def unseen(command):
+            spend = identity._budget(5)
+            commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), spend, scopes=True, marked=True)
+            return [said for _, said in identity._calls(commands, "/tmp", command, dict(os.environ), spend)[1] if said.startswith(script)]
+
+        for command in ("bash /tmp/x.sh; gh pr view 80 --repo o/r --json reviews --jq '.reviews[].commit.oid'",
+                        "bash /tmp/x.sh; gh pr list --repo o/r --state merged; gh pr checks 1; gh pr diff 1; gh pr status",
+                        "bash /tmp/x.sh; gh issue view 1; gh issue list; gh run view 1; gh run list; gh release view v; gh release list; gh repo view",
+                        "bash /tmp/x.sh; gh --repo o/r pr view 1",
+                        "bash /tmp/x.sh; gh api repos/o/r/rulesets/1 --jq .name",
+                        "git log --format='%h commit' -1; bash /tmp/x.sh",
+                        "git -C /tmp status; git diff --stat; git show HEAD; git rev-parse HEAD; bash /tmp/x.sh",
+                        "git ls-remote origin refs/heads/merge; git ls-tree HEAD; git ls-files; git fetch -q origin main; bash /tmp/x.sh",
+                        "source /tmp/x.sh; git log -1",
+                        "bash /tmp/x.sh # git push"):
+            self.assertEqual(unseen(command), [], command)
+        for command in ("bash /tmp/x.sh; git push origin main", "bash /tmp/x.sh; git commit -m x", "bash /tmp/x.sh; git log -1; git push",
+                        "bash /tmp/x.sh; git add commit.txt",
+                        "bash /tmp/x.sh; gh pr merge 1", "bash /tmp/x.sh; gh pr create", "bash /tmp/x.sh; gh pr edit 1",
+                        "bash /tmp/x.sh; gh api -X POST repos/o/r/x", "bash /tmp/x.sh; gh api repos/o/r/x -f a=b",
+                        "bash /tmp/x.sh; gh alias set y 'pr merge'", "bash /tmp/x.sh; foo 'git push'", "bash /tmp/x.sh; git log $(git push)",
+                        "bash /tmp/x.sh; git log -1; echo \"$(git push)\"", "bash <<E\ngit push\nE", "bash /tmp/x.sh <<E\ngit -C /tmp commit\nE",
+                        "bash /tmp/x.sh; g''it push"):
+            self.assertNotEqual(unseen(command), [], command)
+        # Any other reason the hook cannot read the command stands as it did: this gh may be another program.
+        spend = identity._budget(5)
+        command = "PATH=/tmp gh pr view 1"
+        commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), spend, scopes=True, marked=True)
+        self.assertIn("command_unreadable", [code for code, _ in identity._calls(commands, "/tmp", command, dict(os.environ), spend)[1]])
+
     @wall_clock
     def test_the_readings_issue_174_adds_run_in_linear_time(self):
         # Each new reading is one pass: a comment, a $'...' refused at its backslash, escaped backticks, ( and ${...}.

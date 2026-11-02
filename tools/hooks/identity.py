@@ -108,6 +108,11 @@ PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
 TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "wc", "ls", "less", "sort",
              "uniq", "cut", "tr", "diff", "test", "[", "true", "false"}
 SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
+UNSEEN_SCRIPT = "a shell reads a script the hook cannot see"
+# git's and gh's commands that only read: beside a script the hook cannot see, what they are given names no write (issue 488).
+GIT_READS = {"log", "status", "diff", "show", "rev-parse", "ls-remote", "ls-tree", "ls-files", "fetch"}
+GH_READS = (["pr", "view"], ["pr", "list"], ["pr", "checks"], ["pr", "diff"], ["pr", "status"], ["issue", "view"], ["issue", "list"],
+            ["run", "view"], ["run", "list"], ["release", "view"], ["release", "list"], ["repo", "view"])
 WRITE_TEXT = re.compile(r"\bgit\b[\s\S]*\b(%s)\b|\bgh\b[\s\S]*\b(pr|release|api)\b" % "|".join(sorted(WRITES)))
 # Set in the command, each of these changes who git or gh says you are.
 ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_ASKPASS|"
@@ -561,6 +566,13 @@ def _gh_kind(words: list) -> str:
     return "account" if method in ("POST", "PUT", "PATCH", "DELETE") else ""
 
 
+def _only_reads(tool: str, words: list) -> bool:
+    """Whether a git or gh command, its options taken off, is one that only reads, but for a `gh api` that writes, which its kind says."""
+    if tool == "git":
+        return next((w for w in words if not w.startswith("-")), "") in GIT_READS
+    return words[:1] == ["api"] or words[:2] in GH_READS
+
+
 def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tuple:
     """(calls, always, inline). A call is (tool, directory, words after the tool's options, kind).
 
@@ -597,6 +609,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     cdpath = bool(re.search(r"(?i)cdpath", re.sub(r"[\\'\"]", "", text))) and shell.sets(CDPATH, _quoted(
         shell.without_heredocs(text, raw=True)))
     previous, depth = None, 0   # where the command stood before its last placed cd, for cd -; compounds opened
+    reading = set()     # the commands, by where they stand in `commands`, that only read (_only_reads)
     for index, (raw, redirections, marked) in enumerate(commands):
         spend()
         if raw is None:     # a mark: what runs in a subshell is its own, so a cd in it is theirs alone (shell.SCOPE)
@@ -660,7 +673,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         if local & {"PATH", "path"}:
             blind.append("the command sets PATH, so git or gh may be another program")
         if program in SHELLS_AND_SOURCE and not _given_c(words[start + 1:]):
-            blind.append("a shell reads a script the hook cannot see")
+            blind.append(UNSEEN_SCRIPT)
         runner = _runner(words, at, here, env or {})
         if runner:
             blind.append(runner)
@@ -722,11 +735,18 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
                 always.append(("command_unreadable", "git %s runs a command the hook cannot read" % sub))
         else:
             kind = _gh_kind(words)
+        if _only_reads(tool, words):
+            reading.add(index)
         calls += [(tool, where, words, kind) for where in wheres]
     said = " ".join(w for words, _, _ in commands for w in words or [])     # as the shell runs it: g''it push is git push
-    if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or any(kind for _, _, _, kind in calls)):
+    writes = any(kind for _, _, _, kind in calls)
+    if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or writes):
+        # Beside a script, a command that only reads names no write, nor does a comment. What a here-document holds may be
+        # that script, so it is read whole, and any other reason the hook cannot read the command stands as it did.
+        rest = " ".join(w for at, (words, _, _) in enumerate(commands) if at not in reading for w in words or [])
+        names = writes or WRITE_TEXT.search(rest) or (shell.without_heredocs(text, raw=True) != text and WRITE_TEXT.search(text))
         always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
-                   for why in dict.fromkeys(blind)]
+                   for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]
     return calls, always, inline
 
 
