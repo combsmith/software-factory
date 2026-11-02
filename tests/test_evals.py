@@ -1444,6 +1444,24 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.case_fault(spaced), "issue_unreadable")
         self.assertIsNone(job.case_fault(held))
 
+    def test_a_cli_with_no_answer_is_the_engines_and_closes_the_gate(self):  # decision 0121
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        for said in ("", "not json", json.dumps({"is_error": False})):
+            with mock.patch.object(step, "run_id", lambda: live.RUN):
+                result = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, live.CLI(said=said), live.Clock(0.0, 1.0, 2.0))(case)
+            self.assertEqual((result["status"], result["reason"]), ("failed", "no_answer"), said)
+            self.assertIn(result["reason"], job.ENGINE_FAULTS)
+        # So through the job it is the case's code, and however many others passed the run is `engine_fault`.
+        first = next(iter(self.cases))
+        self.step(job.plan)
+        self.step(job.fetch, self.home(self.cases))
+        self.step(job.score, lambda c: result if c["id"] == first else load("examples/result.json"))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["no_answer"])
+        self.assertEqual(self.step(job.judge), "engine_fault")
+
     def test_the_review_is_told_to_cite_and_what_met_means(self):  # decision 0110
         # Run 41329046436 read 10 cases as `finding_uncited`: the fault was found and no criterion cited. The rubric's ids
         # do not move, and the set's answers hold to them; a logic error plainly falls under PR-3, whose evidence is the

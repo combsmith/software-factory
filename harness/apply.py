@@ -54,8 +54,9 @@ THREAD = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 # A character no path from the top of the repo holds: a control character, which a layer below could cut it at, and a
 # backslash, which another reading takes for `/` (issue 139).
 UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
-# How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's.
-THE_ROLES = ("result_invalid", "task_too_large")
+# How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's. A Run with no answer stays
+# an attempt on its item, as it can't be told from a model that gave none, whose text must not pause the Factory (decision 0121).
+THE_ROLES = ("result_invalid", "task_too_large", "no_answer")
 
 
 def push_refusal(paths, previous_paths, protected_list):

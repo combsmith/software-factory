@@ -313,6 +313,8 @@ class Apply(unittest.TestCase):
                            ({"release": "factory/v0.3.2"}, ("item", "result_not_the_runs")),
                            ({"status": "failed", "reason": "result_invalid"}, ("item", "result_invalid")),
                            ({"status": "failed", "reason": "task_too_large"}, ("item", "task_too_large")),
+                           # An attempt on its item: it can't be told from a model that gave none (decision 0121).
+                           ({"status": "failed", "reason": "no_answer"}, ("item", "no_answer")),
                            ({"status": "failed", "reason": "engine_failed"}, ("environment", "engine_failed")),
                            # A timeout cannot tell a slow provider from a slow item (issue 433, until issue 314).
                            ({"status": "failed", "reason": "engine_timeout"}, ("environment", "engine_timeout")),

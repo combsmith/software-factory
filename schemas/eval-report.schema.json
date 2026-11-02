@@ -104,6 +104,7 @@
                 "credential_missing",
                 "engine_version",
                 "engine_failed",
+                "no_answer",
                 "engine_timeout",
                 "task_too_large",
                 "rubric_unreadable",
