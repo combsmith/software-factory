@@ -12,8 +12,8 @@
 # reads, prints or copies what it holds. FILE is a new file's path in REPO; the commit adds it.
 # The script mints one installation token, which no command line ever holds, revokes it before it
 # exits, on a failure or a signal too, and keeps in a new scratch directory outside this repo only what
-# tools/redact_trial.py let through, with its own words on what it left in finish.log. A hangup does not stop it, since a
-# closed terminal can send one twice: it runs on, and a write to the terminal that fails stops it there (issue 481). It prints that directory first, then the pull request and its head.
+# tools/redact_trial.py let through, with its own words on what it left in finish.log. A closed terminal can signal twice,
+# so the first signal stops the run and no later one stops the clean-up (issue 481). It prints that directory first, then the pull request and its head.
 # Run it from anywhere in a checkout of this repo, with bash 3.2 or later, curl, openssl, gh, python3.
 set -euo pipefail
 set +x
@@ -179,15 +179,22 @@ say() { echo "$*" >> "$out/finish.log"; }
 
 finish() {
     status=$?
-    trap '' INT TERM PIPE
+    trap '' HUP INT TERM QUIT PIPE
     # Nothing past here stops at a signal: this shell and curl ignore them, curl is what revokes since gh stops at a TERM
     # whatever it inherits, and a bound keeps a hung revocation from holding a shell nothing can interrupt. The terminal
     # may be gone, so nothing here writes to it until the end: gh and sed are sent nowhere, and the script's own words,
     # which hold no answer of GitHub's, go to finish.log first, so that a token left live is said where OUT is.
     set +e
     exec 3>&1 4>&2 > /dev/null 2>&1
-    if [ -z "$token" ] && [ -n "$minting" ] && [ ! -e "$raw" ]; then
-        say "A TOKEN MAY BE LIVE: the run stopped during its mint, so none was read to revoke; it lapses within the hour"
+    # bash 3.2 keeps what it could not write to a dead terminal, and hands it to the next command substitution, a capture's
+    # name or the revocation's status among them. This writes it away.
+    echo
+    # A mint GitHub refused issued nothing. Any other that did not end, one with no answer yet or one cut short, may have.
+    if [ -z "$token" ] && [ -n "$minting" ]; then
+        case "$(sed -n '1s/^[^ ]* \([0-9]*\).*/\1/p' "$raw" 2>/dev/null)" in
+            4*|5*) ;;
+            *) say "A TOKEN MAY BE LIVE: the run stopped during its mint, so none was read to revoke; it lapses within the hour" ;;
+        esac
     fi
     if [ -n "$token" ]; then
         record "DELETE /installation/token" "${APP}[bot], by an installation token" ""
@@ -234,11 +241,11 @@ json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), 
     echo "  $out"
     exit "$status"
 }
-# A hangup or a quit is ignored from here on, by this shell and what it runs: a trap on a hangup would wait for the foreground
-# command, bash left to die by one dies at a second before the exit trap is under way, and bash dies of a quit with no trap run.
-trap '' HUP QUIT
 trap finish EXIT
-trap 'exit 130' INT TERM
+# Unlike the other scripts' line: a closed terminal's second hangup must find this one's clean-up already deaf to it, and
+# bash left to die by one dies at the second before the exit trap is under way (issue 481). What runs in the foreground
+# has these at their defaults, so it stops at the same signal and this trap is not kept waiting.
+trap "trap '' HUP INT TERM QUIT PIPE; exit 130" HUP INT TERM QUIT PIPE
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\n'; }
 

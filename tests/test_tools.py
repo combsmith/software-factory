@@ -6408,6 +6408,7 @@ esac
         last = json.loads((bin_ / "curl-calls").read_text().splitlines()[-1])["argv"]
         self.assertEqual((last[last.index("-X") + 1], last[-1]), ("DELETE", "https://api.github.com/installation/token"))
         self.assertIn("--max-time", last)
+        self.assertEqual(last[0], "-q")
         self.assertNotIn(self.TOKEN, " ".join(last))
         # The mutation was sent the id of the App's own thread, by -f, and every reply and deletion was answered.
         mutation = [c["argv"] for c in calls if any(a.startswith("query=mutation") for a in c["argv"])]
@@ -6465,9 +6466,9 @@ esac
 
 
 class AppCleanUp(unittest.TestCase):
-    """`tools/trial_as_app.sh` stopped by signals, against the stand-ins and never GitHub (issue 481): a closed terminal's
-    hangup, twice, stops nothing; a second signal stops neither the revocation nor the redaction; and what the clean-up
-    says reaches OUT, in the script's own words alone."""
+    """`tools/trial_as_app.sh` stopped by signals, against the stand-ins and never GitHub (issue 481): the first signal stops
+    the run, a later one stops neither the revocation nor the redaction, and what the clean-up says reaches OUT, in the
+    script's own words alone."""
 
     SCRIPT = AppThreads.SCRIPT
     # The stand-in gh holds its first call until the test says go on.
@@ -6495,6 +6496,9 @@ if url.endswith("/access_tokens") and os.environ.get("STANDIN_HOLD_MINT"):
 if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "403":
     print("HTTP/2.0 403 Forbidden\\r\\nContent-Type: application/json\\r\\n\\r\\n{\\"message\\": \\"no\\"}")
     sys.exit(22)
+if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "cut":
+    print("HTTP/2.0 201 Created\\r\\nContent-Ty")
+    sys.exit(18)
 if url.endswith("/access_tokens") and os.environ.get("STANDIN_MINT") == "empty":
     print("HTTP/2.0 201 Created\\r\\nContent-Type: application/json\\r\\n\\r\\n{}")
     sys.exit(0)
@@ -6555,8 +6559,6 @@ exec "%(real)s" "$@"
         try:
             self.wait_for("first")
             os.killpg(running.pid, first)
-            time.sleep(0.2)
-            (self.bin / "on").write_text("")
             self.wait_for("revoking")
             if closed:
                 running.stdout.close()
@@ -6576,13 +6578,11 @@ exec "%(real)s" "$@"
         return code, told, self.out()
 
     def test_a_second_signal_stops_neither_the_revocation_nor_the_redaction(self):
-        # A hangup or a quit first is ignored, so the run goes on to its end; an interrupt or a termination first is its exit.
-        for first, second, want in ((signal.SIGHUP, signal.SIGHUP, 0), (signal.SIGINT, signal.SIGHUP, 130),
-                                    (signal.SIGTERM, signal.SIGINT, 130), (signal.SIGINT, signal.SIGTERM, 130),
-                                    (signal.SIGQUIT, signal.SIGQUIT, 0)):
+        for first, second in ((signal.SIGHUP, signal.SIGHUP), (signal.SIGINT, signal.SIGHUP), (signal.SIGTERM, signal.SIGINT),
+                              (signal.SIGINT, signal.SIGTERM), (signal.SIGQUIT, signal.SIGQUIT)):
             with self.subTest(first=first, second=second):
                 code, told, out = self.stopped_twice(first, second)
-                self.assertEqual(code, want, told)
+                self.assertEqual(code, 130, told)
                 self.assertTrue((self.bin / "revoke-answered").exists())
                 self.assertNotIn("WAS NOT REVOKED", told)
                 self.assertEqual(list(out.glob("*.raw")), [])
@@ -6590,6 +6590,47 @@ exec "%(real)s" "$@"
                 revoked = [e for e in exchanges if e["request"]["call"] == "DELETE /installation/token"]
                 self.assertEqual([e["response"]["status"] for e in revoked], [204])
                 self.assertNotIn("gh" + "s_", "".join(p.read_text() for p in out.iterdir()))
+
+    def test_a_run_ending_well_is_not_stopped_during_its_revocation(self):
+        running = self.start()
+        try:
+            self.wait_for("first")
+            (self.bin / "on").write_text("")
+            self.wait_for("revoking")
+            for each in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGPIPE):
+                os.killpg(running.pid, each)
+            time.sleep(0.2)
+            (self.bin / "go").write_text("")
+            _, told = running.communicate(timeout=60)
+        finally:
+            if running.poll() is None:
+                os.killpg(running.pid, signal.SIGKILL)
+                running.wait()
+        self.assertEqual(running.returncode, 0, told.decode())
+        self.assertEqual(list(self.out().glob("*.raw")), [])
+
+    def test_pipes_gone_before_the_first_redaction_leave_the_answer_of_the_revocation_whole(self):
+        # What bash 3.2 failed to write stays in its buffer, and a later command substitution would inherit it: an id with
+        # that text in it, an answer deleted unread, and a token revoked that the run says is live.
+        running = self.start()
+        try:
+            self.wait_for("first")
+            (self.bin / "go").write_text("")
+            running.stdout.close()
+            running.stderr.close()
+            (self.bin / "on").write_text("")
+            code = running.wait(timeout=60)
+        finally:
+            if running.poll() is None:
+                os.killpg(running.pid, signal.SIGKILL)
+                running.wait()
+        out = self.out()
+        self.assertEqual(code, 130)
+        self.assertTrue((self.bin / "revoke-answered").exists())
+        self.assertFalse((out / "finish.log").exists() and "NOT REVOKED" in (out / "finish.log").read_text())
+        self.assertEqual([p.name for p in out.iterdir() if "\n" in p.name], [])
+        exchanges = json.loads((out / "exchanges.json").read_text())["exchanges"]
+        self.assertEqual([e["response"]["status"] for e in exchanges if e["request"]["call"] == "DELETE /installation/token"], [204])
 
     def test_with_the_terminal_gone_what_it_says_stays_in_out(self):
         # The pipes it writes to are closed, as a closed terminal's are, and the revocation is refused: nothing it writes
@@ -6640,6 +6681,12 @@ exec "%(real)s" "$@"
             running.stdout.close()
             running.stderr.close()
         self.assertIn("A TOKEN MAY BE LIVE", told)
+        self.assertIn("A TOKEN MAY BE LIVE", (self.out() / "finish.log").read_text())
+
+    def test_a_mint_cut_short_says_a_token_may_be_live(self):
+        running = self.start(STANDIN_MINT="cut")
+        running.communicate(timeout=60)
+        self.assertNotEqual(running.returncode, 0)
         self.assertIn("A TOKEN MAY BE LIVE", (self.out() / "finish.log").read_text())
 
     def test_a_mint_that_was_answered_says_no_token_may_be_live(self):
