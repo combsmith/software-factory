@@ -364,6 +364,70 @@ class Context(unittest.TestCase):
         other = passed(reads(runs=[dict(fault, outcome="item")]))
         self.assertIsNone(other["record"]["context"]["model_deferred_until"])
 
+    def test_runs_that_never_ran_pause_admission_and_are_named_as_themselves(self):  # decision 0116
+        # A Run GitHub started no job of writes no outcome, so one cause doing it to every dispatch would run each open
+        # item to a Hold naming nothing. It counts toward the automatic pause, by the same rule, under its own name.
+        def never(*numbers, at="2026-10-11T12:30:00Z", word="skipped"):
+            return [dict(run("r_0000%02d" % i, number=n, conclusion="cancelled", at=at), never_ran=word)
+                    for i, n in enumerate(numbers)]
+        out = passed(reads(runs=never(7, 8, 7)))
+        self.assertEqual(out["record"]["context"]["model_deferred_until"], "2026-10-11T13:30:00Z")
+        self.assertEqual(decisions(out)[0]["outcome"], "defer")
+        self.assertEqual(out["alerts"], ["runs_never_started"])
+        self.assertEqual(out["view"]["health"]["pause"], {"state": "paused", "by": ["runs_never_started"]})
+        # Each Run behind it is shown by GitHub's word, since a shim's `if:` and a broken Release have different remedies.
+        shown = passed(reads(runs=never(7, 8, 9, word="startup_failure")))["view"]["health"]["faults"]
+        self.assertEqual({(f["item"]["number"], f["outcome"]) for f in shown},
+                         {(7, "startup_failure"), (8, "startup_failure"), (9, "startup_failure")})
+        # The pause lapses within the hour, but the cause is still named, until a Run succeeds: a lasting cause runs each
+        # item to a Hold that dispatches nothing more, and the name must not lapse before the person reads it.
+        aged = never(7, 8, 9, at="2026-10-11T09:00:00Z")
+        out = passed(reads(runs=aged))
+        self.assertIsNone(out["record"]["context"]["model_deferred_until"])
+        self.assertEqual(out["alerts"], ["runs_never_started"])
+        self.assertEqual(out["view"]["health"]["pause"], {"state": "none", "by": []})
+        cleared = aged + [run("r_SUCCES", number=9, at="2026-10-11T10:00:00Z")]
+        self.assertEqual(passed(reads(runs=cleared))["alerts"], [])
+        # In any order, since GitHub lists the newest first.
+        self.assertEqual(passed(reads(runs=cleared[::-1]))["alerts"], [])
+        self.assertEqual(passed(reads(runs=[cleared[-1]] + never(7, 8, 9, at="2026-10-11T11:00:00Z")))["alerts"],
+                         ["runs_never_started"])
+        self.assertEqual(passed(reads(runs=never(7, 8, at="2026-10-11T09:00:00Z")))["alerts"], [])
+        self.assertEqual(passed(reads(runs=never(7, 7, 7, at="2026-10-11T09:00:00Z")))["alerts"], [])
+        # A list not read whole names nothing from what it read.
+        self.assertNotIn("runs_never_started", passed(reads(runs=aged, complete=False))["alerts"])
+        # A word beside an outcome is the outcome's: an earlier attempt's `item` pauses nothing, and an `environment` is
+        # named as one.
+        items = [dict(r, outcome="item") for r in never(7, 8, 9)]
+        self.assertIsNone(passed(reads(runs=items))["record"]["context"]["model_deferred_until"])
+        self.assertEqual(passed(reads(runs=items))["alerts"], [])
+        self.assertEqual(passed(reads(runs=items))["view"]["health"]["faults"], [])
+        outage = [dict(r, outcome="environment") for r in never(7, 8, 9)]
+        self.assertEqual(passed(reads(runs=outage))["alerts"], ["environment"])
+        self.assertEqual({f["outcome"] for f in passed(reads(runs=outage))["view"]["health"]["faults"]}, {"environment"})
+        # An outage a success ended is not named beside a streak after it.
+        ended = [run("r_FAULT1", number=9, conclusion="failure", outcome="environment", at="2026-10-11T12:30:00Z"),
+                 run("r_SUCCES", number=9, at="2026-10-11T12:31:00Z")] + never(7, 8, 9, at="2026-10-11T12:40:00Z")
+        self.assertEqual(passed(reads(runs=ended))["alerts"], ["runs_never_started"])
+        # By the same rule: too few, one item's alone, or a success after them holds nothing.
+        for runs in (never(7, 8), never(7, 7, 7), never(7, 8, 9) + [run("r_SUCCES", number=9, at="2026-10-11T12:31:00Z")]):
+            self.assertIsNone(passed(reads(runs=runs))["record"]["context"]["model_deferred_until"], runs)
+            self.assertNotIn("runs_never_started", passed(reads(runs=runs))["alerts"], runs)
+        # A person's cancel, or a concurrency group's, reads the same conclusion with no flag, and trips nothing.
+        cancels = [run("r_0000%02d" % i, number=n, conclusion="cancelled", at="2026-10-11T12:30:00Z")
+                   for i, n in enumerate((7, 8, 9, 10))]
+        self.assertEqual(passed(reads(runs=cancels))["alerts"], [])
+        self.assertIsNone(passed(reads(runs=cancels))["record"]["context"]["model_deferred_until"])
+        # With an outage in the streak, each is named; alone, an outage stays `environment`.
+        fault = run("r_FAULT0", number=9, conclusion="failure", outcome="environment", at="2026-10-11T12:30:00Z")
+        both = passed(reads(runs=never(7, 8) + [fault]))
+        self.assertEqual(both["alerts"], ["environment", "runs_never_started"])
+        self.assertEqual(both["view"]["health"]["pause"]["by"], ["environment", "runs_never_started"])
+        # It stops no act, so that only a person's Pause keeps a merge from being stopped.
+        queued = pr(42, queue=True, reviews=[support.review()], author="donpetry-bot")
+        self.assertEqual([d.get("action") for d in passed(reads(pulls=[queued], runs=[run()] + never(7, 8, 9)))["acts"]],
+                         ["dequeue"])
+
     def test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window(self):  # L-59
         def faults(*numbers, outcome="environment", at="2026-10-11T12:30:00Z"):
             return [run("r_0000%02d" % i, number=n, conclusion="failure", outcome=outcome, at=at)
@@ -439,6 +503,21 @@ class Chain(unittest.TestCase):
             self.assertEqual((out["alerts"], out["cleared"]), ([], []))
         far = [earlier("2026-10-10T00:00:00Z"), earlier("2026-10-11T12:00:00Z"), earlier("2026-10-11T12:57:00Z")]
         self.assertEqual(passed(previous=far)["cleared"], [])
+
+    def test_a_pass_its_own_token_started_reads_no_sooner_than_it_can_read_the_run_as_ended(self):  # decision 0115
+        cfg = config()
+        token = CONTROLLER["accounts"]["workflow_token"]
+        started = {"event": "workflow_dispatch", "attempt": 1, "actor": {"id": token["id"], "type": token["type"]}}
+        last = earlier("2026-10-11T12:59:30Z", read_at=["2026-10-11T12:59:00Z"])
+        # At least the wait, none on a pass with no earlier record, and the gap where it is longer.
+        self.assertEqual(pass_.wait_before_reading([], NOW, cfg, started), pass_.SUCCESSOR_WAIT)
+        self.assertEqual(pass_.wait_before_reading([last], "2026-10-11T13:10:00Z", cfg, started), pass_.SUCCESSOR_WAIT)
+        self.assertEqual(pass_.wait_before_reading([last], NOW, cfg, started), 120)
+        self.assertEqual(pass_.wait_before_reading(None, NOW, cfg, started), 180)
+        # Anything else started it, or what did cannot be read: no such wait.
+        for other in (None, {"event": "schedule", "attempt": 1, "actor": None}, dict(started, attempt=2), dict(started, event="schedule"),
+                      dict(started, actor={"id": 1, "type": "User"})):
+            self.assertEqual(pass_.wait_before_reading([], NOW, cfg, other), 0, other)
 
     def test_a_pass_reads_no_sooner_than_three_minutes_after_the_last_pass_began_to_read(self):  # decision 0043
         cfg = config()
@@ -1182,7 +1261,7 @@ class Entry(unittest.TestCase):
         code, _, files, slept = self.run_entry(hub)
         self.assertEqual(code, 0)
         # The last pass's read began a minute ago: two minutes more, waited before anything but the records is read.
-        self.assertEqual(slept, [(120, 5)])
+        self.assertEqual(slept, [(120, 6)])
         self.assertEqual([r["path"].split("?")[0].rsplit("/", 1)[-1] for _, r in hub.sent[2:5]],
                          ["runs", "artifacts", "zip"])
         self.assertEqual(files["view/health.json"]["previous_pass_at"], "2026-10-12T11:59:00Z")
@@ -1191,6 +1270,19 @@ class Entry(unittest.TestCase):
         code, _, files, slept = self.run_entry(Hub(table))
         self.assertEqual((code, [s for s, _ in slept]), (0, [CONTROLLER["read_gap_seconds"]]))
         self.assertIsNone(files["pass.json"]["context"]["passes_since"])
+
+    def test_a_pass_its_own_token_started_waits_for_the_run_that_woke_it_to_end(self):  # decision 0115
+        # The entry reads what started it before it waits: a pass the workflow's own token dispatched waits, one a
+        # schedule started does not.
+        token = CONTROLLER["accounts"]["workflow_token"]
+        table = self.table()
+        started = table[("GET", "/repos/%s/actions/runs/%s" % (self.HOME, self.RUN))]
+        _, _, _, slept = self.run_entry(Hub(table))
+        self.assertEqual([s for s, _ in slept], [0])
+        started["body"].update(event="workflow_dispatch", actor={"id": token["id"], "type": token["type"], "login": "github-actions[bot]"})
+        _, _, _, slept = self.run_entry(Hub(table))
+        self.assertEqual([s for s, _ in slept], [pass_.SUCCESSOR_WAIT])
+        self.assertEqual(pass_.SUCCESSOR_WAIT, 30)
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),

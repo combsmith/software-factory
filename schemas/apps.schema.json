@@ -31,9 +31,11 @@
         "write:issue_label",
         "write:write_view",
         "write:release_tag",
+        "write:workflow_commit_tag",
         "write:move_channel",
         "write:deployment",
         "read:release.refs",
+        "read:release.repo",
         "read:release.runs",
         "read:release.checks",
         "read:pass.pause",
@@ -106,6 +108,9 @@
         "write:release_tag": {
           "$ref": "#/$defs/mapping"
         },
+        "write:workflow_commit_tag": {
+          "$ref": "#/$defs/mapping"
+        },
         "write:move_channel": {
           "$ref": "#/$defs/mapping"
         },
@@ -113,6 +118,9 @@
           "$ref": "#/$defs/mapping"
         },
         "read:release.refs": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:release.repo": {
           "$ref": "#/$defs/mapping"
         },
         "read:release.runs": {
@@ -202,14 +210,15 @@
       }
     },
     "apps": {
-      "title": "One App for the Controller, one for each Role that writes, the queue's, and the one reader.",
+      "title": "One App for the Controller, one for each Role that writes, the queue's, the release's, and the one reader.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "controller",
         "pr-review",
         "reader",
-        "queue"
+        "queue",
+        "release"
       ],
       "properties": {
         "controller": {
@@ -222,6 +231,9 @@
           "$ref": "#/$defs/app"
         },
         "queue": {
+          "$ref": "#/$defs/app"
+        },
+        "release": {
           "$ref": "#/$defs/app"
         }
       }
@@ -252,9 +264,11 @@
         "actions_variables",
         "checks",
         "contents",
+        "deployments",
         "issues",
         "metadata",
-        "pull_requests"
+        "pull_requests",
+        "workflows"
       ]
     },
     "level": {
@@ -284,7 +298,7 @@
           "minimum": 1
         },
         "key": {
-          "title": "Where the App's private key is kept, by name and never by value: an environment secret on the Factory's repo, in the environment of the one job that holds it (decision 0035): the Controller's in factory-poller, the reader's in factory-run, and every Role's in factory-apply, which Roles' keys may share. tools/check_apps.py holds it to that, and the secret to the App's name.",
+          "title": "Where the App's private key is kept, by name and never by value: an environment secret on the Factory's repo, in the environment of the one job that holds it (decision 0035): the Controller's in factory-poller, the reader's in factory-run, the release App's in factory-release, and every Role's in factory-apply, which Roles' keys may share. tools/check_apps.py holds it to that, and the secret to the App's name.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -297,7 +311,8 @@
                 "factory-poller",
                 "factory-apply",
                 "factory-run",
-                "factory-queue"
+                "factory-queue",
+                "factory-release"
               ]
             },
             "secret": {
@@ -333,6 +348,9 @@
             "contents": {
               "$ref": "#/$defs/grant"
             },
+            "deployments": {
+              "$ref": "#/$defs/grant"
+            },
             "issues": {
               "$ref": "#/$defs/grant"
             },
@@ -340,6 +358,9 @@
               "$ref": "#/$defs/grant"
             },
             "pull_requests": {
+              "$ref": "#/$defs/grant"
+            },
+            "workflows": {
               "$ref": "#/$defs/grant"
             }
           }
@@ -376,9 +397,11 @@
               "write:issue_label",
               "write:write_view",
               "write:release_tag",
+              "write:workflow_commit_tag",
               "write:move_channel",
               "write:deployment",
               "read:release.refs",
+              "read:release.repo",
               "read:release.runs",
               "read:release.checks",
               "read:pass.pause",

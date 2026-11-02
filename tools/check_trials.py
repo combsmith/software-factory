@@ -1,7 +1,8 @@
 """The fixtures of the platform trials, and the fake GitHub's grounding in them (design, sections 4.5 and 6).
 
 A fixture in `trials/` is what one trial sent to GitHub in the canary repo, or of the org itself for a
-trial about the org and its Apps (decision 0035), and what came back, with every credential removed.
+trial about the org and its Apps (decision 0035), or in the Factory's own repo for a trial named in
+TRIALS_OF_THE_FACTORY, and what came back, with every credential removed.
 `repo` is the org exactly when every call is of the org or its Apps. It validates against
 `schemas/trial.schema.json`, and nothing else is kept there. A credential is refused here and not by
 the schema, which cannot express it: `tools/redact_trial.py` applies the same rules to a raw capture
@@ -55,6 +56,11 @@ STARRED = re.compile(r"^[A-Z]+ /user/starred/([^/?,\s]+)/([^/?,\s]+)(?:[?,\s]|$)
 # has its App read repos of the org its installation does not reach. Neither reads any other owner's repo.
 TRIALS_OF_FORKS = {"P-27"}
 TRIALS_OF_REACH = {"P-4"}
+# A trial that can only run in the Factory's own repo, and records it: P-30 cuts a Release under the tag ruleset of the
+# repo that holds the Releases, which the canary is not. It is held to every rule of a fixture of the canary, with this
+# repo in the canary's place, and no other trial records this repo.
+FACTORY = ORG + "/software-factory"
+TRIALS_OF_THE_FACTORY = {"P-30"}
 # A command-line read names a repo by --repo, -R or GH_REPO, with or without a space, an equals sign, quotes or the
 # site's address; by `gh repo <verb> owner/name`; or by a path or an address in its words.
 CLI_REPO = re.compile(r"(?:--repo|-R|GH_REPO)[ =]?[\"']?(?:https://github\.com/)?([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)"
@@ -343,6 +349,8 @@ WRITE = re.compile(r"^\s*mutation\s*\(\s*\$id\s*:\s*ID!\s*\)\s*\{\s*(\w+)\s*\(\s
 # The canary's repository id, as its reads answer it (trials/P-49.json, trials/P-2.least.json). A node id GitHub issues
 # today is a prefix and base64url of msgpack [0, the repository's id, ...]: a write is held to a node of the canary by it.
 CANARY_ID = 1414593263
+# The same of the Factory's own repo, as GitHub answers it.
+FACTORY_ID = 1414556245
 
 
 def node_repo(node: str):
@@ -468,7 +476,7 @@ def _asked(request: dict) -> tuple:
             repos.add(starred.group(1) + "/" + starred.group(2))
         if not found and not starred:
             wrong.append("names no repo of the org, nor the org, an App or an installation, in its path; a read of a "
-                         "fixture of the canary is of one of those")
+                         "fixture of a repo is of one of those")
         elif CLIMBS.search(call.split(" ", 1)[1].split("?", 1)[0]):
             wrong.append("climbs out of its repo with a .. segment; write the path it reads")
         else:
@@ -552,10 +560,13 @@ def _repos(data: dict, installed) -> list:
     """(path, what is wrong) for each read of a fixture of the canary that names another owner's repo, is answered with
     one, or, made by an App, names or is answered with a repo its installation does not reach; and for a command-line
     read that is not the Maintainer's own. An App the data does not know reaches the canary alone; a data file that
-    cannot be read is one problem, and every App is then held to the canary."""
-    out, canary = [], "%s/%s" % (ORG, CANARY)
+    cannot be read is one problem, and every App is then held to the canary. A fixture of the Factory's own repo is
+    held to the same, with that repo in the canary's place, but for the App the data does not know, which reaches
+    nothing there, since this repo is no sandbox."""
+    out, home = [], data.get("repo")
+    home_id, place = (FACTORY_ID, "the Factory's repo") if home == FACTORY else (CANARY_ID, "the canary")
     if installed is None:
-        out.append(("config/apps.json", "cannot be read, so every App's reach is the canary alone"))
+        out.append(("config/apps.json", "cannot be read, so no App's reach can be told"))
         installed = {}
     trial = data.get("trial")
     fork = lambda repo: trial in TRIALS_OF_FORKS and repo.count("/") == 1 and repo.split("/")[1] == CANARY
@@ -568,7 +579,7 @@ def _repos(data: dict, installed) -> list:
         response = exchange.get("response") if isinstance(exchange, dict) and isinstance(exchange.get("response"), dict) else {}
         if isinstance(request, dict) and _a_read(request) and response.get("status") == 200:
             owners, repos, wrong = _asked(request)
-            if not wrong and repos == {canary} and set(_named(response.get("body"))) <= {canary}:
+            if not wrong and repos == {home} and set(_named(response.get("body"))) <= {home}:
                 nodes |= _nodes(response.get("body"))
     for i, exchange in enumerate(data.get("exchanges") or []):
         request = exchange.get("request") if isinstance(exchange, dict) else None
@@ -577,11 +588,11 @@ def _repos(data: dict, installed) -> list:
         where = "exchanges[%d].request" % i
         write = written(request)
         if write and write[1] not in nodes:
-            out.append((where + ".body", "writes %s on a node no read of the canary alone in this fixture answered"
-                        % write[0]))
-        elif write and node_repo(write[1]) != CANARY_ID:
-            out.append((where + ".body", "writes %s on a node that is not the canary's by its id: %s"
-                        % (write[0], node_repo(write[1]) or "an id that cannot be read")))
+            out.append((where + ".body", "writes %s on a node no read of %s alone in this fixture answered"
+                        % (write[0], place)))
+        elif write and node_repo(write[1]) != home_id:
+            out.append((where + ".body", "writes %s on a node that is not %s's by its id: %s"
+                        % (write[0], place, node_repo(write[1]) or "an id that cannot be read")))
         # A write carried any other way, by a command line, a workflow, or inside an answer, is held as one sent: one of
         # WRITES, on a node of the canary a read here answered; a mutation in any other text is refused.
         response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
@@ -596,13 +607,13 @@ def _repos(data: dict, installed) -> list:
             held = written({"via": "graphql", "body": sent}) if sent is not None else None
             if held is None:
                 out.append((where, "carries a GraphQL write that is not one of WRITES, sent as a request of its own"))
-            elif held[1] not in nodes or node_repo(held[1]) != CANARY_ID:
-                out.append((where, "carries a write of %s on a node no read of the canary alone answered" % held[0]))
+            elif held[1] not in nodes or node_repo(held[1]) != home_id:
+                out.append((where, "carries a write of %s on a node no read of %s alone answered" % (held[0], place)))
         owners, repos, wrong = _asked(request)
         out += [(where + ".call", what) for what in wrong]
         forks_named = {r.split("/")[0] for r in repos if fork(r)} - _orgs_named(request)
         for owner in sorted(owners - {ORG} - forks_named):
-            out.append((where + ".call", "names the owner %s; a read of a fixture of the canary names the org alone, or in a "
+            out.append((where + ".call", "names the owner %s; a read of a fixture of a repo names the org alone, or in a "
                         "trial of forks the owner of a fork of the canary" % owner))
         response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
         answered = set(_named(response.get("body")))
@@ -616,7 +627,8 @@ def _repos(data: dict, installed) -> list:
             name = str(asker.get("name", "")).split(",")[0].replace("[bot]", "")
             # A trial of reach reads beyond the App's install by its question; the owner's check above still holds it to
             # the org's repos.
-            reach = installed.get(name, {canary}) if trial not in TRIALS_OF_REACH else repos | answered
+            unknown = set() if home == FACTORY else {home}
+            reach = installed.get(name, unknown) if trial not in TRIALS_OF_REACH else repos | answered
             if request.get("via") == "graphql" and ORG in owners and not repos:
                 out.append((where + ".call", "asks of the org by an App, whose installation reaches repos alone"))
             for repo in sorted(repos - reach):
@@ -626,11 +638,24 @@ def _repos(data: dict, installed) -> list:
     return out
 
 
+def _of_the_factory(data: dict) -> list:
+    """(path, what is wrong) when a fixture records the Factory's own repo and its trial is not named for it, or its
+    trial is and it records anywhere else."""
+    repo, trial = data.get("repo"), data.get("trial")
+    if not isinstance(trial, str):
+        return []       # the schema refuses it
+    if repo == FACTORY and trial not in TRIALS_OF_THE_FACTORY:
+        return [("repo", "is %s, and %s is no trial of TRIALS_OF_THE_FACTORY; a trial runs in the canary" % (FACTORY, trial))]
+    if trial in TRIALS_OF_THE_FACTORY and repo != FACTORY:
+        return [("repo", "is %s, and %s runs in %s; record where it ran" % (repo, trial, FACTORY))]
+    return []
+
+
 def fixture_problems(data: dict, root: pathlib.Path = ROOT) -> list:
     """Every problem with one fixture beyond its schema, as the check finds them: who asked, the repos it reads and is
     answered with, credentials and headers. A counter-example under examples/invalid is held to this."""
-    out = ["%s %s" % (where, what) for where, what in _askers(data)]
-    if not out and data.get("repo") == "%s/%s" % (ORG, CANARY):
+    out = ["%s %s" % (where, what) for where, what in _askers(data) + _of_the_factory(data)]
+    if not out and data.get("repo") in ("%s/%s" % (ORG, CANARY), FACTORY):
         out += ["%s %s" % (where, what) for where, what in _repos(data, _installed(root))]
     out += ["%s %s" % (where, what) for where, what in _credentials(data, "") + _headers(data)]
     # A message names what the data holds, a repo or a kind among them, so none carries a credential (issue 247).

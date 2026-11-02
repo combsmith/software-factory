@@ -137,7 +137,7 @@ def recorded_effects(transport, config: dict, runs, own: int, before, since: str
             "whole": from_runs["whole"] and from_passes["whole"]}
 
 
-def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dict:
+def read(transport, config: dict, run_id: str, previous, now: str, clock, started) -> dict:
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
@@ -176,7 +176,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
     before = pass_.earlier(reads_.previous_records(previous), now)
     since = utc(lambda: clock() - WINDOW - controller["not_run_seconds"])
     seen, unread = writes_seen(transport, config, numbers, kept, before, since, clock)
-    return {"started": passes.started(transport, home, run_id), "pause": pause_.read(transport, home.split("/")[0], [home]),
+    return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": facts_reads, "usage": {},
             "seen": seen, "unread": unread, "effects": recorded_effects(transport, config, runs, int(run_id), before, since)}
 
@@ -186,8 +186,9 @@ def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.s
     controller = config["controller"]
     previous = passes.records(transport, controller["home"]["repo"], controller["home"]["branch"],
                               controller["workflows"]["poller"], int(run_id))
-    sleep(pass_.wait_before_reading(previous, utc(clock), config))
-    reads = read(transport, config, run_id, previous, utc(clock), clock)
+    started = passes.started(transport, controller["home"]["repo"], run_id)
+    sleep(pass_.wait_before_reading(previous, utc(clock), config, started))
+    reads = read(transport, config, run_id, previous, utc(clock), clock, started)
     return pass_.run(reads, config, utc(clock), previous, mint_id)
 
 

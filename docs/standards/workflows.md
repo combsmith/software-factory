@@ -145,7 +145,7 @@ jobs:
       contents: read       # then only what this job needs
 ```
 
-No personal access token, no `secrets: inherit`; every checkout sets `persist-credentials: false`. One personal token is
+No personal access token, no `secrets: inherit` but a shim's (`docs/standards/shims.md`); every checkout sets `persist-credentials: false`. One personal token is
 named as the exception: the Maintainer's, `HELDOUT_TOKEN`, read-only on the held-out home alone, in eval.yml's `fetch`
 step and nowhere else (decision 0053). No job is granted `security-events: write`: with it, an upload to code scanning could stand for CodeQL's verdict.
 

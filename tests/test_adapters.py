@@ -985,6 +985,25 @@ class Records(unittest.TestCase):
         again = listing("P-17", 10, page=2, total=2, rows={"name": NAME})
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
+    def test_a_run_github_started_no_job_of_says_so_and_no_other_does(self):
+        # Decision 0116: `startup_failure` and a first attempt `skipped` read `cancelled`, as a person's cancel does, so
+        # the flag is what tells them apart for the automatic pause.
+        done = {"name": NAME, "status": "completed"}
+        ident = listing("P-17", 3, rows=dict(done, conclusion="cancelled"))["response"]["body"]["workflow_runs"][0]["id"]
+        for change, word in (({"conclusion": "startup_failure"}, "startup_failure"),
+                             ({"conclusion": "skipped", "run_attempt": 1}, "skipped"),
+                             ({"conclusion": "startup_failure", "run_attempt": 2}, "startup_failure"),
+                             ({"conclusion": "skipped", "run_attempt": 2}, None),
+                             ({"conclusion": "skipped", "run_attempt": None}, None),
+                             ({"conclusion": "cancelled", "run_attempt": 1}, None),
+                             ({"conclusion": "failure", "run_attempt": 1}, None),
+                             ({"conclusion": "timed_out", "run_attempt": 1}, None)):
+            got, _ = self.read(listing("P-17", 3, rows=dict(done, **change)), stored(canary(), ident, None)[0])
+            self.assertEqual(got["runs"][0].get("never_ran"), word, change)
+        running = listing("P-17", 3, rows={"name": NAME, "status": "in_progress", "conclusion": None})
+        got, _ = self.read(running)
+        self.assertNotIn("never_ran", got["runs"][0])
+
     def test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt(self):
         # Decision 0111. The shim's `if:` runs a first attempt alone and the list shows the latest, so a row `skipped` on
         # a later attempt, or one whose attempt cannot be read, may be a Run that ran and died: it is an attempt, and a
