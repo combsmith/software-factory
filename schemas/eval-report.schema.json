@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "eval-report/1: what the eval job uploads of one run over a held-out set: the Release and commit it judged, the set by its count and the sha256 of its manifest, and each case by its id and hash with its verdict and the codes that say why it was not read or what the scorer found (decision 0109). Each is a code of this enum. No case's content and no word of the model's is here, and none may be.",
+  "title": "eval-report/1: what the eval job uploads of one run over a held-out set: the Release and commit it judged, the set by its count and the sha256 of its manifest, and each case by its id and hash with its verdict and the codes that say why it was not read or what the scorer found (decisions 0109 and 0120). Each is a code of this enum. No case's content and no word of the model's is here, and none may be.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,7 +12,9 @@
     "set",
     "cases",
     "passed",
-    "split_ok"
+    "split_ok",
+    "kinds_pass",
+    "blocking_pass"
   ],
   "properties": {
     "schema": {
@@ -102,6 +104,7 @@
                 "credential_missing",
                 "engine_version",
                 "engine_failed",
+                "no_answer",
                 "engine_timeout",
                 "task_too_large",
                 "rubric_unreadable",
@@ -129,6 +132,20 @@
     "passed": {
       "type": "integer",
       "minimum": 0
+    },
+    "blocking_pass": {
+      "description": "Whether every case that expects a blocking Finding passed (decision 0120): one word, never how many. Null where a case was not read or its answer is no kind.",
+      "type": ["boolean", "null"]
+    },
+    "kinds_pass": {
+      "description": "Whether at least the bar of each kind passed (decision 0120): one word for each, never how many. Null where a case was not read or its answer is no kind.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["finding", "met"],
+      "properties": {
+        "finding": { "type": "boolean" },
+        "met": { "type": "boolean" }
+      }
     },
     "split_ok": {
       "type": [

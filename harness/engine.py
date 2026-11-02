@@ -13,7 +13,8 @@ that trial hardened it:
   to what the Engine may write and `effects` narrowed to the Task's `permitted_effects` (decision 0038).
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
 never kept, returned or logged. An answer that does not validate is no Result: the Harness writes the whole Result
-itself, `failed`, `result_invalid`, with empty lists and `usage`. The model and the session are named before the call,
+itself, `failed`, `result_invalid`, with empty lists and `usage`; a CLI that exited 0 with no answer to hold to the schema
+is `no_answer`. The model and the session are named before the call,
 so `usage` names both even when the CLI never answers. `call`, `clock` and `session` are given, so nothing here reads a
 clock or starts a process but through them.
 """
@@ -184,8 +185,9 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     if reason is not None:
         return failed(task, reason, usage)
     found = said.get("structured_output") if isinstance(said, dict) else None
+    # A CLI that exited 0 and gave no answer to hold to a schema is told from an answer that fails it (decision 0121).
     if not isinstance(found, dict):
-        return failed(task, "result_invalid", usage)
+        return failed(task, "no_answer", usage)
     result = dict(found, release=task["release"], usage=usage)
     # Held to the schema the CLI was handed, so an Effect the Task does not permit is no Result; then to result/1 whole.
     if (validate(found, handed(task), schemas=shared.SCHEMAS) or shared.errors(result, "result")

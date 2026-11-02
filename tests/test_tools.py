@@ -5778,7 +5778,7 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
             # A scratch directory nothing can be written into: a failed mint must write nothing, not even there.
             (self.folder / "bin" / "mktemp").write_text('#!/bin/sh\nmade=$(/usr/bin/mktemp "$@") && chmod 500 "$made" && echo "$made"\n')
             (self.folder / "bin" / "mktemp").chmod(0o755)
-        ran = subprocess.Popen(["sh", str(script or self.SCRIPT), str(self.out), *(args or self.keys)], stdout=subprocess.PIPE,
+        ran = subprocess.Popen([SIGNAL_SHELL, str(script or self.SCRIPT), str(self.out), *(args or self.keys)], stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=str(self.folder),
                                env={"PATH": "%s:%s" % (self.folder / "bin", os.environ["PATH"]), "HOME": str(self.folder),
                                     "LANG": "C", "TMPDIR": str(self.folder / "tmp")}, start_new_session=True)
@@ -9254,6 +9254,46 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertFalse((wrong / "args").exists(), "the agent was not asked")
 
 
+# A shell that a signal ends without its EXIT trap, so a test of a script's signal trap can tell the trap's work from the
+# shell's. dash is one, which is `sh` on the runners and at /bin/dash on a Mac. A Mac's `sh` is bash, which runs the EXIT trap
+# all the same, so there a script with no signal trap passes (issue 458).
+SIGNAL_SHELL = shutil.which("dash") or "sh"
+
+
+class SignalTraps(unittest.TestCase):
+    def test_the_signal_tests_shell_leaves_an_exit_trap_unrun(self):  # issue 458
+        if shutil.which("dash") is None:
+            self.skipTest("no dash here")
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (folder / "a.sh").write_text("trap 'echo ran' EXIT\necho up\nread x\n")
+        running = subprocess.Popen([SIGNAL_SHELL, str(folder / "a.sh")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.assertEqual(running.stdout.readline(), "up\n")
+        running.terminate()
+        out, _ = running.communicate(timeout=60)
+        self.assertEqual(out, "")
+        # On the runners, `sh` is such a shell too, which is why these tests never needed this there.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            running = subprocess.Popen(["sh", str(folder / "a.sh")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            self.assertEqual(running.stdout.readline(), "up\n")
+            running.terminate()
+            self.assertEqual(running.communicate(timeout=60)[0], "")
+
+    def test_every_script_turns_a_signal_into_its_exit(self):  # issue 458
+        # A script's EXIT trap is what revokes a live token or removes its scratch. Under sh, some shells do not run it on a
+        # signal, so one line, the same in each, stands right after it and fails the run. A bash script keeps its own: bash runs
+        # the EXIT trap on a signal it has no trap for, at once, and one on `set -o pipefail` does not run under dash at all.
+        lines_of = {"#!/bin/sh": "trap 'exit 1' HUP INT TERM", "#!/usr/bin/env bash": "trap 'exit 130' INT TERM"}
+        scripts = sorted((ROOT / "tools").glob("*.sh"))
+        self.assertGreaterEqual(len(scripts), 17)
+        for script in scripts:
+            lines = script.read_text().splitlines()
+            traps = [line for line in lines if line.startswith("trap ")]
+            self.assertEqual(len(traps), 2, script.name)
+            self.assertRegex(traps[0], r"^trap \S.* EXIT$", script.name)
+            self.assertEqual(traps[1], lines_of[lines[0]], script.name)
+            self.assertEqual(lines[lines.index(traps[0]) + 1], traps[1], script.name)
+
+
 class ReaderTrialScript(unittest.TestCase):
     """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
     refusal before anything is minted, two tokens each narrowed to one permission on the canary alone, every read made
@@ -9471,7 +9511,7 @@ esac
         held_r, held_w = os.pipe()
         (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
-        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
                                    cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                                    pass_fds=(told_w, held_r))
         os.close(told_w)
