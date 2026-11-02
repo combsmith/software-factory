@@ -11093,12 +11093,16 @@ MUTANTS = ISSUE + [
      "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
     ("the drift script's clean-up leaves a signal to its shell", 'tools/environments_drift.sh',
      "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
-    ('a hangup is left to the shell', 'tools/trial_as_app.sh',
-     "trap 'exit 130' HUP INT TERM\n", "trap 'exit 130' INT TERM\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
-    ("the clean-up's own traps leave a hangup on", 'tools/trial_as_app.sh',
-     'trap - EXIT HUP INT TERM\n', 'trap - EXIT INT TERM\n', ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
     ('the signal tests use a shell that runs an EXIT trap all the same', 'tests/test_tools.py',
      'SIGNAL_SHELL = shutil.which("dash") or "sh"\n', 'SIGNAL_SHELL = shutil.which("bash") or "sh"\n', ('tests.test_tools.SignalTraps.test_the_signal_tests_shell_leaves_an_exit_trap_unrun',)),
+    ('a signal ends a drift script as if it had passed', 'tools/environments_drift.sh',
+     "trap 'exit 1' HUP INT TERM\n", "trap 'exit 0' HUP INT TERM\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
+    ('a signal ends the App trial as if it had passed', 'tools/trial_as_app.sh',
+     "trap 'exit 130' INT TERM\n", "trap 'exit 0' INT TERM\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
+    ('a hangup is then ignored', 'tools/trial_p8_cost.sh',
+     "trap 'exit 1' HUP INT TERM\n", "trap 'exit 1' HUP INT TERM\ntrap '' HUP\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
+    ('P-39 leaves its token live on a signal', 'tools/trial_p39_reach.sh',
+     "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.ReachScript.test_a_stop_with_a_token_live_revokes_it',)),
 ]
 
 

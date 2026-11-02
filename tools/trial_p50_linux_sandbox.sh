@@ -100,7 +100,7 @@ finish() {
     rm -f "$outside"
 }
 trap finish EXIT
-trap 'exit 130' HUP INT TERM
+trap 'exit 130' INT TERM
 
 # The stub, on a port of its own, which it prints once it listens; it logs to stub.log where it is started, and is read
 # through a pipe, never polled for.

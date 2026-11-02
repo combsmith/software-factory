@@ -175,7 +175,7 @@ print(said)' "$1" "$2" "$3" "$APP"
 # Revoke the token first, whatever happened; then redact what is left and gather the exchanges.
 finish() {
     status=$?
-    trap - EXIT HUP INT TERM
+    trap - EXIT INT TERM
     set +e
     if [ -n "$token" ]; then
         as_installation DELETE installation/token
@@ -218,7 +218,7 @@ json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), 
     exit "$status"
 }
 trap finish EXIT
-trap 'exit 130' HUP INT TERM
+trap 'exit 130' INT TERM
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\n'; }
 
