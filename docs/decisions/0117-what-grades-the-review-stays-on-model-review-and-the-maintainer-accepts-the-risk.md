@@ -1,4 +1,4 @@
-# 0110. What grades the review stays on model review, and the Maintainer accepts the risk
+# 0117. What grades the review stays on model review, and the Maintainer accepts the risk
 
 Status: accepted. The Maintainer's ruling of 2026-11-01, as the Factory Builder relayed it, on "Evals: the scorer and the set are no input of the review, so a change to what grades it needs no person" (issue 471).
 
