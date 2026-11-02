@@ -1,4 +1,4 @@
-# 0118. Each factory environment's deployment branches are read by hand, and anything but `main` alone is drift
+# 0119. Each factory environment's deployment branches are read by hand, and anything but `main` alone is drift
 
 Status: accepted. On "Each factory environment's deployment branches are read at run time" (issue 463), found by the security read of the release App's pull request. It names the live read that `docs/decisions/0114-the-release-app-is-in-the-data-and-alone-holds-workflows.md` says is needed.
 

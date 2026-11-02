@@ -30,5 +30,5 @@ other four are, the first cut waits on nothing of this file.
 | A Role's manifest may not name it | `tests/test_tools.py::test_a_role_writes_through_no_app_that_is_no_roles` |
 | What GitHub registered, installed and reached for it agrees with the data | `tests/test_tools.py::test_the_data_is_held_to_what_github_granted_each_app` |
 | The reach script reads the Apps it is named, and refuses before anything is minted | `tests/test_tools.py::test_only_the_apps_named_are_read_and_each_refusal_comes_before_anything_is_minted` |
-| `factory-release`'s deployment branches, this record's row "What this opens", are read live, by hand, and anything but `main` alone is drift (decision 0118) | `tests/test_tools.py::test_a_deployment_policy_other_than_main_alone_is_drift` |
+| `factory-release`'s deployment branches, this record's row "What this opens", are read live, by hand, and anything but `main` alone is drift (decision 0119) | `tests/test_tools.py::test_a_deployment_policy_other_than_main_alone_is_drift` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
