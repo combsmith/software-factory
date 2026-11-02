@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import (derive, in_progress, moved_at, overdue, run_deferral, runs_on, since_writer, unnamed_past,
-                           unnamed_within)
+from kernel.derive import (derive, hands_off, in_progress, incomplete, moved_at, overdue, run_deferral, runs_on, since_writer,
+                           unnamed_past, unnamed_within, unreadable_labels)
 
 SCHEMA = "decision/1"
 
@@ -23,6 +23,13 @@ NEEDS_YOU_REASONS = frozenset({
     "contract_not_approved", "contract_changed", "acceptance_reporters_unreadable",
     "run_unreadable", "model_lens_input_needs_person",
 })
+
+
+def left_alone(facts: dict, config: dict) -> bool:
+    """Whether the Factory is to write nothing on this pull request for a person's sake, whatever else is true of it: hands-off
+    binds, which `derive` reads only after a draft or an incomplete read, or the label events cannot be read whole, and then
+    nothing says a person did not place it. A label no person placed is a Hold, and is not this."""
+    return "timeline" in incomplete(facts) or unreadable_labels(facts, config) or hands_off(facts, config)
 
 
 def _attention(state, reason, working: bool) -> str:

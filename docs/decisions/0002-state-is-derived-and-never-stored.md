@@ -30,4 +30,4 @@ disagreed with GitHub. If a pass is lost, the next one reaches the same answer.
 | No decision reads the control room: the Kernel is given facts, run records, context, configuration and the time, and nothing else | `tests/test_decide.py::test_admission_is_given_facts_and_never_an_event` |
 | Every pass records the facts it read and the Decisions it made, so that any of them can be replayed | `tests/test_controller.py::test_the_pass_record_holds_what_the_kernel_was_given_and_replays_it`; the upload is waiting on `.github/workflows/poller.yml` |
 | A view rebuilt from GitHub equals the view updated pass by pass | `tests/test_controller.py::test_a_view_rebuilt_from_the_records_equals_the_view_written_pass_by_pass` |
-| The status on a Work item is rewritten only when the decision changes | `tests/test_effects.py::test_the_status_the_dequeue_and_the_tracking_issue_are_written_as_trials_recorded`, not held yet |
+| The status on a Work item is rewritten only when the decision changes | `tests/test_effects.py::test_the_status_is_written_only_when_the_decision_changes` |

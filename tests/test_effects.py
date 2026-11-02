@@ -7,6 +7,7 @@ import copy
 import json
 import os
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -48,8 +49,7 @@ def answered(path: str, body: dict, status: int = 204) -> dict:
     return found
 
 
-# A stand-in for the Controller's bot account: the trial that records its id is still to run, and until it does the
-# configuration holds none and no tracking issue is written (#193's ruling 8).
+# A stand-in for the Controller's bot account, so that no test here depends on the one the configuration holds.
 BOT = {"id": 1000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"}
 
 
@@ -85,6 +85,10 @@ class Plan(unittest.TestCase):
         self.assertEqual([w["name"] for w in got["writes"][1:3]], [d["name"] for d in out()["dispatch"]])
         quiet = passed(reads(pulls=[pr(7)]))
         self.assertEqual([w["type"] for w in writes_.plan(quiet)["writes"]], ["dispatch_run", "tracking_issue"])
+        # Each status goes after the dispatches, in item order, and before the tracking issue, which can say one failed.
+        both = passed(reads(pulls=[dict(pr(7), head="a" * 40), dict(pr(8), head="b" * 40)]))
+        self.assertEqual([(w["type"], (w["item"] or {}).get("number")) for w in writes_.plan(both)["writes"]],
+                         [("dispatch_run", 7), ("dispatch_run", 8), ("status_on_item", 7), ("status_on_item", 8), ("tracking_issue", None)])
 
 
 class Effects(unittest.TestCase):
@@ -794,6 +798,358 @@ class Tracking(unittest.TestCase):
         self.assertTrue(found)
 
 
+class Status(unittest.TestCase):
+    """The status on the item (#193's ruling 6, P-12): one check run by the Controller's App on each head, edited in place,
+    written only when the Decision changed, and never passing or failing."""
+    HEAD = "fc6f2b03e078f5d8de03dfaa142afbd00dec35ea"
+    APP = 5364130
+    STATUS = {"name": "factory", "app_id": APP, "feed": json.loads((ROOT / "config" / "feed.json").read_text()), "run_id": "777"}
+
+    class Asked:
+        """Each request held to the Controller's permits and answered in turn, as P-12's answers stand."""
+
+        def __init__(self, cfg, *answers):
+            self.answers, self.sent = list(answers), []
+            self.allowed = effects.Allowed(self, *effects.controller_permits(cfg, "combsmith", ["combsmith/software-factory"]))
+
+        def send(self, req):
+            self.sent.append(req)
+            answer = self.answers.pop(0)
+            if answer is None:
+                raise github.Unanswered("no answer")
+            return answer
+
+    def run_on(self, **change):
+        """A status check run as P-12 read one, with the node id the port's other writes read back."""
+        base = json.loads((ROOT / "trials" / "P-12.json").read_text())["exchanges"][2]["response"]["body"]
+        return dict(base, name="factory", head_sha=self.HEAD, app={"id": self.APP, "slug": "combsmith-sf-controller"},
+                    node_id="CR_kw", **change)
+
+    def listing(self, *runs, total=None):
+        return {"status": 200, "headers": {}, "body": {"total_count": len(runs) if total is None else total, "check_runs": list(runs)}}
+
+    def record(self, **decision):
+        o = passed(reads(pulls=[pr(7)]))
+        entry = o["record"]["pull_requests"][0]
+        entry["head"] = self.HEAD
+        entry["decision"] = dict(entry["decision"], **decision)
+        return o
+
+    def write(self, o, *answers, cfg=None, status=None):
+        cfg = cfg or controller()
+        asked = self.Asked(cfg, *answers)
+        entry = o["record"]["pull_requests"][0]
+        got = effects.write_status(asked.allowed, entry, o["record"], cfg, status or self.STATUS)
+        return got, asked.sent
+
+    def test_the_status_is_written_only_when_the_decision_changes(self):
+        o = self.record()
+        decision = o["record"]["pull_requests"][0]["decision"]
+        want = effects.status_id(decision)
+        self.assertTrue(re.fullmatch(r"d[0-9a-f]{32}", want))
+        # Any change to the Decision, its evidence among it, changes the key; the order of its keys does not.
+        for name in decision:
+            self.assertNotEqual(effects.status_id(dict(decision, **{name: ["changed"]})), want, name)
+        self.assertEqual(effects.status_id(dict(reversed(list(decision.items())))), want)
+        # None on the head: one is made, on that head, by name.
+        got, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+        self.assertEqual(got, ("applied", "CR_kw", None, True))
+        self.assertEqual([r["method"] for r in sent], ["GET", "POST"])
+        self.assertEqual(sent[0]["path"], "/repos/combsmith/software-factory/commits/%s/check-runs?check_name=factory&app_id=%d&filter=all&per_page=100" % (self.HEAD, self.APP))
+        self.assertEqual(sent[1]["path"], "/repos/combsmith/software-factory/check-runs")
+        self.assertEqual((sent[1]["body"]["name"], sent[1]["body"]["head_sha"], sent[1]["body"]["external_id"]), ("factory", self.HEAD, want))
+        # One carrying this Decision: nothing is written.
+        got, sent = self.write(o, self.listing(self.run_on(external_id=want)))
+        self.assertEqual(got, ("already_applied", "CR_kw", None, False))
+        self.assertEqual(len(sent), 1)
+        # One carrying another: it is edited in place, the whole output sent, and it stays one run.
+        old = self.run_on(external_id="d" + "a" * 32)
+        got, sent = self.write(o, self.listing(old), {"status": 200, "headers": {}, "body": dict(old, external_id=want)})
+        self.assertEqual(got, ("applied", "CR_kw", None, True))
+        self.assertEqual((sent[1]["method"], sent[1]["path"]), ("PATCH", "/repos/combsmith/software-factory/check-runs/%d" % old["id"]))
+        self.assertEqual(sent[1]["body"]["external_id"], want)
+        self.assertEqual(set(sent[1]["body"]["output"]), {"title", "summary"})
+        # P-12: created twice, the later of the two is what GitHub shows. It alone is edited, and it alone says the Decision
+        # is written: an older run carrying this Decision, the later another, is written again.
+        newer = dict(old, id=old["id"] + 1)
+        _, sent = self.write(o, self.listing(old, newer), {"status": 200, "headers": {}, "body": dict(newer, external_id=want)})
+        self.assertEqual(sent[1]["path"], "/repos/combsmith/software-factory/check-runs/%d" % newer["id"])
+        self.assertEqual(self.write(o, self.listing(old, dict(newer, external_id=want)))[0][0], "already_applied")
+        _, sent = self.write(o, self.listing(dict(old, external_id=want), newer), {"status": 200, "headers": {}, "body": dict(newer, external_id=want)})
+        self.assertEqual((sent[1]["method"], sent[1]["path"]), ("PATCH", "/repos/combsmith/software-factory/check-runs/%d" % newer["id"]))
+        # One carrying this Decision but not neutral and finished is not the status as written: it is edited back.
+        for change in ({"status": "in_progress"}, {"conclusion": "success"}):
+            got, sent = self.write(o, self.listing(dict(self.run_on(external_id=want), **change)),
+                                   {"status": 200, "headers": {}, "body": self.run_on(external_id=want)})
+            self.assertEqual((got[0], sent[1]["method"]), ("applied", "PATCH"), change)
+        # Another App's run of the name, or another name, is not the status: one is made.
+        for other in (dict(old, app={"id": 9, "slug": "x"}, external_id=want), dict(old, name="other", external_id=want)):
+            got, sent = self.write(o, self.listing(other), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+            self.assertEqual((got[0], sent[1]["method"]), ("applied", "POST"), other["name"])
+
+    def test_what_is_not_read_back_fails_and_says_so(self):
+        o = self.record()
+        want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
+        made = lambda **c: {"status": 201, "headers": {}, "body": dict(self.run_on(external_id=want), **c)}
+        # P-12: GitHub answers a 200 that may not hold what was sent, so each field is read back.
+        for change in ({"external_id": "x"}, {"head_sha": "0" * 40}, {"name": "other"}, {"app": {"id": 9}}, {"app": None},
+                       {"status": "queued"}, {"conclusion": "success"}, {"node_id": None}, {"node_id": ""}, {"id": "1"},
+                       {"node_id": "CR kw"}, {"node_id": "C" * 101}):
+            got, _ = self.write(o, self.listing(), made(**change))
+            self.assertEqual(got, ("failed", None, "not_read_back", True), change)
+        # An edit that answers of another run.
+        old = self.run_on(external_id="d" + "a" * 32)
+        got, _ = self.write(o, self.listing(old), {"status": 200, "headers": {}, "body": dict(old, id=old["id"] + 1, external_id=want)})
+        self.assertEqual(got, ("failed", None, "not_read_back", True))
+        # One carrying this Decision with a node id `written/1` cannot hold cannot be matched by reconciliation.
+        for node in (None, "CR kw", "C" * 101):
+            self.assertEqual(self.write(o, self.listing(dict(self.run_on(external_id=want), node_id=node)))[0], ("failed", None, "not_read_back", False), node)
+        # A list that cannot be read writes nothing.
+        for bad in (self.listing(total=2), {"status": 500, "headers": {}, "body": None}, {"status": 200, "headers": {}, "body": []},
+                    self.listing(*[self.run_on(external_id="x")] * 100)):
+            got, sent = self.write(o, bad)
+            self.assertEqual((got[0], got[2], len(sent)), ("failed", "checks_unreadable", 1))
+        self.assertEqual(self.write(o, None)[0][2], "checks_unreadable")
+        # A write GitHub did not take was still sent.
+        self.assertEqual(self.write(o, self.listing(), {"status": 422, "headers": {}, "body": {}})[0], ("failed", None, "write_refused", True))
+        self.assertEqual(self.write(o, self.listing(), {"status": 500, "headers": {}, "body": {}})[0], ("failed", None, "write_unanswered", True))
+        self.assertEqual(self.write(o, self.listing(), None)[0], ("failed", None, "write_unanswered", True))
+        # An edit answered as a create was not taken, and the other way about.
+        self.assertEqual(self.write(o, self.listing(), {"status": 200, "headers": {}, "body": self.run_on(external_id=want)})[0][0], "failed")
+        self.assertEqual(self.write(o, self.listing(self.run_on(external_id="x")), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})[0][0], "failed")
+
+    def test_the_status_neither_passes_nor_fails(self):
+        o = self.record()
+        want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
+        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+        self.assertEqual((sent[1]["body"]["status"], sent[1]["body"]["conclusion"]), ("completed", "neutral"))
+        old = self.run_on(external_id="x")
+        _, sent = self.write(o, self.listing(old), {"status": 200, "headers": {}, "body": dict(old, external_id=want)})
+        self.assertEqual((sent[1]["body"]["status"], sent[1]["body"]["conclusion"]), ("completed", "neutral"))
+        # The Controller's token may send no other, and no other field: it never reaches GitHub.
+        cfg = controller()
+        asked = self.Asked(cfg, self.listing())
+        for body in (dict(sent[1]["body"], conclusion="success"), dict(sent[1]["body"], status="queued"), dict(sent[1]["body"], annotations=[])):
+            with self.assertRaises(github.Unanswered):
+                asked.allowed.send({"method": "PATCH", "path": "/repos/combsmith/software-factory/check-runs/1", "body": body})
+        for body in ({"status": "completed", "conclusion": "neutral", "external_id": "d", "output": {}},):
+            with self.assertRaises(github.Unanswered):
+                asked.allowed.send({"method": "POST", "path": "/repos/combsmith/software-factory/check-runs", "body": body})
+        # Nor on another repo.
+        with self.assertRaises(github.Unanswered):
+            asked.allowed.send({"method": "PATCH", "path": "/repos/other/repo/check-runs/1", "body": sent[1]["body"]})
+        # Nor anything but the status's own values, whichever the caller hands it: another name would speak for a Lens.
+        edit = dict(sent[1]["body"], details_url="https://github.com/combsmith/software-factory/actions/runs/777", external_id=want)
+        ok = asked.allowed
+        asked.answers[:] = [self.listing(), self.listing()]
+        made = dict(edit, name="factory", head_sha=self.HEAD)
+        ok.send({"method": "PATCH", "path": "/repos/combsmith/software-factory/check-runs/1", "body": edit})
+        ok.send({"method": "POST", "path": "/repos/combsmith/software-factory/check-runs", "body": made})
+        wrong = [dict(edit, external_id="anything"), dict(edit, external_id=None), dict(edit, output={"title": "t", "summary": "s", "annotations": []}),
+                 dict(edit, output={"title": "t"}), dict(edit, output="t"), dict(edit, output={"title": 1, "summary": "s"}),
+                 dict(edit, output={"title": "t", "summary": 1}), dict(edit, output={"title": "t" * 256, "summary": "s"}),
+                 dict(edit, output={"title": "t", "summary": "s" * 4097}), dict(edit, details_url="https://example.com/"),
+                 dict(edit, details_url="https://github.com/other/repo/actions/runs/777"), dict(edit, details_url=7)]
+        for body in wrong:
+            with self.assertRaises(github.Unanswered):
+                ok.send({"method": "PATCH", "path": "/repos/combsmith/software-factory/check-runs/1", "body": body})
+        for body in (dict(made, name="verify"), dict(made, name=None), dict(made, head_sha="not-a-commit"), dict(made, head_sha=None)):
+            with self.assertRaises(github.Unanswered):
+                ok.send({"method": "POST", "path": "/repos/combsmith/software-factory/check-runs", "body": body})
+
+    def test_the_status_carries_codes_and_identifiers_alone(self):
+        o = self.record(evidence=["fine:one", "a title with spaces", "a" * 201, 7, "x\n"])
+        d = o["record"]["pull_requests"][0]["decision"]
+        output = effects.status_output(d, o["record"], self.STATUS["feed"])
+        self.assertEqual(output["title"], "%s: %s" % (d["state"], d["reason"]))
+        lines = output["summary"].split("\n")
+        for shown in ("attention: %s" % d["attention"], "outcome: %s" % d["outcome"], "action: null",
+                      "next_actor: %s" % effects.feed_.next_actor(d, self.STATUS["feed"]), "content_id: null",
+                      "pass: %s" % o["record"]["pass"], "release: %s" % o["record"]["release"], "evidence: fine:one", "and 4 not shown"):
+            self.assertIn(shown, lines, shown)
+        self.assertNotIn("a title with spaces", output["summary"])
+        # The Kernel's own forms are shown: a Lens's from a workflow's path, an item, an account.
+        for form in ("verify:from_workflow:.github/workflows/x.yml", "repo#7", "a@b"):
+            self.assertIn("evidence: %s" % form, effects.status_output(dict(d, evidence=[form]), o["record"], self.STATUS["feed"])["summary"])
+        # What a Decision holds as null is shown as the Decision's schema says it, never as Python does.
+        empty = effects.status_output(dict(d, state=None, action=None, content_id=None, attention=None, outcome=None, reason=None), o["record"], self.STATUS["feed"])
+        self.assertEqual(empty["title"], "null: null")
+        self.assertNotIn("None", empty["summary"])
+        self.assertIn("action: null", empty["summary"].split("\n"))
+        self.assertNotIn("a" * 201, output["summary"])
+        # At most twenty evidence items, then how many more; no more than four KiB whatever they are.
+        many = effects.status_output(dict(d, evidence=["e%d" % i for i in range(25)]), o["record"], self.STATUS["feed"])["summary"]
+        self.assertIn("evidence: e19", many)
+        self.assertNotIn("evidence: e20", many)
+        self.assertIn("and 5 more", many)
+        long_ = effects.status_output(dict(d, evidence=[("%02d" % i) + "e" * 198 for i in range(20)]), o["record"], self.STATUS["feed"])["summary"]
+        self.assertLessEqual(len(long_), effects.SUMMARY_MOST)
+        self.assertIn("more", long_)
+        # Whichever length the evidence stops at, the closing lines still fit.
+        for first in range(1, 201):
+            evidence = ["e" * first] + ["%02d" % i + "e" * 198 for i in range(30)] + ["not a code"]
+            got = effects.status_output(dict(d, evidence=evidence), o["record"], self.STATUS["feed"])["summary"]
+            self.assertLessEqual(len(got), effects.SUMMARY_MOST, first)
+        # The pass's run is where it points; with none that can be read it names none.
+        want = effects.status_id(d)
+        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+        self.assertEqual(sent[1]["body"]["details_url"], "https://github.com/combsmith/software-factory/actions/runs/777")
+        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)}, status=dict(self.STATUS, run_id=None))
+        self.assertNotIn("details_url", sent[1]["body"])
+
+    def test_no_status_is_written_on_an_item_left_alone(self):
+        def entry(**facts):
+            return passed(reads(pulls=[dict(pr(7, **facts), head=self.HEAD)]))
+
+        def kinds(o):
+            return [w["type"] for w in writes_.plan(o)["writes"]]
+        base = entry()
+        self.assertEqual(kinds(base).count("status_on_item"), 1)
+        self.assertEqual(base["record"]["pull_requests"][0]["head"], self.HEAD)
+        self.assertEqual([(w["type"], w["item"], w["run"], w["name"], w["action"]) for w in writes_.plan(base)["writes"] if w["type"] != "dispatch_successor"],
+                         effects.expected(base["record"], OWNER))
+        person = support.labelled("factory:hands-off")
+        whole = dict(support.facts()["complete"])
+        left = {
+            "hands-off": {"label_events": [person]},
+            # The Kernel reads a draft, and an incomplete read, before hands-off: a person's label still holds.
+            "hands-off on a draft": {"label_events": [person], "is_draft": True},
+            "hands-off with the checks not read": {"label_events": [person], "complete": dict(whole, checks=False)},
+            "not served": {"targets_protected": False},
+            # The Kernel reads an incomplete read before the base, too.
+            "not served with the checks not read": {"targets_protected": False, "complete": dict(whole, checks=False)},
+            "merged": {"state": "merged"},
+            "closed": {"state": "closed"},
+            # With the label events not read whole, nothing says a person did not.
+            "timeline not read": {"complete": dict(whole, timeline=False)},
+            "an event not read": {"label_events": [dict(person, by={"kind": "human", "name": "someone[bot]", "can_write": True})]},
+        }
+        for name, facts in left.items():
+            o = entry(**facts)
+            self.assertNotIn("head", o["record"]["pull_requests"][0], name)
+            self.assertNotIn("status_on_item", kinds(o), name)
+            self.assertEqual(effects.status_entries(o["record"]), [], name)
+        # A draft, and an item whose other lists were not read, do get one: it says why nothing moves.
+        for name, facts in {"draft": {"is_draft": True}, "checks not read": {"complete": dict(whole, checks=False)}}.items():
+            self.assertEqual(kinds(entry(**facts)).count("status_on_item"), 1, name)
+        # Hands-off a person did not place is read as a Hold, and a Hold is told.
+        o = entry(label_events=[support.labelled("factory:hands-off", by=support.QUEUE_APP)])
+        self.assertEqual(o["record"]["pull_requests"][0]["decision"]["reason"], "human_hold")
+        self.assertEqual(kinds(o).count("status_on_item"), 1)
+        # With no head read, none: nothing says which content it would describe.
+        self.assertEqual(effects.status_entries(passed(reads(pulls=[pr(7)]))["record"]), [])
+        # An issue has no commit, and the issue Lifecycle's labels are its status.
+        self.assertEqual(effects.status_entries({"pull_requests": [], "issues": [{"decision": {}}]}), [])
+
+    def test_a_pass_carries_the_head_read_beside_the_facts_and_only_a_commit(self):
+        for head, want in (("a" * 40, "a" * 40), ("A" * 40, None), ("a" * 39, None), ("None", None), (None, None)):
+            pull = dict(pr(7), head=head)
+            entry = passed(reads(pulls=[pull]))["record"]["pull_requests"][0]
+            self.assertEqual(entry.get("head"), want, head)
+        self.assertNotIn("head", passed(reads(pulls=[pr(7)]))["record"]["pull_requests"][0])
+
+    def test_the_status_reads_p12s_answers_as_they_stand(self):
+        # P-12's trial named its run `status_on_item`, and the configuration names it `factory`; and it recorded no node id, as
+        # the fixture's bodies list none, where the port's key is the id reconciliation reads. Both are varied, and no other.
+        exchanges = json.loads((ROOT / "trials" / "P-12.json").read_text())["exchanges"]
+        made = [e for e in exchanges if e["request"]["call"].startswith("POST") and e["request"]["call"].endswith("/check-runs")][0]
+        all_two = [e for e in exchanges if "filter=all" in e["request"]["call"] and (e["response"]["body"] or {}).get("total_count") == 2][0]
+        runs = [dict(r, node_id="CR_%d" % r["id"]) for r in all_two["response"]["body"]["check_runs"]]
+        later = max(runs, key=lambda r: r["id"])
+        runs = [dict(r, name="factory") for r in runs]
+        later = max(runs, key=lambda r: r["id"])
+        o = self.record()
+        want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
+        got, sent = self.write(o, self.listing(*runs), {"status": 200, "headers": {}, "body": dict(later, external_id=want)})
+        self.assertEqual(got, ("applied", later["node_id"], None, True))
+        self.assertEqual(sent[1]["path"], "/repos/combsmith/software-factory/check-runs/%d" % later["id"])
+        # What is sent is what the trial sent, and details_url beside it.
+        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": dict(runs[0], external_id=want)})
+        self.assertLessEqual(set(sent[1]["body"]) - {"details_url"}, set(made["request"]["body"]))
+        self.assertLessEqual(set(sent[1]["body"]["output"]), set(made["request"]["body"]["output"]))
+
+    def test_the_step_gives_the_status_its_name_its_app_and_its_run(self):
+        class Silent:
+            def send(self, req):
+                raise github.Unanswered("no answer")
+        o = self.record()
+        given = []
+        original = effects.apply
+
+        def spy(writes, record, transports, config, owner, **rest):
+            given.append(rest["status"])
+            return original(writes, record, transports, config, owner, **rest)
+        effects.apply = spy
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                (pathlib.Path(tmp) / "pass.json").write_text(json.dumps(o["record"]))
+                (pathlib.Path(tmp) / "writes.json").write_text(json.dumps(writes_.plan(o)))
+                for run_id in ("777", "7 7", "../x"):
+                    effects.main(["pass.json", "writes.json", "."], environ={"GITHUB_RUN_ID": run_id}, base=tmp,
+                                 mint=lambda environ, config: (Silent(), lambda: True))
+                effects.main(["pass.json", "writes.json", "."], environ={}, base=tmp, mint=lambda environ, config: (Silent(), lambda: True))
+        finally:
+            effects.apply = original
+        self.assertEqual([g["run_id"] for g in given], ["777", None, None, None])
+        self.assertEqual(given[0]["name"], "factory")
+        self.assertEqual(given[0]["app_id"], 5364130)
+        self.assertEqual(given[0]["feed"], self.STATUS["feed"])
+
+    def apply(self, o, cfg, *answers, pause=None, status=None, none=False):
+        plan = writes_.plan(o)
+        asked = self.Asked(cfg, *answers)
+        got = effects.apply(plan, o["record"], {"workflow": None, "controller": None if none else asked.allowed}, cfg, OWNER,
+                            pause=clear(plan, cfg) if pause is None else pause, issues=[], status=status or self.STATUS)
+        return {w["type"]: w for w in got["writes"]}, asked.sent
+
+    def test_a_status_is_written_under_a_pause_and_a_pass_writes_at_most_its_bound(self):
+        cfg = controller()
+        o = self.record()
+        want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
+        made = {"status": 201, "headers": {}, "body": self.run_on(external_id=want)}
+        issue = {"status": 201, "headers": {}, "body": {"number": 1, "assignees": [{"login": cfg["accounts"]["maintainer"]["login"]}]}}
+        got, sent = self.apply(o, cfg, self.listing(), made, issue)
+        self.assertEqual((got["status_on_item"]["state"], got["status_on_item"]["key"]), ("applied", "CR_kw"))
+        # A Pause stops an act; a status is how a person sees why nothing moves.
+        paused = {"org": "true", "repos": {"combsmith/software-factory": "false"}}
+        got, _ = self.apply(o, cfg, self.listing(), made, issue, pause=paused)
+        self.assertEqual(got["status_on_item"]["state"], "applied")
+        # No Controller's token: refused, and a fault of the pass's.
+        got, _ = self.apply(o, cfg, none=True)
+        self.assertEqual((got["status_on_item"]["state"], got["status_on_item"]["reason"]), ("refused", "no_credential"))
+        self.assertTrue(effects.failed({"writes": [got["status_on_item"]]}))
+        # With no account of what to write it with, none.
+        plan = writes_.plan(o)
+        done = effects.apply(plan, o["record"], {"workflow": None, "controller": self.Asked(cfg, issue).allowed}, cfg, OWNER, pause=clear(plan, cfg), issues=[])
+        self.assertEqual([w["reason"] for w in done["writes"] if w["type"] == "status_on_item"], ["no_credential"])
+        # At the bound the rest wait for the next pass, which is no fault; a status not written does not count.
+        two = passed(reads(pulls=[pr(7), pr(8), pr(9)]))
+        for e in two["record"]["pull_requests"]:
+            e["head"] = self.HEAD
+        wants = [effects.status_id(e["decision"]) for e in two["record"]["pull_requests"]]
+        bound = dict(cfg, max_status_writes=1)
+        plan = writes_.plan(two)
+        asked = self.Asked(bound, self.listing(self.run_on(external_id=wants[0])), self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=wants[1])}, issue)
+        done = effects.apply(plan, two["record"], {"workflow": None, "controller": asked.allowed}, bound, OWNER, pause=clear(plan, bound), issues=[], status=self.STATUS)
+        statuses = [(w["state"], w["reason"]) for w in done["writes"] if w["type"] == "status_on_item"]
+        self.assertEqual(statuses, [("already_applied", None), ("applied", None), ("refused", "status_bounded")])
+        self.assertFalse(effects.failed({"writes": [w for w in done["writes"] if w["type"] == "status_on_item"]}))
+        self.assertEqual(CONTROLLER["max_status_writes"], 50)
+        # A write GitHub limited still counts: the bound is on what is sent.
+        asked = self.Asked(bound, self.listing(), {"status": 429, "headers": {}, "body": {}}, issue)
+        done = effects.apply(plan, two["record"], {"workflow": None, "controller": asked.allowed}, bound, OWNER, pause=clear(plan, bound), issues=[], status=self.STATUS)
+        self.assertEqual([w["reason"] for w in done["writes"] if w["type"] == "status_on_item"][1:], ["status_bounded", "status_bounded"])
+        self.assertEqual([r["method"] for r in asked.sent], ["GET", "POST", "POST"])
+        # A token GitHub refuses ends the statuses, and sends no more of them. The tracking issue asks for itself: a 403 may
+        # be GitHub's limit, and an alert is not lost to one.
+        asked = self.Asked(cfg, {"status": 403, "headers": {}, "body": {}}, issue)
+        done = effects.apply(plan, two["record"], {"workflow": None, "controller": asked.allowed}, cfg, OWNER, pause=clear(plan, cfg), issues=[], status=self.STATUS)
+        statuses = [(w["state"], w["reason"]) for w in done["writes"] if w["type"] == "status_on_item"]
+        self.assertEqual(statuses, [("refused", "token_refused")] * 3)
+        self.assertEqual(len(asked.sent), 2)
+        self.assertEqual([w["state"] for w in done["writes"] if w["type"] == "tracking_issue"], ["sent"])
+
+
 class StatusFixture(unittest.TestCase):
     def test_the_status_check_run_stands_as_p12_saw_it(self):
         # trials/P-12.json (issue 454): what the status write rests on, with the Controller's own token.
@@ -846,10 +1202,9 @@ class Asked(unittest.TestCase):
 
     @pending
     def test_the_status_the_dequeue_and_the_tracking_issue_are_written_as_trials_recorded(self):
-        # P-12 asks the check run's writes, P-2 the dequeue by the Controller's App, and a trial still to be filed the
-        # tracking issue's; the port writes none of them until their fixtures land.
-        self.assertTrue(hasattr(effects, "status_on_item") and hasattr(effects, "dequeue")
-                        and hasattr(effects, "tracking_issue"))
+        # P-2 asks the dequeue by the Controller's App, and a trial still to be filed the tracking issue's; the port writes
+        # neither as a trial recorded until their fixtures land. P-12's status is held by the class Status.
+        self.assertTrue(hasattr(effects, "dequeue") and hasattr(effects, "tracking_issue"))
 
 
 if __name__ == "__main__":
