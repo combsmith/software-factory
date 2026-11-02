@@ -9584,6 +9584,35 @@ class Rulesets(unittest.TestCase):
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
 
+    def test_no_branch_may_stand_where_a_channels_tag_should(self):  # decision 0124
+        apps = (ROOT / "config" / "apps.json").read_text()
+
+        def run(rulesets):
+            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets),
+                                            "config/defaults.json": json.dumps(self.defaults), "config/apps.json": apps,
+                                            ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
+        name = check_rulesets.CHANNEL_BRANCHES
+        self.assertEqual(run(self.rulesets), [])
+        # It targets branches alone, so it cannot refuse the release App's tags.
+        self.assertEqual(self.rulesets["rulesets"][name]["target"], "branch")
+        self.assertTrue(all(ref.startswith("refs/heads/") for ref in self.rulesets["rulesets"][name]["include"]))
+        for why, change in (("off", {"enforcement": "disabled"}), ("no rules", {"rules": {}}),
+                            ("over tags", {"target": "tag"}), ("over nothing", {"include": []}),
+                            ("over another name", {"include": ["refs/heads/other/**/*"]})):
+            with self.subTest(why=why):
+                broken = copy.deepcopy(self.rulesets)
+                broken["rulesets"][name].update(change)
+                self.assertTrue(caught(run(broken), "the ruleset %s is not recorded" % name), why)
+        gone = copy.deepcopy(self.rulesets)
+        del gone["rulesets"][name]
+        self.assertTrue(caught(run(gone), "the ruleset %s is not recorded" % name))
+        for why, change in (("a bypass", {"bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]}),
+                            ("a name left out", {"exclude": ["refs/heads/factory/x"]})):
+            with self.subTest(why=why):
+                broken = copy.deepcopy(self.rulesets)
+                broken["rulesets"][name].update(change)
+                self.assertTrue(caught(run(broken), "%s lets someone bypass it" % name), why)
+
     def test_the_tag_rulesets_that_guard_every_key_are_held(self):  # decision 0115
         apps = (ROOT / "config" / "apps.json").read_text()
 

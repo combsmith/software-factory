@@ -404,6 +404,58 @@
               }
             }
           }
+        },
+        "factory channel branches": {
+          "title": "No branch stands where a Channel's tag should: `uses:` also resolves a branch, while no tag has that name",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "target",
+            "enforcement",
+            "include",
+            "exclude",
+            "bypass_actors",
+            "rules"
+          ],
+          "properties": {
+            "id": {
+              "description": "GitHub's id, once applied; null until it is read back, which tools/rulesets_drift.sh reports as drift.",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "target": {
+              "const": "branch"
+            },
+            "enforcement": {
+              "const": "active"
+            },
+            "include": {
+              "const": [
+                "refs/heads/factory/**/*"
+              ]
+            },
+            "exclude": {
+              "const": []
+            },
+            "bypass_actors": {
+              "const": []
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "creation"
+              ],
+              "properties": {
+                "creation": {
+                  "const": {}
+                }
+              }
+            }
+          }
         }
       }
     }
