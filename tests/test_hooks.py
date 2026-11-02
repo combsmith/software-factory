@@ -1487,24 +1487,39 @@ class Identity(unittest.TestCase):
             commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), spend, scopes=True, marked=True)
             return [said for _, said in identity._calls(commands, "/tmp", command, dict(os.environ), spend)[1] if said.startswith(script)]
 
+        # Each names a write to main, by the word it holds or by being gh's.
+        reads = ["pr view", "pr list", "pr checks", "pr diff", "pr status", "issue view", "issue list", "run view", "run list",
+                 "release view", "release list", "repo view", "api repos/o/r/rulesets/1 --jq .name"]
+        for read in reads:
+            for command in ("bash /tmp/x.sh; gh %s pr" % read, "gh %s; bash /tmp/x.sh" % read, 'bash /tmp/x.sh "$(gh %s)"' % read):
+                self.assertEqual(unseen(command), [], command)
+        for read in ("log", "status", "diff", "show", "rev-parse", "ls-remote", "ls-tree", "ls-files", "fetch", "grep", "merge-base", "rev-list"):
+            for command in ("git %s merge; bash /tmp/x.sh" % read, "bash /tmp/x.sh; git -C /tmp %s --x commit" % read, 'bash /tmp/x.sh $(git %s commit)' % read):
+                self.assertEqual(unseen(command), [], command)
         for command in ("bash /tmp/x.sh; gh pr view 80 --repo o/r --json reviews --jq '.reviews[].commit.oid'",
-                        "bash /tmp/x.sh; gh pr list --repo o/r --state merged; gh pr checks 1; gh pr diff 1; gh pr status",
-                        "bash /tmp/x.sh; gh issue view 1; gh issue list; gh run view 1; gh run list; gh release view v; gh release list; gh repo view",
                         "bash /tmp/x.sh; gh --repo o/r pr view 1",
-                        "bash /tmp/x.sh; gh api repos/o/r/rulesets/1 --jq .name",
                         "git log --format='%h commit' -1; bash /tmp/x.sh",
-                        "git -C /tmp status; git diff --stat; git show HEAD; git rev-parse HEAD; bash /tmp/x.sh",
-                        "git ls-remote origin refs/heads/merge; git ls-tree HEAD; git ls-files; git fetch -q origin main; bash /tmp/x.sh",
-                        "source /tmp/x.sh; git log -1",
+                        "state=$(gh pr view 1 --json state --jq .state); bash /tmp/x.sh \"$state\"",
+                        "for n in $(gh pr list --json number --jq '.[].number'); do bash /tmp/x.sh $n; done",
+                        "cat > /tmp/x.sh <<'E'\necho hi\nE\nbash /tmp/x.sh; gh pr view 1 --json state --jq .state",
+                        "bash <<'E'\necho hi\nE\ngh pr view 1",
                         "bash /tmp/x.sh # git push"):
             self.assertEqual(unseen(command), [], command)
         for command in ("bash /tmp/x.sh; git push origin main", "bash /tmp/x.sh; git commit -m x", "bash /tmp/x.sh; git log -1; git push",
                         "bash /tmp/x.sh; git add commit.txt",
+                        "M=push; bash /tmp/x.sh; git $M",
                         "bash /tmp/x.sh; gh pr merge 1", "bash /tmp/x.sh; gh pr create", "bash /tmp/x.sh; gh pr edit 1",
                         "bash /tmp/x.sh; gh api -X POST repos/o/r/x", "bash /tmp/x.sh; gh api repos/o/r/x -f a=b",
+                        "bash /tmp/x.sh; gh api repos/o/r/x -X \"$M\"", "bash /tmp/x.sh; gh api repos/o/r/x --method $M",
+                        "bash /tmp/x.sh; gh api repos/o/r/x -Fa=b", "bash /tmp/x.sh; gh api -fa=b repos/o/r/x", "bash /tmp/x.sh; gh api repos/o/r/x $FLAGS",
+                        "bash /tmp/x.sh; gh api repos/o/r/x --input /tmp/y", "bash /tmp/x.sh; gh api repos/o/r/x --raw-field a=b", "bash /tmp/x.sh; gh api repos/o/r/x --field a=b",
                         "bash /tmp/x.sh; gh alias set y 'pr merge'", "bash /tmp/x.sh; foo 'git push'", "bash /tmp/x.sh; git log $(git push)",
-                        "bash /tmp/x.sh; git log -1; echo \"$(git push)\"", "bash <<E\ngit push\nE", "bash /tmp/x.sh <<E\ngit -C /tmp commit\nE",
-                        "bash /tmp/x.sh; g''it push"):
+                        "bash /tmp/x.sh; git log -1; echo \"$(git push)\"", "bash /tmp/x.sh; g''it push",
+                        "bash <<E\ngit push\nE", "bash /tmp/x.sh <<E\ngit -C /tmp commit\nE", "cat > /tmp/x.sh <<'E'\ngit push\nE\nbash /tmp/x.sh; gh pr view 1",
+                        # What a here-string gives a shell is the script itself (the reviews).
+                        "bash <<< 'git push origin main'", "sh <<< 'gh pr merge 1'", "bash -s <<< \"git commit -m x\"",
+                        # Where this leaves it, as main reads them: a program that prints its text is not told from one that runs it.
+                        "bash /tmp/x.sh; grep -n 'git push' f", "bash /tmp/x.sh; echo 'git push done'"):
             self.assertNotEqual(unseen(command), [], command)
         # Any other reason the hook cannot read the command stands as it did: this gh may be another program.
         spend = identity._budget(5)

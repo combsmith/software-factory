@@ -109,8 +109,9 @@ TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "t
              "uniq", "cut", "tr", "diff", "test", "[", "true", "false"}
 SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
 UNSEEN_SCRIPT = "a shell reads a script the hook cannot see"
-# git's and gh's commands that only read: beside a script the hook cannot see, what they are given names no write (issue 488).
-GIT_READS = {"log", "status", "diff", "show", "rev-parse", "ls-remote", "ls-tree", "ls-files", "fetch"}
+# gh's commands that only read, as READS are git's: beside a script the hook cannot see, what they are given names no write
+# (issue 488). A `gh api` reads too, but for one with a word that could make it write, or that the hook cannot read.
+GH_API_WRITES = ("-X", "--method", "-f", "-F", "--field", "--raw-field", "--input")
 GH_READS = (["pr", "view"], ["pr", "list"], ["pr", "checks"], ["pr", "diff"], ["pr", "status"], ["issue", "view"], ["issue", "list"],
             ["run", "view"], ["run", "list"], ["release", "view"], ["release", "list"], ["repo", "view"])
 WRITE_TEXT = re.compile(r"\bgit\b[\s\S]*\b(%s)\b|\bgh\b[\s\S]*\b(pr|release|api)\b" % "|".join(sorted(WRITES)))
@@ -567,10 +568,18 @@ def _gh_kind(words: list) -> str:
 
 
 def _only_reads(tool: str, words: list) -> bool:
-    """Whether a git or gh command, its options taken off, is one that only reads, but for a `gh api` that writes, which its kind says."""
+    """Whether a git or gh command, its options taken off, is one that only reads."""
     if tool == "git":
-        return next((w for w in words if not w.startswith("-")), "") in GIT_READS
-    return words[:1] == ["api"] or words[:2] in GH_READS
+        return words[:1] != [] and words[0] in READS
+    if words[:1] == ["api"]:
+        return not any(w.startswith(GH_API_WRITES) or "$" in w for w in words)
+    return words[:2] in GH_READS
+
+
+def _bodies(text: str) -> str:
+    """What the here-documents of `text` hold: its lines that are left out once they are taken away, each terminator with them."""
+    kept = set(shell.without_heredocs(text, raw=True).splitlines())
+    return "\n".join(line for line in text.splitlines() if line not in kept)
 
 
 def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tuple:
@@ -741,10 +750,13 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     said = " ".join(w for words, _, _ in commands for w in words or [])     # as the shell runs it: g''it push is git push
     writes = any(kind for _, _, _, kind in calls)
     if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or writes):
-        # Beside a script, a command that only reads names no write, nor does a comment. What a here-document holds may be
-        # that script, so it is read whole, and any other reason the hook cannot read the command stands as it did.
-        rest = " ".join(w for at, (words, _, _) in enumerate(commands) if at not in reading for w in words or [])
-        names = writes or WRITE_TEXT.search(rest) or (shell.without_heredocs(text, raw=True) != text and WRITE_TEXT.search(text))
+        # Beside a script, a command that only reads names no write, nor does a comment, nor a read in a substitution, which is a
+        # command of its own. What a redirection or a here-document is given may be that script, so they are read whole.
+        rest = []
+        for at, (_, redirected, marked) in enumerate(commands):
+            if marked is not None:
+                rest += [target for _, target in redirected] + ([] if at in reading else [_bare(w) for w in marked])
+        names = writes or WRITE_TEXT.search(" ".join(rest)) or WRITE_TEXT.search(_bodies(text))
         always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
                    for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]
     return calls, always, inline
