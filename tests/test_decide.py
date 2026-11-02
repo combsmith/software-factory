@@ -8,7 +8,7 @@ import re
 import unittest
 
 from kernel import derive
-from kernel.decide import decide, still_wanted, stuck_runs, unnamed_scope
+from kernel.decide import decide, left_alone, still_wanted, stuck_runs, unnamed_scope
 from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, QUEUE_APP,
                            REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
@@ -222,6 +222,22 @@ class Derived(unittest.TestCase):
 
 
 class HumanControl(unittest.TestCase):
+    def test_an_item_is_left_alone_for_a_persons_hands_off_or_labels_that_cannot_be_read(self):
+        person = labelled("factory:hands-off")
+        whole = facts()["complete"]
+        # A person's hands-off, whatever else stands before it in the Kernel's reading.
+        for over in ({}, {"is_draft": True}, {"targets_protected": False}, {"complete": dict(whole, checks=False)}):
+            self.assertTrue(left_alone(facts(label_events=[person], **over), CONFIG), over)
+        # Labels that cannot be read: nothing says a person did not.
+        self.assertTrue(left_alone(facts(complete=dict(whole, timeline=False)), CONFIG))
+        self.assertTrue(left_alone(facts(label_events=[dict(person, by=None)]), CONFIG))
+        # The other side: none, a person's removal, one no person placed, another label, another list not read.
+        for events in ([], [person, unlabelled("factory:hands-off", at="2026-10-11T12:05:00Z")],
+                       [labelled("factory:hands-off", QUEUE_APP)], [labelled("factory:hold")]):
+            self.assertFalse(left_alone(facts(label_events=events), CONFIG), events)
+        self.assertFalse(left_alone(facts(complete=dict(whole, checks=False)), CONFIG))
+        self.assertFalse(left_alone(facts(is_draft=True), CONFIG))
+
     def test_hold_label_binds(self):  # I-6
         d = go(facts(label_events=[labelled("factory:hold")]))
         self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("hold", "human_hold", "needs_you"))
