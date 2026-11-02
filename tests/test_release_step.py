@@ -44,7 +44,7 @@ def refs_read(refs, status=200):
 def report(commit=D, release=VERSION, verdict="pass", **change):
     document = {"schema": "eval-report/1", "release": release, "commit": commit, "role": SET["role"],
                 "intent": SET["intent"], "set": {"count": SET["count"], "sha256": hashlib.sha256(SET_BYTES).hexdigest()},
-                "cases": [dict(SET["cases"][0], verdict=verdict, reasons=[])], "passed": 1 if verdict == "pass" else 0,
+                "cases": [dict(SET["cases"][0], verdict=verdict, reasons=[] if verdict == "pass" else ["finding_not_raised"])], "passed": 1 if verdict == "pass" else 0,
                 "split_ok": True, "kinds_pass": {"finding": True, "met": True}}
     document.update(change)
     return document
@@ -250,6 +250,15 @@ class Candidate(unittest.TestCase):
             (gate_reads(document=report(split_ok=False)), "eval_split_short"),
             (gate_reads(document=report(split_ok=None)), "eval_split_short"),
             (gate_reads(document={k: v for k, v in report().items() if k != "split_ok"}), "report_unreadable"),
+            # So does the word for each kind, which is a word for both, and never a count (decision 0120).
+            (gate_reads(document={k: v for k, v in report().items() if k != "kinds_pass"}), "report_unreadable"),
+            (gate_reads(document=report(kinds_pass={})), "report_unreadable"),
+            (gate_reads(document=report(kinds_pass={"finding": True})), "report_unreadable"),
+            (gate_reads(document=report(kinds_pass={"finding": True, "met": 16})), "report_unreadable"),
+            (gate_reads(document=report(kinds_pass={"finding": 16, "met": True})), "report_unreadable"),
+            (gate_reads(document=report(kinds_pass={"finding": False, "met": True})), "case_failed"),
+            (gate_reads(document=report(kinds_pass={"finding": True, "met": False})), "case_failed"),
+            (gate_reads(document=report(kinds_pass=None)), "eval_split_short"),
             (gate_reads(document="not json"), "report_unreadable"),
             ([manifest(), eval_runs()], "report_unreadable"),
         )

@@ -291,7 +291,7 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             assessed[entry["id"]] = ("unreadable", ["answer_off_rubric"])
             continue
         # A case the review cannot be asked of, or not in time, is unreadable by its code; whatever else the review
-        # raised is unanswered, so that one case's fault leaves the report whole and the run failed.
+        # raised is unanswered, so that one case's fault leaves the report whole, for `verdict` to weigh.
         try:
             result = review(case)
         except Stop as stop:
@@ -399,9 +399,10 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
         return "engine_fault"
     if any(set(c["reasons"]) & set(RUN_FAULTS) for c in document["cases"]):
         return "run_fault"
-    # A case is passed by its verdict with no code; the report's own count must agree with that, or it is another report.
+    # A case is passed by its verdict and no code, and any other names what became of it, as the job writes them; the
+    # report's own count must agree, or it is not the job's.
     passed = len([c for c in document["cases"] if c["verdict"] == PASS])
-    if any(c["verdict"] == PASS and c["reasons"] for c in document["cases"]) or document["passed"] != passed:
+    if any((c["verdict"] == PASS) == bool(c["reasons"]) for c in document["cases"]) or document["passed"] != passed:
         return "count_differs"
     kinds = document["kinds_pass"]
     if not _clears(passed, found["count"], BAR_OF_THE_SET) or (kinds is not None and not all(kinds.values())):
