@@ -388,6 +388,10 @@ class Context(unittest.TestCase):
         self.assertEqual(out["view"]["health"]["pause"], {"state": "none", "by": []})
         cleared = aged + [run("r_SUCCES", number=9, at="2026-10-11T10:00:00Z")]
         self.assertEqual(passed(reads(runs=cleared))["alerts"], [])
+        # A Run said to start after the pass counts for neither side, as the pause reads it.
+        ahead = "2026-10-11T13:00:01Z"
+        self.assertEqual(passed(reads(runs=aged + [run("r_SUCCES", number=9, at=ahead)]))["alerts"], ["runs_never_started"])
+        self.assertEqual(passed(reads(runs=never(7, 8, 9, at=ahead)))["alerts"], [])
         # In any order, since GitHub lists the newest first.
         self.assertEqual(passed(reads(runs=cleared[::-1]))["alerts"], [])
         self.assertEqual(passed(reads(runs=[cleared[-1]] + never(7, 8, 9, at="2026-10-11T11:00:00Z")))["alerts"],
