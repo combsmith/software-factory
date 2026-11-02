@@ -535,10 +535,10 @@ class Engine(unittest.TestCase):
                answer(result=judged(effects={"comment": [{"id": "e1", "body": "x"}]})),       # not permitted
                answer(result=judged(release="factory/v9.9.9")), answer(result=judged(commit="5d0c7e2")),
                answer(result=judged(findings=[{"ref": "n1"}]))]
-        # A CLI that exited 0 and gave nothing to hold to the schema is the Engine's failure, never the Role's (decision 0121).
+        # A CLI that exited 0 and gave nothing to hold to the schema is told from an answer that fails it (decision 0121).
         none = ["", "not json", "[]", json.dumps(["x"]), json.dumps([{"type": "other"}]), "null", json.dumps({"is_error": False}),
                 answer(structured_output=None), answer(structured_output="{}"), answer(structured_output=[1])]
-        for said, reason in [(s, "result_invalid") for s in bad] + [(s, "engine_failed") for s in none]:
+        for said, reason in [(s, "result_invalid") for s in bad] + [(s, "no_answer") for s in none]:
             r = engined(CLI(said=said))
             self.assertEqual((r["status"], r["reason"]), ("failed", reason), said[:120])
             self.assertEqual((r["dispositions"], r["findings"], r["effects"], r["coverage"]), ([], [], {}, []))

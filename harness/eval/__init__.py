@@ -187,7 +187,7 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
 # The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
 # reviewer's. `result_invalid` stays the reviewer's: an answer that could not be held to its schema (decision 0121).
 ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_failed", "engine_timeout", "task_too_large",
-                 "rubric_unreadable")
+                 "rubric_unreadable", "no_answer")
 # What stops a run reaching or trusting a case, whatever the rest of the set read: no bar can be held over it. A case's own
 # fault is another matter, one case not passed, which is the bar's to weigh (decision 0120).
 RUN_FAULTS = ("schema", "not_found", "hash_differs", "too_large", "unanswered")

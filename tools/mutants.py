@@ -7159,8 +7159,11 @@ MUTANTS = ISSUE + [
      'told(call), clock)', 'call, clock)', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
-    # Decision 0121: a CLI with no answer is the Engine's, never the reviewer's.
-    ("a CLI with no answer reads as the reviewer's", 'harness/engine.py', '    if not isinstance(found, dict):\n        return failed(task, "engine_failed", usage)\n', '    if not isinstance(found, dict):\n        return failed(task, "result_invalid", usage)\n', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),
+    # Decision 0121: a CLI with no answer is told from an answer that fails, closes the eval's gate, and stays an attempt.
+    ("a CLI with no answer reads as an answer that fails", 'harness/engine.py', 'return failed(task, "no_answer", usage)', 'return failed(task, "result_invalid", usage)', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),
+    ("an answer that fails reads as no answer", 'harness/engine.py', '            or not sound(result, task)):\n        return failed(task, "result_invalid", usage)\n', '            or not sound(result, task)):\n        return failed(task, "no_answer", usage)\n', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),
+    ("no answer does not close the gate", 'harness/eval/__init__.py', '                 "rubric_unreadable", "no_answer")', '                 "rubric_unreadable")', ("tests.test_evals.EvalJob.test_a_cli_with_no_answer_is_the_engines_and_closes_the_gate",)),
+    ("no answer can pause the Factory", 'harness/apply.py', 'THE_ROLES = ("result_invalid", "task_too_large", "no_answer")', 'THE_ROLES = ("result_invalid", "task_too_large")', ("tests.test_apply.Apply.test_a_result_not_the_runs_or_not_completed_writes_nothing",)),
     # Decision 0120: the gate's bar, of the set and of each kind, and what closes it whatever the bar.
     ("a missed blocking case is left to the bar", 'harness/eval/__init__.py', ' \\\n            or blocking is False:', ':', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("a report that can't say of its blocking cases passes", 'harness/eval/__init__.py', ' or kinds is None or blocking is None:', ' or kinds is None:', ("tests.test_evals.EvalJob.test_the_gate_holds_its_bar_of_the_set_and_of_each_kind",)),
@@ -7665,8 +7668,8 @@ MUTANTS = ISSUE + [
      '"^AC-[0-9]+$"', '"^AC-([0-9]+)+$"',
      ('tests.test_tools.Validator.test_no_schema_pattern_backtracks_on_a_long_value',)),
     ("an Engine past its time is the item's fault", 'harness/apply.py',
-     'THE_ROLES = ("result_invalid", "task_too_large")',
-     'THE_ROLES = ("result_invalid", "task_too_large", "engine_timeout")', ('tests.test_apply.Apply.test_a_result_not_the_runs_or_not_completed_writes_nothing',)),
+     'THE_ROLES = ("result_invalid", "task_too_large", "no_answer")',
+     'THE_ROLES = ("result_invalid", "task_too_large", "no_answer", "engine_timeout")', ('tests.test_apply.Apply.test_a_result_not_the_runs_or_not_completed_writes_nothing',)),
     ('an uncovered Result is written', 'harness/apply.py',
      '        if said != "covered":\n',
      '        if said == "unreadable":\n', ('tests.test_apply.Apply.test_an_uncovered_result_writes_nothing',)),
