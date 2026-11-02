@@ -39,6 +39,9 @@ IMPOSTOR_APP = 1000001
 # A workflow file no Lens is read from: GitHub Actions, a Lens's own App, runs any job in the repo under any name, one a
 # pull request adds on its own branch among them.
 IMPOSTOR_WORKFLOW = ".github/workflows/impostor.yml"
+# The Lens whose check an upload can change, by anyone holding security_events: write, and the seeds that serve one.
+SCANNING = "code-scanning"
+UPLOAD_EVERY, UPLOAD = 11, 6
 # Who posts it, in the Lifecycle's words: the facts give only its App's id, and no Run or act of the Factory's posts a
 # check under a Lens's name, so the change is the platform's (by_of).
 IMPOSTOR = {"kind": "app", "name": "another-app[bot]", "can_write": True}
@@ -233,6 +236,11 @@ class World:
         self.results = []
         self.expired_on = set()    # each content a result on expired as the approval fell due (expires_as_due)
         self.judge = random.Random("acceptance %d" % seed)
+        # An upload stops code scanning giving a verdict until a push, so only these seeds serve one, from a stream of its own
+        # that moves no draw of any other part of the world.
+        self.uploads = random.Random("uploads %d" % seed) if seed % UPLOAD_EVERY == UPLOAD else None
+        # The Lenses whose job a created check stands alone before: it has no check run of its own until it starts.
+        self.not_started = set()
         # Whether a review's Result covers its rubric draws from its own generator, so the rest of each world stays as it
         # was until a review leaves a criterion uncovered.
         self.coverage = random.Random("coverage %d" % seed)
@@ -315,10 +323,10 @@ class World:
             # GitHub: an_actor_has_a_kind
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
             # GitHub: a_check_is_read_by_name_from_every_app
-            # GitHub: a_check_names_the_workflow_that_ran_it
+            # GitHub: a_check_is_read_with_its_own_jobs_file
             "checks": [{"name": CHECKS[k], "app_id": APPS[k], "workflow": WORKFLOWS[k], "conclusion": v,
                         "completed_at": self.completed.get(k)}
-                       for k, v in sorted(self.checks.items())] + copy.deepcopy(self.impostors),
+                       for k, v in sorted(self.checks.items()) if k not in self.not_started] + copy.deepcopy(self.impostors),
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
@@ -985,6 +993,7 @@ class World:
         self.completed = dict.fromkeys(self.checks)
         # A check run cannot be deleted: another App's stays on the head it was posted on, and the new head has none.
         self.impostors = []
+        self.not_started = set()
         self.rerun = set()
         # GitHub: a_push_leaves_the_queue
         self.queue = False
@@ -1182,6 +1191,13 @@ class World:
             self.note("merged")
             self.caused("platform")
             return
+        if self.uploads and self.faults and self.checks.get(SCANNING) == "success" and self.uploads.random() < 0.05:
+            # GitHub: an_upload_turns_codeqls_success_neutral
+            # On the same check run, at any time after it passed, whatever else is pending.
+            self.checks[SCANNING] = "neutral"
+            self.note("check %s: success, and an upload under its tool turned it neutral" % SCANNING)
+            self.caused(self.by_of(IMPOSTOR))
+            return
         pending = [k for k, v in self.checks.items() if v == "pending"]
         if pending:
             # GitHub: a_check_reports_on_its_own
@@ -1190,11 +1206,13 @@ class World:
                 # GitHub: a_job_creates_a_check_in_another_suite
                 # Before a job gated by needs starts it has no check run, so a created success stands alone. Its details are
                 # not its own job's, so the port reads it with no file (decision 0104).
+                self.not_started.add(lens)
                 self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
                                        "conclusion": "success", "completed_at": self.now()})
                 self.note("check %s: pending, and a job created a passing one under its name, alone" % lens)
                 self.caused(self.by_of(IMPOSTOR))
                 return
+            self.not_started.discard(lens)
             self.checks[lens] = "success" if roll < 0.85 else "failure"
             self.completed[lens] = self.now()
             self.moves()
@@ -1217,9 +1235,8 @@ class World:
                     self.note("check %s: failure, and another workflow posted a passing one under its name" % lens)
                 else:
                     # GitHub: any_app_posts_a_check_under_any_name
-                    # Never one from the Lens's own App and file, which the Kernel could not tell from the Lens's: for
-                    # code scanning, that would be an upload under CodeQL's tool and category.
-                    # GitHub: only_codeql_gives_the_code_scanning_verdict
+                    # Never one from the Lens's own App and file, which the Kernel could not tell from the Lens's. An
+                    # upload under CodeQL's tool does not post one: it changes CodeQL's own check run, below.
                     self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "workflow": None,
                                            "conclusion": "success", "completed_at": self.now()})
                     self.note("check %s: failure, and another App posted a passing one under its name" % lens)

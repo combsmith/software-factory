@@ -4211,18 +4211,20 @@ PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", 
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
 
+def cpu_problem(spent: list) -> str:
+    """Why three sizes' spends grew faster than linearly, or took half a second of CPU at the whole, or ""."""
+    if spent[-1].cpu >= 0.5:
+        return "spent %.2f s of CPU at its size, past half a second" % spent[-1].cpu
+    return support.faster_than_linear(*spent)
+
+
 def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
     """Fail `test` unless `read(unit * n)` spends CPU time linearly in n, and under half a second at `size`. CPU time is
-    what a busy machine does not stretch, and no clock is judged, so a pattern read in time in its square is a mutant
+    what a busy machine stretches least, and no clock is judged, so a pattern read in time in its square is a mutant
     this kills (issues 369 and 370); where it was so, the reading at `size` took a second or more of CPU."""
     read(unit * (size // 4))    # once, untimed, so what the first reading warms is not counted to it
-    spent = []
-    for n in support.sizes(size):
-        with support.Spent() as one:
-            read(unit * n)
-        spent.append(one)
-    test.assertEqual(support.faster_than_linear(*spent), "", unit)
-    test.assertLess(spent[-1].cpu, 0.5, unit)
+    spent, _ = support.measured(lambda n: read(unit * n), size, cpu_problem)
+    test.assertEqual(cpu_problem(spent), "", unit)
 
 
 class Trials(unittest.TestCase):
@@ -8796,7 +8798,7 @@ class Mutants(unittest.TestCase):
         # A test that reads the clock, or sleeps, can fail under load for its own reasons, and must not kill a mutant.
         clock = {"monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns", "time", "time_ns", "sleep"}
         # tests/support.py's assertions that judge a measured spend by the clock and the load (issue 253). Spent alone
-        # measures CPU, which load does not change, and its pure judgments, over and faster_than_linear, read no clock.
+        # measures CPU, which load changes less, and its pure judgments, over and faster_than_linear, read no clock.
         judging = {"within", "linear", "grows_linearly"}
 
         def dotted(node) -> str:
@@ -10368,6 +10370,21 @@ for folder, _, names in os.walk(os.environ["TMPDIR"]):
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("is inside the repo", done.stderr)
+
+
+class CpuReadings(unittest.TestCase):
+    def test_one_noisy_measure_of_a_reading_is_measured_again(self):  # issue 484
+        def read_with(cpus):
+            with mock.patch("tests.support.Spent", support.scripted_spends(cpus)):
+                read_in_linear_cpu(self, lambda _: None, "x", 8)
+
+        read_with([0.1, 0.2, 0.4])
+        read_with([0.1, 0.14, 0.45, 0.1, 0.14, 0.2])        # growth, once
+        read_with([0.1, 0.2, 0.6, 0.1, 0.2, 0.4])           # past the half second, once
+        with self.assertRaisesRegex(AssertionError, "at half"):
+            read_with([0.1, 0.14, 0.45] * 3)
+        with self.assertRaisesRegex(AssertionError, "past half a second"):
+            read_with([0.1, 0.2, 0.6] * 3)
 
 
 class Copies(unittest.TestCase):
