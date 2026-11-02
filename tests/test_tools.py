@@ -6564,7 +6564,6 @@ exec "%(real)s" "$@"
                 running.stdout.close()
                 running.stderr.close()
             os.killpg(running.pid, second)
-            time.sleep(0.2)
             (self.bin / "go").write_text("")
             code = running.wait(timeout=60)
             told = "" if closed else running.stderr.read().decode()
@@ -6599,7 +6598,6 @@ exec "%(real)s" "$@"
             self.wait_for("revoking")
             for each in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGPIPE):
                 os.killpg(running.pid, each)
-            time.sleep(0.2)
             (self.bin / "go").write_text("")
             _, told = running.communicate(timeout=60)
         finally:
