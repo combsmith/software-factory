@@ -3811,6 +3811,23 @@ class TheFactorysOwnRules(unittest.TestCase):
         both = changing(**AGENT, changed_paths=["harness/engine.py", "roles/pr-review.json", "roles/pr-review.md"])
         self.assertEqual(self.waits_for_a_person(both)["evidence"], ["roles/pr-review.*", "harness/"])
 
+    def test_what_grades_the_review_stays_on_model_review(self):  # issue 471
+        # The Maintainer's ruling, and his accepted risk: each is reviewed by the model, of any class, and waits for no person.
+        for path in ("tools/eval_result.py", "evals/pr-review/cases.json", "schemas/eval-case.schema.json",
+                     "schemas/eval-report.schema.json", "schemas/eval-set.schema.json", ".github/workflows/eval.yml",
+                     "adapters/heldout.py", "release/cut.py", "release/move.py", "adapters/candidate.py", "adapters/artifacts.py",
+                     ".github/workflows/release.yml"):
+            self.assertFalse([p for p in CONFIG["model_lens_inputs"] if derive.matches(p, path)], path)
+            for cls in (AGENT, DEPENDENCY):
+                self.waits_for_review([path], cls=cls)
+                d = go(changing(**cls, changed_paths=[path]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), path)
+        # All of evals/ is on model review, the context's test with the manifest, and it waits for no person.
+        for cls in (AGENT, DEPENDENCY):
+            self.waits_for_review(["evals/context/task.json"], cls=cls)
+        # The job's modules stay on the list, through the Harness (decision 0052).
+        self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]))["evidence"], ["harness/"])
+
     def test_a_persons_approval_of_the_current_head_lets_it_converge(self):  # issue 140
         f = changing(**AGENT, changed_paths=["roles/pr-review.json"])
         d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
