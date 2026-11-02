@@ -446,7 +446,7 @@ class TheSet(unittest.TestCase):
         # private home by a session opened there, and this manifest then carries their hashes (issue 183). Twenty cases
         # with a Finding and as many of a change that was right: forty at least. The manifest keeps no count of a kind,
         # since a session here cannot read a case to hold it true; the eval job holds the split where the cases are
-        # (decision 0109).
+        # (decision 0120).
         manifest = json.loads(SET.read_text())
         self.assertGreaterEqual(manifest["count"], 40)
 
@@ -504,6 +504,9 @@ class EvalJob(unittest.TestCase):
                     "HELDOUT_OWNER": "o", "HELDOUT_REPO": "home"}
         # These sets stand in with two cases of one kind: the test of the split sets its own least.
         from harness import eval as job
+        blocking_least = mock.patch.object(job, "BLOCKING_LEAST", 0)
+        blocking_least.start()
+        self.addCleanup(blocking_least.stop)
         least = mock.patch.object(job, "KIND_LEAST", 0)
         least.start()
         self.addCleanup(least.stop)
@@ -580,10 +583,10 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
         self.assertEqual((written["passed"], written["commit"], written["release"]), (2, "a" * 40, "factory/v0.1.0"))
         self.assertNotIn("diff", (self.work / job.REPORT).read_text())
-        self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
-        # Decision 0109: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
+        # Decision 0120: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
         # of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set, which
         # `verdict`, the Release's gate too, refuses. Neither says how many of a kind.
         from harness import eval as job
@@ -618,8 +621,8 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 2 passed\neval_split_short\n")
             written = json.loads((self.work / job.REPORT).read_text())
             self.assertIs(written["split_ok"], False)
-            self.assertEqual(sorted(written), ["cases", "commit", "intent", "passed", "release", "role", "schema", "set",
-                                               "split_ok"], "no count of a kind, nor any field of one")
+            self.assertEqual(sorted(written), ["blocking_pass", "cases", "commit", "intent", "kinds_pass", "passed", "release", "role",
+                                               "schema", "set", "split_ok"], "no count of a kind, nor any field of one")
             self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "verdict"])
             self.assertEqual(self.step(job.judge), "eval_split_short")
         # The answer of a case that is read as no kind, or not read at all, says nothing: its run fails by that case.
@@ -645,14 +648,14 @@ class EvalJob(unittest.TestCase):
         self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
         # The report and the judge's log say what the scorer said, as codes: a run cannot be read without them, and a
         # case's kind is not worth hiding (decision 0109, on the ruling that closed "Evals: the public report's per-case
-        # verdicts can publish each case's kind"). The run says `case_failed` all the same.
+        # verdicts can publish each case's kind"). A run under the bar says `case_failed`, and this one's `hash_differs` is `run_fault`.
         self.assertEqual(eval_result.score(load("examples/eval-case.json"), wrong)["reasons"][0], "finding_not_raised")
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(job.main(lambda env, root, work: job.score(dict(self.env), self.root, self.work,
                                                                         lambda case: wrong)), 0)
             self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
         self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 0 passed\n0 of 2 passed; finding_not_raised 1, hash_differs 1\n"
-                                         "case_failed\n")
+                                         "run_fault\n")
         written = (self.work / job.REPORT).read_text()
         self.assertEqual([(c["verdict"], c["reasons"]) for c in json.loads(written)["cases"]],
                          [("unreadable", ["hash_differs"]), ("fail", ["finding_not_raised"])])
@@ -664,7 +667,7 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
         self.assertEqual(out.getvalue(), "report_unreadable\n")
         (self.work / job.REPORT).write_text(written)
-        self.assertEqual(self.step(job.judge), "case_failed")
+        self.assertEqual(self.step(job.judge), "run_fault")
         # A set changed since the plan is no set of this run, and a report that is not there passes nothing.
         (self.work / job.REPORT).unlink()
         self.assertEqual(self.step(job.judge), "report_unreadable")
@@ -760,7 +763,7 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         found, digest = job.manifest(self.root)
         good = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}},
-                          found, {i: ("pass", []) for i in self.cases}, True)
+                          found, {i: ("pass", []) for i in self.cases}, True, {"finding": True, "met": True}, True)
         self.assertEqual(job.verdict(good, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
 
         def changed(**change):
@@ -775,10 +778,14 @@ class EvalJob(unittest.TestCase):
                                (changed(cases=[first, dict(first, verdict="fail")]), "cases_differ"),
                                (changed(cases=[first, dict(good["cases"][1], sha256="0" * 64)]), "cases_differ"),
                                (changed(cases=[first, dict(good["cases"][1], verdict="fail", reasons=["schema"])]),
-                                "case_failed"),
-                               (changed(cases=[first, dict(good["cases"][1], reasons=["schema"])]), "case_failed"),
-                               (changed(cases=[first, dict(good["cases"][1], verdict="fail")]), "case_failed"),
-                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable")]), "case_failed"),
+                                "run_fault"),
+                               (changed(cases=[first, dict(good["cases"][1], reasons=["schema"])]), "run_fault"),
+                               (changed(cases=[first, dict(good["cases"][1], reasons=["finding_uncited"])]), "count_differs"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="fail", reasons=["finding_uncited"])], passed=1), "case_failed"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable", reasons=["not_this_set"])], passed=1), "case_failed"),
+                               # What the job never writes is no report of the job's: a case not passed with no code.
+                               (changed(cases=[first, dict(good["cases"][1], verdict="fail")], passed=1), "count_differs"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable")], passed=1), "count_differs"),
                                (changed(role="devops-lead"), "another_set"),
                                (changed(passed="2"), "report_unreadable"),
                                (changed(passed=1), "count_differs")):
@@ -786,6 +793,195 @@ class EvalJob(unittest.TestCase):
         empty = dict(found, count=0, cases=[])
         self.assertEqual(job.verdict(changed(set={"count": 0, "sha256": digest}, cases=[], passed=0), empty, digest,
                                      "a" * 40, "factory/v0.1.0"), "eval_set_empty")
+
+    def test_the_gate_holds_its_bar_of_the_set_and_of_each_kind(self):  # decision 0120
+        from harness import eval as job
+        found_of = lambda count: {"role": "pr-review", "intent": "review-change", "count": count,
+                                  "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i} for i in range(count)]}
+
+        def read(count, passed, kinds=None, others=(("fail", ["criterion_not_met"]),), blocking=True):
+            """The verdict on a report of `count` cases, the first `passed` passed and the rest as `others` says in turn."""
+            found = found_of(count)
+            assessed = {c["id"]: ("pass", []) if i < passed else others[i % len(others)] for i, c in enumerate(found["cases"])}
+            told = {"finding": True, "met": True} if kinds is None else kinds
+            document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": count, "sha256": "0" * 64}},
+                                  found, assessed, True, told, blocking)
+            return job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0")
+        # Of the whole set: exactly 90% clears, and just under does not, whatever the size.
+        for count, least in ((10, 9), (20, 18), (40, 36), (42, 38), (39, 36), (1, 1)):
+            self.assertEqual(read(count, least), "pass", (count, least))
+            self.assertEqual(read(count, least - 1), "case_failed", (count, least))
+        self.assertEqual(read(42, 42), "pass")
+        # A word for each kind closes it by itself, the set's bar cleared; a report that can't say is short.
+        self.assertEqual(read(10, 10, {"finding": False, "met": True}), "case_failed")
+        self.assertEqual(read(10, 10, {"finding": True, "met": False}), "case_failed")
+        # So does a case that expects a blocking Finding and did not pass, every bar cleared; and a report that can't say.
+        self.assertEqual(read(10, 10, blocking=False), "case_failed")
+        self.assertEqual(read(10, 10, blocking=None), "eval_split_short")
+        found = found_of(10)
+        document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 10, "sha256": "0" * 64}},
+                              found, {c["id"]: ("pass", []) for c in found["cases"]}, True, None, True)
+        self.assertEqual(job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0"), "eval_split_short")
+        # A case's own fault counts as not passing, and the bar can hold it.
+        own = {"not_this_set", "facts_not_current", "facts_read_short", "diff_unreadable", "diff_not_content", "pusher_unnamed",
+               "diff_not_whole", "issue_not_whole", "issue_unreadable", "answer_off_rubric", "answer_disagrees_with_verdict",
+               "location_unreadable", "criterion_unknown"}
+        for code in own:
+            self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "pass", code)
+            self.assertEqual(read(10, 8, others=(("unreadable", [code]),)), "case_failed", code)
+        # And so does the reviewer's own: a miss, and an answer the Harness could not read, which a CLI with no answer gives too.
+        for code in ("finding_not_raised", "result_not_completed", "criterion_not_met"):
+            self.assertEqual(read(10, 9, others=(("fail", [code]),)), "pass", code)
+        # What stops the run reaching or trusting a case closes it, however many passed.
+        for code in job.RUN_FAULTS:
+            self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "run_fault", code)
+        for code in job.ENGINE_FAULTS:
+            self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "engine_fault", code)
+        # No code is left out of telling the two apart: each of the report's is a Fault, the reviewer's or a case's own.
+        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | {"result_not_completed", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met"}
+        self.assertEqual(job.eval_result_codes(), scorer | own | set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS))
+        self.assertEqual(own & (set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS)), set())
+
+    def test_each_kind_is_held_to_its_bar_where_the_cases_are(self):  # decision 0120
+        from harness import eval as job
+
+        def told(finding_cases, finding_passed, met_cases, met_passed):
+            place = self.temp / "bar"
+            shutil.rmtree(str(place), ignore_errors=True)
+            (place / "cases").mkdir(parents=True)
+            found, assessed, made = {"cases": []}, {}, [("finding", finding_cases, finding_passed), ("met", met_cases, met_passed)]
+            for kind, cases, passed in made:
+                for i in range(cases):
+                    name = "c-%s-%d" % (kind, i)
+                    (place / "cases" / (name + ".json")).write_text(json.dumps({"expected": {"verdict": kind}}))
+                    found["cases"].append({"id": name})
+                    assessed[name] = ("pass", []) if i < passed else ("fail", ["criterion_not_met"])
+            return job.kinds_pass(found, place, assessed)
+        # Exactly 80% clears, and just under does not; each kind by itself.
+        self.assertEqual(told(20, 16, 20, 16), {"finding": True, "met": True})
+        self.assertEqual(told(20, 15, 20, 16), {"finding": False, "met": True})
+        self.assertEqual(told(20, 16, 20, 15), {"finding": True, "met": False})
+        self.assertEqual(told(5, 4, 22, 18), {"finding": True, "met": True})
+        self.assertEqual(told(5, 3, 22, 17), {"finding": False, "met": False})
+        # A kind with no case has nothing to fail here: `split_ok` is what closes on it.
+        self.assertEqual(told(0, 0, 5, 4), {"finding": True, "met": True})
+        self.assertEqual(told(43, 34, 5, 4)["finding"], False, "79.07% is under the bar, however near")
+        self.assertEqual(told(5, 4, 43, 35)["met"], True)
+        # A verdict of pass with a code is not passed, and a case not read leaves nothing to say.
+        place = self.temp / "bar"
+        found = {"cases": [{"id": "c-finding-0"}]}
+        self.assertEqual(job.kinds_pass(found, place, {"c-finding-0": ("pass", ["criterion_not_met"])})["finding"], False)
+        self.assertIsNone(job.kinds_pass({"cases": [{"id": "c-none"}]}, place, {"c-none": ("pass", [])}))
+
+    def _least_held(self, job):
+        """The verdict and the word of a set of this fixture's cases, none of which expects a blocking Finding."""
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.set(self.cases)
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        said = lambda case, result: {"case": case["id"], "verdict": "pass", "reasons": []}
+        with mock.patch.object(job, "BLOCKING_LEAST", 1), mock.patch.object(job.eval_result, "score", said):
+            self.step(job.score, lambda case: load("examples/result.json"))
+            return self.step(job.judge), json.loads((self.work / job.REPORT).read_text())["split_ok"]
+
+    def test_a_case_that_expects_a_blocking_finding_must_pass(self):  # decision 0120
+        from harness import eval as job
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        place = self.temp / "blocking"
+        (place / "cases").mkdir(parents=True)
+        made = {"c-blocking": {"verdict": "finding", "finding": {"severity": "blocking"}}, "c-blocking-2": {"verdict": "finding", "finding": {"severity": "blocking"}},
+                "c-major": {"verdict": "finding", "finding": {"severity": "major"}}, "c-met": {"verdict": "met", "finding": None},
+                "c-minor": {"verdict": "finding", "finding": {"severity": "minor"}},
+                "c-states-less": {"verdict": "finding", "criterion": "PR-2", "finding": {"severity": "major"}},
+                "c-met-on-pr-2": {"verdict": "met", "criterion": "PR-2", "finding": None}}
+        for name, said in made.items():
+            (place / "cases" / (name + ".json")).write_text(json.dumps({"expected": said}))
+        found = {"role": "pr-review", "cases": [{"id": name} for name in made]}
+        passed = {name: ("pass", []) for name in made}
+
+        def told(**then):
+            return job.blocking_pass(found, place, dict(passed, **then))
+        miss = ("fail", ["finding_not_raised"])
+        self.assertIs(told(), True)
+        self.assertIs(told(**{"c-blocking": miss}), False)
+        # Every one of them, in either place: one that passed covers no other's miss.
+        self.assertIs(told(**{"c-blocking-2": miss}), False)
+        # By what it states or what the rubric gives its criterion: one that states less, off its rubric and never asked,
+        # does not leave the rule. A clean case on that criterion expects no Finding, so it is the bar's.
+        self.assertIs(told(**{"c-states-less": ("unreadable", ["answer_off_rubric"])}), False)
+        self.assertIs(told(**{"c-met-on-pr-2": ("fail", ["criterion_not_met"])}), True)
+        self.assertIs(told(**{"c-blocking": ("unreadable", ["diff_not_whole"])}), False, "a case's own fault is not passed")
+        self.assertIs(told(**{"c-blocking": ("pass", ["finding_not_raised"])}), False)
+        # Any other severity, and a clean case, is the bar's to weigh.
+        self.assertIs(told(**{"c-major": miss, "c-minor": miss, "c-met": ("fail", ["criterion_not_met"])}), True)
+        # A set with none has nothing for the word to hold, and a set must hold one: it is short, by a code and no count.
+        self.assertIs(job.blocking_pass({"cases": [{"id": "c-major"}]}, place, passed), True)
+        with mock.patch.object(job, "BLOCKING_LEAST", 1):
+            self.assertIs(job.split_ok(found, place), True)
+            self.assertIs(job.split_ok({"role": "pr-review", "cases": [{"id": "c-major"}, {"id": "c-met"}]}, place), False)
+            self.assertIs(job.split_ok({"role": "pr-review", "cases": [{"id": "c-states-less"}, {"id": "c-met"}]}, place), True, "by the rubric")
+            self.assertIs(job.split_ok({"role": "pr-review", "cases": [{"id": "c-met-on-pr-2"}, {"id": "c-met"}]}, place), False, "a clean case is none")
+        self.assertEqual(self._least_held(job), ("eval_split_short", False))
+        # A case not read leaves nothing to say.
+        self.assertIsNone(job.blocking_pass({"cases": [{"id": "c-none"}]}, place, {"c-none": ("pass", [])}))
+        # Through the job, every bar cleared: 23 of 24, each kind cleared, and the one miss is the blocking one.
+        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        expected = {"verdict": "finding", "criterion": "PR-2", "finding": {"category": "security", "severity": "blocking",
+                    "location": {"path": "kernel/decide.py", "start_line": 86, "end_line": 94}}}
+        base = json.loads(next(iter(self.cases.values())))
+        cases = {"poc-b%d" % i: (json.dumps(dict(base, id="poc-b%d" % i, expected=expected if i == 0 else base["expected"])) + "\n").encode()
+                 for i in range(24)}
+        self.set(cases)
+        self.step(plan)
+        self.step(fetch, self.home(cases))
+        said = lambda case, result: {"case": case["id"], "verdict": "fail" if case["id"] == "poc-b0" else "pass",
+                                     "reasons": ["finding_not_raised"] if case["id"] == "poc-b0" else []}
+        with mock.patch.object(job.eval_result, "score", said):
+            self.step(job.score, lambda case: load("examples/result.json"))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["passed"], written["kinds_pass"]["finding"], written["blocking_pass"]), (23, True, False))
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(self.step(job.judge), "case_failed")
+        # The line says why, as 23 of 24 would not.
+        self.assertEqual(out.getvalue(), "23 of 24 passed; finding_not_raised 1; a blocking case not passed\n")
+
+    def test_the_job_writes_each_kinds_word_and_the_judge_holds_it(self):  # decision 0120
+        # Plan, fetch, score and judge over a set: 23 of 24 clears the set's bar, and a kind at 3 of 4 does not clear its own.
+        from harness import eval as job
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        finding, met = json.loads(next(iter(self.cases.values()))), None
+        for raw in self.cases.values():
+            if json.loads(raw)["expected"]["verdict"] == "met":
+                met = json.loads(raw)
+        met = met or load("examples/eval-case.met.json")
+        met["facts"] = dict(met["facts"], content_id="sha256:" + hashlib.sha256(met["diff"].encode()).hexdigest())
+
+        def run(miss):
+            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+            cases = {}
+            for i in range(24):
+                name = "poc-k%d" % i
+                cases[name] = (json.dumps(dict(finding if i < 4 else met, id=name)) + "\n").encode()
+            self.set(cases)
+            self.step(plan)
+            self.step(fetch, self.home(cases))
+            said = lambda case, result: {"case": case["id"], "verdict": "fail" if case["id"] in miss else "pass",
+                                         "reasons": ["finding_not_raised"] if case["id"] in miss else []}
+            with mock.patch.object(job.eval_result, "score", said):
+                self.step(job.score, lambda case: load("examples/result.json"))
+            return json.loads((self.work / job.REPORT).read_text())
+        # A kind under its bar: the set's clears at 23 of 24, and the job's own word closes the gate.
+        written = run({"poc-k0"})
+        self.assertEqual((written["passed"], written["kinds_pass"]), (23, {"finding": False, "met": True}))
+        self.assertIs(written["blocking_pass"], True)
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(self.step(job.judge), "case_failed")
+        self.assertEqual(out.getvalue(), "23 of 24 passed; finding_not_raised 1; finding under its bar\n")
+        # Each kind on or over its bar: it opens, and the judge says what did not pass.
+        written = run({"poc-k4"})
+        self.assertEqual((written["passed"], written["kinds_pass"]), (23, {"finding": True, "met": True}))
+        self.assertEqual(self.step(job.judge), "23 of 24 passed; finding_not_raised 1")
 
     def test_the_job_reads_and_writes_a_file_of_its_own_directory_alone(self):
         # Every file the job reads or writes is named by one part, a case's id or the step's own, and resolves inside
@@ -1020,7 +1216,7 @@ class EvalJob(unittest.TestCase):
                                  [("unreadable", [reason]), ("pass", [])])
                 with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
                     self.assertEqual(self.step(judge), "engine_fault")
-                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1\n" % reason)
+                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1; finding under its bar\n" % reason)
         # The reviewer's own failure stays as it was: a Result it gave that does not pass, and one that cannot be read.
         shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
         self.step(plan)
@@ -1107,7 +1303,7 @@ class EvalJob(unittest.TestCase):
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
 
-    def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0109
+    def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0120
         # A code the enum lacks would make the whole report unreadable, and the run would say so and nothing else.
         from harness import eval as job
         source = (ROOT / "tools" / "eval_result.py").read_text()
@@ -1121,8 +1317,15 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         cases = [{"verdict": "pass", "reasons": []}, {"verdict": "fail", "reasons": ["criterion_not_met"]},
                  {"verdict": "fail", "reasons": ["criterion_not_met", "coverage_disagrees"]}]
-        self.assertEqual(job.tally({"passed": 1, "cases": cases}), "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2")
-        self.assertEqual(job.tally({"passed": 0, "cases": [{"verdict": "fail", "reasons": []}]}), "0 of 1 passed; no code")
+        cleared = {"kinds_pass": {"finding": True, "met": True}, "blocking_pass": True}
+        self.assertEqual(job.tally(dict(cleared, passed=1, cases=cases)), "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2")
+        self.assertEqual(job.tally(dict(cleared, passed=0, cases=[{"verdict": "fail", "reasons": []}])), "0 of 1 passed; no code")
+        # Which of its words closed the gate, as the share may not say; a report that can't say names nothing.
+        self.assertEqual(job.tally(dict(passed=1, cases=cases, kinds_pass={"finding": False, "met": False}, blocking_pass=False)),
+                         "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2; finding under its bar; met under its bar; "
+                         "a blocking case not passed")
+        self.assertEqual(job.tally(dict(passed=1, cases=cases, kinds_pass=None, blocking_pass=None)),
+                         "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2")
 
     def test_a_case_the_scorer_cannot_read_is_unreadable_in_the_report(self):
         # What the scorer calls unreadable is no failure of the reviewer's, and the report says so by the scorer's verdict.
@@ -1331,7 +1534,7 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
                          [("unreadable", ["unanswered"]), ("unreadable", ["not_this_set"])])
-        self.assertEqual(self.step(judge), "case_failed")
+        self.assertEqual(self.step(judge), "run_fault")
         # The step itself, as the workflow runs it: the checkout's Role and configuration, each case stopped before the
         # model because its facts do not name its diff, and the report written.
         (self.work / job.REPORT).unlink()

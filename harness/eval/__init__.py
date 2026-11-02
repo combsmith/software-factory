@@ -8,7 +8,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   a scratch directory outside the workspace, on a runner thrown away when the job ends;
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
-- `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too.
+- `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: the
+  bar of decision 0120, every case that expects a blocking Finding, and no fault of the Engine or the run.
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
 exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
@@ -34,9 +35,15 @@ REPORT = "eval-report.json"
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
+# The bar a run must clear, as whole fractions so that a boundary is exact: of the whole set, and of each kind, set before
+# any result with issue text (decision 0120). A case not passed is not passed, whatever it reads as.
+BAR_OF_THE_SET, BAR_OF_A_KIND = (9, 10), (4, 5)
 # How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
-# held here, where the cases are, since the repo cannot hold a count of them true (decision 0109).
+# held here, where the cases are, since the repo cannot hold a count of them true (decision 0120).
 KIND_LEAST = 20
+KINDS = ("finding", "met")
+BLOCKING = "blocking"       # a case that expects a Finding of this severity must pass, whatever the bar (decision 0120)
+BLOCKING_LEAST = 1          # and a set holds one, or a true word for them could mean none exist
 
 
 class Stop(Exception):
@@ -182,6 +189,9 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
 # with no answer at all, which the Engine does not yet tell apart (decision 0106).
 ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_failed", "engine_timeout", "task_too_large",
                  "rubric_unreadable")
+# What stops a run reaching or trusting a case, whatever the rest of the set read: no bar can be held over it. A case's own
+# fault is another matter, one case not passed, which is the bar's to weigh (decision 0120).
+RUN_FAULTS = ("schema", "not_found", "hash_differs", "too_large", "unanswered")
 
 
 # What facts/1 has required since the review Intent's set was made, at d556992, each with what the job gives a case that
@@ -283,7 +293,7 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             assessed[entry["id"]] = ("unreadable", ["answer_off_rubric"])
             continue
         # A case the review cannot be asked of, or not in time, is unreadable by its code; whatever else the review
-        # raised is unanswered, so that one case's fault leaves the report whole and the run failed.
+        # raised is unanswered, so that one case's fault leaves the report whole, for `verdict` to weigh.
         try:
             result = review(case)
         except Stop as stop:
@@ -301,7 +311,7 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             continue
         said = eval_result.score(case, result)
         # What the scorer says is codes of the report's enum: nothing of a case's content, and no word of the model's. A
-        # case's kind is not worth hiding, and a run cannot be read without them (decision 0109).
+        # case's kind is not worth hiding, and a run cannot be read without them (decision 0120).
         assessed[entry["id"]] = (said["verdict"], said["reasons"])
     return assessed
 
@@ -312,38 +322,102 @@ def eval_result_codes() -> set:
     return set(known["eval-report"]["properties"]["cases"]["items"]["properties"]["reasons"]["items"]["enum"])
 
 
-def split_ok(found: dict, place: pathlib.Path):
-    """Whether the set's cases, as fetched into the scratch, hold KIND_LEAST of each kind: one word of the whole set,
-    never how many of either: the gate needs no more (decision 0109). None where a case was not read, or its answer is no
-    kind: such a run fails by that case."""
-    counted = {"finding": 0, "met": 0}
+def _expected(found: dict, place: pathlib.Path):
+    """`{id: what it expects}` of the set's cases, as fetched into the scratch, or None where a case was not read, or its
+    answer is no kind: such a run fails by that case."""
+    expected = {}
     for entry in found["cases"]:
         try:
             case = _read(place / "cases", "%s.json" % entry["id"])
         except Stop:
             return None
         said = case.get("expected") if isinstance(case, dict) else None
-        said = said.get("verdict") if isinstance(said, dict) else None
-        if not isinstance(said, str) or said not in counted:
+        kind = said.get("verdict") if isinstance(said, dict) else None
+        if not isinstance(kind, str) or kind not in KINDS:
             return None
-        counted[said] += 1
-    return min(counted.values()) >= KIND_LEAST
+        expected[entry["id"]] = said
+    return expected
 
 
-def report(kept: dict, found: dict, assessed: dict, held: bool = None) -> dict:
+def kinds_of(found: dict, place: pathlib.Path):
+    """`{id: kind}` of the set's cases, or None where `_expected` can say nothing."""
+    expected = _expected(found, place)
+    return None if expected is None else {case: said["verdict"] for case, said in expected.items()}
+
+
+def split_ok(found: dict, place: pathlib.Path):
+    """Whether the set's cases hold KIND_LEAST of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
+    the whole set, never how many of any: the gate needs no more (decision 0120). None where `kinds_of` can say nothing."""
+    kinds = kinds_of(found, place)
+    if kinds is None:
+        return None
+    return min(list(kinds.values()).count(kind) for kind in KINDS) >= KIND_LEAST \
+        and len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST
+
+
+def _clears(passed: int, of: int, bar: tuple) -> bool:
+    """Whether `passed` of `of` is at least the fraction `bar`, in whole numbers, so that exactly on it clears."""
+    return passed * bar[1] >= of * bar[0]
+
+
+def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
+    """`{kind: whether at least BAR_OF_A_KIND of its cases passed}`, read where the cases are: one word for each, never how
+    many (decision 0120). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
+    holds that."""
+    kinds = kinds_of(found, place)
+    if kinds is None:
+        return None
+    said = {}
+    for kind in KINDS:
+        cases = [case for case, its in kinds.items() if its == kind]
+        passed = [case for case in cases if assessed[case] == (PASS, [])]
+        said[kind] = _clears(len(passed), len(cases), BAR_OF_A_KIND)
+    return said
+
+
+def _blocking_criteria(role) -> set:
+    """The criteria of the rubric `role` reviews by whose Finding is blocking; none where it cannot be read, as a case is
+    then off it and is not asked."""
+    try:
+        rubric = json.loads((ROOT / "config" / ("rubric-%s.json" % role)).read_text())
+        return {c["id"] for c in rubric["criteria"] if c["severity_if_violated"] == BLOCKING}
+    except (OSError, ValueError, KeyError, TypeError):
+        return set()
+
+
+def blocking_cases(found: dict, expected: dict) -> list:
+    """The cases that expect a blocking Finding: by what a case states or by what the rubric gives its criterion, so that
+    one off its rubric cannot leave the rule by stating less (decision 0120)."""
+    criteria = _blocking_criteria(found.get("role"))
+    return [case for case, said in expected.items() if isinstance(said.get("finding"), dict)
+            and (said["finding"].get("severity") == BLOCKING or said.get("criterion") in criteria)]
+
+
+def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
+    """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many. True
+    of a set with none, which `split_ok` closes on. None where `_expected` can say nothing."""
+    expected = _expected(found, place)
+    if expected is None:
+        return None
+    return all(assessed[case] == (PASS, []) for case in blocking_cases(found, expected))
+
+
+def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None) -> dict:
     """The `eval-report/1` of this run: the plan's Release, commit and set, each case by id and hash, in the manifest's
-    order, with its verdict and codes, and whether the set holds `split_ok`'s kinds."""
+    order, with its verdict and codes, whether the set holds `split_ok`'s kinds, whether each cleared its bar, and whether
+    every case that expects a blocking Finding passed."""
     cases = [{"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1]}
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "cases": cases,
-            "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held}
+            "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held, "kinds_pass": kinds, "blocking_pass": blocking}
 
 
 def verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
     """`pass` only for the report of this set on this commit for this Release, with a case at least, every case the
-    manifest names once by its id and hash, each passed; otherwise the one code that says why not. The Release's gate
-    reads the report it downloads with this function too (the ruling on issue 197, 4″)."""
+    manifest names once by its id and hash, no case stopped by a fault of the Engine or the run, at least BAR_OF_THE_SET
+    of them and BAR_OF_A_KIND of each kind passed, and every case that expects a blocking Finding (decision 0120); otherwise the one code that says why not.
+    The Release's gate reads the report it downloads with this function too (the ruling on issue 197, 4″)."""
     if _errors(document, "eval-report"):
         return "report_unreadable"
     if document["commit"] != commit:
@@ -360,11 +434,18 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
         return "cases_differ"
     if any(set(c["reasons"]) & set(ENGINE_FAULTS) for c in document["cases"]):
         return "engine_fault"
-    if any(c["verdict"] != PASS or c["reasons"] for c in document["cases"]):
-        return "case_failed"
-    if document["passed"] != found["count"]:
+    if any(set(c["reasons"]) & set(RUN_FAULTS) for c in document["cases"]):
+        return "run_fault"
+    # A case is passed by its verdict and no code, and any other names what became of it, as the job writes them; the
+    # report's own count must agree, or it is not the job's.
+    passed = len([c for c in document["cases"] if c["verdict"] == PASS])
+    if any((c["verdict"] == PASS) == bool(c["reasons"]) for c in document["cases"]) or document["passed"] != passed:
         return "count_differs"
-    if document["split_ok"] is not True:
+    kinds, blocking = document["kinds_pass"], document["blocking_pass"]
+    if not _clears(passed, found["count"], BAR_OF_THE_SET) or (kinds is not None and not all(kinds.values())) \
+            or blocking is False:
+        return "case_failed"
+    if document["split_ok"] is not True or kinds is None or blocking is None:
         return "eval_split_short"
     return PASS
 
@@ -374,16 +455,20 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     the upload finds it, whatever the verdicts, so that a set that fails is uploaded too and `judge` fails the run."""
     kept, found, place = _planned(env, root, workspace)
     assessed = assess(found, _read(place, "fetched.json"), place, review)
-    written = report(kept, found, assessed, split_ok(found, place))
+    written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
+                     blocking_pass(found, place, assessed))
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
 
 def tally(document: dict) -> str:
-    """One line of a report that holds to its schema: how many cases passed, and how many carry each code."""
+    """One line of a report that holds to its schema: how many cases passed, how many carry each code, and what of its
+    words closed the gate, as a share alone may not say why."""
     codes = [code for case in document["cases"] for code in case["reasons"]]
-    return "%d of %d passed; %s" % (document["passed"], len(document["cases"]),
-                                    ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code")
+    closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
+    closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
+    return "; ".join(["%d of %d passed" % (document["passed"], len(document["cases"])),
+                      ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed)
 
 
 def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
@@ -397,11 +482,11 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     said = verdict(written, found, kept["set"]["sha256"], env.get("GITHUB_SHA"), kept["release"])
     if said != PASS:
         # Either comes only once `verdict` has held the report to its schema, so what is printed is the enum's codes,
-        # whatever wrote the report.
-        if said in ("engine_fault", "case_failed"):
+        # whatever wrote the report. A run that clears the bar says the same line, as its cases not passed still count.
+        if said in ("engine_fault", "run_fault", "case_failed"):
             print(tally(written))
         raise Stop(said)
-    return "passed %d of %d cases" % (found["count"], found["count"])
+    return tally(written)
 
 
 def main(step, *given) -> int:
