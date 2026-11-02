@@ -34,7 +34,7 @@ from sim import world
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, mutants, needs_passed, redact_trial,
-                   machine_user_drift, rulesets_drift, verify, walk)
+                   environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -9805,6 +9805,180 @@ except OSError:
         root = clone({"tools/rulesets_drift.sh": script, "scratch/.keep": ""})   # a copy: the repo itself is not written
         link.symlink_to(root / "scratch")
         done = subprocess.run(["sh", str(root / "tools" / "rulesets_drift.sh")], env=dict(os.environ, PATH="/nowhere:/usr/bin:/bin"),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("is inside the repo", done.stderr)
+
+
+class EnvironmentsDrift(unittest.TestCase):
+    """`tools/environments_drift.py` holds each factory environment to `main` alone (issue 463); `tools/environments_drift.sh`
+    reads through a stand-in gh, never the real one, and only reads."""
+
+    SCRIPT = ROOT / "tools" / "environments_drift.sh"
+    WANTED = ["factory-apply", "factory-approve", "factory-eval", "factory-poller", "factory-queue", "factory-release", "factory-run"]
+
+    def setUp(self):
+        self.listed = {"total_count": len(self.WANTED), "environments": [
+            {"name": name, "can_admins_bypass": False, "deployment_branch_policy": {"custom_branch_policies": True, "protected_branches": False}}
+            for name in self.WANTED]}
+        self.policies = {name: (200, {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]}) for name in self.WANTED}
+
+    def compare(self, wanted=None) -> list:
+        return environments_drift.compare(self.listed, self.policies, set(self.WANTED if wanted is None else wanted))
+
+    def row(self, name: str) -> dict:
+        return next(r for r in self.listed["environments"] if r["name"] == name)
+
+    def test_the_repo_names_each_environment_that_holds_a_key(self):
+        self.assertEqual(sorted(environments_drift.named(ROOT)), self.WANTED)
+        # Each of the three places, alone.
+        root = clone({".github/workflows/x.yml": "jobs:\n  a:\n    environment: factory-a-job\n",
+                      "config/credential-ages.json": json.dumps({"rows": [{"environment": "factory-a-credential"}]}),
+                      "config/apps.json": json.dumps({"apps": {"x": {"key": {"environment": "factory-an-app"}}}})})
+        found = environments_drift.named(root)
+        for name in ("factory-a-job", "factory-a-credential", "factory-an-app"):
+            self.assertIn(name, found)
+        self.assertNotIn(environments_drift.RECORDS_ONLY, self.WANTED)
+
+    def test_each_environment_on_main_alone_is_no_drift(self):
+        self.assertEqual(self.compare(), [])
+
+    def test_a_deployment_policy_other_than_main_alone_is_drift(self):
+        for name in ("factory-apply", "factory-release", "factory-run"):     # the first, the one the issue names, the last
+            self.setUp()
+            self.row(name)["can_admins_bypass"] = True
+            self.assertTrue(caught(self.compare(), "%s: admins can bypass" % name))
+            self.setUp()
+            del self.row(name)["can_admins_bypass"]     # one not said is not read as none
+            self.assertTrue(caught(self.compare(), "%s: admins can bypass" % name))
+            self.setUp()
+            self.row(name)["deployment_branch_policy"]["custom_branch_policies"] = False
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches are not a list of their own" % name))
+            self.setUp()
+            self.row(name)["deployment_branch_policy"]["protected_branches"] = True
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches are not a list of their own" % name))
+            self.setUp()
+            self.row(name)["deployment_branch_policy"] = None
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches are not a list of their own" % name))
+            for policies, said in (([{"name": "dev", "type": "branch"}], "deploys from dev"),
+                                   ([{"name": "main", "type": "tag"}], "deploys from main (tag)"),
+                                   ([{"name": "main", "type": "branch"}, {"name": "x", "type": "branch"}], "deploys from main, x"),
+                                   ([], "deploys from nothing")):
+                self.setUp()
+                self.policies[name] = (200, {"total_count": len(policies), "branch_policies": policies})
+                self.assertTrue(caught(self.compare(), said), said)
+            self.setUp()
+            self.policies[name] = (200, {"total_count": 2, "branch_policies": [{"name": "main", "type": "branch"}]})
+            self.assertTrue(caught(self.compare(), "%s: GitHub counts 2 policies and gave 1" % name))
+            self.setUp()
+            self.policies[name] = (404, {})
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches were answered 404" % name))
+            self.setUp()
+            self.policies[name] = (404, self.policies[name][1])     # whatever came with it
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches were answered 404" % name))
+            self.setUp()
+            del self.policies[name]
+            self.assertTrue(caught(self.compare(), "%s: its deployment branches were answered 0" % name))
+
+    def test_an_environment_the_repo_names_or_gets_wrong_is_drift(self):
+        self.listed["environments"].pop(0)
+        self.listed["total_count"] -= 1
+        self.assertTrue(caught(self.compare(), "factory-apply is named here for a key, and GitHub has no such environment"))
+        # One the repo does not name is held all the same, but for the Deployment's own, which holds no key.
+        self.setUp()
+        self.listed["environments"].append(dict(self.row("factory-run"), name="factory-new", can_admins_bypass=True))
+        self.listed["total_count"] += 1
+        self.assertTrue(caught(self.compare(), "factory-new: admins can bypass"))
+        self.setUp()
+        self.listed["environments"].append({"name": environments_drift.RECORDS_ONLY, "can_admins_bypass": True})
+        self.listed["total_count"] += 1
+        self.assertEqual(self.compare(), [])
+        self.assertTrue(caught(self.compare(self.WANTED + [environments_drift.RECORDS_ONLY]), "records Deployments alone, and is named here for a key"))
+
+    def test_a_list_not_read_whole_is_drift(self):
+        self.assertTrue(caught(environments_drift.compare(None, {}, set()), "could not be read"))
+        self.assertTrue(caught(environments_drift.compare({"environments": 1}, {}, set()), "could not be read"))
+        self.listed["total_count"] += 1
+        self.assertTrue(caught(self.compare(), "GitHub counts 8 environments and gave 7"))
+        self.setUp()
+        many = ["x%d" % i for i in range(environments_drift.PAGE)]
+        rows = [dict(self.row("factory-run"), name=name) for name in many]
+        answers = {name: self.policies["factory-run"] for name in many}
+        self.assertTrue(caught(environments_drift.compare({"total_count": len(rows), "environments": rows}, answers, set()), "a whole page"))
+        self.assertEqual(environments_drift.compare({"total_count": len(rows) - 1, "environments": rows[1:]}, answers, set()), [])
+
+    def test_only_a_plain_name_is_read_into_a_call(self):
+        rows = [{"name": "factory-run"}, {"name": "../../user"}, {"name": "a b"}, {"name": 3}, "x", {"name": environments_drift.RECORDS_ONLY}]
+        listed = {"total_count": len(rows), "environments": rows}
+        self.assertEqual(environments_drift.names(listed), ["factory-run"])
+        self.assertEqual(environments_drift.names(None), [])
+        self.assertEqual(environments_drift.names({"environments": 1}), [])
+        self.assertTrue(caught(environments_drift.compare({"total_count": 1, "environments": [{"name": "../../user"}]}, {}, set()), "cannot be read into a call"))
+
+    def test_the_answers_are_read_from_stdin_in_the_order_listed(self):
+        def run(*answers, argv=()):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = environments_drift.main(list(argv), io.BytesIO("\0".join(answers).encode() + b"\0"))
+            return code, out.getvalue()
+        head = "HTTP/2.0 200 OK\nContent-Type: application/json\n\n"
+        listed = head + json.dumps(self.listed)
+        bodies = [head + json.dumps(self.policies[name][1]) for name in self.WANTED]
+        self.assertEqual(run(listed, argv=["--names"]), (0, "\n".join(self.WANTED) + "\n"))
+        self.assertEqual(run(listed, *bodies), (0, "no drift\n"))
+        code, out = run(listed, bodies[0])
+        self.assertEqual(code, 1)
+        self.assertIn("7 environments were listed and 1 answers given", out)
+        self.assertEqual(run("HTTP/2.0 404 Not Found\n\n{}", argv=["--names"]), (0, "\n"))
+        # A list answered other than 200 is no list, whatever came with it.
+        refused = "HTTP/2.0 403 Forbidden\n\n" + json.dumps(self.listed)
+        self.assertEqual(run(refused, argv=["--names"]), (0, "\n"))
+        code, out = run(refused)
+        self.assertEqual(code, 1)
+        self.assertIn("could not be read", out)
+        self.assertEqual(run(listed, argv=["--what"])[0], 2)
+
+    def run_script(self, keep: bool = True) -> tuple:
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        scratch = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        # The stand-in looks, at each read, for a token in what the script has kept so far.
+        look = """
+for folder, _, names in os.walk(os.environ["TMPDIR"]):
+    for name in names:
+        if name != "raw" and "ghs_" in open(os.path.join(folder, name)).read():
+            open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaked"), "w").write("yes")
+"""
+        (bin_ / "gh").write_text(RulesetsDrift.STAND_IN.replace("import os, sys\n", "import os, sys\n" + look, 1))
+        (bin_ / "gh").chmod(0o755)
+        head = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nAuthorization: token ghs_%s\r\n\r\n" % ("x" * 36)
+        base = "repos_combsmith_software-factory_environments"
+        (bin_ / (base + "_per_page=100")).write_text(head + json.dumps(self.listed))
+        for name, (_, body) in self.policies.items():
+            (bin_ / ("%s_%s_deployment-branch-policies_per_page=100" % (base, name))).write_text(head + json.dumps(body))
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch))
+        self.assertEqual(shutil.which("gh", path=env["PATH"]), str(bin_ / "gh"))
+        done = subprocess.run(["sh", str(self.SCRIPT)], env=env, capture_output=True, text=True, timeout=120)
+        self.assertFalse((bin_ / "leaked").exists())
+        self.assertEqual(list(scratch.glob("environments-drift.*")), [])     # macOS's python3 keeps xcrun_db beside it
+        return done, (bin_ / "calls").read_text().splitlines()
+
+    def test_the_script_reads_each_environment_redacts_it_and_compares(self):
+        done, calls = self.run_script()
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "no drift"), done.stderr)
+        base = "api --include repos/combsmith/software-factory/environments"
+        self.assertEqual(calls, [base + "?per_page=100"] + ["%s/%s/deployment-branch-policies?per_page=100" % (base, name) for name in self.WANTED])
+        self.policies["factory-release"] = (200, {"total_count": 1, "branch_policies": [{"name": "dev", "type": "branch"}]})
+        done, _ = self.run_script()
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("factory-release: deploys from dev", done.stdout)
+        self.assertNotIn("ghs_", done.stdout + done.stderr)
+
+    def test_a_scratch_directory_inside_the_repo_is_refused_however_it_is_reached(self):
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "into-the-repo"
+        script = self.SCRIPT.read_text().replace('dir=$(mktemp -d "${TMPDIR:-/tmp}/environments-drift.XXXXXX")', 'dir="%s"' % link)
+        root = clone({"tools/environments_drift.sh": script, "scratch/.keep": ""})
+        link.symlink_to(root / "scratch")
+        done = subprocess.run(["sh", str(root / "tools" / "environments_drift.sh")], env=dict(os.environ, PATH="/nowhere:/usr/bin:/bin"),
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("is inside the repo", done.stderr)

@@ -72,6 +72,14 @@ Runs already started finish on the Release they started on. If that Release is w
 Release runs go one at a time, and GitHub replaces a run still waiting with a newer one: read that the rollback's run
 concluded, and dispatch it again if the schedule's took its place.
 
+## Before you trust a cut
+
+The release App's key is kept from another ref's copy of a workflow only by `factory-release`'s deployment branches, which nothing in the repo can hold. Run this at a terminal, and stop if it says anything but `no drift`:
+
+```
+sh tools/environments_drift.sh
+```
+
 ## Read back
 
 Read the run's conclusion, the Deployment it recorded on `factory-next`, and the tags again. The step is done when
