@@ -448,28 +448,30 @@ class Simulation(unittest.TestCase):
             self.assertRaisesRegex(world.Broken, "I-46", w.poll)
 
     def test_the_seeds_upload_under_codeqls_tool(self):  # P-36
-        # An upload turns CodeQL's success to neutral on the same check run, at any time after it passed. It posts no second
-        # check, the Kernel then gets no verdict from code scanning, and every invariant holds throughout.
-        turned, withheld = 0, 0
+        # An upload turns CodeQL's success to neutral on the same check run, at any time after it passed, whatever else is
+        # pending. It posts no second check, the Kernel approves and queues nothing on that reading, and every invariant holds.
+        turned, read = 0, 0
 
         def recording(f, r, c, cfg, now):
-            nonlocal withheld
+            nonlocal read
             d = decide(f, r, c, cfg, now)
-            scanning = [x for x in f["checks"] if x["name"] == world.CHECKS[world.SCANNING]]
-            if [x["conclusion"] for x in scanning] == ["neutral"] and d.get("action") not in ("issue_approval", "enqueue"):
-                withheld += 1
+            if [x["conclusion"] for x in f["checks"] if x["name"] == world.CHECKS[world.SCANNING]] == ["neutral"]:
+                read += 1
+                self.assertNotIn(d.get("action"), ("issue_approval", "enqueue"))
             return d
 
         with mock.patch.object(world, "decide", recording):
             for seed in sorted(SEEDS):
                 w = World(seed)
                 for _ in range(250):
+                    before, seen = dict(w.checks), len(w.trace)
                     w.step()
-                said = [line for line in w.trace if "an upload under its tool" in line]
-                turned += len(said)
-                self.assertTrue(not said or (w.faults and seed % world.UPLOAD_EVERY == world.UPLOAD), seed)
+                    if any("an upload under its tool" in line for line in w.trace[seen:]):
+                        self.assertTrue(w.faults and seed % world.UPLOAD_EVERY == world.UPLOAD, seed)
+                        self.assertEqual((before[world.SCANNING], w.checks[world.SCANNING]), ("success", "neutral"), seed)
+                        turned += 1
         self.assertTrue(turned)
-        self.assertTrue(withheld)
+        self.assertTrue(read)
 
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
@@ -745,7 +747,16 @@ class Simulation(unittest.TestCase):
             for seed in sorted(SEEDS):
                 w = World(seed)
                 for _ in range(250):
+                    seen = len(w.trace)
                     w.step()
+                    for line in w.trace[seen:]:
+                        found = re.search(r"check (\S+): pending, and a job created", line)
+                        # Alone: its job has no check run yet, so the created one is all that has the name.
+                        if found:
+                            named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[found.group(1)]]
+                            self.assertEqual({c["workflow"] for c in named}, {None}, seed)
+                    # And once its job has reported, its check run is listed.
+                    self.assertEqual({w.checks[lens] for lens in w.not_started} - {"pending"}, set(), seed)
                 beside += sum("failure, and a job created" in line for line in w.trace)
                 alone += sum("pending, and a job created" in line for line in w.trace)
         self.assertTrue(beside)

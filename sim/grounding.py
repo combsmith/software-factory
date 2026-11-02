@@ -78,10 +78,11 @@ RULES = (
     ("actions_runs_a_job_under_any_name", "GitHub Actions reports every job in the repo as one App, 15368, one a pull "
      "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
      "names that file", ("P-35",), "trials/P-35.json", None),
-    # Overturning a failure is not shown, so the fake does not do it.
+    # Overturning a failure is not shown, nor what an upload GitHub processes does: each of P-36's failed processing, as
+    # default setup refuses them. So the fake does neither.
     ("an_upload_turns_codeqls_success_neutral", "An upload to code scanning under CodeQL's tool and category, by an "
      "identity holding security_events: write, turns the conclusion of the check run CodeQL that GitHub Advanced Security, "
-     "57789, reports from success to neutral, on the same check run, whether or not GitHub processes the upload",
+     "57789, reports from success to neutral, on the same check run, though GitHub fails to process the upload",
      ("P-36",), "trials/P-36.json", None),
     # Contradicted by P-2 (trials/P-2.queue.json): GitHub refuses an App's push, through the contents API, to a queued
     # pull request's branch (409), and the queue merges it unchanged; a git push while queued is not asked. Left
