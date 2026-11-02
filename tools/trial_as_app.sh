@@ -241,10 +241,10 @@ json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), 
     echo "  $out"
     exit "$status"
 }
+# The second line is unlike the other scripts': a closed terminal's second hangup must find this one's clean-up already deaf
+# to it, and bash left to die by one dies at the second before the exit trap is under way (issue 481). What runs in the
+# foreground has these at their defaults, so it stops at the same signal and this trap is not kept waiting.
 trap finish EXIT
-# Unlike the other scripts' line: a closed terminal's second hangup must find this one's clean-up already deaf to it, and
-# bash left to die by one dies at the second before the exit trap is under way (issue 481). What runs in the foreground
-# has these at their defaults, so it stops at the same signal and this trap is not kept waiting.
 trap "trap '' HUP INT TERM QUIT PIPE; exit 130" HUP INT TERM QUIT PIPE
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\n'; }

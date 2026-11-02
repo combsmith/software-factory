@@ -9283,6 +9283,9 @@ class SignalTraps(unittest.TestCase):
         # signal, so one line, the same in each, stands right after it and fails the run. A bash script keeps its own: bash runs
         # the EXIT trap on a signal it has no trap for, at once, and one on `set -o pipefail` does not run under dash at all.
         lines_of = {"#!/bin/sh": "trap 'exit 1' HUP INT TERM", "#!/usr/bin/env bash": "trap 'exit 130' INT TERM"}
+        # One script holds a live token through a clean-up a closed terminal can signal twice, so its line also makes it deaf
+        # to the next signal (issue 481).
+        own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; exit 130\" HUP INT TERM QUIT PIPE"}
         scripts = sorted((ROOT / "tools").glob("*.sh"))
         self.assertGreaterEqual(len(scripts), 17)
         for script in scripts:
@@ -9290,7 +9293,7 @@ class SignalTraps(unittest.TestCase):
             traps = [line for line in lines if line.startswith("trap ")]
             self.assertEqual(len(traps), 2, script.name)
             self.assertRegex(traps[0], r"^trap \S.* EXIT$", script.name)
-            self.assertEqual(traps[1], lines_of[lines[0]], script.name)
+            self.assertEqual(traps[1], own_line.get(script.name, lines_of[lines[0]]), script.name)
             self.assertEqual(lines[lines.index(traps[0]) + 1], traps[1], script.name)
 
 
