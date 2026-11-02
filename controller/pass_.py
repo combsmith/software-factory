@@ -155,11 +155,13 @@ def automatic_causes(runs: list, now: str, rule: dict) -> list:
     return sorted({NEVER_STARTED if _never_ran(r) else ENVIRONMENT for r in _streak(runs, now, rule)})
 
 
-def never_started(runs: list, rule: dict) -> bool:
+def never_started(runs: list, now: str, rule: dict) -> bool:
     """Whether Runs that never ran have stood on different items since any Run last succeeded, by the pause's own counts
     and with no window. The pause lapses each hour while the cause goes on, and a lasting cause runs each item to a Hold
-    that then dispatches nothing more, so the name outlasts the pause until a Run shows the cause is gone (decision 0116)."""
-    done = sorted((r for r in runs if r["status"] == "completed"), key=lambda r: r["started_at"])
+    that then dispatches nothing more, so the name outlasts the pause until a Run shows the cause is gone (decision 0116). A Run said to start after
+    the pass counts for neither side, as the pause reads it: GitHub's clock is not the runner's."""
+    done = sorted((r for r in runs if r["status"] == "completed" and seconds(now, r["started_at"]) is not None
+                   and seconds(now, r["started_at"]) >= 0), key=lambda r: r["started_at"])
     succeeded = [i for i, r in enumerate(done) if r["conclusion"] == "success"]
     faults = [r for r in (done[succeeded[-1] + 1:] if succeeded else done) if _never_ran(r)]
     items = {(r["item"]["repo"], r["item"]["type"], r["item"]["number"]) for r in faults}
@@ -335,7 +337,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     causes = automatic_causes(runs, now, rules["automatic_pause"]) if automatic is not None else []
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, causes,
                             bool(left_out), raised, unnamed, reconcile_.alerts(found), due,
-                            whole and never_started(runs, rules["automatic_pause"]))
+                            whole and never_started(runs, now, rules["automatic_pause"]))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}

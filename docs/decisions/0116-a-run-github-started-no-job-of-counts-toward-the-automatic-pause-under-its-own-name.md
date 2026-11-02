@@ -24,4 +24,5 @@ It costs three things, all accepted. **A lasting cause still reaches every item'
 |---|---|
 | `startup_failure` and a first attempt `skipped` say they never ran, each in its own word; a re-run skipped, a cancel, a failure and a Run in flight do not | `tests/test_adapters.py::test_a_run_github_started_no_job_of_says_so_and_no_other_does` |
 | Such Runs pause Admission by the same rule and are named `runs_never_started`, each shown by GitHub's word; too few, one item's, or a success after them hold nothing; the name outlasts the pause until a Run succeeds; a cancel with no flag trips nothing; both causes are named where both hold, and an outage a success ended is not; a word beside an outcome is the outcome's; it stops no act | `tests/test_controller.py::test_runs_that_never_ran_pause_admission_and_are_named_as_themselves` |
+| A Run said to start after the pass, or at a time that is no moment, counts neither toward the name nor against it, as the pause reads it | `tests/test_controller.py::test_runs_that_never_ran_pause_admission_and_are_named_as_themselves` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
