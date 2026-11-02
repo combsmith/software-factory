@@ -312,6 +312,11 @@ class Task(unittest.TestCase):
         self.assertEqual([got["thread:T%d" % i] for i in range(len(cases))], [want for _, want in cases])
         self.assertEqual(others(t)[0]["source"], "don-petry")
         self.assertEqual(task.trust(None, config()), "outside")
+        # An issue's is `outside`, whoever opened it: anyone who can write can edit its body (decision 0110). Its source
+        # still names who opened it, and the same writer's other texts keep their class.
+        mine = {x["id"]: x for x in others(built([text("issue:12", MAINTAINER, said), text("thread:T1", MAINTAINER, said)]))}
+        self.assertEqual((mine["issue:12"]["trust"], mine["issue:12"]["source"]), ("outside", "don-petry"))
+        self.assertEqual(mine["thread:T1"]["trust"], "maintainer")
 
     def test_a_task_says_what_it_left_out_and_how_much(self):  # L-56
         texts = [text("comment:body", body="a" * 40), text("thread:T1", body="b" * 30), text("thread:T2", body="c" * 50),
