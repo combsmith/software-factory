@@ -2604,8 +2604,8 @@ class Recorded(unittest.TestCase):
         from harness import apply
         run = dict(lens_run(self.RUN, number=36), item={"repo": "o/r", "type": "issue", "number": 36},
                    intent="open-pull-request", role="dev-lead", content_id=None)
-        for number in (7, 26, 1000):
-            done = apply.opened("e1", "factory-work/issue-36-1", {"state": "applied", "number": number,
+        for number in (1, 26, 1000):
+            done = apply.opened("e1", 36, "factory-work/issue-36-1", {"state": "applied", "number": number,
                                                                   "head": "factory-work/issue-36-1"})
             kept = dict(lens_applied(self.RUN), effects=[done])
             got = applied.opened(github.Replay(applied_stored("o/r", 39100000000, kept)), "o/r", listed_runs(run),

@@ -864,20 +864,34 @@ class Opened(unittest.TestCase):
     BRANCH = "factory-work/issue-36-1"
 
     def test_an_opening_run_records_the_pull_request_it_opened_by_its_number_on_its_branch(self):
-        for state in ("applied", "already_applied"):
-            done = apply.opened("e1", self.BRANCH, {"state": state, "number": 26, "head": self.BRANCH})
-            self.assertEqual(done, {"id": "e1", "type": "open_pull_request", "state": state, "key": "26",
+        def kept(done):
+            return shared.errors(dict(json.loads((ROOT / "examples" / "applied.json").read_text()), effects=[done],
+                                      findings=[]), "applied")
+        for state, number in (("applied", 26), ("already_applied", 26), ("applied", 1)):
+            done = apply.opened("e1", 36, self.BRANCH, {"state": state, "number": number, "head": self.BRANCH})
+            self.assertEqual(done, {"id": "e1", "type": "open_pull_request", "state": state, "key": str(number),
                                     "reason": None})
-            record = dict(json.loads((ROOT / "examples" / "applied.json").read_text()), effects=[done], findings=[])
-            self.assertEqual(shared.errors(record, "applied"), [])
-        # A refusal or a failure keeps its reason, and names no pull request.
-        for state in ("failed", "refused"):
-            self.assertEqual(apply.opened("e1", self.BRANCH, {"state": state, "number": 26, "head": self.BRANCH,
-                                                              "reason": "effect_refused"}),
-                             {"id": "e1", "type": "open_pull_request", "state": state, "key": None,
-                              "reason": "effect_refused"})
-        # The other side: a number not read back as one, one read back on another branch, a branch not of the
-        # Factory's shape, or a read-back that is none, names no pull request.
+            self.assertEqual(kept(done), [])
+        # A refusal or a failure keeps its reason, each its own, and names no pull request.
+        for state, why in (("failed", "effect_failed"), ("refused", "push_protected"), ("failed", "token_refused")):
+            done = apply.opened("e1", 36, self.BRANCH, {"state": state, "number": 26, "head": self.BRANCH, "reason": why})
+            self.assertEqual(done, {"id": "e1", "type": "open_pull_request", "state": state, "key": None,
+                                    "reason": why})
+            self.assertEqual(kept(done), [])
+        # The other side, each still a record applied/1 holds: a reason that is no code, or one given with any other
+        # state; a number not read back as one; one read back on another branch, or on another issue's though it
+        # was asked for that branch; a branch not of the Factory's shape; or a read-back that is none.
+        lost = {"id": "e1", "type": "open_pull_request", "state": "failed", "key": None, "reason": "not_read_back"}
+        for back in ({"state": "failed", "reason": "HTTP 502 Bad Gateway"}, {"state": "refused", "reason": True},
+                     {"state": "failed", "reason": ""}, {"state": "pending", "reason": "effect_failed"},
+                     {"state": "applied", "number": 26, "head": "factory-work/issue-37-1", "reason": "effect_failed"}):
+            self.assertEqual(apply.opened("e1", 36, self.BRANCH, back), lost, back)
+            self.assertEqual(kept(apply.opened("e1", 36, self.BRANCH, back)), [])
+        other = "factory-work/issue-37-1"
+        self.assertEqual(apply.opened("e1", 36, other, {"state": "applied", "number": 26, "head": other}), lost)
+        for issue in ("36", None, True):
+            self.assertEqual(apply.opened("e1", issue, self.BRANCH, {"state": "applied", "number": 26,
+                                                                     "head": self.BRANCH}), lost, issue)
         for branch, back in ((self.BRANCH, {"state": "applied", "number": "26", "head": self.BRANCH}),
                              (self.BRANCH, {"state": "applied", "number": 0, "head": self.BRANCH}),
                              (self.BRANCH, {"state": "applied", "number": -26, "head": self.BRANCH}),
@@ -892,9 +906,7 @@ class Opened(unittest.TestCase):
                              (self.BRANCH, {"state": "pending", "number": 26, "head": self.BRANCH}),
                              (self.BRANCH, {"state": "failed", "number": 26, "head": self.BRANCH}),
                              (self.BRANCH, None), (self.BRANCH, "applied")):
-            self.assertEqual(apply.opened("e1", branch, back),
-                             {"id": "e1", "type": "open_pull_request", "state": "failed", "key": None,
-                              "reason": "not_read_back"}, (branch, back))
+            self.assertEqual(apply.opened("e1", 36, branch, back), lost, (branch, back))
 
 
 class Job(unittest.TestCase):

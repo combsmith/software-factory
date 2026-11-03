@@ -60,6 +60,8 @@ UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 THE_ROLES = ("result_invalid", "task_too_large", "no_answer")
 # The branch a pull request the Factory opens stands on: the issue it serves and the count opened for it (decision 0068).
 WORK_BRANCH = re.compile(t.WORK_BRANCH)
+# A reason as applied/1 holds one: a code, never a sentence.
+CODE = re.compile(r"[a-z_]+")
 
 
 def push_refusal(paths, previous_paths, protected_list):
@@ -86,21 +88,22 @@ def push_refusal(paths, previous_paths, protected_list):
     return None
 
 
-def opened(effect_id: str, branch: str, back) -> dict:
+def opened(effect_id: str, issue: int, branch: str, back) -> dict:
     """The `open_pull_request` Effect an opening Run records in its own `applied/1` (issue 342, decision 0097), from the
     effects port's read-back `{state, number, head, reason}`. It is `applied` or `already_applied` only keyed by the
     pull request's number as read back, in the form `adapters/applied.py`'s `opened` reads, digits with no leading
-    zero, and only for one read back on `branch`, the work branch the Run was admitted to open: one on another branch
-    is not the one this Run opened, and recording it would bind it to this Run's issue. A refusal or a failure keeps its
-    reason; anything less is `failed`, `not_read_back`. No Effect opens one yet: slice 2's push Effect, with the opening
-    Run, calls this."""
+    zero, and only for one read back on `branch`, the work branch the Run was admitted to open, which names `issue`,
+    the issue the Run serves: one on another branch, or another issue's, is not the one this Run opened, and recording
+    it would bind it to this Run's issue. A refusal or a failure keeps its reason where that is a code; anything less is
+    `failed`, `not_read_back`. No Effect opens one yet: slice 2's push Effect, with the opening Run, calls this."""
     back = back if isinstance(back, dict) else {}
-    state, number = back.get("state"), back.get("number")
-    if state in ("applied", "already_applied") and type(number) is int and number > 0 and isinstance(branch, str) \
-            and WORK_BRANCH.fullmatch(branch) and back.get("head") == branch:
+    state, number, reason = back.get("state"), back.get("number"), back.get("reason")
+    shaped = WORK_BRANCH.fullmatch(branch) if isinstance(branch, str) else None
+    if state in ("applied", "already_applied") and type(number) is int and number > 0 and type(issue) is int \
+            and shaped and shaped.group(1) == str(issue) and back.get("head") == branch:
         return {"id": effect_id, "type": OPENED, "state": state, "key": str(number), "reason": None}
-    if state in ("failed", "refused") and back.get("reason"):
-        return {"id": effect_id, "type": OPENED, "state": state, "key": None, "reason": back.get("reason")}
+    if state in ("failed", "refused") and isinstance(reason, str) and CODE.fullmatch(reason):
+        return {"id": effect_id, "type": OPENED, "state": state, "key": None, "reason": reason}
     return {"id": effect_id, "type": OPENED, "state": "failed", "key": None, "reason": "not_read_back"}
 
 
