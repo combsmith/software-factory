@@ -494,9 +494,13 @@ class Records(unittest.TestCase):
         self.assertNotEqual(validate(asked, SCHEMAS["result"], schemas=SCHEMAS), [])
         self.assertNotIn("approve", SCHEMAS["effect"]["$defs"]["type"]["enum"])
         # applied/1 records every type effect/1 lets a Result ask for, and approve beside them, which no Result may, and
-        # open_pull_request, whose writer lands in slice 2 with push (issue 342).
+        # open_pull_request, whose writer lands in slice 2 with push (issue 342); and the queue App's three acts, which no
+        # Result may ask for either (issue 381).
         recorded = SCHEMAS["applied"]["properties"]["effects"]["items"]["properties"]["type"]["enum"]
-        self.assertEqual(recorded, SCHEMAS["effect"]["$defs"]["type"]["enum"] + ["approve", "open_pull_request"])
+        self.assertEqual(recorded, SCHEMAS["effect"]["$defs"]["type"]["enum"]
+                         + ["approve", "open_pull_request", "enqueue", "dequeue", "resolve_thread"])
+        for act in ("enqueue", "dequeue", "resolve_thread"):
+            self.assertNotIn(act, SCHEMAS["effect"]["$defs"]["type"]["enum"])
 
 
 if __name__ == "__main__":
