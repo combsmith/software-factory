@@ -3527,6 +3527,7 @@ class Workflows(unittest.TestCase):
     def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
         good = (self.LIVE / "pass.yml").read_text()
         self.assertEqual(check_workflows.pass_problems(good), [])
+        self.assertIn("          ref: ${{ job.workflow_sha }}\n", good)  # decision 0123: a copy of itself would not say so
         upload = ("      - name: Upload the pass record\n        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
                   " # v7.0.2\n        with:\n          name: pass\n          path: pass/pass.json\n          if-no-files-found: error\n")
         self.assertIn(upload, good)
@@ -3545,6 +3546,7 @@ class Workflows(unittest.TestCase):
     def test_the_approving_act_holds_the_approvers_token_alone(self):  # decision 0055
         good = (self.LIVE / "approve-job.yml").read_text()
         self.assertEqual(check_workflows.approve_job_problems(good), [])
+        self.assertIn("          ref: ${{ job.workflow_sha }}\n", good)  # decision 0123
         for why, text in {"a key beside it": good.replace("          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n",
                                                           "          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n"
                                                           "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
