@@ -1503,6 +1503,7 @@ class Identity(unittest.TestCase):
                         "for n in $(gh pr list --json number --jq '.[].number'); do bash /tmp/x.sh $n; done",
                         "cat > /tmp/x.sh <<'E'\necho hi\nE\nbash /tmp/x.sh; gh pr view 1 --json state --jq .state",
                         "bash <<'E'\necho hi\nE\ngh pr view 1",
+                        "git log $(git rev-parse commit); bash /tmp/x.sh",
                         "bash /tmp/x.sh # git push"):
             self.assertEqual(unseen(command), [], command)
         for command in ("bash /tmp/x.sh; git push origin main", "bash /tmp/x.sh; git commit -m x", "bash /tmp/x.sh; git log -1; git push",
@@ -1516,6 +1517,16 @@ class Identity(unittest.TestCase):
                         "bash /tmp/x.sh; gh alias set y 'pr merge'", "bash /tmp/x.sh; foo 'git push'", "bash /tmp/x.sh; git log $(git push)",
                         "bash /tmp/x.sh; git log -1; echo \"$(git push)\"", "bash /tmp/x.sh; g''it push",
                         "bash <<E\ngit push\nE", "bash /tmp/x.sh <<E\ngit -C /tmp commit\nE", "cat > /tmp/x.sh <<'E'\ngit push\nE\nbash /tmp/x.sh; gh pr view 1",
+                        # A flag clustered, or a word the shell would change (Argon).
+                        "bash /tmp/x.sh; gh api -iX PUT repos/o/r/pulls/1/merge", "bash /tmp/x.sh; gh api -if body=x repos/o/r/x",
+                        "bash /tmp/x.sh; gh api `printf %s -X` PUT repos/o/r/x", "bash /tmp/x.sh; gh api {-X,PUT} repos/o/r/x",
+                        "bash /tmp/x.sh; gh api repos/o/r/x --method GET",
+                        # What a read is given may be what it prints for the script, or sets for it (Argon).
+                        "git log -1 --format='git push' | sh", "git log -1 --format='git commit -m x' > /tmp/s; sh /tmp/s",
+                        "bash /tmp/x.sh; gh api rate_limit --jq '\"git push\"'", "git status -- \"${x:=git commit -m x}\"; bash /tmp/x.sh",
+                        "_=\"${x:=git commit}\" git status; bash /tmp/x.sh",
+                        # A line of a body that also stands outside it is read there, in a command's words (Argon).
+                        "true '\ngit commit -m x\n' && bash <<'E'\ngit commit -m x\nE",
                         # What a here-string gives a shell is the script itself (the reviews).
                         "bash <<< 'git push origin main'", "sh <<< 'gh pr merge 1'", "bash -s <<< \"git commit -m x\"",
                         # Where this leaves it, as main reads them: a program that prints its text is not told from one that runs it.
