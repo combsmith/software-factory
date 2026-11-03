@@ -453,29 +453,27 @@ class TheSet(unittest.TestCase):
 
     @pending
     def test_a_fresh_agent_given_the_repo_adds_a_rule_and_passes_the_check(self):
-        # Decision 0013 and docs/context-engineering.md: the context's test (issue 8, decision 0042). The runs are made at
+        # Decision 0013 and docs/context-engineering.md: the context's test (issue 8, decision 0129). The runs are made at
         # the Maintainer's terminal by tools/context_eval.sh and recorded in evals/context/task.json; this holds the record:
-        # one task sentence that names a rule and its reason code, the sha256 of the held-out answer, and the newest three
-        # runs on it all passed. Until the runs are recorded the task is null, and this fails.
+        # the sha256 of the task sentence and of the held-out answer, never the sentence, so the rule is named nowhere
+        # here (the Maintainer's choice), and the newest three runs on that sentence all passed, each adding a test, a
+        # mutant and the sentence's reason code. Until the runs are recorded the hashes are null, and this fails.
         known = eval_result.schemas()
         record = load("evals/context/task.json")
         self.assertEqual(validate(record, known["context-eval"], schemas=known), [])
-        self.assertIsInstance(record["task"], str)
-        self.assertEqual(len(re.findall(r"`[a-z_]+`", record["task"])), 1, "the sentence names one reason code")
+        self.assertIsInstance(record["task_sha256"], str)
         self.assertIsInstance(record["held_out_sha256"], str)
         runs = record["runs"]
         self.assertGreaterEqual(len(runs), 3)
         newest = sorted(runs, key=lambda r: r["ran_at"])[-3:]
         self.assertTrue(all(r["passed"] for r in newest), [r["verdicts"] for r in newest])
-        code = re.search(r"`([a-z_]+)`", record["task"]).group(1)
         script = (ROOT / "tools" / "context_eval.sh").read_text()
         pin, cap = re.search(r"^PIN=(\S+)$", script, re.M).group(1), int(re.search(r"^CAP=(\d+)$", script, re.M).group(1))
         for r in newest:
             self.assertEqual(r["passed"], r["verdicts"] == {"held_out_test": "pass", "verify": "pass", "mutant": "killed"})
             self.assertEqual((r["cli_version"], r["cap_turns"]), (pin, cap))
-            self.assertEqual(r["added"]["reason"], code)
-            self.assertIsNotNone(r["added"]["test"])
-            self.assertIsNotNone(r["added"]["mutant"])
+            self.assertEqual(r["task_sha256"], record["task_sha256"], "a run on another sentence")
+            self.assertEqual(r["added"], {"test": True, "mutant": True, "reason": True})
             # The agent changed the Kernel, tests and the mutants' list alone, and dropped nothing from the list.
             for change in r["changed"]:
                 self.assertTrue(change["path"].startswith(("kernel/", "tests/")) or change["path"] == "tools/mutants.py", change)

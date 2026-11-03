@@ -40,13 +40,16 @@
             "pattern": "^e[0-9]{1,3}$"
           },
           "type": {
-            "$comment": "effect/1's types, which a Result may ask for, and approve, which none may: the approving act's one write (issue 195, ruling 5). tests/test_approve.py holds the two lists together. And open_pull_request, keyed by the pull request's number as read back, which binds a pull request the Factory opens to the issue its Run serves (issue 342); apply's open Effect, which writes it, lands in slice 2 with push.",
+            "$comment": "effect/1's types, which a Result may ask for, and approve, which none may: the approving act's one write (issue 195, ruling 5). tests/test_approve.py holds the two lists together. And open_pull_request, keyed by the pull request's number as read back, which binds a pull request the Factory opens to the issue its Run serves (issue 342); apply's open Effect, which writes it, lands in slice 2 with push. And enqueue, dequeue and resolve_thread, the queue App's acts, each keyed by what it read back: the pull request's node id, or the thread's (issue 381).",
             "enum": [
               "submit_review",
               "create_check_run",
               "comment",
               "approve",
-              "open_pull_request"
+              "open_pull_request",
+              "enqueue",
+              "dequeue",
+              "resolve_thread"
             ]
           },
           "state": {

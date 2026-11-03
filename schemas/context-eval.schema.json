@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "context-eval/1: the context's test (issue 8). One task sentence, the sha256 of its held-out answer, which lives in the private home and never here, and each run of a fresh agent on it: the commit, what it read, what it changed, what it cost, and the three verdicts. Of the model's text only the names it chose for a test and a mutant, the first words of its commands and the paths it named reach here, each held to a pattern and none shaped like a token; a change is a count, and what the agent named outside the export, what it ran that could not be read, and what of the judge's was put back are counted. A cost is null when the CLI gave no result.",
+  "title": "context-eval/1: the context's test (issue 8). The sha256 of its one task sentence and of its held-out answer, both of which live in the private home and never here, and each run of a fresh agent on it: the commit, what it read, what it changed, what it cost, and the three verdicts. Of the model's text only a command's program, its flags and the paths or modules the export holds reach here, and a file the export does not hold is named by its folder; of the rule nothing: whether it added a test, a mutant and the sentence's reason code is three booleans. Each word is held to a pattern and none is shaped like a token; a change is a count, and what the agent named outside the export, what it ran that could not be read, and what of the judge's was put back are counted. A cost is null when the CLI gave no result.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema",
-    "task",
+    "task_sha256",
     "held_out_sha256",
     "runs"
   ],
@@ -13,12 +13,12 @@
     "schema": {
       "const": "context-eval/1"
     },
-    "task": {
+    "task_sha256": {
       "type": [
         "string",
         "null"
       ],
-      "pattern": "^[A-Z][^.\\n]{10,398}\\.$"
+      "pattern": "^[0-9a-f]{64}$"
     },
     "held_out_sha256": {
       "type": [
@@ -37,6 +37,7 @@
           "ran_at",
           "cli_version",
           "cap_turns",
+          "task_sha256",
           "read",
           "outside_reads",
           "ran",
@@ -65,11 +66,15 @@
             "type": "integer",
             "minimum": 1
           },
+          "task_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
           "read": {
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^\\.?[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$"
+              "pattern": "^(\\./|\\.?[A-Za-z0-9_][A-Za-z0-9_./-]{0,199})$"
             }
           },
           "outside_reads": {
@@ -100,7 +105,7 @@
               "properties": {
                 "path": {
                   "type": "string",
-                  "pattern": "^\\.?[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$"
+                  "pattern": "^(\\./|\\.?[A-Za-z0-9_][A-Za-z0-9_./-]{0,199})$"
                 },
                 "added": {
                   "type": "integer",
@@ -130,25 +135,13 @@
             ],
             "properties": {
               "test": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "pattern": "^tests/[A-Za-z0-9_/]+\\.py::test_[a-z0-9_]+$"
+                "type": "boolean"
               },
               "mutant": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9 _:'(),.-]{0,119}$"
+                "type": "boolean"
               },
               "reason": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "pattern": "^[a-z_]+$"
+                "type": "boolean"
               }
             }
           },
