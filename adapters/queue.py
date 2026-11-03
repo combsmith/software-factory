@@ -4,7 +4,9 @@ Lens's thread, each through the queue App's own token, narrowed to its item by `
 The App holds `contents: write` and `metadata: read` alone, and each request here is one a trial recorded it making:
 `GET /repos/{repo}/pulls/{n}` and the three mutations (trials/P-2.queue-app.json), its review threads read and resolved
 (trials/P-5.queue.json), and the enqueue's `expectedHeadOid`, which GitHub refuses once the head moved
-(trials/P-57.json, asked through the Maintainer's login; the App's own token is owed). Each write is sent once and read
+(trials/P-57.json, asked through the Maintainer's login; the App's own token is owed). Whether the pull request is in
+the merge queue is read as an installation token narrowed to `metadata: read` read it (trials/P-2.least.json, the
+Controller's App; the queue App's own token is owed). Each write is sent once and read
 back from GitHub's answer. Whose fault a failure was is read from its status and from the pull request read again,
 never from GitHub's words."""
 from __future__ import annotations
@@ -21,6 +23,10 @@ DEQUEUE = "mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { mergeQueu
 THREADS = ("query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest("
            "number: $pr) { reviewThreads(first: 100) { totalCount pageInfo { hasNextPage } nodes { id isResolved "
            "resolvedBy { login databaseId __typename } } } } } }")
+# The merge queue's read, as P-2.least's Controller App sent it narrowed to `metadata: read`.
+MEMBERSHIP = ("query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { mergeQueue("
+              "branch: \"main\") { entries(first: 20) { totalCount nodes { position state pullRequest { number } } } } "
+              "pullRequest(number: $pr) { isInMergeQueue mergeQueueEntry { position state } } } }")
 RESOLVE = ("mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved resolvedBy "
            "{ login databaseId __typename } } } }")
 NODE = re.compile(r"PR_[A-Za-z0-9_-]{1,100}")
@@ -32,12 +38,16 @@ ENTRY_STATES = ("QUEUED", "AWAITING_CHECKS", "MERGEABLE", "UNMERGEABLE", "LOCKED
 
 
 class Queuing:
-    """The queue App's transport, narrowed to one pull request: read it, read its review threads, enqueue it at one head,
-    dequeue it, and resolve one of its threads. Anything else is refused before it leaves."""
+    """The queue App's transport, narrowed to one pull request: read it, read its review threads and whether it is
+    queued, enqueue it at one head, dequeue it, and resolve one of its threads. A write names only the node id its own
+    read of the pull request answered with, and a resolution only a thread its own read of the threads listed, so no
+    other pull request of the repo, which the token reaches whole, is written. Anything else is refused before it
+    leaves."""
 
     def __init__(self, transport, item: dict):
         self._transport, self._item = transport, dict(item)
         self._pull = "/repos/%s/pulls/%d" % (item["repo"], item["number"])
+        self._node, self._threads = None, set()
 
     def _allowed(self, body) -> bool:
         if not isinstance(body, dict) or set(body) != {"query", "variables"} or not isinstance(body["variables"], dict):
@@ -48,19 +58,27 @@ class Queuing:
             return isinstance(value, str) and form.fullmatch(value) is not None
         owner, name = self._item["repo"].split("/")
         if query == ENQUEUE:
-            return set(given) == {"id", "h"} and node(given["id"], NODE) and node(given["h"], SHA)
+            return set(given) == {"id", "h"} and given["id"] == self._node and node(given["h"], SHA)
         if query == DEQUEUE:
-            return set(given) == {"id"} and node(given["id"], NODE)
+            return set(given) == {"id"} and given["id"] == self._node
         if query == RESOLVE:
-            return set(given) == {"id"} and node(given["id"], THREAD)
-        return query == THREADS and given == {"owner": owner, "name": name, "pr": self._item["number"]}
+            return set(given) == {"id"} and node(given["id"], THREAD) and given["id"] in self._threads
+        return query in (THREADS, MEMBERSHIP) and given == {"owner": owner, "name": name, "pr": self._item["number"]}
 
     def send(self, req: dict) -> dict:
         method, path, body = req.get("method"), req.get("path"), req.get("body")
         if method == "GET" and path == self._pull and body is None:
-            return self._transport.send(req)
+            answer = self._transport.send(req)
+            read = _body(answer) or {}
+            if read.get("number") == self._item["number"] and isinstance(read.get("node_id"), str) \
+                    and NODE.fullmatch(read["node_id"]) is not None:
+                self._node = read["node_id"]
+            return answer
         if method == "POST" and path == "/graphql" and self._allowed(body):
-            return self._transport.send(req)
+            answer = self._transport.send(req)
+            if body["query"] == THREADS:
+                self._threads |= set(_listed(_body(answer)) or {})
+            return answer
         raise Unanswered("a request the queue App's token may not send")
 
 
@@ -156,6 +174,28 @@ def dequeue(transport, node: str) -> dict:
     return {"state": "failed", "key": None, "fault": "environment", "reason": "dequeue_refused"}
 
 
+def _pulled(body):
+    """The pull request a GraphQL answer about this repository names, or None for an answer with errors or of another
+    shape."""
+    data = body.get("data") if isinstance(body, dict) and not body.get("errors") else None
+    repository = data.get("repository") if isinstance(data, dict) else None
+    found = repository.get("pullRequest") if isinstance(repository, dict) else None
+    return found if isinstance(found, dict) else None
+
+
+def _listed(body):
+    """`{thread id: resolved}` of every review thread the answer lists, read whole, or None."""
+    listed = (_pulled(body) or {}).get("reviewThreads")
+    nodes = listed.get("nodes") if isinstance(listed, dict) else None
+    page = listed.get("pageInfo") if isinstance(listed, dict) else None
+    if not isinstance(nodes, list) or listed.get("totalCount") != len(nodes) \
+            or not isinstance(page, dict) or page.get("hasNextPage") is not False \
+            or not all(isinstance(n, dict) and isinstance(n.get("id"), str) and type(n.get("isResolved")) is bool
+                       for n in nodes):
+        return None
+    return {n["id"]: n["isResolved"] for n in nodes}
+
+
 def threads(transport, item: dict) -> dict:
     """`{fault, threads}`: each review thread's id and whether it is resolved, read whole, or a fault."""
     owner, name = item["repo"].split("/")
@@ -164,17 +204,26 @@ def threads(transport, item: dict) -> dict:
     ended = _ended(answer, "refused")
     if ended is not None:
         return {"fault": ended, "threads": None}
-    body = _body(answer)
-    found = (((body or {}).get("data") or {}).get("repository") or {}).get("pullRequest") if body and not body.get("errors") else None
-    listed = found.get("reviewThreads") if isinstance(found, dict) else None
-    nodes = listed.get("nodes") if isinstance(listed, dict) else None
-    if not isinstance(nodes, list) or listed.get("totalCount") != len(nodes) \
-            or (listed.get("pageInfo") or {}).get("hasNextPage") is not False \
-            or not all(isinstance(n, dict) and isinstance(n.get("id"), str) and type(n.get("isResolved")) is bool
-                       for n in nodes):
+    listed = _listed(_body(answer))
+    if listed is None:
         return {"fault": {"state": "refused", "key": None, "fault": "environment", "reason": "threads_unreadable"},
                 "threads": None}
-    return {"fault": None, "threads": {n["id"]: n["isResolved"] for n in nodes}}
+    return {"fault": None, "threads": listed}
+
+
+def queued(transport, item: dict) -> dict:
+    """`{fault, queued}`: whether the pull request is in the merge queue, or a fault, the environment's."""
+    owner, name = item["repo"].split("/")
+    answer = _asked(transport, request("POST", "/graphql", body={
+        "query": MEMBERSHIP, "variables": {"owner": owner, "name": name, "pr": item["number"]}}))
+    ended = _ended(answer, "refused")
+    if ended is not None:
+        return {"fault": ended, "queued": None}
+    found = (_pulled(_body(answer)) or {}).get("isInMergeQueue")
+    if type(found) is not bool:
+        return {"fault": {"state": "refused", "key": None, "fault": "environment", "reason": "queue_unreadable"},
+                "queued": None}
+    return {"fault": None, "queued": found}
 
 
 def resolve(transport, thread: str, login: str) -> dict:

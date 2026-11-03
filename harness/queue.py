@@ -9,8 +9,10 @@ decision 0129). It decides nothing itself, and each step that fails writes nothi
 3. The pull request is read again with the queue App's own token, which reads it and its threads and nothing else
    (decision 0129's ruling A): an enqueue and a dequeue are made only while it is open at the head the pass read beside
    the Decision (`superseded`, `closed_under_act` or `head_moved`), and the enqueue is bound to that head by
-   `expectedHeadOid`, which GitHub refuses once the head moved (trials/P-57.json). A resolution is made only of a thread
-   still open; one already resolved is recovered and nothing is written.
+   `expectedHeadOid`, which GitHub refuses once the head moved (trials/P-57.json). What is already done is recovered
+   and nothing is written: an enqueue of a pull request in the merge queue, a dequeue of one not in it, a resolution
+   of a thread resolved. A resolution is made only while every thread the Decision names is still there, and stops at
+   its first write that fails.
 4. Each write is sent once and read back (adapters/queue.py).
 
 The Kernel is not asked again, as the approving act asks it (I-38): the queue App reads no more than the pull request
@@ -46,6 +48,9 @@ class Port:
     def threads(self) -> dict:
         return queue_.threads(self._transport, self._item)
 
+    def queued(self) -> dict:
+        return queue_.queued(self._transport, self._item)
+
     def resolve(self, thread: str) -> dict:
         return queue_.resolve(self._transport, thread, self._login)
 
@@ -76,11 +81,11 @@ def _records(run: str, release: str, kind: str, effects: list, why) -> tuple:
 
 
 def job(record, run: str, port, config: dict) -> tuple:
-    """`(applied/1, outcome/1)` for the queue act of Run `run`. `port` is the queue App's writes; `config` the Release and
-    the Pause as the job's `vars` gave it."""
+    """`(applied/1, outcome/1)` for the queue act of Run `run`. `port` is the queue App's writes; `config` the Release,
+    the act its run-name names and the Pause as the job's `vars` gave it."""
     found = decision_of(record, run)
     if found is None:
-        return _records(run, config["release"], "enqueue", [], ("superseded", "no_decision"))
+        return _records(run, config["release"], config["kind"], [], ("superseded", "no_decision"))
     decided, head = found
     release, kind = record["release"], decided["action"]
     if config.get("paused") not in NOT_PAUSED:
@@ -96,24 +101,31 @@ def job(record, run: str, port, config: dict) -> tuple:
         return _records(run, release, kind, [], ("superseded", "closed_under_act"))
     if read["head"] != head:
         return _records(run, release, kind, [], ("superseded", "head_moved"))
+    member = port.queued()
+    if member["fault"] is not None:
+        return _records(run, release, kind, [], (member["fault"]["fault"], member["fault"]["reason"]))
+    if member["queued"] == (kind == "enqueue"):
+        return _records(run, release, kind, [{"state": "already_applied", "key": read["node"], "reason": None}], None)
     back = port.enqueue(read["node"], head) if kind == "enqueue" else port.dequeue(read["node"])
     return _records(run, release, kind, [back], None if back["fault"] is None else (back["fault"], back["reason"]))
 
 
 def _resolve(run: str, release: str, decided: dict, port) -> tuple:
-    """Each thread the Decision names, resolved by the queue App unless GitHub already shows it resolved."""
+    """Each thread the Decision names, resolved by the queue App unless GitHub already shows it resolved. Nothing is
+    written unless every one is still there, and nothing after the first write that fails: a Run that fails counts
+    toward the Run ceiling, never as an act, so a resolution it landed before failing is bounded there alone."""
     read = port.threads()
     if read["fault"] is not None:
         return _records(run, release, "resolve_thread", [], (read["fault"]["fault"], read["fault"]["reason"]))
-    effects, why = [], None
+    if any(thread not in read["threads"] for thread in decided["evidence"]):
+        return _records(run, release, "resolve_thread", [], ("superseded", "thread_gone"))
+    effects = []
     for thread in decided["evidence"]:
-        if thread not in read["threads"]:
-            back = {"state": "refused", "key": None, "fault": "superseded", "reason": "thread_gone"}
-        elif read["threads"][thread]:
+        if read["threads"][thread]:
             back = {"state": "already_applied", "key": thread, "fault": None, "reason": None}
         else:
             back = port.resolve(thread)
         effects.append(back)
-        if back["fault"] is not None and why is None:
-            why = (back["fault"], back["reason"])
-    return _records(run, release, "resolve_thread", effects, why)
+        if back["fault"] is not None:
+            return _records(run, release, "resolve_thread", effects, (back["fault"], back["reason"]))
+    return _records(run, release, "resolve_thread", effects, None)

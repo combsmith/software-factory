@@ -50,12 +50,13 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
     if record is not None and record.get("release") != release:
         return queue._records(run, release, kind, [], ("environment", "release_differs"))
     found = queue.decision_of(record, run) if record is not None else None
-    if found is not None and (found[0]["item"] != parts["item"] or found[0]["content_id"] != parts["content_id"]
-                              or QUEUE_INTENTS[found[0]["action"]] != parts["intent"]
-                              or parts["role"] != config["kernel"]["owner_role"]):
+    # With no Decision for the Run, or under a Pause, no token is minted at all.
+    if found is None:
+        return queue._records(run, release, kind, [], ("superseded", "no_decision"))
+    if found[0]["item"] != parts["item"] or found[0]["content_id"] != parts["content_id"] \
+            or QUEUE_INTENTS[found[0]["action"]] != parts["intent"] or parts["role"] != config["kernel"]["owner_role"]:
         return queue._records(run, release, kind, [], ("superseded", "not_the_decision"))
-    # Under a Pause, no token is minted at all.
-    if found is not None and environ.get(PAUSE) not in queue.NOT_PAUSED:
+    if environ.get(PAUSE) not in queue.NOT_PAUSED:
         return queue._records(run, release, kind, [], ("superseded", "paused"))
     account = controller["accounts"]["queue"]
     if not isinstance(account, dict):
@@ -69,7 +70,7 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
         return queue._records(run, release, kind, [], ("environment", str(refused)))
     try:
         done, ended = queue.job(record, run, queue.Port(transport, parts["item"], account["login"]),
-                                {"release": release, "paused": environ.get(PAUSE)})
+                                {"release": release, "kind": kind, "paused": environ.get(PAUSE)})
     finally:
         revoked = revoke()
     if revoked is not True and ended["outcome"] is None:

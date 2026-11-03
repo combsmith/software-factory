@@ -33,6 +33,17 @@ def pull(head=HEAD, state="open", merged=False, number=2) -> dict:
     return answer
 
 
+def member(queued: bool) -> dict:
+    """Whether pull request 2 is in the merge queue, as P-2.least's read narrowed to `metadata: read` recorded one."""
+    answer = recorded("P-2.least.json", 40)
+    answer["body"]["data"]["repository"]["pullRequest"]["isInMergeQueue"] = queued
+    return answer
+
+
+def listed_threads() -> dict:
+    return recorded("P-5.queue.json", 14)
+
+
 class Answers:
     """Each request held to the queue App's transport and answered in turn."""
 
@@ -67,14 +78,31 @@ def record(action_reviews=None, threads=None, queued=False, head=HEAD):
 
 class Port(unittest.TestCase):
     def test_the_queue_apps_token_sends_its_three_acts_and_reads_and_nothing_else(self):
-        allowed = queue_.Queuing(Answers(*[{"status": 200, "headers": {}, "body": {}}] * 4), ITEM)
         owner, name = ITEM["repo"].split("/")
+        empty = {"status": 200, "headers": {}, "body": {}}
+        # Before its own read of the pull request and of its threads, it writes nothing, not even to its own node.
+        unread = queue_.Queuing(Answers(), ITEM)
+        for req in (github.request("POST", "/graphql", body={"query": queue_.ENQUEUE, "variables": {"id": NODE, "h": HEAD}}),
+                    github.request("POST", "/graphql", body={"query": queue_.DEQUEUE, "variables": {"id": NODE}}),
+                    github.request("POST", "/graphql", body={"query": queue_.RESOLVE, "variables": {"id": "PRRT_kwDOVFD6786xYpyG"}})):
+            with self.assertRaises(github.Unanswered, msg=req):
+                unread.send(req)
+        allowed = queue_.Queuing(Answers(pull(), empty, empty, listed_threads(), member(False), empty), ITEM)
         allowed.send(github.request("GET", "/repos/combsmith/software-factory/pulls/2"))
         allowed.send(github.request("POST", "/graphql", body={"query": queue_.ENQUEUE, "variables": {"id": NODE, "h": HEAD}}))
         allowed.send(github.request("POST", "/graphql", body={"query": queue_.DEQUEUE, "variables": {"id": NODE}}))
         allowed.send(github.request("POST", "/graphql", body={"query": queue_.THREADS,
                                                              "variables": {"owner": owner, "name": name, "pr": 2}}))
-        for req in (github.request("GET", "/repos/combsmith/software-factory/pulls/3"),
+        allowed.send(github.request("POST", "/graphql", body={"query": queue_.MEMBERSHIP,
+                                                             "variables": {"owner": owner, "name": name, "pr": 2}}))
+        allowed.send(github.request("POST", "/graphql", body={"query": queue_.RESOLVE, "variables": {"id": "PRRT_kwDOVFD6786xYpyG"}}))
+        other = "PR_kwDOVFD6788AAAABLg1GyQ"
+        for req in (github.request("POST", "/graphql", body={"query": queue_.ENQUEUE, "variables": {"id": other, "h": HEAD}}),
+                    github.request("POST", "/graphql", body={"query": queue_.DEQUEUE, "variables": {"id": other}}),
+                    github.request("POST", "/graphql", body={"query": queue_.RESOLVE, "variables": {"id": "PRRT_kwDOVFD6786xOTHER"}}),
+                    github.request("POST", "/graphql", body={"query": queue_.MEMBERSHIP,
+                                                             "variables": {"owner": owner, "name": name, "pr": 3}}),
+github.request("GET", "/repos/combsmith/software-factory/pulls/3"),
                     github.request("GET", "/repos/combsmith/other/pulls/2"),
                     github.request("POST", "/repos/combsmith/software-factory/pulls/2/reviews", body={}),
                     github.request("POST", "/graphql", body={"query": queue_.ENQUEUE, "variables": {"id": NODE, "h": "main"}}),
@@ -94,6 +122,7 @@ class Port(unittest.TestCase):
         self.assertEqual(sent("P-57.json", 9), queue_.ENQUEUE)
         self.assertEqual(sent("P-2.queue-app.json", 51), queue_.DEQUEUE)
         self.assertEqual(sent("P-5.queue.json", 15), queue_.RESOLVE)
+        self.assertEqual(sent("P-2.least.json", 40), queue_.MEMBERSHIP)
         self.assertEqual(sent("P-5.queue.json", 14).replace(" comments(first: 1) { nodes { databaseId author { login __typename } body } }", ""),
                          queue_.THREADS)
 
@@ -102,16 +131,26 @@ class Job(unittest.TestCase):
     def test_an_enqueue_is_made_at_the_head_decided_on_and_read_back(self):
         rec, rid, decided = record(action_reviews=[support.review()])
         self.assertEqual(decided["action"], "enqueue")
-        p, asked = port(pull(), recorded("P-57.json", 9))
+        p, asked = port(pull(), member(False), recorded("P-57.json", 9))
         done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
         self.assertEqual([(e["type"], e["state"], e["key"]) for e in done["effects"]], [("enqueue", "applied", NODE)])
         self.assertIsNone(ended["outcome"])
-        self.assertEqual(asked.sent[1]["body"]["variables"], {"id": NODE, "h": HEAD})
+        self.assertEqual(asked.sent[2]["body"]["variables"], {"id": NODE, "h": HEAD})
+        # Already in the merge queue, as a second Run sent beside the first finds it: recovered, nothing sent.
+        p, asked = port(pull(), member(True))
+        done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
+        self.assertEqual((done["effects"][0]["state"], done["effects"][0]["key"], ended["outcome"], len(asked.sent)),
+                         ("already_applied", NODE, None, 2))
+        # A queue that cannot be read is the environment's, and nothing is sent.
+        for unread in ({"status": 200, "headers": {}, "body": {"data": None, "errors": [{"type": "FORBIDDEN"}]}}, None):
+            p, asked = port(pull(), unread)
+            ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]
+            self.assertEqual((ended["outcome"], len(asked.sent)), ("environment", 2))
         # A refusal at the head decided on, open: the item's, which its attempts bound. One with the head moved, or
         # closed, since: a change under the act. GitHub's words are never read.
         for again, why in ((pull(), ("item", "enqueue_refused")), (pull(head="b" * 40), ("superseded", "head_moved")),
                            (pull(state="closed"), ("superseded", "closed_under_act"))):
-            p, _ = port(pull(), recorded("P-57.json", 4), again)
+            p, _ = port(pull(), member(False), recorded("P-57.json", 4), again)
             done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": "false"})
             self.assertEqual((ended["outcome"], ended["reason"]), why)
             self.assertEqual(done["effects"][0]["state"], "failed")
@@ -121,27 +160,39 @@ class Job(unittest.TestCase):
             p, asked = port(read)
             done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
             self.assertEqual((ended["outcome"], ended["reason"], len(asked.sent)), ("superseded", why, 1))
-        # An answer that names no entry claims nothing; no answer, a refused token or a pull request unreadable is the
-        # environment's.
+        # A refusal whose re-read GitHub did not answer is the environment's, never the item's.
+        p, _ = port(pull(), member(False), recorded("P-57.json", 4), None)
+        ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]
+        self.assertEqual((ended["outcome"], ended["reason"]), ("environment", "github_unavailable"))
+        # An answer that names no entry, or an entry in no state the queue has, claims nothing; no answer, a refused
+        # token or a pull request unreadable is the environment's.
+        bogus = recorded("P-57.json", 9)
+        bogus["body"]["data"]["enqueuePullRequest"]["mergeQueueEntry"]["state"] = "BOGUS"
         for answer, why in (({"status": 200, "headers": {}, "body": {"data": {"enqueuePullRequest": None}}}, "not_read_back"),
+                            (bogus, "not_read_back"),
                             ({"status": 502, "headers": {}, "body": None}, "github_unavailable"),
                             (None, "github_unavailable"), ({"status": 401, "headers": {}, "body": {}}, "token_refused")):
-            p, _ = port(pull(), answer)
+            p, _ = port(pull(), member(False), answer)
             self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], why)
-        p, _ = port({"status": 200, "headers": {}, "body": {"number": 2}})
-        self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "pull_unreadable")
+        for read in ({"status": 200, "headers": {}, "body": {"number": 2}}, pull(number=3)):
+            p, _ = port(read)
+            self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "pull_unreadable")
 
     def test_a_dequeue_is_made_at_the_head_decided_on_and_claims_nothing_it_did_not_see_taken(self):
         person = support.thread(kind="human", name="don-petry", severity=None)
         rec, rid, decided = record(action_reviews=[support.review()], threads=[person], queued=True)
         self.assertEqual(decided["action"], "dequeue")
-        p, asked = port(pull(), recorded("P-2.queue-app.json", 51))
+        p, asked = port(pull(), member(True), recorded("P-2.queue-app.json", 51))
         done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
         self.assertEqual([(e["type"], e["state"], e["key"]) for e in done["effects"]], [("dequeue", "applied", NODE)])
-        self.assertEqual(asked.sent[1]["body"], {"query": queue_.DEQUEUE, "variables": {"id": NODE}})
+        self.assertEqual(asked.sent[2]["body"], {"query": queue_.DEQUEUE, "variables": {"id": NODE}})
+        # Out of the queue already: recovered, nothing sent.
+        p, asked = port(pull(), member(False))
+        done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
+        self.assertEqual((done["effects"][0]["state"], ended["outcome"], len(asked.sent)), ("already_applied", None, 2))
         # GitHub's refusal, as P-2.queue-app recorded it for a pull request not in the queue: the item may have left
         # already, which the next pass reads, so nothing is claimed.
-        p, _ = port(pull(), recorded("P-2.queue-app.json", 41))
+        p, _ = port(pull(), member(True), recorded("P-2.queue-app.json", 41))
         done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
         self.assertEqual((done["effects"][0]["state"], ended["outcome"], ended["reason"]), ("failed", "environment", "dequeue_refused"))
         p, asked = port(pull(head="b" * 40))
@@ -172,16 +223,45 @@ class Job(unittest.TestCase):
                 node["resolvedBy"].update(change)
             p, _ = port(listed, back)
             self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "not_read_back")
+        # An answer about another thread claims nothing.
+        back = recorded("P-5.queue.json", 15)
+        back["body"]["data"]["resolveReviewThread"]["thread"]["id"] = "PRRT_kwDOVFD6786xYylP"
+        p, _ = port(listed, back)
+        self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "not_read_back")
         gone = copy.deepcopy(listed)
         nodes = gone["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
         gone["body"]["data"]["repository"]["pullRequest"]["reviewThreads"].update(nodes=nodes[1:], totalCount=len(nodes) - 1)
         p, _ = port(gone)
         self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "thread_gone")
-        # A list not read whole is the environment's.
+        # A list not read whole, or shorter than its count, is the environment's.
         cut = copy.deepcopy(listed)
         cut["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"]["hasNextPage"] = True
-        p, _ = port(cut)
-        self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "threads_unreadable")
+        short = copy.deepcopy(listed)
+        short["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] += 1
+        malformed = [{"status": 200, "headers": {}, "body": body} for body in (
+            {"data": "x"}, {"data": {"repository": "x"}}, {"data": {"repository": {"pullRequest": "x"}}})]
+        paged = copy.deepcopy(listed)
+        paged["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"] = "x"
+        for unread in [cut, short, paged] + malformed:
+            p, _ = port(unread)
+            self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "threads_unreadable")
+
+    def test_a_resolution_writes_nothing_unless_every_thread_is_there_and_stops_at_its_first_failure(self):
+        ids = ("PRRT_kwDOVFD6786xYpyG", "PRRT_kwDOVFD6786xYylP")
+        rec, rid, decided = record(threads=[support.thread(tid=i, ruling="accepted") for i in ids])
+        self.assertEqual(sorted(decided["evidence"]), sorted(ids))
+        listed = listed_threads()
+        # One of the two gone: nothing is written, not even the one still there.
+        gone = copy.deepcopy(listed)
+        held = gone["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]
+        held.update(nodes=[n for n in held["nodes"] if n["id"] != decided["evidence"][1]], totalCount=len(held["nodes"]) - 1)
+        p, asked = port(gone)
+        ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]
+        self.assertEqual((ended["reason"], len(asked.sent)), ("thread_gone", 1))
+        # The first write refused: the second is never sent.
+        p, asked = port(listed, {"status": 200, "headers": {}, "body": {"errors": [{"type": "FORBIDDEN"}]}})
+        done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
+        self.assertEqual((ended["reason"], len(asked.sent), len(done["effects"])), ("resolve_refused", 2, 1))
 
     def test_no_decision_a_pause_or_no_head_sends_nothing(self):
         rec, rid, decided = record(action_reviews=[support.review()])
@@ -190,7 +270,8 @@ class Job(unittest.TestCase):
             done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": paused})
             self.assertEqual((ended["outcome"], ended["reason"], asked.sent), ("superseded", "paused", []), paused)
         p, asked = port()
-        self.assertEqual(queue.job(rec, "r_0OTHER1", p, {"release": rec["release"], "paused": ""})[1]["reason"], "no_decision")
+        done, ended = queue.job(rec, "r_0OTHER1", p, {"release": rec["release"], "kind": "dequeue", "paused": ""})
+        self.assertEqual((ended["reason"], done["effects"][0]["type"]), ("no_decision", "dequeue"))
         headless = copy.deepcopy(rec)
         del headless["pull_requests"][0]["head"]
         self.assertEqual(queue.job(headless, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "head_unknown")
@@ -219,9 +300,10 @@ class Step(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def written(self, environ, found=None, minted=None, answers=()):
+    def written(self, environ, found=None, minted=None, answers=(), revoked=True):
         reads_through, wanted = [], []
         asked = Answers(*answers)
+        self.revokes = []
 
         def find(transport, *a):
             reads_through.append(transport)
@@ -233,7 +315,7 @@ class Step(unittest.TestCase):
             wanted.append((app["name"], repo, want, key))
             if minted is not None:
                 raise minted
-            return asked, lambda: True
+            return asked, lambda: self.revokes.append(revoked) or revoked
         with unittest.mock.patch.object(queue_step.passes, "find", find), \
                 unittest.mock.patch.object(queue_step.identity, "from_key", from_key):
             got = queue_step.written(self.argv, environ, lambda: 0, lambda token: ("live", token))
@@ -241,14 +323,19 @@ class Step(unittest.TestCase):
 
     def test_the_step_reads_with_the_jobs_token_and_writes_with_the_queue_apps(self):
         environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": ""}
-        (done, ended), reads_through, wanted, asked = self.written(environ, answers=(pull(), recorded("P-57.json", 9)))
+        (done, ended), reads_through, wanted, asked = self.written(environ, answers=(pull(), member(False), recorded("P-57.json", 9)))
         self.assertIsNone(ended["outcome"], ended)
         self.assertEqual(done["effects"][0]["state"], "applied")
+        # The token is revoked when the act ends; a revoke that fails is a fault, though the write landed.
+        self.assertEqual(self.revokes, [True])
+        (done, ended), _, _, _ = self.written(environ, answers=(pull(), member(False), recorded("P-57.json", 9)), revoked=False)
+        self.assertEqual((done["effects"][0]["state"], ended["outcome"], ended["reason"]),
+                         ("applied", "environment", "token_not_revoked"))
         # The record is found through the job's own token, held to the item's repo and reads.
         self.assertEqual([type(t).__name__ for t in reads_through], ["Approving"])
         # The queue App's token is minted with the grants its three acts take, and nothing more.
         self.assertEqual(wanted, [("combsmith-sf-queue", ITEM["repo"], {"contents": "write"}, "k")])
-        self.assertEqual(len(asked.sent), 2)
+        self.assertEqual(len(asked.sent), 3)
         # Paused as the job's vars give it, or with no Pause given at all: nothing is written.
         for paused in ({"FACTORY_PAUSED": "true"}, {}):
             env = dict(environ, **paused)
@@ -267,6 +354,25 @@ class Step(unittest.TestCase):
                                    (None, queue_step.identity.Refused("key_unreadable"), "key_unreadable")):
             (done, ended), _, _, asked = self.written(environ, found=found, minted=minted)
             self.assertEqual((ended["reason"], asked.sent), (why, []), why)
+        # A run-name that names another content id, Role or act than its Decision's: nothing is minted.
+        name = self.name
+        for other in (name.replace(self.decided["content_id"], "sha256:bbbb"), name.replace(" pr-review ", " lens-security "),
+                      name.replace("enqueue-merge", "dequeue-merge")):
+            self.argv[0] = other
+            (done, ended), _, wanted, _ = self.written(environ)
+            self.assertEqual((ended["reason"], wanted), ("not_the_decision", []), other)
+        self.argv[0] = name
+        # No Decision for the Run in the record, or no record at all, paused or not: nothing is minted, and the Effect
+        # is of the act the run-name names.
+        absent = dict(self.rec, pull_requests=[])
+        for paused in ("", "true"):
+            (done, ended), _, wanted, _ = self.written(dict(environ, FACTORY_PAUSED=paused), found=absent)
+            self.assertEqual((ended["reason"], wanted), ("no_decision", []), paused)
+        self.argv[0] = name.replace("enqueue-merge", "dequeue-merge")
+        with unittest.mock.patch.object(queue_step.passes, "find", lambda *a: None):
+            done, ended = queue_step.written(self.argv, environ, lambda: 0, lambda token: "live")
+        self.assertEqual((ended["reason"], done["effects"][0]["type"]), ("no_decision", "dequeue"))
+        self.argv[0] = name
         # With no queue App's account, a resolution could not be read back as the App's: nothing is minted.
         base = self.loaded()
         base["controller"]["accounts"] = dict(base["controller"]["accounts"], queue=None)
