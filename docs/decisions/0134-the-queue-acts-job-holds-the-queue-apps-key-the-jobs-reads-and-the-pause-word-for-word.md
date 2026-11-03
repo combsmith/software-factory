@@ -1,4 +1,4 @@
-# 0133. The queue act's job holds the queue App's key, the job's reads and the Pause, word for word
+# 0134. The queue act's job holds the queue App's key, the job's reads and the Pause, word for word
 
 Status: accepted. The Factory Builder's ruling of 2026-11-03 on the queue step of "A narrow queue App, combsmith-sf-queue, enqueues and dequeues with contents and pull-request write alone (P-2)" (issue 381), part of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182): its third part, the workflow, of three. It names `workflows.queue`, which decisions 0128 and 0130 left null.
 
