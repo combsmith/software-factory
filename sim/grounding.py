@@ -130,7 +130,8 @@ RULES = (
      "and when", ("P-32",), "trials/P-32.json", None),
     # trials/P-41.json read each actor on its reviews, dismissals and labels by its type; trials/P-41.threads.json each
     # on a thread as the threads port does (decision 0067): every comment's author by GraphQL's type, and the resolver,
-    # whom resolvedBy types a User though it was an App, by the permission read of its login, which answers Bot.
+    # whom resolvedBy types a User though it was an App, by the permission read of its login, which answers Bot, and
+    # User for a person who resolved one.
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
      "other App and the machine user apart, never from a name's spelling", ("P-41",),
