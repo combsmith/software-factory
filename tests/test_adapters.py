@@ -3328,6 +3328,8 @@ REFUSALS = {
     # The Maintainer's enqueues naming a head: one stale, and, before the ruleset's change, one for its review; no port
     # enqueues until the queue step is built (P-57, issue 381).
     ("P-57", 3): None, ("P-57", 4): None, ("P-57", 7): None,
+    # The Maintainer's second enqueue, refused while its required check waited for a runner; no port enqueues (P-48).
+    ("P-48", 22): None,
     # Three uploads GitHub would not process, under default setup; no port uploads, and the lint refuses the permission.
     ("P-36", 6): None, ("P-36", 7): None, ("P-36", 8): None,
     ("P-27", 15): "dispatch",          # a dispatch GitHub refused: the effects port reads it as a write that failed
