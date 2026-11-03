@@ -11,8 +11,9 @@
 # KEY is the path of the App's private key. Only openssl opens it, to sign; this script never
 # reads, prints or copies what it holds. FILE is a new file's path in REPO; the commit adds it.
 # The script mints one installation token, which no command line ever holds, revokes it before it
-# exits, on a failure too, and keeps in a new scratch directory outside this repo only what
-# tools/redact_trial.py let through. It prints that directory, the pull request and its head.
+# exits, on a failure or a signal too, and keeps in a new scratch directory outside this repo only what
+# tools/redact_trial.py let through, with its own words on what it left in finish.log. A closed terminal can signal twice,
+# so the first signal stops the run and no later one stops the clean-up (issue 481). It prints that directory first, then the pull request and its head.
 # Run it from anywhere in a checkout of this repo, with bash 3.2 or later, curl, openssl, gh, python3.
 set -euo pipefail
 set +x
@@ -54,7 +55,8 @@ made=$(mktemp -d)
 out=$(cd "$made" && pwd -P)
 case "$out/" in "$root"/*) echo "the scratch directory is inside the repo" >&2; exit 2 ;; esac
 
-jwt="" token="" n=0 id="" raw="" pushed="" read_head=""
+jwt="" token="" n=0 id="" raw="" pushed="" read_head="" minting=""
+echo "trial_as_app: OUT is $out"
 
 # The value at a dotted path of the JSON body of a redacted capture.
 value() {
@@ -173,19 +175,39 @@ print(said)' "$1" "$2" "$3" "$APP"
 }
 
 # Revoke the token first, whatever happened; then redact what is left and gather the exchanges.
-finish() {
-    status=$?
-    trap - EXIT INT TERM
+say() { echo "$*" >> "$out/finish.log"; }
+
+finish() {   # [STATUS]
+    status=${1:-$?}
+    trap '' HUP INT TERM QUIT PIPE
+    # Nothing past here stops at a signal: this shell and curl ignore them, curl is what revokes since gh stops at a TERM
+    # whatever it inherits, and a bound keeps a hung revocation from holding a shell nothing can interrupt. The terminal
+    # may be gone, so nothing here writes to it until the end: gh and sed are sent nowhere, and the script's own words,
+    # which hold no answer of GitHub's, go to finish.log first, so that a token left live is said where OUT is.
     set +e
+    exec 3>&1 4>&2 > /dev/null 2>&1
+    # bash 3.2 keeps what it could not write to a dead terminal, and hands it to the next command substitution, a capture's
+    # name or the revocation's status among them. This writes it away.
+    echo
+    # A mint GitHub refused issued nothing. Any other that did not end may have: no answer yet, one cut short, or a gateway's.
+    if [ -z "$token" ] && [ -n "$minting" ]; then
+        case "$(sed -n '1s/^[^ ]* \([0-9]*\).*/\1/p' "$raw" 2>/dev/null)" in
+            4*) ;;
+            *) say "A TOKEN MAY BE LIVE: the run stopped during its mint, so none was read to revoke; it lapses within the hour" ;;
+        esac
+    fi
     if [ -n "$token" ]; then
-        as_installation DELETE installation/token
+        record "DELETE /installation/token" "${APP}[bot], by an installation token" ""
+        printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i --suppress-connect-headers --max-time 30 -X DELETE -H @- \
+            -H "Accept: $ACCEPT" -H "X-GitHub-Api-Version: $VERSION" "$API/installation/token" | tr -d '\r' > "$raw"
+        redact "$raw"
         [ "$(sed -n 1p "$out/$id.clean" 2>/dev/null | cut -d' ' -f2)" = 204 ] ||
-            { echo "THE TOKEN WAS NOT REVOKED: it lapses within the hour; say so to the session" >&2; status=1; }
+            { say "THE TOKEN WAS NOT REVOKED: it lapses within the hour; say so to the session"; status=1; }
     fi
     token="" jwt=""
     unset token jwt
     for left in "$out"/*.raw; do
-        [[ -e "$left" ]] && { redact "$left" || status=1; }
+        [[ -e "$left" ]] && { redact "$left" || { say "trial_as_app: the redaction of $(basename "$left") failed; it is deleted unread"; status=1; }; }
     done
     python3 -I -c '
 import json, pathlib, sys
@@ -211,14 +233,20 @@ for asked in sorted(p for p in out.iterdir() if p.name.endswith(".request.json")
 json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), "w"), indent=2)' "$out"
     redact_json="$out/exchanges.unchecked.json"
     (cd "$root" && python3 -m tools.redact_trial < "$redact_json" > "$out/exchanges.json") 2> /dev/null ||
-        { echo "trial_as_app: the redaction of the exchanges failed" >&2; exit 1; }
+        { say "trial_as_app: the redaction of the exchanges failed"; status=1; }
     rm -f "$redact_json"
-    echo "Done, status $status. Give the session this directory; it reads only exchanges.json and the .clean files:"
+    cat "$out/finish.log" >&4
+    exec 1>&3 2>&4 3>&- 4>&-
+    echo "Done, status $status. Give the session this directory; it reads only finish.log, exchanges.json and the .clean files:"
     echo "  $out"
     exit "$status"
 }
+# The second line is unlike the other scripts' (issue 481). A closed terminal's second hangup must find this one's clean-up
+# already deaf to it, and bash left to die by one dies at the second before the exit trap is under way. It runs the clean-up
+# itself, for an `exit` here on a signal as the exit trap starts would end the shell with nothing revoked. What runs in the
+# foreground has these at their defaults, so it stops at the same signal and this trap is not kept waiting.
 trap finish EXIT
-trap 'exit 130' INT TERM
+trap "trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130" HUP INT TERM QUIT PIPE
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\n'; }
 
@@ -235,6 +263,7 @@ installation=$(value "$out/$id.clean" id)
 
 # The token, minted: python keeps it apart from what is written, and hands it to this shell alone.
 record "POST /app/installations/$installation/access_tokens" "$APP, by its JWT" ""
+minting=1
 token=$(printf 'Authorization: Bearer %s\n' "$jwt" |
     curl -q -sS -i --fail-with-body -X POST -H @- -H "Accept: $ACCEPT" -H "X-GitHub-Api-Version: $VERSION" \
         "$API/app/installations/$installation/access_tokens" |
@@ -274,6 +303,7 @@ if data is None:
         "the token found in it is revoked as the script stops\n" if token else
         "if a token was minted it was not revoked, and expires within an hour\n"))
     sys.exit(3)' "$raw")
+minting=""
 redact "$raw"
 jwt=""
 [ -n "$token" ] || { echo "no installation token was read: if one was minted it was not revoked, and expires within an hour" >&2; exit 1; }
@@ -333,6 +363,4 @@ if [ "$action" = threads ]; then
     echo "Two review threads on pull request $pr; the session reads them as the Maintainer, then closes it."
 fi
 
-as_installation DELETE installation/token
-[ "$(sed -n 1p "$out/$id.clean" | cut -d' ' -f2)" = 204 ] || { echo "the revocation did not answer 204" >&2; exit 1; }
-token=""
+# The exit trap revokes the token, the one revocation there is, on a run that ends well too.
