@@ -9284,8 +9284,12 @@ class ContextEval(unittest.TestCase):
             (work / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "%s"\n    return f\n' % word)
             self.assertIs(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["reason"],
                           False, word)
-        for code in (None, "Empty Diff", 7):
-            self.assertIs(context_eval.record(self.transcript(work), *self.export(), self.PASSED,
+        # A code that is none is never added, though the Kernel's new line holds it, and an empty one, which any line
+        # would hold, is none.
+        for code in (None, "Empty Diff", "", 7):
+            planted_pristine, planted = self.export()
+            (planted / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "%s"\n    return f\n' % code)
+            self.assertIs(context_eval.record(self.transcript(planted), planted_pristine, planted, self.PASSED,
                                               dict(self.META, code=code))["added"]["reason"], False, code)
         # A mutant dropped from the list cannot have been killed: the judge's verdict is overridden. A mutant named
         # like a token is added, and its name is not recorded. What the judge put back is carried.

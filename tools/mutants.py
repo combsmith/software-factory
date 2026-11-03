@@ -10871,6 +10871,7 @@ MUTANTS = ISSUE + [
      '        if os.fstat(handle.fileno()).st_nlink != 1:\n            return ""\n', '', ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
     # Issue 8, hash only: a run records whether, never what, and the sentence by its sha256 alone; a command keeps
     # only its program, flags and the export's own names, and a file the export does not hold is named by its folder.
+    ('a context run counts a code that is none', 'tools/context_eval.py', 'isinstance(code, str) and re.fullmatch(r"[a-z_]+", code) is not None \\\n        and any', 'isinstance(code, str) \\\n        and any', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
     ('a context run records a test it did not add', 'tools/context_eval.py', '"test": bool(tests),', '"test": True,', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
     ('a context run records a mutant it did not add', 'tools/context_eval.py', '"mutant": bool(mutants),', '"mutant": True,', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
     ('a context run records its test for its mutant', 'tools/context_eval.py', '"test": bool(tests), "mutant": bool(mutants),', '"test": bool(mutants), "mutant": bool(tests),', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
