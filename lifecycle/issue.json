@@ -521,6 +521,12 @@
     },
     {
       "from": "new",
+      "to": "declined",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "new",
       "to": "held",
       "by": "factory",
       "bound": null
