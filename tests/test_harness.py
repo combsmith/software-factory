@@ -549,6 +549,18 @@ class Engine(unittest.TestCase):
                                                          effects={}))))
         self.assertEqual((refused["status"], refused["reason"]), ("refused", "out_of_scope"))
 
+    def test_an_answer_python_cannot_parse_or_a_call_it_refuses_is_the_engines(self):  # decision 0131
+        # Neither raises past the Engine, where the eval job would read it as a case unanswered.
+        self.assertIsNone(engine._answer("[" * 100000 + "]" * 100000))
+        r = engined(CLI(said="[" * 100000 + "]" * 100000))
+        self.assertEqual((r["status"], r["reason"]), ("failed", "no_answer"))
+        r = engined(CLI(raises=ValueError("embedded null byte")))
+        self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"))
+        # The version's call too, before the Run and after it (Muse).
+        def refuses(args, env, timeout):
+            raise ValueError("embedded null byte")
+        self.assertEqual(engine.version("claude", {}, refuses), "")
+
     def test_a_run_the_model_could_not_finish_is_no_answer_as_the_trial_recorded(self):  # decision 0122
         # Words in an item may lead the model here, so it is an attempt on that item and counts toward no automatic pause.
         recorded = json.loads((ROOT / "trials" / "P-13.ended.json").read_text())["exchanges"][1:]

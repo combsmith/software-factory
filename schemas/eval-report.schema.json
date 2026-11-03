@@ -125,6 +125,19 @@
                 "criterion_unknown"
               ]
             }
+          },
+          "cause": {
+            "description": "Why a case was unanswered or stopped by the Engine, where the job found it: an exception's class and the last line of this repo's code it passed, a step's code, the CLI's subtype and exit, or that it timed out. Never a message.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "exception": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$" },
+              "at": { "type": "string", "pattern": "^(adapters|controller|harness|kernel|release|tools)/[a-z0-9_/]+\\.py:[1-9][0-9]{0,5}$" },
+              "stop": { "type": "string", "pattern": "^[a-z][a-z_]{0,63}$" },
+              "subtype": { "type": "string", "pattern": "^[a-z][a-z_]{0,63}$" },
+              "exit": { "type": "integer", "minimum": -255, "maximum": 255 },
+              "timed_out": { "const": true }
+            }
           }
         }
       }
