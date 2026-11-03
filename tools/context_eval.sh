@@ -28,8 +28,9 @@
 #      each path it named outside the export and each command it could not read, so a run that looked elsewhere
 #      says so;
 #   4. the judge, from the export as made: the held-out test copied in, run, and taken out; the Makefile and every
-#      tool but tools/mutants.py put back as made, each one the agent had changed recorded; `make verify`; the whole
-#      mutation check, which must kill every mutant, the agent's among them;
+#      tool put back as made, and tools/mutants.py as made with only the entries the agent added to its list, each
+#      one the agent had changed otherwise recorded; `make verify`; the whole mutation check, which must kill every
+#      mutant, the agent's among them;
 #   5. the record: tools/context_eval.py reads the transcript for the paths read, the export's own words of each command
 #      and the result's counts, counts the changes by file, and writes OUT/record.json, a context-eval/1 run, which
 #      says whether the agent added a test, a mutant and the sentence's code and names none of them.
@@ -227,6 +228,14 @@ for f in $JUDGES $(cd "$pristine" && find tools -type f ! -name mutants.py | sor
         cp "$pristine/$f" "$work/$f"
     fi
 done
+# tools/mutants.py too, as made, with each entry the agent added to its list: the mutation check is the export's own
+# runner, never one the agent edited (issue 511). Anything else it changed there is put back and recorded.
+judged=$(cd "$root" && TMPDIR="$scratch" python3 -m tools.context_eval judge "$pristine" "$work") || {
+    judged=failed
+    rm -f "$work/tools/mutants.py"
+    cp "$pristine/tools/mutants.py" "$work/tools/mutants.py"
+}
+[ "$judged" = kept ] || restored="$restored tools/mutants.py"
 code_verify=0
 judge make verify > "$scratch/judge-verify" 2>&1 || code_verify=$?
 found=$(cd "$root" && TMPDIR="$scratch" python3 -m tools.context_eval mutants "$pristine" "$work")
