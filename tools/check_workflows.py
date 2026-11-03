@@ -1541,6 +1541,10 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
     events = {e["key"] for e in entries if e["path"] == ["on"]}
     events |= {e["value"] for e in entries if not e["path"] and e["key"] == "on" and e["value"]}
     problems = []
+    # A file that may hold the lane, granted a write, is a shim on a dispatch alone, so that the hash below holds it: on
+    # any other event it would run a branch's code with that write before anyone reviewed it.
+    if name in LANE_FILES and events != {"workflow_dispatch"}:
+        problems.append("%s is a shim on workflow_dispatch alone, held by its hash" % name)
     if events & SHIM_EVENTS and name not in SHAPED:
         held = SHIMS.get(name)
         if held is None or hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != held:

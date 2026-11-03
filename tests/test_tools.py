@@ -3442,6 +3442,13 @@ class Workflows(unittest.TestCase):
         for why, text in broken.items():
             self.assertNotEqual(text, act, why)
             self.assertTrue(caught(check_workflows.shim_problems("queue-job.yml", text), "the queue act's one job"), why)
+        # The shim that calls it, which may hold the lane's write, runs on a dispatch alone and only once its hash is
+        # recorded: on a pull request it would run a branch's code with that write, as approve.yml would.
+        lane = ("name: x\non:\n  %s:\npermissions: {}\njobs:\n  lane:\n    permissions:\n      actions: write\n"
+                "    uses: combsmith/software-factory/.github/workflows/queue-job.yml@factory/v0-next\n")
+        for shim in ("queue.yml", "approve.yml"):
+            self.assertTrue(caught(check_workflows.shim_problems(shim, lane % "pull_request"), "a shim on workflow_dispatch alone"), shim)
+            self.assertTrue(caught(check_workflows.shim_problems(shim, lane % "workflow_dispatch"), "a shim is held word for word"), shim)
         # Its key and environment are its alone: another file that names either is refused, and it names no other.
         for text in ("  K: ${{ secrets.QUEUE_APP_KEY }}\n", "    environment: factory-queue\n"):
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
