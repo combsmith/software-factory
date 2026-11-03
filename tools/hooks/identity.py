@@ -114,7 +114,10 @@ UNSEEN_SCRIPT = "a shell reads a script the hook cannot see"
 GH_API_READING = {"--jq", "-q", "--paginate", "--include", "-i", "--silent", "--template", "-t", "--hostname", "--cache", "--slurp",
                   "--verbose", "-H", "--header", "-p", "--preview"}
 GH_READS = (["pr", "view"], ["pr", "list"], ["pr", "checks"], ["pr", "diff"], ["pr", "status"], ["issue", "view"], ["issue", "list"],
-            ["run", "view"], ["run", "list"], ["release", "view"], ["release", "list"], ["repo", "view"])
+            ["run", "view"], ["run", "list"], ["release", "view"], ["release", "list"], ["repo", "view"], ["workflow", "view"],
+            ["workflow", "list"], ["label", "list"], ["auth", "status"])
+# Where a program that only prints sends what it prints, and is still read as printing it: nowhere a script reads.
+PRINTED_TO = {"/dev/null"}
 WRITE_TEXT = re.compile(r"\bgit\b[\s\S]*\b(%s)\b|\bgh\b[\s\S]*\b(pr|release|api)\b" % "|".join(sorted(WRITES)))
 # Set in the command, each of these changes who git or gh says you are.
 ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_ASKPASS|"
@@ -575,13 +578,31 @@ def _only_reads(tool: str, words: list) -> bool:
     if words[:1] == ["api"]:
         return not any("$" in w or w.startswith(("`", "{")) or (w.startswith("-") and w.partition("=")[0] not in GH_API_READING)
                        for w in words)
-    return words[:2] in GH_READS
+    return _positional(words)[:2] in GH_READS
+
+
+def _positional(words: list) -> list:
+    """gh's words that are neither an option nor the value of one of GH_VALUED: gh pr --repo o/r view 1 is pr view 1."""
+    out, skip = [], False
+    for word in words:
+        if skip:
+            skip = False
+        elif word.startswith("-"):
+            skip = word in GH_VALUED
+        else:
+            out.append(word)
+    return out
 
 
 def _bodies(text: str) -> str:
     """What the here-documents of `text` hold: its lines that are left out once they are taken away, each terminator with them."""
-    kept = set(shell.without_heredocs(text, raw=True).splitlines())
-    return "\n".join(line for line in text.splitlines() if line not in kept)     # a line also outside is in a command's words
+    kept, body = shell.without_heredocs(text, raw=True).splitlines(), []
+    for line in text.splitlines():
+        if line in kept:
+            kept.remove(line)       # one for one: the same line may stand in a body and in what only prints (#410)
+        else:
+            body.append(line)
+    return "\n".join(body)
 
 
 def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tuple:
@@ -621,6 +642,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         shell.without_heredocs(text, raw=True)))
     previous, depth = None, 0   # where the command stood before its last placed cd, for cd -; compounds opened
     reading = set()     # the commands, by where they stand in `commands`, that only read (_only_reads)
+    printing = set()    # those that only print, to nowhere a script reads, outside any subshell (TEXT_ONLY)
     for index, (raw, redirections, marked) in enumerate(commands):
         spend()
         if raw is None:     # a mark: what runs in a subshell is its own, so a cd in it is theirs alone (shell.SCOPE)
@@ -690,6 +712,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             blind.append(runner)
             if at is None and set(words[1:]) & (WRITES | GH_WRITES):
                 always.append(("command_unreadable", "%s, and it is given a commit or a push" % runner))
+        if at is None and program in TEXT_ONLY and not scoped and all(t in PRINTED_TO or (op.endswith("&") and t in ("1", "2")) for op, t in redirections):
+            printing.add(index)
         if at is None:
             # A substitution is read as a command of its own below; its text is not the wrapper's to read as a push.
             if program not in TEXT_ONLY and WRITE_TEXT.search(" ".join(_bare(expand(w, values)) for w in marked)):
@@ -755,10 +779,13 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or writes):
         # Beside a script, a command that only reads names no write, nor does a comment, nor a read in a substitution, which is a
         # command of its own. What a redirection or a here-document is given may be that script, so they are read whole.
+        # What only prints is no write, unless a pipe may carry it to the script: echo 'git push' | bash.
+        piped = any(raw is None and redirected == "|" for raw, redirected, _ in commands)
+        quiet = reading | (set() if piped else printing)
         rest = []
         for at, (_, redirected, marked) in enumerate(commands):
             if marked is not None:
-                rest += [target for _, target in redirected] + ([] if at in reading else [_bare(w) for w in marked])
+                rest += [target for _, target in redirected] + ([] if at in quiet else [_bare(w) for w in marked])
         names = writes or WRITE_TEXT.search(" ".join(rest)) or WRITE_TEXT.search(_bodies(text))
         always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
                    for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]

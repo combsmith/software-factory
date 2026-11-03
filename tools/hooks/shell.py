@@ -174,8 +174,11 @@ def _nested(script: str, room: list) -> str:
         elif c in "'\"":
             quote = c
         elif script.startswith("${", i):
+            # What a ${...} holds is spelt as a script's is, so a substitution in it is one quoted word, as _quoted
+            # makes one at the top (#410): ${x:-$(git push)} in a substitution is read as it is outside one.
             end = _balanced(script, i + 2, "}")
-            out.append(script[i:end])
+            closed = script[end - 1:end] == "}"
+            out.append("${%s%s" % (_nested(script[i + 2:end - 1] if closed else script[i + 2:end], room), "}" if closed else ""))
             i = end
             continue
         elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|("):
@@ -330,6 +333,10 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
                 arm.append(token)
                 found.append((None, [token]))       # a list, so that no quoted pattern is read as a mark
             continue
+        if punctuation and "`" in token and ("<" in token or ">" in token or operator is not None):
+            # A redirection whose operand is a backtick's substitution, glued (<<<`) or not: what it runs is read as
+            # commands of its own, as any backtick's is, and the operator has no word left to take (#410).
+            operator, token = None, token.translate(str.maketrans("", "", "<>")) or "`"
         if punctuation:
             if scopes and "(" in token and ("<" in token or ">" in token):
                 # <( or >(: a process of its own, whose commands are read between SCOPE's marks (decision 0040); its
