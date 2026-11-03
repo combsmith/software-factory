@@ -1,0 +1,925 @@
+{
+  "schema": "trial/1",
+  "trial": "P-57",
+  "question": "Does the merge queue refuse an enqueue whose `expectedHeadOid` is not the pull request's head, and accept one whose is, as the queue step asks it?",
+  "pass": "Written 2026-11-03T09:54:04Z, before anything runs (issue 381, PR 2: the queue step enqueues the commit the Kernel admitted, by GraphQL enqueuePullRequest with expectedHeadOid, as tools' enqueue script does). On a new canary pull request whose head moved from A to B by a second commit, through the Maintainer's login: an enqueue with expectedHeadOid A is refused, with no queue entry, and its error is recorded word for word; an enqueue with expectedHeadOid B is accepted, with a queue entry. Pass if both hold; fail if the stale one is accepted or the matching one refused for its head. The canary's ruleset 25328026 asks a code owner's approval of the last push, which the Maintainer, the author, cannot give, so its pull-request rule is set to ask no approval for the trial and back after, each read before and after, the rest of the ruleset unchanged; the two enqueues are also asked once before that change, to record which refusal comes first. The accepted entry is taken out again by dequeuePullRequest, so nothing merges. The queue App's own token is not used: that leg is owed. Run on 2026-11-03 on canary pull request 93, opened by the Maintainer's login, its head moved from A (6fe8fb90) to B (c5569a1d) by a second commit; the branch, the file, the pull request, the ruleset's two changes and its close are writes not recorded here. Passed. Before the ruleset's change, the enqueue with A was refused for its head first: UNPROCESSABLE, \"Failed to add PR #93: expected head oid does not match the current head oid\"; the one with B was refused for its review: \"Pull request Waiting on code owner review from combsmith/org-leads.\" With the pull-request rule asking no approval, the enqueue with A was refused with the same words, and pull request 93 read not in the queue, with no entry; the one with B was answered QUEUED, and 93 read in the queue. The Maintainer's dequeue took it out, unmerged. The ruleset read after was its rules before, exactly. The queue App's own token was not used: that leg is owed.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-03T09:54:32Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 93's head, queue entry, review decision and merge state, with head A",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:93){id number headRefOid isInMergeQueue mergeQueueEntry{state headCommit{oid}} reviewDecision mergeStateStatus}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:54:37 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8D0:3025F5:6B3BDB:16088A6:6AE9AF5D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4158",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "842"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABMhTkKw",
+                "number": 93,
+                "headRefOid": "6fe8fb90d7f79768caabd45d665014400df78ed1",
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": "REVIEW_REQUIRED",
+                "mergeStateStatus": "UNKNOWN"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 93's head, queue entry, review decision and merge state, after the second commit, head B",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:93){id number headRefOid isInMergeQueue mergeQueueEntry{state headCommit{oid}} reviewDecision mergeStateStatus}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:54:45 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8D3:10CBF2:68EA91:15937DF:6AE9AF64",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4157",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "843"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABMhTkKw",
+                "number": 93,
+                "headRefOid": "c5569a1d507586a05c5d416f024fa78778108077",
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": "REVIEW_REQUIRED",
+                "mergeStateStatus": "BLOCKED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, the canary's ruleset main, before the trial's change",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:54:56 GMT",
+          "etag": "W/\"3948cd1ab5798b350008b029e8ad3f6961cf641f51a6182f373cba56bc9c4cf6\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D8D9:B777C:6968F6:15C26C6:6AE9AF70",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4988",
+          "x-ratelimit-reset": "1793700283",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "12"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-01T06:20:58.012-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, as tools' enqueue script asks it, head A, stale, before the ruleset's change",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABMhTkKw",
+            "h": "6fe8fb90d7f79768caabd45d665014400df78ed1"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:54:56 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8DA:71F4E:68D722:15910B4:6AE9AF70",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4156",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "844"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": null
+          },
+          "errors": [
+            {
+              "type": "UNPROCESSABLE",
+              "path": [
+                "enqueuePullRequest"
+              ],
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 35
+                }
+              ],
+              "message": "Failed to add PR #93: expected head oid does not match the current head oid"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, as tools' enqueue script asks it, head B, current, before the ruleset's change",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABMhTkKw",
+            "h": "c5569a1d507586a05c5d416f024fa78778108077"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:54:57 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8DC:2EBD27:7FCAB6:1A0BA7C:6AE9AF71",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4155",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "845"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": null
+          },
+          "errors": [
+            {
+              "type": "UNPROCESSABLE",
+              "path": [
+                "enqueuePullRequest"
+              ],
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 35
+                }
+              ],
+              "message": "Pull request Waiting on code owner review from combsmith/org-leads."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, the canary's ruleset main, with its pull-request rule asking no approval, for the trial",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:54:59 GMT",
+          "etag": "W/\"317684987396c4e5726e0a622af4c2df19d15dd124859c9aeecac1eab1d7f50c\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D8DE:1EEFC1:6F60D8:1712F13:6AE9AF72",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4992",
+          "x-ratelimit-reset": "1793702991",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "8"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": false,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T03:54:58.258-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 93's head, queue entry, review decision and merge state, with the ruleset asking no approval",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:93){id number headRefOid isInMergeQueue mergeQueueEntry{state headCommit{oid}} reviewDecision mergeStateStatus}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:04 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E0:3EFA7E:738CE2:1814387:6AE9AF78",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4154",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "846"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABMhTkKw",
+                "number": 93,
+                "headRefOid": "c5569a1d507586a05c5d416f024fa78778108077",
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": null,
+                "mergeStateStatus": "UNSTABLE"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, as tools' enqueue script asks it, head A, stale",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABMhTkKw",
+            "h": "6fe8fb90d7f79768caabd45d665014400df78ed1"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:05 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E1:60781:740CDF:17D858D:6AE9AF79",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4153",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "847"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": null
+          },
+          "errors": [
+            {
+              "type": "UNPROCESSABLE",
+              "path": [
+                "enqueuePullRequest"
+              ],
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 35
+                }
+              ],
+              "message": "Failed to add PR #93: expected head oid does not match the current head oid"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 93's head, queue entry, review decision and merge state, after the stale enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:93){id number headRefOid isInMergeQueue mergeQueueEntry{state headCommit{oid}} reviewDecision mergeStateStatus}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:06 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E2:3401A4:69B873:15C69FB:6AE9AF79",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4152",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "848"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABMhTkKw",
+                "number": 93,
+                "headRefOid": "c5569a1d507586a05c5d416f024fa78778108077",
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": null,
+                "mergeStateStatus": "UNSTABLE"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, as tools' enqueue script asks it, head B, current",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABMhTkKw",
+            "h": "c5569a1d507586a05c5d416f024fa78778108077"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:07 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E3:22CE8E:6B7503:1610989:6AE9AF7A",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4151",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "849"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": {
+              "mergeQueueEntry": {
+                "state": "QUEUED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 93's head, queue entry, review decision and merge state, after the current enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:93){id number headRefOid isInMergeQueue mergeQueueEntry{state headCommit{oid}} reviewDecision mergeStateStatus}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:08 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E4:31A50:6FE2DE:16F7786:6AE9AF7B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4700",
+          "x-ratelimit-reset": "1793701961",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "300"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABMhTkKw",
+                "number": 93,
+                "headRefOid": "c5569a1d507586a05c5d416f024fa78778108077",
+                "isInMergeQueue": true,
+                "mergeQueueEntry": {
+                  "state": "QUEUED",
+                  "headCommit": null
+                },
+                "reviewDecision": null,
+                "mergeStateStatus": "UNSTABLE"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): dequeuePullRequest, the Maintainer's write, so nothing merges",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { mergeQueueEntry { state } } }",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABMhTkKw"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:09 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E5:1E26EC:68E9CC:15909FE:6AE9AF7C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4150",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "850"
+        },
+        "body": {
+          "data": {
+            "dequeuePullRequest": {
+              "mergeQueueEntry": {
+                "state": "QUEUED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 93's head, queue entry, review decision and merge state, after the dequeue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:93){id number headRefOid isInMergeQueue mergeQueueEntry{state headCommit{oid}} reviewDecision mergeStateStatus}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:10 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D8E7:3ABB99:6E5C22:16F645B:6AE9AF7D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4149",
+          "x-ratelimit-reset": "1793700159",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "851"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABMhTkKw",
+                "number": 93,
+                "headRefOid": "c5569a1d507586a05c5d416f024fa78778108077",
+                "isInMergeQueue": false,
+                "mergeQueueEntry": null,
+                "reviewDecision": null,
+                "mergeStateStatus": "UNSTABLE"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, the canary's ruleset main, after the trial, restored",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 09:55:11 GMT",
+          "etag": "W/\"45c8d0640a1fb3f1d1dba2ec060d0479f1bc293e1525e3893bc2fbc6ea0da848\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D8E9:B777C:69DFE2:15DB050:6AE9AF7E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4990",
+          "x-ratelimit-reset": "1793702991",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "10"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T03:55:10.469-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

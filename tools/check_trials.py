@@ -344,8 +344,11 @@ def _bound(args: str, key: str, variables: dict):
 # thread. Its scope is the node's, so a fixture holds a write only on a node a read of the canary alone in it answered.
 WRITES = {"enqueuePullRequest": "pullRequestId", "dequeuePullRequest": "id", "enablePullRequestAutoMerge": "pullRequestId",
           "convertPullRequestToDraft": "pullRequestId", "resolveReviewThread": "threadId"}
-WRITE = re.compile(r"^\s*mutation\s*\(\s*\$id\s*:\s*ID!\s*\)\s*\{\s*(\w+)\s*\(\s*input\s*:\s*\{\s*(\w+)\s*:\s*\$id"
-                   r"(\s*,\s*mergeMethod\s*:\s*[A-Z]+)?\s*\}\s*\)\s*\{")
+WRITE = re.compile(r"^\s*mutation\s*\(\s*\$id\s*:\s*ID!\s*(?:,\s*\$h\s*:\s*GitObjectID!\s*)?\)\s*\{\s*(\w+)\s*\(\s*input\s*:\s*"
+                   r"\{\s*(\w+)\s*:\s*\$id(\s*,\s*mergeMethod\s*:\s*[A-Z]+)?(\s*,\s*expectedHeadOid\s*:\s*\$h)?\s*\}\s*\)\s*\{")
+# An enqueue may name the head it expects, as the queue step asks it (trials/P-57.json): a commit's id, in the one more
+# variable `h`, declared as GitHub types it.
+HEAD = re.compile(r"[0-9a-f]{40}")
 # The canary's repository id, as its reads answer it (trials/P-49.json, trials/P-2.least.json). A node id GitHub issues
 # today is a prefix and base64url of msgpack [0, the repository's id, ...]: a write is held to a node of the canary by it.
 CANARY_ID = 1414593263
@@ -378,11 +381,17 @@ def written(request: dict):
     query, variables = body.get("query"), body.get("variables")
     if request.get("via") != "graphql" or not isinstance(query, str) or '"' in query or "#" in query \
             or set(body) != {"query", "variables"} \
-            or not isinstance(variables, dict) or set(variables) != {"id"} or not isinstance(variables["id"], str):
+            or not isinstance(variables, dict) or set(variables) not in ({"id"}, {"id", "h"}) \
+            or not isinstance(variables["id"], str):
         return None
     found = WRITE.match(query)
     if not found or WRITES.get(found.group(1)) != found.group(2) \
             or (found.group(3) and found.group(1) != "enablePullRequestAutoMerge"):
+        return None
+    expects = "$h" in query[:found.start(1)]
+    if bool(found.group(4)) != expects or set(variables) != ({"id", "h"} if expects else {"id"}) \
+            or (expects and (found.group(1) != "enqueuePullRequest"
+                             or not (isinstance(variables["h"], str) and HEAD.fullmatch(variables["h"])))):
         return None
     depth, at = 1, found.end()
     while at < len(query) and depth:
