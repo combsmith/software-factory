@@ -859,6 +859,44 @@ class Push(unittest.TestCase):
             self.assertEqual(apply.push_refusal([path], [None], listed), "push_protected", path)
 
 
+class Opened(unittest.TestCase):
+    """What an opening Run records of the pull request it opened (issue 342, decision 0097). No Effect opens one yet."""
+    BRANCH = "factory-work/issue-36-1"
+
+    def test_an_opening_run_records_the_pull_request_it_opened_by_its_number_on_its_branch(self):
+        for state in ("applied", "already_applied"):
+            done = apply.opened("e1", self.BRANCH, {"state": state, "number": 26, "head": self.BRANCH})
+            self.assertEqual(done, {"id": "e1", "type": "open_pull_request", "state": state, "key": "26",
+                                    "reason": None})
+            record = dict(json.loads((ROOT / "examples" / "applied.json").read_text()), effects=[done], findings=[])
+            self.assertEqual(shared.errors(record, "applied"), [])
+        # A refusal or a failure keeps its reason, and names no pull request.
+        for state in ("failed", "refused"):
+            self.assertEqual(apply.opened("e1", self.BRANCH, {"state": state, "number": 26, "head": self.BRANCH,
+                                                              "reason": "effect_refused"}),
+                             {"id": "e1", "type": "open_pull_request", "state": state, "key": None,
+                              "reason": "effect_refused"})
+        # The other side: a number not read back as one, one read back on another branch, a branch not of the
+        # Factory's shape, or a read-back that is none, names no pull request.
+        for branch, back in ((self.BRANCH, {"state": "applied", "number": "26", "head": self.BRANCH}),
+                             (self.BRANCH, {"state": "applied", "number": 0, "head": self.BRANCH}),
+                             (self.BRANCH, {"state": "applied", "number": -26, "head": self.BRANCH}),
+                             (self.BRANCH, {"state": "applied", "number": True, "head": self.BRANCH}),
+                             (self.BRANCH, {"state": "applied", "number": None, "head": self.BRANCH}),
+                             (self.BRANCH, {"state": "applied", "number": 26, "head": "factory-work/issue-37-1"}),
+                             (self.BRANCH, {"state": "applied", "number": 26}),
+                             ("main", {"state": "applied", "number": 26, "head": "main"}),
+                             ("factory-work/issue-36-1x", {"state": "applied", "number": 26,
+                                                           "head": "factory-work/issue-36-1x"}),
+                             (None, {"state": "applied", "number": 26, "head": None}),
+                             (self.BRANCH, {"state": "pending", "number": 26, "head": self.BRANCH}),
+                             (self.BRANCH, {"state": "failed", "number": 26, "head": self.BRANCH}),
+                             (self.BRANCH, None), (self.BRANCH, "applied")):
+            self.assertEqual(apply.opened("e1", branch, back),
+                             {"id": "e1", "type": "open_pull_request", "state": "failed", "key": None,
+                              "reason": "not_read_back"}, (branch, back))
+
+
 class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}

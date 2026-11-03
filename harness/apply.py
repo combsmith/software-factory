@@ -28,6 +28,7 @@ import json
 import re
 
 from adapters import github, identity
+from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
 from harness import shared
 from harness import task as task_
@@ -57,6 +58,8 @@ UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 # How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's. A Run with no answer stays
 # an attempt on its item, as it can't be told from a model that gave none, whose text must not pause the Factory (decision 0121).
 THE_ROLES = ("result_invalid", "task_too_large", "no_answer")
+# The branch a pull request the Factory opens stands on: the issue it serves and the count opened for it (decision 0068).
+WORK_BRANCH = re.compile(t.WORK_BRANCH)
 
 
 def push_refusal(paths, previous_paths, protected_list):
@@ -81,6 +84,24 @@ def push_refusal(paths, previous_paths, protected_list):
                 or any(whole.match(path.casefold()) for _, _, _, whole in every):
             return "push_protected"
     return None
+
+
+def opened(effect_id: str, branch: str, back) -> dict:
+    """The `open_pull_request` Effect an opening Run records in its own `applied/1` (issue 342, decision 0097), from the
+    effects port's read-back `{state, number, head, reason}`. It is `applied` or `already_applied` only keyed by the
+    pull request's number as read back, in the form `adapters/applied.py`'s `opened` reads, digits with no leading
+    zero, and only for one read back on `branch`, the work branch the Run was admitted to open: one on another branch
+    is not the one this Run opened, and recording it would bind it to this Run's issue. A refusal or a failure keeps its
+    reason; anything less is `failed`, `not_read_back`. No Effect opens one yet: slice 2's push Effect, with the opening
+    Run, calls this."""
+    back = back if isinstance(back, dict) else {}
+    state, number = back.get("state"), back.get("number")
+    if state in ("applied", "already_applied") and type(number) is int and number > 0 and isinstance(branch, str) \
+            and WORK_BRANCH.fullmatch(branch) and back.get("head") == branch:
+        return {"id": effect_id, "type": OPENED, "state": state, "key": str(number), "reason": None}
+    if state in ("failed", "refused") and back.get("reason"):
+        return {"id": effect_id, "type": OPENED, "state": state, "key": None, "reason": back.get("reason")}
+    return {"id": effect_id, "type": OPENED, "state": "failed", "key": None, "reason": "not_read_back"}
 
 
 def gates(finding: dict) -> bool:
