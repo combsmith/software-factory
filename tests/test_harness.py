@@ -270,7 +270,14 @@ class Task(unittest.TestCase):
                               "@@ -1,2 +1 @@\n1| x\n-y\n--- a/h\n+++ b/h\n context\n"),
                              ("@@ -1,3 +1,2 @@\n x\n y\n-z\n+++ b/h\n", "@@ -1,3 +1,2 @@\n1| x\n2| y\n-z\n+++ b/h\n"),
                              ("@@ -5 +5 @@\n-a\n+b\n+++ b/x\n \n", "@@ -5 +5 @@\n-a\n5|+b\n+++ b/x\n \n"),
-                             ("@@ -1,3 +1,3 @@\n x\ndiff --git a/i b/i\n+y\n", "@@ -1,3 +1,3 @@\n1| x\ndiff --git a/i b/i\n+y\n")):
+                             ("@@ -1,3 +1,3 @@\n x\ndiff --git a/i b/i\n+y\n", "@@ -1,3 +1,3 @@\n1| x\ndiff --git a/i b/i\n+y\n"),
+                             # Each side is held on its own: past the head's count no added or context line is one; past
+                             # the base's no removed or context line is, and the hunk ends there.
+                             ("@@ -1 +0,0 @@\n+x\n", "@@ -1 +0,0 @@\n+x\n"),
+                             ("@@ -1,2 +1 @@\n x\n+++ b/h\n context\n", "@@ -1,2 +1 @@\n1| x\n+++ b/h\n context\n"),
+                             ("@@ -1,2 +1 @@\n x\n y\n", "@@ -1,2 +1 @@\n1| x\n y\n"),
+                             ("@@ -1 +1,3 @@\n x\n y\n", "@@ -1 +1,3 @@\n1| x\n y\n"),
+                             ("@@ -1 +1,2 @@\n x\n--- a/h\n+++ b/h\n", "@@ -1 +1,2 @@\n1| x\n--- a/h\n+++ b/h\n")):
             self.assertEqual(task.numbered(spent), given)
         # An empty line inside a hunk is a context line some tools strip, and is numbered as one, ended either way.
         self.assertEqual(task.numbered("@@ -5,2 +5,2 @@\n\n x\n"), "@@ -5,2 +5,2 @@\n5|\n6| x\n")

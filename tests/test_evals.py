@@ -1509,6 +1509,7 @@ class EvalJob(unittest.TestCase):
         prompt = " ".join((ROOT / "roles" / "pr-review" / "prompt.md").read_text().split())
         self.assertIn("is led by its line number in the head's file and `|`", prompt)
         self.assertIn("A removed line has no number", prompt)
+        self.assertIn("`start_line`, `end_line`, the numbers the diff gives the lines where the problem is", prompt)
 
     def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
         from harness.eval import run as step

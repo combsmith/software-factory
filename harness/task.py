@@ -90,20 +90,25 @@ def numbered(diff: str) -> str:
     """The diff as a Task carries it: each line of a hunk that the head's file holds, a context line or an added one, led
     by its number in that file and SEPARATOR; a removed line, git's note that a file has no last newline, and every line
     outside a hunk as git wrote them (decision 0137). A row ends at a newline alone, as git ends one, so no text of a
-    line can start a row of its own. A hunk ends when its header's counts are spent, or at a line no hunk holds, so a
-    file's next header is never read as a removed line. The model is given the head's numbers, not left to
-    count them from the header: on a long diff it counted one off."""
+    line can start a row of its own. Each side of a hunk is counted on its own: a removed line is one while the base's
+    count lasts, an added line while the head's does, and a context line while both do; any other line ends the hunk, so
+    a file's next header is never read as a removed line. The model is given the head's numbers, not left to count them
+    from the header: on a long diff it counted one off."""
     out, old, new, line = [], 0, 0, 0
     for row in ROW.findall(diff):
         mark = row[:1]
-        if (old > 0 or new > 0) and mark in (" ", "+", "-", "\\", "\r", "\n"):
-            if mark == "-":
-                old -= 1
-            elif mark != "\\":
-                out.append("%d%s%s" % (line, SEPARATOR, row))
-                line, new, old = line + 1, new - 1, old - (mark != "+")
-                continue
+        # Git's note that a file has no last newline is no line of either side, and ends nothing.
+        if mark == "\\":
             out.append(row)
+            continue
+        if mark == "-" and old > 0:
+            old -= 1
+            out.append(row)
+            continue
+        context = mark in (" ", "\r", "\n")
+        if (mark == "+" and new > 0) or (context and old > 0 and new > 0):
+            out.append("%d%s%s" % (line, SEPARATOR, row))
+            line, new, old = line + 1, new - 1, old - context
             continue
         header = HUNK.match(row)
         old, new = (int(header.group(1) or 1), int(header.group(3) or 1)) if header else (0, 0)
