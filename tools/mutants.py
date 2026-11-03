@@ -10887,15 +10887,31 @@ MUTANTS = ISSUE + [
     ('a context run counts one new file of a folder alone', 'tools/context_eval.py', '            at[where]["added"] += change["added"]\n', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
     ('the context eval hashes the sentence with its newline', 'tools/context_eval.sh', 'task_sha256=$(printf \'%s\' "$sentence" |', 'task_sha256=$(printf \'%s\\n\' "$sentence" |', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
     ("the context eval names the agent's mutants in what it checked", 'tools/context_eval.sh', '"added": len(json.loads(a[10])["names"])},', '"added": json.loads(a[10])["names"]},', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
-    # Issue 511: a run passes only having looked nowhere else, and the judge runs the export's mutation runner.
+    # Issue 511: a run passes only having looked nowhere else, and the judge runs in a tree of its own with the export's
+    # mutation runner, which reads the tests it names in a process of their own.
     ('a context run that looked outside its export passes', 'tools/context_eval.py', ' and outside == 0 and UNREADABLE not in ran)', ' and UNREADABLE not in ran)', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
     ('a context run with a command it could not read passes', 'tools/context_eval.py', ' and outside == 0 and UNREADABLE not in ran)', ' and outside == 0)', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
-    ('the judge reads no list written after another', 'tools/context_eval.py', '        value = value.right\n', '        pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
-    ('the judge keeps an entry that is code', 'tools/context_eval.py', '        if _inert(entry):\n', '        if True:\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
-    ('the judge keeps what the agent changed outside the list', 'tools/context_eval.py', '    other = other or ast.dump(made_module) != ast.dump(left_module)\n', '', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
-    ('the judge adds an entry after one with no comma', 'tools/context_eval.py', '    if added and not head.endswith((",", "[")):\n', '    if False:\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
-    ("the context eval runs the agent's mutation runner", 'tools/context_eval.sh', 'python3 -m tools.context_eval judge "$pristine" "$work") || {', 'true) || {', ('tests.test_tools.ContextEvalScript.test_a_verdict_that_fails_is_recorded_and_fails_the_run',)),
-    ('the context eval does not record the runner it put back', 'tools/context_eval.sh', '[ "$judged" = kept ] || restored="$restored tools/mutants.py"\n', '', ('tests.test_tools.ContextEvalScript.test_a_verdict_that_fails_is_recorded_and_fails_the_run',)),
+    ('a path a command names outside the export is not counted', 'tools/context_eval.py', '                outside += _outside_named(given[COMMAND_INPUT], work)\n', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a glob outside the export is not counted', 'tools/context_eval.py', '                outside += _outside_named(given.get("pattern"), work)\n', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('an absolute path inside the export counts as outside', 'tools/context_eval.py', ' or word.startswith("/") and _relative(word.split("*")[0] or "/", work) is not None:', ':', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('the home named by a variable is not outside', 'tools/context_eval.py', '|\\$\\{?HOME\\b\\}?', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('the judge reads no list written after another', 'tools/context_eval.py', '        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add):\n            gather(value.left)\n            gather(value.right)\n', '        if False:\n            pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge reads no list through its name', 'tools/context_eval.py', '            seen.add(value.id)\n            gather(named[value.id][0])\n', '            seen.add(value.id)\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps an entry that is code', 'tools/context_eval.py', '        return (own or replace) and all(_data(arg) for arg in node.args)\n', '        return True\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ("the judge refuses an entry in the file's own style", 'tools/context_eval.py', '    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):\n        return _data(node.left) and _data(node.right)\n', '', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps what the agent changed outside the lists', 'tools/context_eval.py', '    other = other or ast.dump(made_module) != ast.dump(left_module)\n', '', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps an entry the agent changed beside the one it replaced', 'tools/context_eval.py', '            if same is not None and ast.dump(same) not in found and id(same) not in replaced:', '            if False:', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge records no entry the agent took out', 'tools/context_eval.py', '            other = True        # an entry the agent took out', '            pass        # an entry the agent took out', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge adds an entry after one with no comma', 'tools/context_eval.py', '            comma = "" if not made_list.elts or head.endswith((b",", b"[")) else ","\n', '            comma = ""\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ("the judge's tree keeps a file the agent added outside kernel and tests", 'tools/context_eval.py', '        mine = rel.startswith(("kernel/", "tests/")) and PATH.match(rel)\n', '        mine = PATH.match(rel)\n', ('tests.test_tools.ContextEval.test_the_judge_runs_in_a_tree_of_its_own',)),
+    ("the judge's tree keeps a file the agent removed", 'tools/context_eval.py', '            (judge / rel).unlink()\n', '            pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_in_a_tree_of_its_own',)),
+    ("the context eval judges in the agent's tree", 'tools/context_eval.sh', '    (cd "$scratch/judge" && env -i', '    (cd "$work" && env -i', ('tests.test_tools.ContextEvalScript.test_a_verdict_that_fails_is_recorded_and_fails_the_run',)),
+    ('the context eval starts with the held-out test already there', 'tools/context_eval.sh', '[ ! -e "$6" ] && [ ! -L "$6" ] || refuse "HELD_OUT is already there; it is placed only once the agent has stopped"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval judges a held-out test never placed', 'tools/context_eval.sh', '[ -f "$held_out" ] && [ ! -L "$held_out" ] || refuse "HELD_OUT is not a file at the place named; nothing was judged"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval starts with a clone of the private home in reach', 'tools/context_eval.sh', '    [ ! -e "$place" ] && [ ! -L "$place" ] || refuse "a clone of the private home is still within reach; move it out first"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval starts naming no place a clone was', 'tools/context_eval.sh', '[ -n "${CONTEXT_EVAL_AWAY:-}" ] ||\n    refuse', 'true ||\n    refuse', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the mutation runner imports the tests it names in its own process', 'tools/mutants.py', "    missing_of = _missing_apart([test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())], root)\n", "    missing_of = {test: _missing(test) for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}\n", ('tests.test_tools.Mutants.test_a_test_module_is_read_in_a_process_of_its_own',)),
+    ("the mutation runner reads a test's name in its own process", 'tools/mutants.py', '            said = subprocess.run([sys.executable, "-c", NAMING], cwd=str(root), input=json.dumps(names),\n                                  capture_output=True, text=True, timeout=TIMEOUT)\n            found = json.loads(said.stdout.strip().splitlines()[-1]) if said.stdout.strip() else {}\n', '            found = {name: _missing(name) for name in names}\n', ('tests.test_tools.Mutants.test_a_test_module_is_read_in_a_process_of_its_own',)),
     # Issue 414: eval is read only where the shell may run it, never the word in a quoted title or message.
     ("eval in a quoted title is read as code", "tools/hooks/shell.py",
      'PROSE = re.compile(r"\'[^\']*\'|\\"(?:[^\\"\\\\$`]|\\\\.)*\\"")', 'PROSE = re.compile(r"\'[^\']*\'")', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
@@ -12088,12 +12104,13 @@ def modules(cwd: pathlib.Path) -> list:
     return [name for name in names if name not in slow] + [name for name in names if name in slow]
 
 
-def unnamed(mutants: list) -> list:
+def unnamed(mutants: list, root: pathlib.Path = ROOT) -> list:
     """Why each mutant in `mutants` cannot be run: it names no test, or a test it names does not exist. Every mutant
     names the tests that kill it, as its fifth part, each the dotted name of a test module, class or method that
     exists, so that a kill is confirmed in seconds and a misspelt name is never an ERROR in CI (issue 217), and none of
     them a class in WHOLE_TOO_LONG or the module that holds it."""
     problems = []
+    missing_of = _missing_apart([test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())], root)
     for mutant in mutants:
         name, tests = mutant[0], mutant[4] if len(mutant) > 4 else ()
         if not tests:
@@ -12102,10 +12119,32 @@ def unnamed(mutants: list) -> list:
             if any(whole == test or whole.startswith(test + ".") for whole in WHOLE_TOO_LONG):
                 problems.append("%r names %s, which holds a class too slow to name whole beside the other workers; name "
                                 "the method that kills it" % (name, test))
-            missing = _missing(test)
+            missing = missing_of[test]
             if missing:
                 problems.append("%r names %s, %s" % (name, test, missing))
     return problems
+
+
+NAMING = """import json, sys
+from tools.mutants import _missing
+print(json.dumps({name: _missing(name) for name in json.loads(sys.stdin.read())}))
+"""
+
+
+def _missing_apart(tests: list, root: pathlib.Path = ROOT) -> dict:
+    """`_missing` of each dotted name in `tests`, read in a process of its own in `root`: a test module's import runs
+    there and never in the runner's, where a module that patched the runner could say a mutant it survived was killed
+    (issue 511). A name the other process does not answer for is one that cannot be read."""
+    names = sorted({test for test in tests if isinstance(test, str)})
+    found = {}
+    if names:
+        try:
+            said = subprocess.run([sys.executable, "-c", NAMING], cwd=str(root), input=json.dumps(names),
+                                  capture_output=True, text=True, timeout=TIMEOUT)
+            found = json.loads(said.stdout.strip().splitlines()[-1]) if said.stdout.strip() else {}
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            found = {}
+    return {test: found[test] if isinstance(found.get(test), str) else "which could not be read" for test in names}
 
 
 def _case(found) -> bool:

@@ -6,7 +6,8 @@ run's facts. Nothing here runs a model, and nothing here reads the held-out answ
 and takes it out before this module is called.
 
     python3 -m tools.context_eval record TRANSCRIPT PRISTINE WORK VERDICTS META OUT
-    python3 -m tools.context_eval mutants PRISTINE WORK
+    python3 -m tools.context_eval judge PRISTINE WORK JUDGE
+    python3 -m tools.context_eval mutants PRISTINE JUDGE
 
 `record` writes OUT, the run's record, and exits 0; 2 when a file cannot be read, and then writes nothing. Every path
 is followed to where it really is and must lie under the system's scratch directory, where the runner keeps its own:
@@ -19,8 +20,10 @@ between them is counted, by file, in lines. VERDICTS is JSON with `held_out_test
 runner judged. META is JSON with `commit`, `ran_at`, `cli_version`, `cap_turns`, `task_sha256`, the sha256 of the task
 sentence, and `code`, the reason code it names. The record names neither the code nor anything the agent named: whether it
 added a test, a mutant and the code is all it holds of them, so the task's rule is named nowhere the record may be copied
-(the Maintainer's choice, issue 8). `mutants` prints, as JSON, the names and targets of the mutants WORK's `tools/mutants.py` holds that
-PRISTINE's does not, for the runner to break.
+(the Maintainer's choice, issue 8). `judge` makes JUDGE, a new directory, the tree the judge runs in: the export as
+made with only the agent's own files under kernel/ and tests/ and `tools/mutants.py` with only the entries it added or
+changed (issue 511), and prints, as JSON, what else it changed, by where, to be recorded as put back. `mutants` prints, as JSON, the names and targets of
+the mutants JUDGE's `tools/mutants.py` holds that PRISTINE's does not, for the runner to break.
 """
 from __future__ import annotations
 
@@ -52,6 +55,13 @@ FLAG = re.compile(r"^--?[a-z]+(-[a-z]+)*$")
 KNOWN = ("unittest", "verify", "diff", "status", "log", "show")
 # Where a file the export as made does not hold is recorded: the deepest folder it does hold, and at the top this.
 TOP = "./"
+# The file's own helpers an entry of the mutants' list may call: they build a mutant's texts, and the judge runs the
+# export's definitions of them, never the agent's.
+HELPERS = ("moved_after", "moved_before")
+# A path a command or a glob names that may lie outside the export: absolute, the home, or the parent. The agent's
+# shell is not sandboxed, so each is counted as a read outside, unless an absolute one resolves inside the export: a
+# guard that narrows what a run could have read, not a proof (issue 511).
+OUTSIDE = re.compile(r"""(?:^|(?<=[\s'"=(:,;|&<>`]))(~|\$\{?HOME\b\}?|/[^\s'"),;|&<>`]*|\.\.(?=$|[/\s'"),;|&<>`]))""")
 FIRST_WORDS = 4
 UNREADABLE = "unreadable"
 TOKEN_LENGTH = 24      # a word longer than this, of letters and digits, is read as a token and never recorded
@@ -145,6 +155,20 @@ def _token(word: str) -> bool:
                             and re.search(r"[a-z]", word) is not None)
 
 
+def _outside_named(text, work: pathlib.Path) -> int:
+    """How many paths a command or a glob names that may lie outside the export (OUTSIDE): /dev/null, where output is
+    thrown away, and an absolute path inside the export are not."""
+    if not isinstance(text, str):
+        return 0
+    count = 0
+    for found in OUTSIDE.finditer(text):
+        word = found.group(1)
+        if word == "/dev/null" or word.startswith("/") and _relative(word.split("*")[0] or "/", work) is not None:
+            continue
+        count += 1
+    return count
+
+
 def reads_and_commands(text: str, work: pathlib.Path, pristine: pathlib.Path) -> tuple:
     """(the paths the agent read, in order, each once, a file the export as made does not hold by its folder alone; the
     first words of each command it ran, in order; the result's counts; how many paths it named outside the export),
@@ -168,6 +192,9 @@ def reads_and_commands(text: str, work: pathlib.Path, pristine: pathlib.Path) ->
             given = block.get("input") if isinstance(block.get("input"), dict) else {}
             if COMMAND_INPUT in given:
                 ran.append(_first_words(given[COMMAND_INPUT], pristine))
+                outside += _outside_named(given[COMMAND_INPUT], work)
+            if block.get("name") == "Glob":
+                outside += _outside_named(given.get("pattern"), work)
             for key in PATH_INPUTS:
                 if key in given:
                     path = _relative(given[key], work)
@@ -281,62 +308,144 @@ def mutants_kept(pristine: pathlib.Path, work: pathlib.Path) -> bool:
     return set(_mutant_entries(pristine)) <= set(_mutant_entries(work))
 
 
-def _list_of(text: str):
-    """The module and the list its one `MUTANTS` assignment writes out, `MUTANTS = [...]` or `MUTANTS = X + [...]` as
-    this repo's file has it, or None when the text is no module or holds no one such list."""
+def _lists_of(text: str):
+    """The module and each list its one `MUTANTS` assignment is made of, in order: `MUTANTS = [...]`, or
+    `MUTANTS = ISSUE + [...]` as this repo's file has it, a name read through to the list it is assigned at the top
+    level. None when the text is no module or holds no one such assignment."""
     try:
         module = ast.parse(text)
     except (SyntaxError, ValueError):
         return None
-    values = [node.value for node in module.body if isinstance(node, ast.Assign)
-              and any(isinstance(target, ast.Name) and target.id == "MUTANTS" for target in node.targets)]
-    if len(values) != 1:
+    named = {}
+    for node in module.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            named.setdefault(node.targets[0].id, []).append(node.value)
+    if len(named.get("MUTANTS", ())) != 1:
         return None
-    value = values[0]
-    if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add):
-        value = value.right
-    return (module, value) if isinstance(value, ast.List) else None
+    lists, seen = [], set()
+
+    def gather(value):
+        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add):
+            gather(value.left)
+            gather(value.right)
+        elif isinstance(value, ast.List):
+            lists.append(value)
+        elif isinstance(value, ast.Name) and value.id not in seen and len(named.get(value.id, ())) == 1:
+            seen.add(value.id)
+            gather(named[value.id][0])
+    gather(named["MUTANTS"][0])
+    return (module, lists) if lists else None
 
 
-def _inert(node) -> bool:
-    """Whether a list entry is data alone: a tuple of strings, names and tuples, with no call, operator or other code."""
-    return isinstance(node, ast.Tuple) and all(isinstance(n, (ast.Tuple, ast.Constant, ast.Name, ast.Load))
-                                               for n in ast.walk(node))
+def _data(node) -> bool:
+    """Whether a list entry, or a part of one, is data: a constant, a name, a tuple or list of data, data joined by
+    `+`, a star of data, or a call of the file's own HELPERS or of a string's `replace` with data alone. Nothing else,
+    so no entry runs code of the agent's when the runner reads its list."""
+    if isinstance(node, (ast.Constant, ast.Name)):
+        return True
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return all(_data(e) for e in node.elts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _data(node.left) and _data(node.right)
+    if isinstance(node, ast.Starred):
+        return _data(node.value)
+    if isinstance(node, ast.Call) and not node.keywords:
+        called = node.func
+        own = isinstance(called, ast.Name) and called.id in HELPERS
+        replace = isinstance(called, ast.Attribute) and called.attr == "replace" and _data(called.value)
+        return (own or replace) and all(_data(arg) for arg in node.args)
+    return False
+
+
+def _name(entry):
+    """A list entry's mutant name, its first string, or None for an entry that is no tuple named so."""
+    if isinstance(entry, ast.Tuple) and entry.elts and isinstance(entry.elts[0], ast.Constant) \
+            and isinstance(entry.elts[0].value, str):
+        return entry.elts[0].value
+    return None
+
+
+def _offset(lines: list, line: int, column: int) -> int:
+    """A node's position as an offset into the file's bytes, from its line and its column in bytes."""
+    return sum(len(text) for text in lines[:line - 1]) + column
 
 
 def judged_mutants(pristine: pathlib.Path, work: pathlib.Path) -> tuple:
     """(the text of tools/mutants.py the judge runs, whether anything else the agent changed in it was put back): the
-    export's file as made, so its runner is the export's own, with each entry the agent added to its list, each held
-    to data alone (issue 511). An entry that is not data, or any change outside the list, is put back."""
+    export's file as made, so its runner is the export's own, with each entry the agent added to one of the lists
+    MUTANTS is made of, in that list, and each it changed in place of the one of its name, each held to data alone
+    (issue 511). An entry that is not data, an entry the agent took out, which stays, or any change outside the lists,
+    is put back."""
     path = "tools/mutants.py"
     before = _read(pristine, pristine / path)
     after = _read(work, work / path) if _own(work, work / path) and not _linked(work / path) else ""
-    made, left = _list_of(before), _list_of(after)
-    if made is None or left is None:
+    made, left = _lists_of(before), _lists_of(after)
+    if made is None or left is None or len(made[1]) != len(left[1]):
         return before, after != before
-    (made_module, made_list), (left_module, left_list) = made, left
-    kept = {ast.dump(e) for e in made_list.elts}
-    added, other = [], False
-    for entry in left_list.elts:
-        if ast.dump(entry) in kept:
-            continue
-        if _inert(entry):
-            added.append(ast.get_source_segment(after, entry))
-        else:
-            other = True
-    # Outside its list, the file must be the export's: compared with each list emptied, so where an entry stands is
+    (made_module, made_lists), (left_module, left_lists) = made, left
+    raw, edits, other = before.encode("utf-8"), [], False
+    lines = raw.splitlines(keepends=True)
+    for made_list, left_list in zip(made_lists, left_lists):
+        kept = {ast.dump(e) for e in made_list.elts}
+        found = {ast.dump(e) for e in left_list.elts}
+        of_name = {_name(e): e for e in made_list.elts if _name(e) is not None}
+        replaced, added = set(), []
+        for entry in left_list.elts:
+            dumped = ast.dump(entry)
+            if dumped in kept:
+                continue
+            if not _data(entry):
+                other = True
+                continue
+            text = ast.get_source_segment(after, entry)
+            same = of_name.get(_name(entry))
+            if same is not None and ast.dump(same) not in found and id(same) not in replaced:
+                replaced.add(id(same))
+                edits.append((_offset(lines, same.lineno, same.col_offset),
+                              _offset(lines, same.end_lineno, same.end_col_offset), text))
+            else:
+                added.append(text)
+        if any(ast.dump(e) not in found and id(e) not in replaced for e in made_list.elts):
+            other = True        # an entry the agent took out: the export's stays, and the file is recorded
+        if added:
+            close = _offset(lines, made_list.end_lineno, made_list.end_col_offset) - 1
+            head = raw[:close].rstrip()
+            comma = "" if not made_list.elts or head.endswith((b",", b"[")) else ","
+            edits.append((len(head), close, comma + "\n" + "".join("    %s,\n" % entry for entry in added)))
+    # Outside its lists, the file must be the export's: compared with each list emptied, so where an entry stands is
     # never a change.
-    made_list.elts, left_list.elts = [], []
+    for made_list, left_list in zip(made_lists, left_lists):
+        made_list.elts, left_list.elts = [], []
     other = other or ast.dump(made_module) != ast.dump(left_module)
-    lines = before.splitlines(keepends=True)
-    close = made[1]
-    at = sum(len(line) for line in lines[:close.end_lineno - 1]) + close.end_col_offset - 1
-    head = before[:at].rstrip()
-    joined = "".join("    %s,\n" % entry for entry in added)
-    if added and not head.endswith((",", "[")):
-        head += ","
-    text = (head + "\n" + joined + before[at:]) if added else before
-    return text, other
+    for start, stop, text in sorted(edits, reverse=True):
+        raw = raw[:start] + text.encode("utf-8") + raw[stop:]
+    return raw.decode("utf-8"), other
+
+
+def judged_tree(pristine: pathlib.Path, work: pathlib.Path, judge: pathlib.Path) -> list:
+    """Make JUDGE the export as made with only what the agent may change: its own files under kernel/ and tests/, each
+    read without following a link, and tools/mutants.py as `judged_mutants` writes it. Every other change it made, a
+    file under kernel/ or tests/ that is a link or not text among them, is left out, so that no file of the agent's
+    shadows a module the judge runs (issue 511), and is returned, by where, to be recorded as put back."""
+    walk.copy(pristine, judge)
+    before, after = _files(pristine), _files(work)
+    put_back = set()
+    for rel in sorted(set(before) | set(after)):
+        if before.get(rel) == after.get(rel) or rel == "tools/mutants.py":
+            continue
+        mine = rel.startswith(("kernel/", "tests/")) and PATH.match(rel)
+        if mine and rel not in after:
+            (judge / rel).unlink()
+        elif mine and not after[rel].startswith("\0"):      # a link is held as LINK, which opens so too
+            (judge / rel).parent.mkdir(parents=True, exist_ok=True)
+            (judge / rel).write_text(after[rel], encoding="utf-8")
+        else:
+            put_back.add(_where(rel, pristine))
+    text, other = judged_mutants(pristine, work)
+    (judge / "tools" / "mutants.py").write_text(text, encoding="utf-8")
+    if other:
+        put_back.add("tools/mutants.py")
+    return sorted(put_back)
 
 
 def new_tests(pristine: pathlib.Path, work: pathlib.Path) -> list:
@@ -404,10 +513,11 @@ def record(transcript: str, pristine: pathlib.Path, work: pathlib.Path, verdicts
 
 def main(argv: list, base: pathlib.Path = None) -> int:
     mode = argv[0] if argv else ""
-    if not ((mode in ("mutants", "judge") and len(argv) == 3) or (mode == "record" and len(argv) == 7)):
+    if not ((mode == "mutants" and len(argv) == 3) or (mode == "judge" and len(argv) == 4)
+            or (mode == "record" and len(argv) == 7)):
         print("usage: python3 -m tools.context_eval record TRANSCRIPT PRISTINE WORK VERDICTS META OUT\n"
-              "       python3 -m tools.context_eval mutants PRISTINE WORK\n"
-              "       python3 -m tools.context_eval judge PRISTINE WORK", file=sys.stderr)
+              "       python3 -m tools.context_eval mutants PRISTINE JUDGE\n"
+              "       python3 -m tools.context_eval judge PRISTINE WORK JUDGE", file=sys.stderr)
         return 2
     # Every path is followed to where it really is, and one outside the scratch directory, where the runner keeps the
     # export, the transcript and the record, is refused before it is opened; the refusal names no path.
@@ -422,13 +532,16 @@ def main(argv: list, base: pathlib.Path = None) -> int:
             print("context_eval: PRISTINE and WORK must be directories", file=sys.stderr)
             return 2
         if mode == "judge":
-            # The judge's tools/mutants.py, written in place of the agent's: the export's runner, the agent's entries.
-            text, other = judged_mutants(pristine, work)
-            target = work / "tools" / "mutants.py"
-            if target.is_symlink() or target.exists():
-                target.unlink()
-            target.write_text(text, encoding="utf-8")
-            print("restored" if other else "kept")
+            # The tree the judge runs in, made fresh beside the agent's, never written through anything it left.
+            judge = pathlib.Path(real[2])
+            if os.path.lexists(argv[3]) or not judge.parent.is_dir():
+                print("context_eval: JUDGE must be a new directory", file=sys.stderr)
+                return 2
+            try:
+                print(json.dumps({"restored": judged_tree(pristine, work, judge)}))
+            except OSError:
+                print("context_eval: the judge's tree could not be made", file=sys.stderr)
+                return 2
             return 0
         found = new_mutants(pristine, work)
         print(json.dumps({"names": [n for n, _ in found], "targets": sorted({t for _, t in found})}))

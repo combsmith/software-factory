@@ -1,6 +1,6 @@
 # 0129. The context's task is held by its sentence's sha256, and a run records whether it added a test, a mutant and the code, never what
 
-Status: replaced by `docs/decisions/0131-a-context-run-passes-only-having-looked-nowhere-outside-its-export-and-the-judge-runs-the-exports-mutation-runner.md`.
+Status: replaced by `docs/decisions/0133-a-context-run-passes-only-having-looked-nowhere-outside-its-export-and-is-judged-in-a-tree-of-its-own.md`.
 
 ## Decision
 
