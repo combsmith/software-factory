@@ -1521,6 +1521,12 @@ class Identity(unittest.TestCase):
             nest = 'echo "$(%s)"' % nest
         for command in (nest + "; git commit -m x", nest.replace('"', "") + "; git commit -m x"):
             self.assertEqual(self.codes(command), "", command[:40])
+        # And main reads a write in it, as it does a ' that a "${...}" takes as a character (Argon on #520).
+        nest = 'echo "${x:-")"}"; git -c user.name=other commit -m x'
+        for _ in range(11):
+            nest = 'echo "$(%s)"' % nest
+        for command in (nest, 'echo "$(echo "${x:-\'}"; git -c user.name=other commit -m x; echo "\'}")"'):
+            self.assertNotEqual(self.codes(command), "", command[:40])
         self.assertEqual(shell._balanced('echo "a \\" )") tail', 0, ")"), 14)     # an escaped " ends no double quotes
         self.assertEqual(shell._balanced('echo "${x:-")"}") tail', 0, ")"), 17)    # nor does a ${...}'s own (the security pass)
         for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',
@@ -1557,7 +1563,7 @@ class Identity(unittest.TestCase):
                         "bash /tmp/x.sh; gh --repo o/r pr view 1",
                         # A process substitution that a quote holds runs no shell (#410).
                         "git log -1 --grep '> >(bash)'; git commit -m 'echo > >(bash)'",
-                        # One in <( ) is written nothing, and one given -c runs a script the hook reads (the Claude review).
+                        # One given -c runs a script the hook reads (the Claude review); one in <( ) is read below.
                         "diff <(bash -c 'ls') <(ls); git commit -m x", "git commit -m x; cat <(bash -c 'echo hi')",
                         "git commit -m x; tee >(bash -c 'cat > /dev/null') < f",
                         # A here-document's body is data, whatever it spells (Argon).
@@ -1620,6 +1626,8 @@ class Identity(unittest.TestCase):
                         "echo 'git push' > >(\\bash)", "echo 'git push' > >( (bash) )", "echo 'git push' > >(b\\ash)",
                         "echo 'git push' > >(\\\nbash)", "echo 'git push' >>(bash)", "echo 'git push' > >( bash)",
                         "echo 'git push' > >(bash>/dev/null)", "echo 'git push' > >(/bin/bash 2>&1)",  # glued (Muse)
+                        # One in <( ) reads what its command is given, as any shell does, as main reads it (Argon on #520).
+                        "cat <(bash); git commit -m x", "echo 'git push' | cat <(bash)", "{ cat <(bash); } <<< 'git push'",
                         # A body's line that also stands outside it is still the body's (Argon on #489).
                         "git \\\nlog -1\nbash <<'E'\ngit \\\npush origin main\nE",
                         "true '\ngit \\\n' && bash <<'E'\ngit \\\ncommit -m x\nE",
