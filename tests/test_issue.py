@@ -711,6 +711,32 @@ class Done(unittest.TestCase):
         for start, want in ((4, "done"), (5, "done"), (6, "new")):
             self.assertEqual(state(facts(life_started_at=at(start), reopened_last_by="writer", linked=merged)), want)
 
+    def test_an_outsiders_merge_never_makes_an_issue_done(self):  # issue 280, trials/P-48.json
+        # P-48: an outsider's pull request, admitted and approved, gained a closing keyword after the approval, and
+        # the queue's merge closed that issue with the pull request named the closer. The closer, its timeline and its
+        # time cannot tell a late keyword from one that was there, so an outsider's merge never makes an issue done: a
+        # person decides, whatever the references said and when.
+        outsider = strangers(admitted=True, is_open=False, merged=5)
+        closed = dict(state="closed", closed_first_at=at(5))
+        d = derive(facts(linked=[outsider], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "closed_by_outsider_merge", ["11"]))
+        d = decide(facts(linked=[outsider], **closed))
+        self.assertEqual((d["state"], what(d), d["attention"]), ("declined", ("nothing", "closed_by_outsider_merge", None),
+                                                                 "needs_you"))
+        # The Factory's own merge, or a person's, beside it in the same second still makes the issue done, and is done's
+        # evidence alone.
+        for own in (agents(number=12, is_open=False, merged=5), pr(number=12, is_open=False, merged=5)):
+            d = derive(facts(linked=[outsider, own], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["12"]), own)
+        # A person's merge after the outsider's closed the issue landed while it stood closed: the contradiction.
+        d = derive(facts(linked=[outsider, pr(number=12, is_open=False, merged=7, closed_issue=None)], **closed))
+        self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"))
+        # An outsider's merge before this life, an empty one, or one that closed nothing reads as it did before.
+        self.assertEqual(state(facts(life_started_at=at(6), reopened_last_by="writer", reopened_last_at=at(6),
+                                     linked=[outsider])), "new")
+        for quiet in (dict(outsider, empty=True), dict(outsider, closed_issue_at=None)):
+            self.assertEqual(derive(facts(linked=[quiet], **closed))["reason"], "closed", quiet)
+
     def test_an_empty_merge_is_not_done(self):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=True)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=False)])), "done")
@@ -718,7 +744,7 @@ class Done(unittest.TestCase):
     def test_only_a_linked_merge_is_done(self):
         self.assertEqual(state(facts(linked=[strangers(is_open=False, merged=5)])), "new")
         self.assertEqual(state(facts(linked=[pr(cls="dependency", by=OTHER_APP, is_open=False, merged=5)])), "new")
-        self.assertEqual(state(facts(linked=[strangers(admitted=True, is_open=False, merged=5)])), "done")
+        self.assertEqual(state(facts(linked=[strangers(admitted=True, is_open=False, merged=5)])), "declined")
         self.assertEqual(state(facts(linked=[agents(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
 

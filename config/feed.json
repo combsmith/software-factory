@@ -114,6 +114,13 @@
       ]
     },
     {
+      "reason": "closed_by_outsider_merge",
+      "question": "closed_by_outsider_merge",
+      "choices": [
+        "reopen"
+      ]
+    },
+    {
       "reason": "limits_unreadable",
       "question": "fact_unreadable",
       "choices": [

@@ -76,6 +76,7 @@ NEEDS_YOU_REASONS = frozenset({
     "human_hold",
     "merged_while_held",
     "merged_while_declined",
+    "closed_by_outsider_merge",
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
@@ -489,9 +490,13 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # A merge is read as it stood at the merge, never from the pull request's references as they stand now, which an
     # edit after the merge can change (P-46, issue 267): it closed the issue, as the issue's timeline names it the
     # closer, or it landed while the issue stood closed, when it could close nothing.
+    # An outsider's merge never makes the issue done, admitted or not: its author may edit its description after the
+    # approval, and GitHub then closes every issue the description names, with the pull request the closer (P-48,
+    # issue 280). Only its author and those with write access can edit it, so the Factory's own and a person's stay.
     in_life = [p for p in links
                if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
-    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]
+    merged = [p for p in in_life if p["class"] != "outside"
+              and (p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"]))]
     merges = [str(p["number"]) for p in merged]
     if merged:
         first = min(p["merged_at"] for p in merged)
@@ -505,6 +510,11 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
         return out(DONE, "merged", merges)
+    # Only an admitted outsider's merge closed the issue in this life, which before issue 280 was done: a person
+    # decides whether it is. One no person admitted moves nothing, and its close reads as any other, below.
+    outsiders = [str(p["number"]) for p in in_life if p["class"] == "outside" and p["closed_issue_at"] is not None]
+    if outsiders:
+        return out(DECLINED, "closed_by_outsider_merge", outsiders)
     # Any other merge in this life closed nothing and landed while the issue stood open. While the issue is still
     # open and the merge was read within max_close_lag_seconds of it, GitHub may not have closed the issue yet, a
     # second or two after the merge (P-33): the issue waits, quietly, for a read after the close, and admits nothing,
