@@ -4817,6 +4817,26 @@ class Trials(unittest.TestCase):
                              (field, "N"))
             for wrong in (query.replace(key, "other"), query + " query { viewer { login } }", query.replace("$id", '"N"', 1)):
                 self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": wrong, "variables": {"id": "N"}}}))
+        # An enqueue may name the head it expects, as the queue step asks it (trials/P-57.json), and nothing else may.
+        head = "c5569a1d507586a05c5d416f024fa78778108077"
+        expected = "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}"
+        self.assertEqual(check_trials.written({"via": "graphql", "body": {"query": expected, "variables": {"id": "N", "h": head}}}),
+                         ("enqueuePullRequest", "N"))
+        for query, variables in ((expected, {"id": "N", "h": "main"}), (expected, {"id": "N", "h": head.upper()}),
+                                 (expected, {"id": "N", "h": 7}), (expected, {"id": "N"}),
+                                 # a commit's id whole: neither abbreviated nor one character more
+                                 (expected, {"id": "N", "h": head[:7]}), (expected, {"id": "N", "h": head + "0"}),
+                                 # the head asked for in the input but not declared, with no variable for it
+                                 (expected.replace(",$h:GitObjectID!", ""), {"id": "N"}),
+                                 (expected.replace(",expectedHeadOid:$h", ""), {"id": "N", "h": head}),
+                                 (expected.replace(",$h:GitObjectID!", ""), {"id": "N", "h": head}),
+                                 (expected.replace("GitObjectID!", "String!"), {"id": "N", "h": head}),
+                                 (expected.replace("enqueuePullRequest(input:{pullRequestId", "dequeuePullRequest(input:{id"),
+                                  {"id": "N", "h": head}),
+                                 ("mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { clientMutationId } }",
+                                  {"id": "N", "h": head})):
+            self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": query, "variables": variables}}),
+                              (query, variables))
         # A merge method rides only on auto-merge; and a node id names its repository, read as GitHub writes it.
         merged = "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id, mergeMethod: SQUASH}) { clientMutationId } }"
         self.assertIsNone(check_trials.written({"via": "graphql", "body": {"query": merged, "variables": {"id": "N"}}}))

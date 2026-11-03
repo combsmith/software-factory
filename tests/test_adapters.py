@@ -3325,6 +3325,9 @@ REFUSALS = {
     # The queue App's enqueues refused for a pull request's state, and a dequeue of one not queued; no port makes them
     # until the queue App's acts are built (P-2.queue-app, issue 381).
     ("P-2.queue-app", 9): None, ("P-2.queue-app", 14): None, ("P-2.queue-app", 36): None, ("P-2.queue-app", 41): None,
+    # The Maintainer's enqueues naming a head: one stale, and, before the ruleset's change, one for its review; no port
+    # enqueues until the queue step is built (P-57, issue 381).
+    ("P-57", 3): None, ("P-57", 4): None, ("P-57", 7): None,
     # Three uploads GitHub would not process, under default setup; no port uploads, and the lint refuses the permission.
     ("P-36", 6): None, ("P-36", 7): None, ("P-36", 8): None,
     ("P-27", 15): "dispatch",          # a dispatch GitHub refused: the effects port reads it as a write that failed
