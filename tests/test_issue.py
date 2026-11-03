@@ -728,14 +728,23 @@ class Done(unittest.TestCase):
         for own in (agents(number=12, is_open=False, merged=5), pr(number=12, is_open=False, merged=5)):
             d = derive(facts(linked=[outsider, own], **closed))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["12"]), own)
-        # A person's merge after the outsider's closed the issue landed while it stood closed: the contradiction.
-        d = derive(facts(linked=[outsider, pr(number=12, is_open=False, merged=7, closed_issue=None)], **closed))
+        # Only the outsider's merge closed it: a person's merge later, or in its second closing nothing, changes
+        # nothing, and is no evidence.
+        for other in (pr(number=12, is_open=False, merged=7, closed_issue=None),
+                      pr(number=12, is_open=False, merged=5, closed_issue=None)):
+            d = derive(facts(linked=[outsider, other], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "closed_by_outsider_merge", ["11"]), other)
+        # A person's close or Hold before the outsider's merge is read first, as for any merge (issue 227).
+        d = derive(facts(linked=[outsider], state="closed", closed_first_at=at(3)))
         self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"))
+        d = derive(facts(label_events=[labelled(HOLD, minute=1)], linked=[outsider], **closed))
+        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
         # An outsider's merge before this life, an empty one, or one that closed nothing reads as it did before.
         self.assertEqual(state(facts(life_started_at=at(6), reopened_last_by="writer", reopened_last_at=at(6),
                                      linked=[outsider])), "new")
-        for quiet in (dict(outsider, empty=True), dict(outsider, closed_issue_at=None)):
-            self.assertEqual(derive(facts(linked=[quiet], **closed))["reason"], "closed", quiet)
+        self.assertEqual(derive(facts(linked=[dict(outsider, empty=True)], **closed))["reason"], "closed")
+        self.assertEqual(derive(facts(linked=[dict(outsider, closed_issue_at=None)], **closed))["reason"],
+                         "merged_while_declined")
 
     def test_an_empty_merge_is_not_done(self):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=True)])), "new")

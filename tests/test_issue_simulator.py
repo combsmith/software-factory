@@ -35,6 +35,9 @@ UNMADE = {
     ("ready", "held", "platform"),
     # A person's own pull request opened while the issue is ready: on the seeds each of the six is a draft.
     ("ready", "in_review", "human"),
+    # The queue's merge of an admitted outsider's pull request (issue 280): the world opens no outsider's pull request
+    # on an issue, so only the exploration makes it.
+    ("in_review", "declined", "platform"),
 }
 
 

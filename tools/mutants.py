@@ -852,11 +852,11 @@ ISSUE = [
      "    known = context if isinstance(context, dict) else {}\n", "    known = context\n", ISSUE_TESTS),
     # Issue 267: a merge is read as it stood at the merge, by the close of the issue the timeline names it the closer of.
     ("a merge is read from the references as they stand now", ISSUE_PY,
-     '    merged = [p for p in in_life if p["class"] != "outside"\n              and (p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"]))]\n',
-     '    merged = [p for p in in_life if p["class"] != "outside"]\n', ISSUE_TESTS),
+     '    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]\n',
+     '    merged = in_life\n', ISSUE_TESTS),
     ("a merge that closed nothing while the issue stood open counts", ISSUE_PY,
-     'and (p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"]))]',
-     'and (p["closed_issue_at"] is not None or facts["closed_first_at"] is not None)]',
+     '    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]\n',
+     '    merged = [p for p in in_life if p["closed_issue_at"] is not None or facts["closed_first_at"] is not None]\n',
      ISSUE_TESTS),
     ("an issue an outsider reopened before a merge is read as closed at it", ISSUE_PY,
      '        return facts["state"] == "closed"\n', "        return True\n", ISSUE_TESTS),
@@ -904,12 +904,12 @@ ISSUE = [
      ISSUE_TESTS),
     # Issue 280: an outsider's merge never makes an issue done.
     ("an admitted outsider's merge makes the issue done", ISSUE_PY,
-     'merged = [p for p in in_life if p["class"] != "outside"\n', 'merged = [p for p in in_life if True\n', ISSUE_TESTS),
+     '        if any(p["class"] != "outside" for p in closers):\n', '        if closers:\n', ISSUE_TESTS),
     ("an outsider's merge reads as any other close", ISSUE_PY,
-     '    if outsiders:\n        return out(DECLINED, "closed_by_outsider_merge", outsiders)\n', "", ISSUE_TESTS),
+     '        return out(DECLINED, "closed_by_outsider_merge", [str(p["number"]) for p in merged if p["class"] == "outside"])\n', '        return out(DECLINED, "closed", [])\n', ISSUE_TESTS),
     ("an issue's closed_by_outsider_merge calls nobody", ISSUE_PY, '    "closed_by_outsider_merge",\n', "", ISSUE_TESTS),
     ("an outsider's merge that closed nothing is named", ISSUE_PY,
-     'p["class"] == "outside" and p["closed_issue_at"] is not None]', 'p["class"] == "outside"]', ISSUE_TESTS),
+     'closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]', 'closers = [p for p in merged if p["merged_at"] == first]', ISSUE_TESTS),
 ]
 
 MUTANTS = ISSUE + [
