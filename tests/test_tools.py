@@ -3429,15 +3429,17 @@ class Workflows(unittest.TestCase):
             "apply on no commit": good.replace("    if: always() && needs.run.outputs.commit != ''\n", "    if: always()\n"),
             "an outcome a failure skips": good.replace("      - name: Leave the Run's outcome\n        if: always()\n",
                                                        "      - name: Leave the Run's outcome\n"),
-            "the item's code checked out": good.replace("          ref: factory/v0-next\n",
+            "the item's code checked out": good.replace("          ref: ${{ job.workflow_sha }}\n",
                                                         "          ref: ${{ inputs.item }}\n", 1),
             "a model credential in apply": good.replace("          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n",
                                                         "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n" + model),
             "the CLI unchecked": good.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
             "another checksum": good.replace(check_workflows.CLI_CHECKSUMS["2.1.306"], "0" * 64),
             "another version": good.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.307"'),
-            "a later job on the Channel again": good.replace("          ref: ${{ needs.run.outputs.commit }}\n",
-                                                             "          ref: factory/v0-next\n", 1),
+            "a later job on its own commit, not the one handed on": good.replace("          ref: ${{ needs.run.outputs.commit }}\n",
+                                                                                 "          ref: ${{ job.workflow_sha }}\n", 1),
+            "the first job on the tag again": good.replace("          ref: ${{ job.workflow_sha }}\n",
+                                                           "          ref: factory/v0-next\n", 1),
             "a later job with no tags": good.replace("          fetch-tags: true\n", "", 1),
             "no commit handed on": good.replace("        run: python3 -m harness.steps\n", ""),
             "verify on an environment": good.replace("    needs: run\n    runs-on: ubuntu-24.04\n",
@@ -3489,7 +3491,7 @@ class Workflows(unittest.TestCase):
 
     def test_the_commit_a_later_job_checks_out_is_the_releases_own(self):  # decision 0066
         # A job output is as trusted as the step that writes it. `commit` is written by one step alone, `commit`, right
-        # after `run` checks out the Channel and before the CLI is installed or any secret named, on the Release's own
+        # after `run` checks out the Release and before the CLI is installed or any secret named, on the Release's own
         # code; GitHub keeps each step's outputs apart, so no later step can write it. And each later job checks out
         # that commit and names its Release from it before any step that holds a secret runs Factory code.
         entries, bad = check_workflows.read((self.LIVE / "run-jobs.yml").read_text())
@@ -3510,7 +3512,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(ids.count("commit"), 1)
         run = steps_of("run")
         self.assertTrue(value(run[0], "uses").startswith("actions/checkout@"))
-        self.assertEqual(value(run[0], "ref"), "factory/v0-next")
+        self.assertEqual(value(run[0], "ref"), "${{ job.workflow_sha }}")
         self.assertEqual((value(run[1], "id"), value(run[1], "run")), ("commit", "python3 -m harness.steps"))
         self.assertFalse([e for step in run[:2] for e in step if "secrets." in e["value"]])
         for job, first in (("verify", "python3 -m harness.verify"), ("apply", "python3 -m harness.apply_step")):
@@ -3525,6 +3527,7 @@ class Workflows(unittest.TestCase):
     def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
         good = (self.LIVE / "pass.yml").read_text()
         self.assertEqual(check_workflows.pass_problems(good), [])
+        self.assertIn("          ref: ${{ job.workflow_sha }}\n", good)  # decision 0123: a copy of itself would not say so
         upload = ("      - name: Upload the pass record\n        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
                   " # v7.0.2\n        with:\n          name: pass\n          path: pass/pass.json\n          if-no-files-found: error\n")
         self.assertIn(upload, good)
@@ -3543,10 +3546,11 @@ class Workflows(unittest.TestCase):
     def test_the_approving_act_holds_the_approvers_token_alone(self):  # decision 0055
         good = (self.LIVE / "approve-job.yml").read_text()
         self.assertEqual(check_workflows.approve_job_problems(good), [])
+        self.assertIn("          ref: ${{ job.workflow_sha }}\n", good)  # decision 0123
         for why, text in {"a key beside it": good.replace("          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n",
                                                           "          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n"
                                                           "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
-                          "the item's code": good.replace("          ref: factory/v0-next\n", "          ref: ${{ inputs.item }}\n"),
+                          "the item's code": good.replace("          ref: ${{ job.workflow_sha }}\n", "          ref: ${{ inputs.item }}\n"),
                           "no outcome step": good.replace("        run: python3 -m harness.outcome\n", ""),
                           "an outcome a failure skips": good.replace("      - if: always()\n        uses: actions/upload-artifact@"
                                                                      "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n"
