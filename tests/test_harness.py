@@ -556,6 +556,10 @@ class Engine(unittest.TestCase):
         self.assertEqual((r["status"], r["reason"]), ("failed", "no_answer"))
         r = engined(CLI(raises=ValueError("embedded null byte")))
         self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"))
+        # The version's call too, before the Run and after it (Muse).
+        def refuses(args, env, timeout):
+            raise ValueError("embedded null byte")
+        self.assertEqual(engine.version("claude", {}, refuses), "")
 
     def test_a_run_the_model_could_not_finish_is_no_answer_as_the_trial_recorded(self):  # decision 0122
         # Words in an item may lead the model here, so it is an attempt on that item and counts toward no automatic pause.

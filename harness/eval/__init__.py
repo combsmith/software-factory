@@ -50,6 +50,9 @@ BLOCKING_LEAST = 1          # and a set holds one, or a true word for them could
 CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,63}")
 AT = re.compile(r"(?:adapters|controller|harness|kernel|release|tools)/[a-z0-9_/]+\.py:[1-9][0-9]{0,5}")
 WORD = re.compile(r"[a-z][a-z_]{0,63}")
+# The subtypes a cause may name, as the CLI gives them at the pin (`trials/P-13.ended.json`, and the vendor's error of a
+# run that failed): any other is `other`, so that whatever a later pin echoes there is never words (the security pass).
+SUBTYPES = ("success", "error_during_execution", "error_max_turns", "error_max_structured_output_retries")
 
 
 class Stop(Exception):
@@ -196,8 +199,11 @@ def seen_of(review) -> dict:
     if not isinstance(seen, dict):
         return {}
     said = {}
-    if isinstance(seen.get("subtype"), str) and WORD.fullmatch(seen["subtype"]):
-        said["subtype"] = seen["subtype"]
+    if isinstance(seen.get("subtype"), str):
+        said["subtype"] = seen["subtype"] if seen["subtype"] in SUBTYPES else "other"
+    # A call that could not be made says the class of what it raised.
+    if isinstance(seen.get("raised"), str) and CLASS.fullmatch(seen["raised"]):
+        said["exception"] = seen["raised"]
     if type(seen.get("exit")) is int and -255 <= seen["exit"] <= 255:
         said["exit"] = seen["exit"]
     if seen.get("timed_out") is True:

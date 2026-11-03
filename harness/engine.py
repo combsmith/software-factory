@@ -147,7 +147,7 @@ def version(cli: str, env: dict, call) -> str:
     """The version the CLI says it is, or "" if it would not say."""
     try:
         done = call([cli, "--version"], env=env, timeout=30)
-    except (OSError, subprocess.SubprocessError):       # a CLI that cannot be started says no version
+    except (OSError, ValueError, subprocess.SubprocessError):     # a CLI that cannot be started says no version
         return ""
     if done.returncode != 0:
         return ""

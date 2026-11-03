@@ -1608,6 +1608,28 @@ class EvalJob(unittest.TestCase):
         text = (self.work / job.REPORT).read_text()
         self.assertEqual({(c["reasons"][0], c["cause"]["exception"]) for c in json.loads(text)["cases"]}, {("unanswered", "OSError")})
         self.assertNotIn("home's name", text)
+        # The causes of the home's read that cannot be read are none: the report is written all the same.
+        (self.temp / "heldout" / "fetch-causes.json").unlink()
+        self.step(job.score, lambda case: load("examples/result.json"))
+        self.assertEqual([c.get("cause") for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [None, None])
+        # A class, a code, an exit or a timeout not of its shape is left out, so the report holds to its schema.
+        class timeout(Exception):
+            pass
+        self.step(fetch, self.home(self.cases))
+        one_id, two_id = list(self.cases)
+        held = {one_id: timeout(), two_id: job.Stop("A step's words")}
+        self.step(job.score, lambda case: (_ for _ in ()).throw(held[case["id"]]))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        causes = {c["id"]: c.get("cause") for c in written["cases"]}
+        self.assertEqual((set(causes[one_id]), causes[two_id]), ({"at"}, None))
+
+        def asked():
+            pass
+        for seen, said in (({"exit": 300}, {}), ({"exit": True}, {}), ({"exit": -1}, {"exit": -1}),
+                           ({"timed_out": "yes"}, {}), ({"raised": "socket.timeout"}, {}), ({"raised": "OSError"}, {"exception": "OSError"})):
+            asked.seen = seen
+            self.assertEqual(job.seen_of(asked), said, seen)
 
     def test_a_case_the_engine_stopped_says_what_the_cli_said_of_it(self):  # decision 0131
         # Through the step as the workflow runs it: a case whose CLI erred says its subtype and exit, one whose call timed
@@ -1631,9 +1653,13 @@ class EvalJob(unittest.TestCase):
         erred = run(live.CLI(said=live.answer(is_error=True, subtype="error_during_execution"), returncode=1))
         self.assertEqual([(c["reasons"], c["cause"]) for c in erred],
                          [(["engine_failed"], {"subtype": "error_during_execution", "exit": 1})] * 2)
-        # A subtype in words is no subtype: the exit alone is kept.
-        worded = run(live.CLI(said=live.answer(is_error=True, subtype="An error, as the model put it"), returncode=1))
-        self.assertEqual([c["cause"] for c in worded], [{"exit": 1}] * 2)
+        # A subtype the pin does not give is `other`, whatever its words, as is one in snake case.
+        for words in ("An error, as the model put it", "the_expected_finding_is_in_kernel_decide"):
+            worded = run(live.CLI(said=live.answer(is_error=True, subtype=words), returncode=1))
+            self.assertEqual([c["cause"] for c in worded], [{"subtype": "other", "exit": 1}] * 2, words)
+        # A call that could not be made says the class of what it raised.
+        refused = run(live.CLI(raises=ValueError("embedded null byte")))
+        self.assertEqual([(c["reasons"], c["cause"]) for c in refused], [(["engine_failed"], {"exception": "ValueError"})] * 2)
         late = run(live.CLI(raises=subprocess.TimeoutExpired(["claude"], 600)))
         self.assertEqual([(c["reasons"], c["cause"]) for c in late], [(["engine_timeout"], {"timed_out": True})] * 2)
         with mock.patch.object(engine, "validate", side_effect=TypeError("what the model wrote")):

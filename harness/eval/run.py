@@ -51,13 +51,17 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
 
     def watched(args, env, timeout):
         """The CLI's call, as the Engine makes it, with what it said of the case kept for its cause: its exit, the
-        subtype its answer names, or that it timed out. Nothing of the answer itself is kept."""
+        subtype its answer names, that it timed out, or the class of what the call raised. Nothing of the answer itself
+        is kept."""
         if args[1:] == ["--version"]:
             return asked(args, env=env, timeout=timeout)
         try:
             done = asked(args, env=env, timeout=timeout)
         except subprocess.TimeoutExpired:
             seen["timed_out"] = True
+            raise
+        except Exception as err:
+            seen["raised"] = type(err).__name__
             raise
         seen["exit"] = done.returncode
         said = engine._answer(done.stdout) if isinstance(done.stdout, str) else None
