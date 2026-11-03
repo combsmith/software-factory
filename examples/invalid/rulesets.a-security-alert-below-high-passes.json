@@ -102,6 +102,20 @@
         "deletion": {},
         "non_fast_forward": {}
       }
+    },
+    "factory channel branches": {
+      "id": null,
+      "target": "branch",
+      "enforcement": "active",
+      "include": [
+        "refs/heads/factory/**/*"
+      ],
+      "exclude": [],
+      "bypass_actors": [],
+      "rules": {
+        "creation": {},
+        "update": {}
+      }
     }
   }
 }

@@ -27,7 +27,8 @@
       "required": [
         "main",
         "factory release tags",
-        "factory releases are immutable"
+        "factory releases are immutable",
+        "factory channel branches"
       ],
       "properties": {
         "main": {
