@@ -2599,6 +2599,19 @@ class Recorded(unittest.TestCase):
         self.assertEqual(self.recorded(listed_runs(lens_run(self.RUN)), *applied_stored("o/r", 39100000000, "x"),
                                        numbers=(26, 27)), {26: ({}, False), 27: ({}, True)})
 
+    def test_what_apply_records_of_a_pull_request_it_opened_is_what_the_reader_reads(self):  # issue 342
+        # The writer, `harness/apply.py`'s `opened`, and the reader agree: the number read back names the pull request.
+        from harness import apply
+        run = dict(lens_run(self.RUN, number=36), item={"repo": "o/r", "type": "issue", "number": 36},
+                   intent="open-pull-request", role="dev-lead", content_id=None)
+        for number in (1, 26, 1000):
+            done = apply.opened("e1", 36, "factory-work/issue-36-1", {"state": "applied", "number": number,
+                                                                  "head": "factory-work/issue-36-1"})
+            kept = dict(lens_applied(self.RUN), effects=[done])
+            got = applied.opened(github.Replay(applied_stored("o/r", 39100000000, kept)), "o/r", listed_runs(run),
+                                 "dev-lead")
+            self.assertEqual(got, {"named": {number: [(self.RUN, 36)]}, "unreadable": set(), "whole": True})
+
     def test_what_an_opening_run_recorded_names_the_pull_request_it_opened(self):  # issue 342
         # An opening Run's own applied/1 names the pull request it opened, in a landed open_pull_request Effect keyed
         # by its number; the run-name's item is the issue it serves.
