@@ -74,6 +74,7 @@ NAMING_TESTS = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_ex
 ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 SIM_CREATED = ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)
+SIM_CREATES = ("tests.test_simulator.Simulation.test_a_created_check_stands_beside_the_lens_run_and_replaces_only_one_created_before",)
 JOB_PORT = ("tests.test_adapters.Contract.test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids",
             "tests.test_adapters.Contract.test_a_created_check_under_a_lens_name_does_not_pass")
 WIRE_RUNS = ("tests.test_adapters.EffectsRecorded.test_each_run_in_the_window_is_read_once_and_only_a_listed_one",)
@@ -5640,6 +5641,11 @@ MUTANTS = ISSUE + [
     ("the job's URL may have more in it", "adapters/checks.py", 'r"https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/', 'r"https://github\\.com/.+/.+/actions/', JOB_PORT),
     ("the fake creates no check beside a failure", "sim/world.py", 'if WORKFLOWS[lens] is not None and roll < 0.855:', 'if False:', SIM_CREATED),
     ("the fake creates no check alone", "sim/world.py", 'if self.faults and WORKFLOWS[lens] is not None and roll < 0.02:', 'if False:', SIM_CREATED),
+    # Issue 496: a created check replaces only one created before under its name (trials/P-42.rollup.json, P-35).
+    ("a later created check stands beside the earlier", "sim/world.py", 'if not (c["name"] == CHECKS[lens]', 'if True or not (c["name"] == CHECKS[lens]', SIM_CREATES),
+    ("a created check replaces another workflow's", "sim/world.py", 'c["app_id"] == APPS[lens] and c["workflow"] is None)]', 'c["app_id"] == APPS[lens])]', SIM_CREATES),
+    ("a created check replaces another name's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"]', 'if not (c["app_id"]', SIM_CREATES),
+    ("a created check replaces another App's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and', 'if not (c["name"] == CHECKS[lens] and', SIM_CREATES),
     ("the read asks for no details", "adapters/checks.py", 'startedAt completedAt detailsUrl\n', 'startedAt completedAt\n', JOB_PORT),
     ("the read asks for no run id", "adapters/checks.py", 'workflowRun { databaseId file { path } }', 'workflowRun { file { path } }', JOB_PORT),
     ("the read asks for no check id", "adapters/checks.py", 'id databaseId name conclusion', 'id name conclusion', JOB_PORT),

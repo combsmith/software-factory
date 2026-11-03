@@ -36,5 +36,5 @@ In each world one Run holds the item's lane and at most one waits behind it; a n
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 
 On one seed in three the ruleset dismisses stale approvals: a push dismisses each standing approval and names the pusher (`tests/test_simulator.py::test_the_seeds_serve_a_ruleset_that_dismisses_stale_approvals_and_one_that_does_not`).
-On one seed in eleven an upload turns CodeQL neutral (`tests/test_simulator.py::test_the_seeds_upload_under_codeqls_tool`). Known to differ, by `sim/grounding.py`: P-2's queue rules and three of P-42's check rules.
+On one seed in eleven an upload turns CodeQL neutral (`tests/test_simulator.py::test_the_seeds_upload_under_codeqls_tool`). Known to differ, by `sim/grounding.py`: P-2's queue rules.
 An App's write access is the world's own, true, where the port gives a Bot's as false: the Kernel reads an App's only for its type.

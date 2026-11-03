@@ -1207,8 +1207,7 @@ class World:
                 # Before a job gated by needs starts it has no check run, so a created success stands alone. Its details are
                 # not its own job's, so the port reads it with no file (decision 0104).
                 self.not_started.add(lens)
-                self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
-                                       "conclusion": "success", "completed_at": self.now()})
+                self.create(lens)
                 self.note("check %s: pending, and a job created a passing one under its name, alone" % lens)
                 self.caused(self.by_of(IMPOSTOR))
                 return
@@ -1218,6 +1217,7 @@ class World:
             self.moves()
             if self.faults and roll >= 0.92:
                 # GitHub: a_check_can_time_out_or_give_no_verdict
+                # GitHub: a_check_concludes_timed_out_or_stale
                 self.checks[lens] = self.pick(["timed_out", "neutral", "skipped", "cancelled", "stale"])
                 self.note("check %s: %s" % (lens, self.checks[lens]))
             self.caused("human" if lens in self.rerun else "lens")
@@ -1225,8 +1225,7 @@ class World:
             if self.faults and roll < 0.87 and self.checks[lens] == "failure":
                 if WORKFLOWS[lens] is not None and roll < 0.855:
                     # GitHub: a_job_creates_a_check_in_another_suite
-                    self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
-                                           "conclusion": "success", "completed_at": self.now()})
+                    self.create(lens)
                     self.note("check %s: failure, and a job created a passing one under its name, in its suite" % lens)
                 elif WORKFLOWS[lens] is not None and roll < 0.86:
                     # GitHub: actions_runs_a_job_under_any_name
@@ -1242,6 +1241,16 @@ class World:
                     self.note("check %s: failure, and another App posted a passing one under its name" % lens)
                 # Neither is a Run or an act of the Factory's, nor the Lens's own: the change is the platform's.
                 self.caused(self.by_of(IMPOSTOR))
+
+    def create(self, lens: str):
+        """A passing check a job created under `lens`'s name. It stands beside the Lens's own run in any suite
+        (trials/P-35.json), and replaces only a check a job created earlier under that name, in the suite they share,
+        the head's first (trials/P-42.rollup.json)."""
+        # GitHub: a_rerun_replaces_only_its_own_run
+        self.impostors = [c for c in self.impostors
+                          if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and c["workflow"] is None)]
+        self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
+                               "conclusion": "success", "completed_at": self.now()})
 
     def person(self):
         """The Maintainer acts, or a stranger comments, and the State the Kernel gives may change."""
