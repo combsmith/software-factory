@@ -1099,6 +1099,15 @@ ISSUE_BASES = {
     # factory:ready and closes it unmerged sends the issue back to triage.
     "in review, triaged and ready": issue_item(issue_facts.facts(
         label_events=issue_facts.ACCEPTED + issue_facts.READIED_BY_A_PERSON, linked=[issue_facts.agents()])),
+    # An outsider's pull request a person admitted, open and ready: the queue's merge of it closes the issue, and a
+    # person decides whether it is done (issue 280, trials/P-48.json).
+    "in review, an admitted outsider's pull request ready": issue_item(issue_facts.facts(
+        label_events=issue_facts.ACCEPTED + issue_facts.READIED_BY_A_PERSON,
+        linked=[issue_facts.strangers(admitted=True)])),
+    # P-48's own case: a keyword added after the approval names an issue the Controller does not watch, here an
+    # outsider's issue not yet accepted.
+    "new, an admitted outsider's pull request ready": issue_item(issue_facts.outsiders(
+        linked=[issue_facts.strangers(admitted=True)])),
 }
 
 
@@ -1189,11 +1198,14 @@ def app_marks_ready(item: dict):
     return item
 
 
-def queue_merges_issue(item: dict):
+def queue_merges_issue(item: dict, kind: str = "agent"):
     """The merge queue merges the Factory's ready pull request, after the Factory's approval and enqueue: only while
-    the issue is in review, since the Controller dequeues on a person's hold or close (issue 227)."""
-    live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == "agent" and not p["draft"]]
-    if not live or issue_kernel(item)["state"] != "in_review":
+    the issue is in review, since the Controller dequeues on a person's hold or close (issue 227). An admitted
+    outsider's may name in its description, after the approval, an issue the Controller does not watch, so it merges
+    while that issue is new too (P-48, issue 280). From a Hold or not served, which only a person ends, the reading is
+    the follow-up issue's, "A platform close keeps the State a person set on an issue held or not served" (issue 522)."""
+    live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == kind and not p["draft"]]
+    if not live or issue_kernel(item)["state"] not in (("in_review", "new") if kind == "outside" else ("in_review",)):
         return None
     live[0].update(open=False, closed_at=now(item), merged_at=now(item), closed_issue_at=closes_the_issue(item))
     return item
@@ -1295,6 +1307,8 @@ ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "lab
     Move("a person opens a pull request of their own", "human", opens_own(False)),
     Move("the author App marks its draft ready", "factory", app_marks_ready),
     Move("the queue merges the Factory's pull request", "platform", queue_merges_issue),
+    Move("the queue merges an admitted outsider's pull request", "platform",
+         lambda item: queue_merges_issue(item, "outside")),
     Move("the outsider edits the issue", "stranger", outsider_edits),
     Move("another App adds factory:hold", "platform",
          lambda item: None if issue_stands(item, t.LABEL_HOLD) else issue_label(item, t.LABEL_HOLD,

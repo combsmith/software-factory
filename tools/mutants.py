@@ -853,7 +853,7 @@ ISSUE = [
     # Issue 267: a merge is read as it stood at the merge, by the close of the issue the timeline names it the closer of.
     ("a merge is read from the references as they stand now", ISSUE_PY,
      '    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]\n',
-     "    merged = in_life\n", ISSUE_TESTS),
+     '    merged = in_life\n', ISSUE_TESTS),
     ("a merge that closed nothing while the issue stood open counts", ISSUE_PY,
      '    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]\n',
      '    merged = [p for p in in_life if p["closed_issue_at"] is not None or facts["closed_first_at"] is not None]\n',
@@ -902,6 +902,14 @@ ISSUE = [
     ("a read time that cannot be read is taken", ISSUE_PY,
      '        if not is_time(facts.get("read_at")):\n            return out(None, "linked_unreadable", [])\n', "",
      ISSUE_TESTS),
+    # Issue 280: an outsider's merge never makes an issue done.
+    ("an admitted outsider's merge makes the issue done", ISSUE_PY,
+     '        if any(p["class"] != "outside" for p in closers):\n', '        if closers:\n', ISSUE_TESTS),
+    ("an outsider's merge reads as any other close", ISSUE_PY,
+     '        return out(DECLINED, "closed_by_outsider_merge", [str(p["number"]) for p in merged if p["class"] == "outside"])\n', '        return out(DECLINED, "closed", [])\n', ISSUE_TESTS),
+    ("an issue's closed_by_outsider_merge calls nobody", ISSUE_PY, '    "closed_by_outsider_merge",\n', "", ISSUE_TESTS),
+    ("an outsider's merge that closed nothing is named", ISSUE_PY,
+     'closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]', 'closers = [p for p in merged if p["merged_at"] == first]', ISSUE_TESTS),
 ]
 
 MUTANTS = ISSUE + [
