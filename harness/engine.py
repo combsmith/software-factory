@@ -5,6 +5,8 @@ that trial hardened it:
 - at the pinned version, asked before and after the call, its exit read (L-35);
 - in an environment of exactly the names below, the one key from the job's environment the CLI needs among them, under
   the one name the CLI's scrub removes from what a tool is handed, and the scrub set (issue 287);
+- with the Task's limits: its turns as `--max-turns`, its seconds as the call's timeout, and its `cost_ceiling_usd` as
+  `--max-budget-usd`, which the pin accepts and holds its own estimate of spend to (issue 517);
 - with no tool at all, `--tools ""`, whatever the Task holds; structured output still works with none (P-13 at
   2.1.306). The scrub is set only with no tool: on a Linux runner at 2.1.306, with the scrub on, a sandboxed tool
   wrote anywhere the runner's user can, and with it off a tool is handed the credential (P-50, P-51, issue 312; P-26),
@@ -97,7 +99,9 @@ def argv(cli: str, task: dict, model: str, session: str, instructions: str = "")
     the Task as data."""
     return ([cli, "-p", PROMPT + instructions + TASK + json.dumps(task, sort_keys=True), "--json-schema",
              json.dumps(handed(task)),
-             "--model", model, "--session-id", session, "--max-turns", str(task["limits"]["turns"])]
+             "--model", model, "--session-id", session, "--max-turns", str(task["limits"]["turns"]),
+             # The tier's ceiling, which the CLI holds the Run's estimated spend to (issue 517)
+             "--max-budget-usd", str(task["limits"]["cost_ceiling_usd"])]
             + OPTIONS + ["--tools", ""])
 
 

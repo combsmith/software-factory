@@ -10194,6 +10194,16 @@ MUTANTS = ISSUE + [
      '    except (ValueError, RecursionError):', '    except ValueError:', ('tests.test_harness.Engine.test_an_answer_python_cannot_parse_or_a_call_it_refuses_is_the_engines',)),
     ('a call Python refuses raises past the Engine', 'harness/engine.py',
      '    except (OSError, ValueError):', '    except OSError:', ('tests.test_harness.Engine.test_an_answer_python_cannot_parse_or_a_call_it_refuses_is_the_engines',)),
+    # Issue 517: the CLI holds a Run to its tier's cost ceiling.
+    ("the CLI is given no cost ceiling", 'harness/engine.py',
+     ',\n             # The tier\'s ceiling, which the CLI holds the Run\'s estimated spend to (issue 517)\n             "--max-budget-usd", str(task["limits"]["cost_ceiling_usd"])]\n',
+     ']\n', ('tests.test_harness.Engine.test_the_cli_holds_the_run_to_its_tiers_cost_ceiling', 'tests.test_harness.Engine.test_the_cli_is_given_no_tool')),
+    ("the CLI's cost ceiling is the tier's turns", 'harness/engine.py',
+     '"--max-budget-usd", str(task["limits"]["cost_ceiling_usd"])]', '"--max-budget-usd", str(task["limits"]["turns"])]', ('tests.test_harness.Engine.test_the_cli_holds_the_run_to_its_tiers_cost_ceiling',)),
+    ("the CLI's cost ceiling is the standard tier's whatever the Task's", 'harness/engine.py',
+     '"--max-budget-usd", str(task["limits"]["cost_ceiling_usd"])]', '"--max-budget-usd", "1.0"]', ('tests.test_harness.Engine.test_the_cli_holds_the_run_to_its_tiers_cost_ceiling',)),
+    ("the CLI's cost ceiling is rounded to a dollar", 'harness/engine.py',
+     '"--max-budget-usd", str(task["limits"]["cost_ceiling_usd"])]', '"--max-budget-usd", str(int(task["limits"]["cost_ceiling_usd"]))]', ('tests.test_harness.Engine.test_the_cli_holds_the_run_to_its_tiers_cost_ceiling',)),
     # Issue 424: the check on OUT's parent in the three that lacked it, an ACL in all, and the rest of what the reads left.
     ("P-13's trial makes OUT under a directory its group can write to", 'tools/trial_p13_cli.sh',
      '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
