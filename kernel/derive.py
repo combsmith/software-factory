@@ -71,6 +71,49 @@ def review_expired(runs: list, facts: dict, role: str) -> bool:
                    for r in runs)
 
 
+def expired_threads(facts: dict, runs: list, config: dict) -> dict:
+    """`{thread id: the Run that opened it}` for each required model Lens's thread whose Run's applied/1 is past retention
+    (issue 420): its category, severity and ruling were never joined, and the latest Run of its Lens that started at or
+    before it opened is one `expired_reviews` names. A Lens's Runs on an item run one at a time (section 2, a concurrency
+    key per Work item), so a thread is opened between its Run's start and the next's. Any other thread whose category
+    cannot be read stays unreadable, one opened after a later Run whose record can be read among them."""
+    if not readable_expired(facts) or not isinstance(facts.get("threads"), list) or not isinstance(runs, list):
+        return {}
+    required = config["required_lenses"]["model"]
+    mine = [r for r in runs if isinstance(r, dict) and r.get("item") == facts.get("item") and is_time(r.get("started_at"))]
+    out = {}
+    for th in facts["threads"]:
+        by = th.get("opened_by") if isinstance(th, dict) else None
+        if not isinstance(by, dict) or by.get("kind") != "lens" or by.get("name") not in required:
+            continue
+        if th.get("category") is not None or th.get("severity") is not None or th.get("ruling") is not None \
+                or "ruling" not in th or not is_time(th.get("opened_at")) or not isinstance(th.get("id"), str):
+            continue
+        before = [r for r in mine if r["role"] == by["name"] and r["started_at"] <= th["opened_at"]]
+        if before and max(before, key=lambda r: r["started_at"])["run"] in facts["expired_reviews"]:
+            out[th["id"]] = max(before, key=lambda r: r["started_at"])
+    return out
+
+
+def as_read(facts: dict, runs: list, config: dict) -> dict:
+    """The facts as the Kernel reads them: each expired Run's thread (expired_threads) marked `expired`, and `superseded`
+    once its Lens has a review that succeeded and started after the Run that opened it, on any content. `kernel/gate.py`
+    reads the marks: such a thread gates at any severity, since it may have been a security Finding, and the queue App's
+    resolution closes it once it is superseded, with no ruling, since its Finding is gone (decision 0075). Its category,
+    severity and ruling stay as the port gave them. The facts given are never changed."""
+    expired = expired_threads(facts, runs, config)
+    if not expired:
+        return facts
+
+    def superseded(opener: dict) -> bool:
+        return any(r.get("role") == opener["role"] and r.get("intent") == "review-change" and r.get("status") == "completed"
+                   and r.get("conclusion") == "success" and is_time(r.get("started_at")) and r["started_at"] > opener["started_at"]
+                   and r.get("item") == facts.get("item") for r in runs if isinstance(r, dict))
+    threads = [dict(th, expired=True, superseded=superseded(expired[th["id"]]))
+               if isinstance(th, dict) and th.get("id") in expired else th for th in facts["threads"]]
+    return dict(facts, threads=threads)
+
+
 def contradicts(run: dict, facts: dict) -> bool:
     """Whether `run`, a review of exactly this content, succeeded and yet names whose fault its failure was. A review
     reports only through a Run that succeeded (decision 0029), and one that failed names its fault, so this one can be
@@ -366,7 +409,9 @@ def unreadable_thread(th: dict, lenses: list, facts: dict, config: dict) -> bool
         return True
     if not th["resolved"] and th.get("resolved_by") is not None:
         return True
+    # An expired Run's thread has no category to read, and gates as if it were a security Finding (as_read, issue 420).
     return (not closed(th) and th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] in lenses
+            and th.get("expired") is not True
             and (th.get("category") not in t.CATEGORIES or th.get("severity") not in t.SEVERITIES))
 
 
@@ -973,6 +1018,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     State and reason: a lost approval and an open gate get codes of their own. An item that is ended or not served
     is left alone, and so is one a person marked hands-off, which the Factory never acts on.
     """
+    facts = as_read(facts, runs, config)
     d = reading(facts, runs, config, ())
     if d["state"] in t.ADMITS_NOTHING or not facts["queue"] or hands_off(facts, config):
         return d
@@ -1121,8 +1167,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # (issue 389). A person's gate comes first: it holds the merge whatever the Lens's threads do, and is never hidden
     # behind an act. A queued item reads past it, so a gating thread open on it takes it out of the queue first: the
     # queue checks threads only as an item enters it.
+    # So is an expired Run's thread its Lens's fresh review has superseded (issue 420), on no ruling.
     due = [th["id"] for th in facts["threads"]
-           if th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["ruling"] == "accepted"]
+           if th["opened_by"]["kind"] == "lens" and not th["resolved"]
+           and (th["ruling"] == "accepted" or th.get("superseded") is True)]
     if due and "resolve_due" not in past and not any(g["by"]["kind"] == "human" for g in open_gates):
         return {"state": t.ADJUDICATING, "reason": "resolve_due", "evidence": due}
     if open_gates:
