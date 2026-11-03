@@ -547,10 +547,12 @@ def _alias(table: dict, name: str, budget: list) -> list:
 
 
 def _gh_kind(words: list) -> str:
-    """What a gh command does to GitHub: push (a pull request may push its branch), write, or nothing."""
-    if words[:2] == ["pr", "create"]:
+    """What a gh command does to GitHub: push (a pull request may push its branch), write, or nothing. An option before
+    the verb is read past, as gh reads it: gh pr --repo o/r merge is gh pr merge (Muse)."""
+    verb = _positional(words)[:2]
+    if verb == ["pr", "create"]:
         return "push"
-    if words[:2] in (["pr", "merge"], ["release", "create"]):
+    if verb in (["pr", "merge"], ["release", "create"]):
         return "account"
     if words[:1] != ["api"]:
         return ""
@@ -596,13 +598,8 @@ def _positional(words: list) -> list:
 
 def _bodies(text: str) -> str:
     """What the here-documents of `text` hold: its lines that are left out once they are taken away, each terminator with them."""
-    kept, body = shell.without_heredocs(text, raw=True).splitlines(), []
-    for line in text.splitlines():
-        if line in kept:
-            kept.remove(line)       # one for one: the same line may stand in a body and in what only prints (#410)
-        else:
-            body.append(line)
-    return "\n".join(body)
+    kept = set(shell.without_heredocs(text, raw=True).splitlines())
+    return "\n".join(line for line in text.splitlines() if line not in kept)     # a line also outside is in a command's words
 
 
 def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tuple:
@@ -712,7 +709,9 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             blind.append(runner)
             if at is None and set(words[1:]) & (WRITES | GH_WRITES):
                 always.append(("command_unreadable", "%s, and it is given a commit or a push" % runner))
-        if at is None and program in TEXT_ONLY and not scoped and all(t in PRINTED_TO or (op.endswith("&") and t in ("1", "2")) for op, t in redirections):
+        # printf with an option may not print at all: printf -v x 'git push' keeps it for a shell to read (Muse).
+        if at is None and program in TEXT_ONLY and not scoped and not (
+                program == "printf" and any(w.startswith("-") for w in words[start + 1:])):
             printing.add(index)
         if at is None:
             # A substitution is read as a command of its own below; its text is not the wrapper's to read as a push.
@@ -779,9 +778,12 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or writes):
         # Beside a script, a command that only reads names no write, nor does a comment, nor a read in a substitution, which is a
         # command of its own. What a redirection or a here-document is given may be that script, so they are read whole.
-        # What only prints is no write, unless a pipe may carry it to the script: echo 'git push' | bash.
+        # What only prints is no write, unless a pipe may carry it to the script, echo 'git push' | bash, or anything
+        # in the command, a compound's closing word or an exec among them, redirects to or from a file (the reviews).
         piped = any(raw is None and redirected == "|" for raw, redirected, _ in commands)
-        quiet = reading | (set() if piped else printing)
+        filed = any(t not in PRINTED_TO and not (op.endswith("&") and t in ("1", "2"))
+                    for raw, redirected, _ in commands if raw is not None for op, t in redirected)
+        quiet = reading | (set() if piped or filed else printing)
         rest = []
         for at, (_, redirected, marked) in enumerate(commands):
             if marked is not None:

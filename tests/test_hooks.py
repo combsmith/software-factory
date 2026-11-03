@@ -1485,6 +1485,13 @@ class Identity(unittest.TestCase):
                         "cat <`rm kernel/gate.py`"):
             self.assertIn(["rm", "kernel/gate.py"], [w for w, _ in shell.commands(command, scopes=True) if w], command)
         self.assertEqual([w for w, _ in shell.commands("cat < in.txt > out.txt") if w], [["cat"]])
+        # The redirection keeps an operand no hook can read, so a write to it is asked about; a descriptor's digit is its own.
+        self.assertIn((["tee"], [(">", shell.UNREAD_OPERAND)]), shell.commands("tee >`echo kernel/gate.py`"))
+        self.assertIn((["echo", "hi"], [(">", shell.UNREAD_OPERAND)]), shell.commands("echo hi 2>`date`.log"))
+        # A backtick that closes before an operator is main's reading: the operator takes the next word (the reviews).
+        for command in ("echo `date`>kernel/gate.py", "echo `date`>>kernel/gate.py", "x=`date`>kernel/gate.py"):
+            self.assertIn("kernel/gate.py", [t for _, targets in shell.commands(command) for _, t in targets], command)
+        self.assertEqual(shell.commands("echo `date`>kernel/gate.py"), [(["echo"], []), (["date"], [("`>", "kernel/gate.py")])])
         # A substitution in a ${...} inside a substitution of a here-document's body is read as at the top.
         for command in ('cat <<E\n$(echo ${x:-$(git push origin main)})\nE',
                         'cat <<E\n$(echo ${x:-$(printf "%s" "a (b)"; git push origin main)})\nE'):
@@ -1492,6 +1499,9 @@ class Identity(unittest.TestCase):
             self.assertIn(["git", "push", "origin", "main"], [w for w, _ in commands if w], command)
         self.assertEqual(shell._nested("echo ${x} ${#y} ${z:-a b}", [10 ** 6]), "echo ${x} ${#y} ${z:-a b}")
         self.assertEqual(shell._nested("echo ${x:-", [10 ** 6]), "echo ${x:-")
+        # Each ${...} read as a script is charged to the budget, so one in another in another ... is cut short (Muse).
+        with self.assertRaises(ValueError):
+            shell.without_heredocs("cat <<EOF\n$(echo " + "${x:-" * 400 + "y" + "}" * 400 + ")\nEOF\ngit push")
 
     def test_a_read_beside_a_script_names_no_commit_or_push(self):  # issue 488
         script = "a shell reads a script the hook cannot see"
@@ -1546,15 +1556,24 @@ class Identity(unittest.TestCase):
                         "git log -1 --format='git push' | sh", "git log -1 --format='git commit -m x' > /tmp/s; sh /tmp/s",
                         "bash /tmp/x.sh; gh api rate_limit --jq '\"git push\"'", "git status -- \"${x:=git commit -m x}\"; bash /tmp/x.sh",
                         "_=\"${x:=git commit}\" git status; bash /tmp/x.sh",
-                        # A line of a body that also stands outside it, where only something that prints holds it, is in the body (Argon).
+                        # A line of a body that also stands outside it is read there: a here-document is a redirection (Argon).
                         "true '\ngit commit -m x\n' && bash <<'E'\ngit commit -m x\nE",
                         # What a here-string gives a shell is the script itself (the reviews).
                         "bash <<< 'git push origin main'", "sh <<< 'gh pr merge 1'", "bash -s <<< \"git commit -m x\"",
                         # What prints a write where a script may read it: a pipe, a file, or a subshell's output (#410).
                         "echo 'git push' | bash", "printf 'git push\\n' | sh", "bash /tmp/x.sh; echo 'git push' > /tmp/s", "bash /tmp/x.sh; echo 'git push' >&3",
-                        "echo 'git push' >> /tmp/s; sh /tmp/s", "x=$(echo 'git push'); bash -s <<< \"$x\"", "bash /tmp/x.sh; grep 'git push' f | sh",
+                        "echo 'git push' >> /tmp/s; sh /tmp/s", "x=$(echo 'git push'); bash -s <<< \"$x\"", "x=$(echo 'git push'); bash /tmp/x.sh \"$x\"", "bash /tmp/x.sh; grep 'git push' f | sh",
                         "bash /tmp/x.sh; gh pr --repo o/r merge 1", "bash /tmp/x.sh; gh pr -R o/r edit 1",
-                        "bash /tmp/x.sh; gh pr -R o/r merge 1 --squash"):
+                        "bash /tmp/x.sh; gh pr -R o/r merge 1 --squash",
+                        # What prints into a compound's redirection, or after exec >, is filed too (the reviews).
+                        "{ echo '#!/bin/sh'; echo 'git push origin main'; } > /tmp/s.sh && sh /tmp/s.sh",
+                        "for b in a; do echo \"git commit -m $b\"; done >> /tmp/s.sh; bash /tmp/s.sh",
+                        "while read b; do echo \"git push origin $b\"; done < branches.txt > /tmp/p.sh; bash /tmp/p.sh",
+                        "if true; then echo 'git push origin main'; fi > /tmp/s.sh; sh /tmp/s.sh",
+                        "f() { echo 'git push origin main'; }; f > /tmp/s.sh; bash /tmp/s.sh", "exec > /tmp/s; echo 'git push'; bash /tmp/s",
+                        # printf -v prints nothing: it keeps its text for the shell (Muse). So may any other option.
+                        "printf -v x 'git push origin main'; bash -s <<< \"$x\"", "builtin printf -v x 'git push'; bash -s <<< \"$x\"",
+                        "printf -vx 'git push'; bash -s <<< \"$x\"", "printf -v x 'git push origin main'; bash /tmp/x.sh \"$x\""):
             self.assertNotEqual(unseen(command), [], command)
         # Any other reason the hook cannot read the command stands as it did: this gh may be another program.
         spend = identity._budget(5)
@@ -1580,6 +1599,9 @@ class Identity(unittest.TestCase):
                                  (lambda n: "cp /tmp/x " + "*" * n + "Q/y; git push", 320, ""),
                                  (lambda n: "cp /tmp/x {1..100000}/" + "*" * n + "Q/y; git push", 320, ""),
                                  (lambda n: 'echo "' + "$(( " * n + "1" + " ))" * n + '"; git push', 900,
+                                  "command_unreadable"),
+                                 # A ${...} in a ${...} in a body's substitution, each read as a script is, is charged (Muse on #497).
+                                 (lambda n: "cat <<EOF\n$(echo " + "${x:-" * n + "y" + "}" * n + ")\nEOF\ngit push", 400,
                                   "command_unreadable")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
@@ -1842,6 +1864,7 @@ class Identity(unittest.TestCase):
 
     def test_a_write_to_github_through_gh_is_made_as_the_maintainer(self):
         for command in ("gh pr merge 7 --squash", "gh release create v1", "gh api -X POST repos/x/y/rulesets",
+                        "gh pr --repo o/r merge 7 --squash", "gh pr -R o/r merge 7", "gh release --repo o/r create v1",
                         "gh api --method=DELETE repos/x/y", "gh api repos/x/y/issues -f title=x",
                         "gh api -XPATCH repos/x/y"):
             self.assertIn("account_is_machine_user", self.refused(command, FAKE_GH_USER=MACHINE), command)
