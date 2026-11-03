@@ -1770,6 +1770,11 @@ class Convergence(unittest.TestCase):
         for edited, held in (("2026-10-11T12:32:00Z", False), ("2026-10-11T12:40:00Z", True)):
             d = go(facts(reviews=looked, description_edited_at=edited), REVIEWED)
             self.assertEqual(d["reason"] == "description_edited_after_approval", held, edited)
+        # With no machine approval at all, an edit after a person's look comes before the first approval: it holds
+        # nothing, and the approval is issued.
+        d = go(facts(reviews=[review(kind="human", name="don-petry", at="2026-10-11T12:05:00Z")],
+                     description_edited_at="2026-10-11T12:10:00Z"), REVIEWED)
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
         # With no approval since the look, the one before it may still be merged on: an edit after the look holds.
         stale = rv + [review(kind="human", name="don-petry", at="2026-10-11T12:25:00Z")]
         d = go(facts(reviews=stale, description_edited_at="2026-10-11T12:30:00Z"), REVIEWED)
