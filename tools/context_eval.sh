@@ -75,6 +75,24 @@ parent=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || refuse "the directory th
 out="$parent/$(basename "$1")"
 [ ! -e "$out" ] && [ ! -L "$out" ] || refuse "$out exists; name a new directory"
 case "$out/" in "$root"/*) refuse "OUT is inside the repo; name a directory outside it" ;; esac
+# OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
+# sticky: in any other, another user could rename OUT once it is made and put a link where it was (issues 367 and 424).
+# A find that fails says nothing, and is refused as such.
+uid=$(id -u)
+above=$parent
+while :; do
+    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+        found="find failed"
+    # find -perm does not see an ACL: ls -e on macOS says what one allows; elsewhere ls's + says one is there, unread.
+    if listed=$(ls -lde "$above" 2>/dev/null); then
+        case "$listed" in *" allow "*add_file* | *" allow "*add_subdirectory* | *" allow "*delete_child* | *" allow "*write* | *" allow "*chown*) found="an ACL" ;; esac
+    else
+        case "$(ls -ld "$above")" in ??????????+*) found="an ACL" ;; esac
+    fi
+    [ -z "$found" ] || refuse "$above is another user's, or can be written by other users and is not sticky; name a directory under one only you can write to"
+    [ "$above" = / ] && break
+    above=$(dirname -- "$above")
+done
 
 # CONFIG_DIR: the Factory's own, never the Maintainer's, and never inside the repo or OUT.
 [ -d "$2" ] || refuse "CONFIG_DIR is not a directory; log the CLI in to it first"

@@ -62,6 +62,12 @@ above=$parent
 while :; do
     found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
         found="find failed"
+    # find -perm does not see an ACL: ls -e on macOS says what one allows; elsewhere ls's + says one is there, unread.
+    if listed=$(ls -lde "$above" 2>/dev/null); then
+        case "$listed" in *" allow "*add_file* | *" allow "*add_subdirectory* | *" allow "*delete_child* | *" allow "*write* | *" allow "*chown*) found="an ACL" ;; esac
+    else
+        case "$(ls -ld "$above")" in ??????????+*) found="an ACL" ;; esac
+    fi
     if [ -n "$found" ]; then
         echo "trial_p8_cost: $above is another user's, or can be written by other users and is not sticky; name a directory" \
             "under one only you can write to" >&2
