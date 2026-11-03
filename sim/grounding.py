@@ -49,25 +49,28 @@ RULES = (
     # nothing done between but reads.
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
      ("P-42",), "trials/P-42.rollup.json", None),
-    # Contradicted by P-42 (trials/P-42.json): neutral, skipped and cancelled kept an hour, but no timed_out, GitHub
-    # concluding a job stopped at its timeout cancelled; issue 388 ruled a step's own timeout a failure
-    # (trials/P-42.step-timeout.json). Left unverified, as the fake applies it: issue 496.
-    ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
-     "or stale, and keeps that conclusion until the content changes or a person runs it again",
-     ("P-42",), None, None),
-    # Contradicted in part by trials/P-42.rollup.json: the status rollup the port reads held the same runs as
-    # filter=latest, by id, name, suite and App, four Apps among them, but it drops a run of a name in a suite once a
-    # later one has that name there, a re-run or a post alike, so not every check run on the head is read. Left
-    # unverified, as the fake applies it: issue 496.
-    ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
-     "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), None, None),
-    # Contradicted in part by trials/P-42.rollup.json: a re-run replaced its own run in the status rollup and the other
-    # suite's run of the name stayed, but a later post of a name in a suite replaced the earlier one too, and one job's
-    # re-run gave the jobs it did not run new check runs, so a re-run is not the only thing that replaces, nor does it
-    # replace only its own. Left unverified, as the fake applies it: issue 496.
-    ("a_rerun_replaces_only_its_own_run", "Only a re-run of the same job in the same check suite replaces an earlier "
-     "check run: filter=latest is per check suite, so two workflow runs on one commit both stay", ("P-42",), None,
-     None),
+    # trials/P-42.json: neutral, skipped and cancelled each kept an hour after the last post, and a job stopped at its
+    # timeout concluded cancelled, with its check run and its run (issue 388; a step's own timeout fails,
+    # trials/P-42.step-timeout.json). P-42 saw no timed_out and no stale: the rule below says why they stay (issue 496).
+    ("a_check_can_time_out_or_give_no_verdict", "A required check can time out, concluding cancelled, or give no "
+     "verdict, neutral or skipped, and keeps that conclusion until the content changes or a person runs it again",
+     ("P-42",), "trials/P-42.json", None),
+    ("a_check_concludes_timed_out_or_stale", "A required check can conclude timed_out or stale, which the checks API "
+     "lists as conclusions", (), None,
+     "assumed, no trial can ask it: GitHub concluded a job stopped at its timeout cancelled (trials/P-42.json), and it "
+     "gives stale only to a check run left incomplete for 14 days, which no trial can wait for; the fake still gives "
+     "both, so the Kernel's reading of each is met"),
+    # trials/P-42.rollup.json: the status rollup the port reads held the same runs as filter=latest, by id, name, suite
+    # and App, five Apps on one head, and only the latest run of each name in each check suite (issue 496).
+    ("a_check_is_read_by_name_from_every_app", "Every check run the status rollup holds on the head is read with its "
+     "exact name and the id of the App that reported it, from every App, never merged or renamed; it holds the latest "
+     "run of each name in each check suite", ("P-42",), "trials/P-42.rollup.json", None),
+    # trials/P-42.rollup.json: a re-run replaced its own run in the status rollup and the other suite's run of the name
+    # stayed, and a later check a job created under a name replaced the earlier one in its suite. One job's re-run also
+    # gave its run's other jobs new check runs with their old conclusions, which changes no verdict (issue 496).
+    ("a_rerun_replaces_only_its_own_run", "A later run of a name in a check suite, a re-run or a check a job created, "
+     "replaces the earlier run of that name in that suite alone: filter=latest and the status rollup are per check "
+     "suite, so two workflow runs on one commit both stay", ("P-42",), "trials/P-42.rollup.json", None),
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
      "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
      None),

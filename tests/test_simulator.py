@@ -755,6 +755,12 @@ class Simulation(unittest.TestCase):
                         if found:
                             named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[found.group(1)]]
                             self.assertEqual({c["workflow"] for c in named}, {None}, seed)
+                        # In the Lens's own suite: it replaced the Lens's failure, and the status rollup holds it alone
+                        # (issue 496, trials/P-42.rollup.json).
+                        found = re.search(r"check (\S+): failure, and a job created .* which replaced it", line)
+                        if found:
+                            named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[found.group(1)]]
+                            self.assertEqual([(c["workflow"], c["conclusion"]) for c in named], [(None, "success")], seed)
                     # And once its job has reported, its check run is listed.
                     self.assertEqual({w.checks[lens] for lens in w.not_started} - {"pending"}, set(), seed)
                 beside += sum("failure, and a job created" in line for line in w.trace)
@@ -762,6 +768,20 @@ class Simulation(unittest.TestCase):
         self.assertTrue(beside)
         self.assertTrue(alone)
         self.assertIn("from_workflow:unreadable", shown)
+
+    def test_a_created_check_in_a_lens_own_suite_replaces_its_failure_and_one_elsewhere_stands_beside(self):  # issue 496
+        # The status rollup holds the latest run of a name in each check suite (trials/P-42.rollup.json).
+        lens = next(k for k in world.APPS if world.WORKFLOWS[k] is not None)
+        for own, want in ((True, [(None, "success")]), (False, [(world.WORKFLOWS[lens], "failure"), (None, "success")])):
+            w = World(sorted(SEEDS)[0])
+            w.checks[lens], w.completed[lens] = "failure", w.now()
+            w.created(lens, own_suite=own)
+            named = [(c["workflow"], c["conclusion"]) for c in w.facts()["checks"] if c["name"] == world.CHECKS[lens]]
+            self.assertEqual(sorted(named, key=str), sorted(want, key=str), own)
+            # A push leaves both behind, and the new head lists the Lens's own run again.
+            w.push(world.MAINTAINER["name"], writer=True)
+            named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[lens]]
+            self.assertEqual([(c["workflow"], c["conclusion"]) for c in named], [(world.WORKFLOWS[lens], "pending")], own)
 
     def test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause(self):
         # The faults while queued are reached: a dismissed approval, an open gate and a Hold each take one out.
