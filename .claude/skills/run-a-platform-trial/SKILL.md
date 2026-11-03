@@ -36,7 +36,8 @@ everything a trial leaves in it: its runs, logs and artifacts.
   installed outside the session. A step that must run as another identity (the machine user, an
   App, a workflow's token) runs in a workflow in the canary or at the Maintainer's own terminal.
   What the trial-author App writes, the Maintainer runs as `tools/trial_as_app.sh`, with the App's
-  key: it revokes its token, and leaves only redacted exchanges in a scratch directory.
+  key: it revokes its token, and leaves only redacted exchanges in a scratch directory, with `finish.log`
+  where it says a token it left live. Read that first.
   P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
   on a configuration directory of its own logged in to the Maintainer's own subscription (decision
   0033), and leaves

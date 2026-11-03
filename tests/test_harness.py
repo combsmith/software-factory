@@ -549,6 +549,30 @@ class Engine(unittest.TestCase):
                                                          effects={}))))
         self.assertEqual((refused["status"], refused["reason"]), ("refused", "out_of_scope"))
 
+    def test_a_run_the_model_could_not_finish_is_no_answer_as_the_trial_recorded(self):  # decision 0122
+        # Words in an item may lead the model here, so it is an attempt on that item and counts toward no automatic pause.
+        recorded = json.loads((ROOT / "trials" / "P-13.ended.json").read_text())["exchanges"][1:]
+        for exchange in recorded:
+            said = dict(exchange["response"]["body"], result="PROSE THE MODEL WROTE, NEVER KEPT",
+                        usage={"input_tokens": 3, "output_tokens": 4})
+            del said["structured_output"]
+            r = engined(CLI(said=json.dumps(said), returncode=exchange["response"]["status"]))
+            self.assertEqual((r["status"], r["reason"]), ("failed", "no_answer"), said["subtype"])
+            self.assertEqual((r["dispositions"], r["findings"], r["effects"], r["coverage"]), ([], [], {}, []))
+            self.assertEqual(r["usage"]["input_tokens"], 3)
+            self.assertNotIn("PROSE", json.dumps(r))
+        self.assertEqual([e["response"]["body"]["subtype"] for e in recorded], ["error_max_structured_output_retries", "error_max_turns", "success"])
+        self.assertEqual([e["response"]["status"] for e in recorded], [1, 1, 0])
+        # Each of the two, whatever its exit, and even if it says it wrote an output.
+        for subtype in engine.MODEL_ENDED:
+            for code in (0, 1, 2):
+                r = engined(CLI(said=answer(is_error=True, subtype=subtype), returncode=code))
+                self.assertEqual((r["status"], r["reason"]), ("failed", "no_answer"), (subtype, code))
+        self.assertEqual(sorted(engine.MODEL_ENDED), ["error_max_structured_output_retries", "error_max_turns"])
+        # An engine that changed under the Run is still that, first.
+        r = engined(CLI(said=answer(is_error=True, subtype="error_max_turns"), versions=(PIN, "9.9.9")))
+        self.assertEqual(r["reason"], "engine_version")
+
     def test_a_cli_that_fails_or_runs_past_its_time_is_a_failed_result(self):  # section 3.10
         r = engined(CLI(returncode=1))
         self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"))
@@ -562,6 +586,21 @@ class Engine(unittest.TestCase):
         for said in (answer(is_error=True, subtype="error_during_execution"), answer(is_error=None)):
             r = engined(CLI(said=said))
             self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"), said[:80])
+        # An unknown word for how it ended, or the word without is_error exactly true, is still the Factory's (decision 0122).
+        for said in (answer(is_error=True, subtype="error_max_budget_usd"), answer(is_error=True, subtype="ERROR_MAX_TURNS"),
+                     answer(is_error=True, subtype=None), answer(is_error=True, subtype=["error_max_turns"]),
+                     answer(is_error="true", subtype="error_max_turns"), answer(is_error=None, subtype="error_max_turns"),
+                     answer(is_error=1, subtype="error_max_turns")):
+            r = engined(CLI(said=said))
+            self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"), said[:120])
+        # A failing exit with no word of how it ended, even one saying it did not err, is the Factory's.
+        r = engined(CLI(said=answer(is_error=False, subtype="error_max_turns"), returncode=1))
+        self.assertEqual(r["reason"], "engine_failed")
+        # is_error false and exit 0 is no error, whatever the subtype: the answer is read as any answer is.
+        r = engined(CLI(said=answer(is_error=False, subtype="error_max_turns")))
+        self.assertEqual(r["status"], "completed")
+        r = engined(CLI(said=answer(is_error=False, subtype="error_max_turns", structured_output=None)))
+        self.assertEqual(r["reason"], "no_answer")
         # A CLI that cannot be started, at the call or when its version is asked, is a failed Result (Argon's read).
         r = engined(CLI(raises=OSError("gone")))
         self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"))

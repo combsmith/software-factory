@@ -14,7 +14,7 @@ that trial hardened it:
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
 never kept, returned or logged. An answer that does not validate is no Result: the Harness writes the whole Result
 itself, `failed`, `result_invalid`, with empty lists and `usage`; a CLI that exited 0 with no answer to hold to the schema
-is `no_answer`. The model and the session are named before the call,
+is `no_answer`, and so is one that says the model could not finish (decision 0122). The model and the session are named before the call,
 so `usage` names both even when the CLI never answers. `call`, `clock` and `session` are given, so nothing here reads a
 clock or starts a process but through them.
 """
@@ -28,6 +28,9 @@ from harness import shared
 from tools.jsonschema_lite import validate
 
 ENGINE = "claude-cli"
+# How the CLI says the model could not finish, as P-13 recorded it at the pin (`trials/P-13.ended.json`). A model reads an
+# item's text, so such a run is the item's, not the Factory's. Any other way it errs stays the Factory's (decision 0122).
+MODEL_ENDED = ("error_max_structured_output_retries", "error_max_turns")
 CREDENTIAL_NAME = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 # Every name the CLI is given, and its value where it is fixed. Nothing else of the job's environment reaches it.
@@ -173,6 +176,8 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
         # A run the CLI itself says erred is no answer, whatever its exit: P-13 held is_error false apart from exit 0.
         erred = isinstance(said, dict) and said.get("is_error") is not False
         reason = None if done.returncode == 0 and not erred else "engine_failed"
+        if isinstance(said, dict) and said.get("is_error") is True and said.get("subtype") in MODEL_ENDED:
+            reason = "no_answer"
     except subprocess.TimeoutExpired:
         reason = "engine_timeout"
     except OSError:
