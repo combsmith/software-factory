@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import (derive, hands_off, in_progress, incomplete, moved_at, overdue, run_deferral, runs_on, since_writer,
+from kernel.derive import (acted_since_writer, derive, hands_off, in_progress, incomplete, moved_at, overdue, run_deferral, runs_on, since_writer,
                            unnamed_past, unnamed_within, unreadable_labels)
 
 SCHEMA = "decision/1"
@@ -89,7 +89,8 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
     """An act that moves work on, once the brakes let it through. An act that stops work is not decided here."""
     action = _action(reason)
     since = since_writer(mine, facts)
-    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])
+    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"],
+                          acted_since_writer(mine, facts))
     if brake:
         return brake
     # An approval is a Run, so a Run that cannot be told whose it is defers it. An enqueue admits none (decision 0036).
@@ -202,7 +203,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
         held = None
         if state == t.CONVERGED and _action(reason) == "issue_approval":
-            held = brakes.approval_ceilings(_decision, facts, done, config["limits"])
+            held = brakes.approval_ceilings(_decision, facts, done, config["limits"], t.ISSUE_APPROVAL)
         elif wanted is not None:
             held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])
         if held:

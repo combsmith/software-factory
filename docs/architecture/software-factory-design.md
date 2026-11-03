@@ -349,8 +349,10 @@ ceiling, so the item defers (I-13, I-20). A merged or closed item is read from n
 its State whatever the flags say.
 
 `acts_since_writer` bounds the acts as the run records bound the Runs (I-8, FR-17). An act that
-moves work on, an approval or an enqueue, is made only while the count is below
-`max_acts_per_item`; at the ceiling the item is held, reason `act_ceiling`, for the Maintainer to
+moves work on, an approval, an enqueue or a resolution, is made only while the count is below
+`max_acts_per_item`. A resolution is no timeline event, so each the queue App's job landed, a Run of
+Intent `resolve-thread` that succeeded since a writer last acted, is added to the count from the run
+records (decision 0127); at the ceiling the item is held, reason `act_ceiling`, for the Maintainer to
 see. An act that stops work, a Hold label or a dequeue, is counted and never refused. A count that
 is missing, negative or not a whole number is unreadable: the Kernel defers and makes no act
 (I-13). The count comes from the timeline, which is paged like any list, and `complete.timeline`

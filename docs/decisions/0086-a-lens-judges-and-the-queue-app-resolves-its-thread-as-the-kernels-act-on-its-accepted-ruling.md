@@ -41,4 +41,5 @@ A Lens's own App resolved its threads, and the gate read that as an accepted Dis
 | An accepted decision on a security thread is refused | `tests/test_apply.py::test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make` |
 | A resolution is the queue App's, matched to the pass's write; a Role's alarms | `tests/test_reconcile.py::test_a_resolution_is_the_queue_apps_matched_to_the_act_the_pass_recorded` |
 | Each transition the Kernel makes is declared | `tests/test_transitions.py::test_every_transition_declared_is_found_or_kept_for_a_reason`, `tests/test_transitions.py::test_a_hold_no_person_makes_names_what_bounds_it` |
+| A landed resolution counts toward the act ceiling from the run records (decision 0127) | `tests/test_decide.py::test_each_landed_resolution_counts_toward_the_act_ceiling` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

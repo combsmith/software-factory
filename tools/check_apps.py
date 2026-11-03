@@ -418,6 +418,11 @@ def run(root: pathlib.Path = ROOT) -> list:
     for need, held in sorted(holders.items()):
         if len(held) > 1:
             problems.append("%s is held by %s; a write need belongs to one App" % (need, " and ".join(sorted(held))))
+    # A write the table maps to a permission is made by some App, or it is an Effect no one can make (issue 381).
+    for need in sorted(n for n, e in needs.items() if n.startswith(WRITES) and isinstance(e, dict) and "permission" in e):
+        if need not in holders:
+            problems.append("%s maps to a permission and no App holds it; give it to the App that makes it, or say "
+                            "what it waits on" % need)
     problems += machine_user(root)
     reads, unread = _reads(root)
     problems += unread

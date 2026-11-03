@@ -2238,7 +2238,7 @@ class Acceptance(unittest.TestCase):
         from kernel import issue
         self.assertEqual(set(issue.INTENTS) | set(records.ON_PULL_REQUEST),
                          {"investigate-issue", "judge-readiness", "open-pull-request", "review-change", "fix-findings",
-                          "adjudicate-findings", "issue-approval"})
+                          "adjudicate-findings", "issue-approval", "resolve-thread"})
 
 
 def thread_node(ident: str, opened=PERSON, at: str = "2026-10-21T16:18:57Z", resolved_by=None) -> dict:
