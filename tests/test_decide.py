@@ -1739,9 +1739,11 @@ class Convergence(unittest.TestCase):
         d = go(facts(reviews=rv, description_edited_at="2026-10-11T12:20:00Z"), REVIEWED)
         self.assertEqual((d["outcome"], d["reason"], d["attention"], d["evidence"]),
                          ("hold", "description_edited_after_approval", "needs_you", ["2026-10-11T12:20:00Z"]))
-        # An edit before the approval, or in its second, or none read, which is what the port gives until it reads the
-        # edits (decision 0135), holds nothing.
-        for edited in ("2026-10-11T12:10:00Z", "2026-10-11T12:15:00Z", None, "missing"):
+        # An edit in the approval's second may have followed it: held. One before the approval, or none read, which is
+        # what the port gives until it reads the edits (decision 0135), holds nothing.
+        d = go(facts(reviews=rv, description_edited_at="2026-10-11T12:15:00Z"), REVIEWED)
+        self.assertEqual(d["reason"], "description_edited_after_approval")
+        for edited in ("2026-10-11T12:10:00Z", None, "missing"):
             f = facts(reviews=rv, description_edited_at=edited)
             if edited == "missing":
                 del f["description_edited_at"]
@@ -1768,14 +1770,40 @@ class Convergence(unittest.TestCase):
         for edited, held in (("2026-10-11T12:32:00Z", False), ("2026-10-11T12:40:00Z", True)):
             d = go(facts(reviews=looked, description_edited_at=edited), REVIEWED)
             self.assertEqual(d["reason"] == "description_edited_after_approval", held, edited)
+        # With no approval since the look, the one before it may still be merged on: an edit after the look holds.
+        stale = rv + [review(kind="human", name="don-petry", at="2026-10-11T12:25:00Z")]
+        d = go(facts(reviews=stale, description_edited_at="2026-10-11T12:30:00Z"), REVIEWED)
+        self.assertEqual(d["reason"], "description_edited_after_approval")
+        # An admission is a look on an outsider's pull request alone: on any other, a person's factory:admit clears
+        # nothing.
+        d = go(facts(reviews=rv, label_events=[labelled("factory:admit", at="2026-10-11T12:25:00Z")],
+                     description_edited_at="2026-10-11T12:20:00Z"), REVIEWED)
+        self.assertEqual(d["reason"], "description_edited_after_approval")
+        # An approval in the second of the look came after it, as far as can be told: it anchors a later edit.
+        same = [review(kind="human", name="don-petry", at="2026-10-11T12:05:00Z"), review(at="2026-10-11T12:05:00Z"),
+                review(commit="c0", content="sha256:0000", at="2026-10-11T12:20:00Z")]
+        d = go(facts(reviews=same, description_edited_at="2026-10-11T12:10:00Z"), REVIEWED)
+        self.assertEqual(d["reason"], "description_edited_after_approval")
         # An outsider's admitted pull request, approved, then the outsider's own edit: held, as the Lifecycle declares a
         # stranger may hold it (I-28 as narrowed). On an outsider's the anchor is the person's look itself, so an edit
         # between the admission and the first approval holds too; one before the admission was what the person read.
         outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger"}
         admitted = [labelled("factory:admit", at="2026-10-11T12:05:00Z")]
-        for edited, held in (("2026-10-11T12:20:00Z", True), ("2026-10-11T12:10:00Z", True), ("2026-10-11T12:03:00Z", False)):
+        for edited, held in (("2026-10-11T12:20:00Z", True), ("2026-10-11T12:10:00Z", True), ("2026-10-11T12:05:00Z", True),
+                             ("2026-10-11T12:03:00Z", False)):
             d = go(facts(**outside, label_events=admitted, reviews=rv, description_edited_at=edited), REVIEWED)
             self.assertEqual((d["state"], d["reason"] == "description_edited_after_approval"), ("held" if held else "converged", held), edited)
+        # Only a person's admission is a look: an App's, or a removal, after the edit clears nothing. A person's approval
+        # after it, dismissed since, was a look all the same.
+        for later in (labelled("factory:admit", AUTHOR_APP, at="2026-10-11T12:25:00Z"),
+                      labelled("factory:admit", at="2026-10-11T12:25:00Z", action="unlabeled")):
+            f = facts(**outside, label_events=admitted + [later], reviews=rv)
+            self.assertEqual(derive.description_anchor(f, "2026-10-11T12:20:00Z"), "2026-10-11T12:05:00Z", later)
+        looked_then_dismissed = rv + [review(kind="human", name="don-petry", state="dismissed", dismissed_from="approved",
+                                             dismissed_by=dict(AUTHOR_APP), at="2026-10-11T12:25:00Z")]
+        d = go(facts(**outside, label_events=admitted, reviews=looked_then_dismissed, description_edited_at="2026-10-11T12:20:00Z"),
+               REVIEWED)
+        self.assertNotEqual(d["reason"], "description_edited_after_approval")
         # Its twin, the Factory's own pull request: the same edit after a person's look and before the first approval
         # holds nothing, so reviewer Apps' early edits leave the Factory's work to go on.
         own = rv + [review(kind="human", name="don-petry", at="2026-10-11T12:05:00Z")]

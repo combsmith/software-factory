@@ -1009,26 +1009,33 @@ def acceptance_reading(facts: dict) -> tuple:
 
 def description_anchor(facts: dict, edited: str):
     """The time the description's edit at `edited` is measured against: on an outsider's pull request, a person's last
-    look before the edit, by approving or by admitting it; on any other, the machine user's first approval, dismissed
-    since or not, after that look; or None where there is neither, or a person looked after the edit. A look in the edit's second saw
-    nothing that can be told: the reading that stops work wins."""
+    look up to the edit, by approving or by admitting it; on any other, the machine user's first approval, dismissed
+    since or not, from the second of the last look before the edit; or None where there is neither, or a person looked
+    after the edit. In one second no order can be told, so the reading that stops work wins: a look in the edit's
+    second saw nothing, an approval in a look's second came after it, and an edit in the anchor's second after that."""
     approved = ("approved",)
     looks = [rv["submitted_at"] for rv in facts["reviews"]
              if is_person(rv["by"]) and approved[0] in (rv["state"], rv["dismissed_from"])]
-    looks += [ev["at"] for ev in facts["label_events"]
-              if ev["label"] == t.LABEL_ADMIT and ev["action"] == "labeled" and is_person(ev["by"])]
+    if facts["class"] == "outside":
+        looks += [ev["at"] for ev in facts["label_events"]
+                  if ev["label"] == t.LABEL_ADMIT and ev["action"] == "labeled" and is_person(ev["by"])]
     if any(look > edited for look in looks):
         return None
+    # On an outsider's pull request the description's author is the threat, and a person already looked: the anchor
+    # is that look itself, so an edit after the admission, or in its second, holds before any approval (issue 519).
+    if facts["class"] == "outside":
+        seen = [look for look in looks if look <= edited]
+        return max(seen) if seen else None
     before = [look for look in looks if look < edited]
     last = max(before) if before else None
-    # On an outsider's pull request the description's author is the threat, and a person already looked: the anchor
-    # is that look itself, so an edit after the admission holds before any approval (issue 519).
-    if facts["class"] == "outside":
-        return last
-    firsts = [rv["submitted_at"] for rv in facts["reviews"]
-              if rv["by"]["kind"] == t.MACHINE_USER and approved[0] in (rv["state"], rv["dismissed_from"])
-              and (last is None or rv["submitted_at"] > last)]
-    return min(firsts) if firsts else None
+    machine = [rv["submitted_at"] for rv in facts["reviews"]
+               if rv["by"]["kind"] == t.MACHINE_USER and approved[0] in (rv["state"], rv["dismissed_from"])]
+    firsts = [at for at in machine if last is None or at >= last]
+    if firsts:
+        return min(firsts)
+    # No approval since the look, but one before it, which the item may still merge on: the look is the anchor, so an
+    # edit after it holds.
+    return last if machine else None
 
 
 def standing_approval(facts: dict, config: dict):
@@ -1260,7 +1267,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # item until a person approves after it, having read it (P-58, issue 519). The first, never the latest: a push or a
     # dismissal brings a fresh approval, which must not clear the edit. A queued item leaves the queue on it.
     anchor = description_anchor(facts, edited) if edited is not None else None
-    if anchor is not None and edited > anchor:
+    if anchor is not None and edited >= anchor:
         return {"state": t.HELD, "reason": "description_edited_after_approval", "evidence": [edited]}
     approval = standing_approval(facts, config)
     if approval is not None:
