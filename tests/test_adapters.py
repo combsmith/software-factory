@@ -3303,7 +3303,8 @@ NOT_READ = {
     # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs;
     # P-42.rollup read the rollup, but with no check run's completedAt or detailsUrl, which the port reads.
     "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
-    "a_check_reports_on_its_own": "shape",
+    "a_check_reports_on_its_own": "shape", "a_check_is_read_by_name_from_every_app": "shape",
+    "a_rerun_replaces_only_its_own_run": "shape", "a_check_can_time_out_or_give_no_verdict": "shape",
     # The threads port reads each thread's first comment with its time and what it replies to; P-41.threads read the
     # authors and resolvers typed without them, and P-41 reads no thread.
     "an_actor_has_a_kind": "shape",

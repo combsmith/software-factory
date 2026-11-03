@@ -5497,6 +5497,32 @@ exit 0
         return subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / out), str(folder / "key.pem"), *args],
                               capture_output=True, text=True, env=env, cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
 
+    def stopped(self, folder: pathlib.Path, *args) -> tuple:
+        """The script stopped once its stand-in python3 holds the mint's answer: (exit code, stdout, stderr)."""
+        env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": "C"}
+        ran = subprocess.Popen([SIGNAL_SHELL, str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / "out"), str(folder / "key.pem"),
+                                *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                               cwd=str(folder), stdin=subprocess.DEVNULL, start_new_session=True)
+        deadline = time.monotonic() + 30
+        while not (folder / "reading").exists() and ran.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if ran.poll() is None:
+            os.killpg(ran.pid, signal.SIGTERM)
+        said, told = ran.communicate(timeout=60)
+        return ran.returncode, said, told
+
+    def test_a_stop_while_the_token_is_read_revokes_it_from_the_answer_still_held(self):
+        # Issue 424 (Muse): stopped while the mint's answer is parsed, P-4 finds the token in it and revokes it.
+        folder = self.stand_in(mint_body='{"token": "%s", "expires_at": "2026-10' % self.TOKEN)
+        real = os.path.realpath(sys.executable)
+        (folder / "bin" / "python3").write_text(ReachScript.PYTHON % (real, real))
+        (folder / "bin" / "python3").chmod(0o755)
+        code, said, told = self.stopped(folder, "x/canary", "x/other")
+        self.assertNotEqual(code, 0, told)
+        self.assertEqual([c.split(" ", 1)[0] for c in (folder / "calls").read_text().splitlines()], ["GET", "POST", "DELETE"], told)
+        self.assertIn("stopped with a token live; revoking it returned 204", told)
+        self.assertNotIn(self.TOKEN, said + told)
+
     def test_a_narrowed_token_is_minted_used_three_times_and_revoked_and_never_kept(self):
         folder = self.stand_in()
         done = self.run_script(folder, "x/canary", "x/other")
@@ -5585,6 +5611,9 @@ class OutputMadeAlone(unittest.TestCase):
                "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
                "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
                "trial_p56_comments.sh": ("KEY", CONTROLLER, "42")}
+    # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
+    OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
+              "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -5650,6 +5679,8 @@ class OutputMadeAlone(unittest.TestCase):
         if script in self.SCRIPTS:
             argv = ["sh", str(ROOT / "tools" / script), str(out)] + [a.replace("KEY", str(folder / "key.pem"))
                                                                       for a in self.SCRIPTS[script]]
+        elif script in self.OTHERS:
+            argv = ["bash", str(ROOT / "tools" / script), str(out)] + list(self.OTHERS[script])
         else:
             argv = ["bash", str(ROOT / "tools" / script), str(out), self.SANDBOX[script], str(folder / "cli"),
                     str(folder / "stub.py")]
@@ -5665,7 +5696,7 @@ class OutputMadeAlone(unittest.TestCase):
         # where it was. OUT's parent, or a directory above it, that others can write to, its group among them, is
         # refused unless it is sticky; so is one another user owns, and one a find that fails cannot read.
         said = " is another user's, or can be written by other users and is not sticky"
-        for script in list(self.SCRIPTS) + list(self.SANDBOX):
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS):
             for modes, refused in (((0o700, 0o777), True), ((0o777, 0o700), True), ((0o700, 0o770), True),
                                    ((0o700, 0o707), True), ((0o700, 0o1777), False)):
                 with self.subTest(script=script, modes=modes):
@@ -5687,7 +5718,7 @@ class OutputMadeAlone(unittest.TestCase):
                         self.assertFalse((folder / "calls").exists(), "a call was made")
                     else:
                         self.assertNotIn("can be written by other users", told)
-                        self.assertTrue((parent / "out").is_dir(), told)
+                        self.assertEqual((parent / "out").is_dir(), script not in self.OTHERS, told)
             # A directory this user does not own, as an id that names another user reads it; and a find that fails. Run
             # as root, the folder is root's, which the check takes as safe whoever runs it, so the id case cannot be shown.
             for name, stand_in in (("id", '#!/bin/sh\necho 4242\n'), ("find", '#!/bin/sh\nexit 1\n')):
@@ -5702,6 +5733,86 @@ class OutputMadeAlone(unittest.TestCase):
                     self.assertEqual(code, 2, told)
                     self.assertIn(said, told)
                     self.assertFalse((folder / "out").exists())
+
+    def test_an_acl_that_lets_another_add_or_delete_above_out_is_refused(self):
+        # Issue 424: find -perm does not see an ACL. A stand-in ls answers, since one cannot be set alike on every system:
+        # as macOS's, which says what an ACL allows, and as one with no -e, whose + says only that one is there. It answers
+        # of the directory above OUT's parent alone, so a read of the parent alone would see nothing.
+        said = " is another user's, or can be written by other users and is not sticky, or an ACL may let them"
+        plain, held = "drwx------ 2 me me 64 Jan  1 00:00 x\\n", "drwx------+ 2 me me 64 Jan  1 00:00 x\\n"
+        cases = [("allow " + word, plain + " 0: user:other allow list,%s\\n" % word, None, True)
+                 for word in ("add_file", "add_subdirectory", "delete", "delete_child", "writesecurity", "chown")]
+        cases += [("allow to read, deny to write", plain + " 0: user:other allow list\\n 1: group:everyone deny write,delete\\n", None, False),
+                  ("a deny alone", plain + " 0: group:everyone deny delete,add_file\\n", None, False),
+                  ("a path that says allow", "drwx------ 2 me me 64 Jan  1 00:00 / allow write\\n", None, False),
+                  ("a + with no -e", None, held, True),
+                  ("none with no -e", None, plain, False),
+                  ("no read at all", None, None, True)]
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS):
+            for name, read, listed, refused in cases:
+                with self.subTest(script=script, case=name):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    (folder / "bin").mkdir()
+                    (folder / "parent").mkdir()
+                    (folder / "bin" / "ls").write_text("""#!/bin/sh
+if [ "$1" = -lde ]; then
+    %s
+    exit
+fi
+%s
+""" % ('[ "$2" = "%s" ] && printf "%s" || printf "%s"' % (folder, read, plain) if read else "exit 2",
+       '[ "$2" = "%s" ] && printf "%s" || printf "%s"' % (folder, listed, plain) if listed else "exit 2"))
+                    (folder / "bin" / "ls").chmod(0o755)
+                    out = folder / "parent" / "out"
+                    code, told = self.run_out(script, folder, out)
+                    if refused:
+                        self.assertEqual(code, 2, told)
+                        self.assertIn(str(folder if listed or read else folder / "parent") + said, told)
+                        self.assertFalse(out.exists())
+                        self.assertFalse((folder / "calls").exists(), "a call was made")
+                    else:
+                        self.assertNotIn(said, told)
+                        self.assertEqual(out.is_dir(), script not in self.OTHERS, told)
+
+    def test_a_refused_sandbox_trial_leaves_no_directory_behind(self):
+        # Issue 424: P-50 and P-51 make OUT's parents if they are missing. They read what stands before they do, take no
+        # name with .. in it, and make them private whatever the umask. What they made is read too: here a stand-in mkdir
+        # leaves one open, as another's change would.
+        said = " is another user's, or can be written by other users and is not sticky"
+        for script in self.SANDBOX:
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                (folder / "unsafe").mkdir()
+                (folder / "unsafe").chmod(0o777)
+                code, told = self.run_out(script, folder, folder / "unsafe" / "new" / "made" / "out")
+                self.assertEqual(code, 2, told)
+                self.assertIn(str(folder / "unsafe") + said, told)
+                self.assertFalse((folder / "unsafe" / "new").exists(), "a directory was made")
+                # Through .. past a directory that is not there, to one that is not safe.
+                code, told = self.run_out(script, folder, str(folder / "ghost" / ".." / "unsafe" / "new" / "out"))
+                (folder / "unsafe").chmod(0o700)
+                self.assertEqual(code, 2, told)
+                self.assertIn("holds ..", told)
+                self.assertFalse((folder / "unsafe" / "new").exists(), "a directory was made")
+                self.assertFalse((folder / "ghost").exists(), "a directory was made")
+                was = os.umask(0o002)
+                try:
+                    code, told = self.run_out(script, folder, folder / "new" / "made" / "out")
+                finally:
+                    os.umask(was)
+                self.assertNotIn(said, told)
+                self.assertEqual((folder / "new" / "made").stat().st_mode & 0o7777, 0o700, told)
+                (folder / "bin" / "mkdir").write_text('#!/bin/sh\n/bin/mkdir "$@" || exit\ncase "$1" in -p) chmod 777 "$3" ;; esac\n')
+                (folder / "bin" / "mkdir").chmod(0o755)
+                code, told = self.run_out(script, folder, folder / "other" / "out")
+                self.assertEqual(code, 2, told)
+                self.assertIn(str(folder / "other") + said, told)
+                self.assertFalse((folder / "other" / "out").exists())
+
+    def test_the_four_that_make_out_later_make_it_for_their_user_alone(self):
+        # Issue 424: a parent no other can write to is little use if OUT itself takes the umask.
+        for script in self.OTHERS:
+            self.assertIn('mkdir -m 700 "$out"\n', (ROOT / "tools" / script).read_text(), script)
 
     def test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in(self):
         # Argon on the P-54 PR: inside `cd "$(mktemp ...)"` a failed mktemp is `cd ""`, which succeeds where it stands, so
@@ -5918,6 +6029,53 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
         self.assertEqual(self.revoked(calls), self.minted(calls) * 2)
         self.assertIn("the Maintainer must revoke it by hand", told)
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+
+    # A stand-in python3 that holds the first read of an answer with a token in it, for a stop to arrive there.
+    PYTHON = """#!%s
+import pathlib, subprocess, sys, time
+here = pathlib.Path(__file__).resolve().parent.parent
+said = sys.stdin.buffer.read()
+if b"ghs_" in said and not (here / "reading").exists():
+    (here / "reading").write_text("")
+    time.sleep(60)
+sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
+"""
+
+    def test_a_stop_while_the_token_is_read_revokes_it_from_the_answer_still_held(self):
+        # Issue 424: a 201 answer cut short, and a stop while its token is parsed. The token is only in what the mint
+        # answered, and the exit trap finds it there. P-4 reads as its App first, so NarrowedToken stops it.
+        for name, args in OutputMadeAlone.SCRIPTS.items():
+            if name == "trial_p4_narrow.sh":
+                continue
+            with self.subTest(script=name):
+                self.setUp()
+                real = os.path.realpath(sys.executable)
+                (self.folder / "bin" / "python3").write_text(self.PYTHON % (real, real))
+                (self.folder / "bin" / "python3").chmod(0o755)
+                argv = [a.replace("KEY", self.key_file) for a in args]
+                code, said, told, calls = self.run_script({"mint": {"status": 201, "body": '{"token": "TOKEN", "expires_at": "2026-10'}},
+                                                          stop=True, script=ROOT / "tools" / name, args=argv)
+                self.assertNotEqual(code, 0, told)
+                self.assertEqual(len(self.minted(calls)), 1, told)
+                self.assertEqual(self.revoked(calls), self.minted(calls), told)
+                self.assertNotIn("ghs_", said + told)
+
+    def test_a_head_ends_where_the_next_line_is_no_head(self):
+        # Issue 424: each trial keeps the last head's status, since a proxy's block, or an interim answer, comes first.
+        # A blank line in a body opens no head, and an HTTP line after it is the body's (Argon).
+        for name in ("trial_reader_reads.sh", "trial_p39_reach.sh", "trial_p8_cost.sh", "trial_p52_pause.sh", "trial_p4_narrow.sh",
+                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh"):
+            text = (ROOT / "tools" / name).read_text()
+            self.assertNotIn("sed -n '1s/^HTTP", text, name)
+            programs = re.findall(r"awk '(BEGIN \{ head = 1 \}[^']+)'", text)
+            self.assertTrue(programs, name)
+            for program in programs:
+                for said, status in (("HTTP/1.1 200 Connection established\n\nHTTP/2 403\nx: y\n\n{}\n", "403"),
+                                     ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 403\n\n{}\n", "403"),
+                                     ("HTTP/2 200\nx: y\n\nBody\n\nHTTP/1.1 404 Not Found\n", "200"),
+                                     ("no head\n", "")):
+                    done = subprocess.run(["awk", program], input=said, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(done.stdout.strip(), status, (name, said))
 
     def test_a_stop_with_a_token_live_revokes_it(self):
         code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}, "hang": True}, stop=True)
@@ -9517,6 +9675,9 @@ else:
 # Every answer carries a credential-shaped string, as an answer may: the redaction must take it out before OUT.
 if isinstance(answer, dict):
     answer["leak"] = "gh" + "s_" + "L" * 36
+# A file beside it puts a proxy's block before the answer.
+if os.path.exists(os.path.join(here, "proxied")):
+    sys.stdout.write("HTTP/1.1 200 Connection established\r\n\r\n")
 sys.stdout.write("HTTP/2 %d\r\ncontent-type: application/json\r\n\r\n%s" % (status, json.dumps(answer)))
 '''
     OPENSSL = '''#!/bin/sh
@@ -9712,6 +9873,15 @@ esac
         # The exit trap tried once more to revoke the live token.
         self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
 
+    def test_the_status_kept_is_the_last_heads(self):
+        # Argon and the Claude reviews of the P-54 PR: a proxy's block comes first, 200, and GitHub's refusal after it is
+        # the read's answer. It would look like a read the token was let make.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertIn(403, [a["status"] for a in asked if "call" in a])
+
 
 class IssueLookupTrial(ReaderTrialScript):
     """`tools/trial_p54_issue_lookup.sh`, run against the reader trial's stand-ins and never GitHub (issue 342). It is that
@@ -9728,7 +9898,7 @@ class IssueLookupTrial(ReaderTrialScript):
     KEPT = ('"number": 42', '"name": "question"')
     NOT_A_NUMBER = "is not an issue's number"
     # The reader trial's stand-in GitHub, which also answers an issue: to a token narrowed to issues, and to any token
-    # where the repo is public, as a file beside it says. A file beside it puts a proxy's block before the answer.
+    # where the repo is public, as a file beside it says.
     CURL = ReaderTrialScript.CURL.replace('elif "/activity" in url:', '''elif "/issues/" in url:
     if os.path.exists(os.path.join(here, "read.broke")):
         sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
@@ -9740,9 +9910,7 @@ class IssueLookupTrial(ReaderTrialScript):
         status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}
     else:
         status, answer = 403, {"message": "Resource not accessible by integration"}
-elif "/activity" in url:''', 1).replace('''sys.stdout.write("HTTP/2 %d''', '''if os.path.exists(os.path.join(here, "proxied")):
-    sys.stdout.write("HTTP/1.1 200 Connection established\\r\\n\\r\\n")
-sys.stdout.write("HTTP/2 %d''', 1)
+elif "/activity" in url:''', 1)
 
     def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
         grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())

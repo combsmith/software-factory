@@ -62,8 +62,16 @@ above=$parent
 while :; do
     found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
         found="find failed"
+    # find -perm does not see an ACL: ls -e on macOS says what one allows; elsewhere ls's + says one is there, unread.
+    if listed=$(ls -lde "$above" 2>/dev/null); then
+        if printf '%s\n' "$listed" | sed 1d | grep -Eq ' allow .*(add_file|add_subdirectory|delete|write|chown)'; then found="an ACL"; fi
+    elif listed=$(ls -ld "$above"); then
+        case "$listed" in ??????????+*) found="an ACL" ;; esac
+    else
+        found="ls failed"
+    fi
     if [ -n "$found" ]; then
-        echo "trial_p8_cost: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+        echo "trial_p8_cost: $above is another user's, or can be written by other users and is not sticky, or an ACL may let them; name a directory" \
             "under one only you can write to" >&2
         exit 2
     fi
@@ -288,7 +296,8 @@ json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, ope
         --data-binary "@$scratch/body-$n" "$API/graphql" > "$scratch/crlf-$n" || read_ok=0
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n" "$scratch/body-$n"
-    status=$(sed -n '1s/^HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p' "$scratch/raw-$n")
+    # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
+    status=$(awk 'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ "$status" != 200 ]; then
         rm -f "$scratch/raw-$n"
         echo "trial_p8_cost: read $n ($3) failed (curl ok: $read_ok, status: ${status:-none}); nothing of it is kept." >&2

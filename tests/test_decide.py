@@ -3007,6 +3007,26 @@ class Queue(unittest.TestCase):
         d = go(facts(queue=True, reviews=APPROVED, checks=GREEN + [dict(actions)]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
 
+    def test_a_lens_run_replaced_in_its_suite_by_a_created_one_admits_nothing(self):  # I-9, I-27, issue 496
+        # Were a check a job created under a Lens's name to replace the Lens's own run in its suite, it would be all the
+        # facts hold of it. GitHub has not been seen to do that: a created check replaced only one created before it
+        # (trials/P-42.rollup.json), and stood beside a job's run, either first (trials/P-35.json). Read with no file
+        # (decision 0104), it leaves the Lens unreadable all the same, whatever the replaced run concluded.
+        actions = next(c for c in GREEN if isinstance(c["workflow"], str))
+        lens = LENS_OF[actions["name"]]
+        checks = [c for c in GREEN if c is not actions] + [dict(actions, workflow=None, conclusion="success")]
+        unreadable = ["%s:from_workflow:unreadable" % lens]
+        d = go(facts(queue=True, reviews=APPROVED, checks=checks), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                         ("verifying", "check_unreadable", unreadable, "act", "dequeue"))
+        for f in (facts(reviews=APPROVED, checks=checks), facts(checks=checks)):
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                             ("verifying", "check_unreadable", unreadable, "defer"))
+        # The other side: the Lens's own run in its place, with the same verdict, converges and stays queued.
+        self.assertEqual(go(facts(reviews=APPROVED), REVIEWED)["state"], "converged")
+        self.assertEqual(go(facts(queue=True, reviews=APPROVED), REVIEWED)["reason"], "in_merge_queue")
+
     def test_a_queued_item_whose_evidence_goes_missing_or_unreadable_leaves_the_queue(self):  # I-31, I-13
         # GitHub's merge queue knows nothing of an acceptance contract, so a queued item stays only while every
         # criterion has passing evidence on its content. Evidence that is gone, as an artifact is after its retention,
