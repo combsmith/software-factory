@@ -1,6 +1,6 @@
 {
   "schema": "context-eval/1",
-  "task": null,
+  "task_sha256": null,
   "held_out_sha256": null,
   "runs": []
 }
