@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import in_progress, is_time, run_deferral, runs_on, seconds, since_writer, stale, standing_labels
+from kernel.derive import acted_since_writer, in_progress, is_time, run_deferral, runs_on, seconds, since_writer, stale, standing_labels
 from kernel.gate import is_person
 
 # The States of lifecycle/issue.json that a pull request's do not share. `held` and `not_served` are terms.py's.
@@ -730,7 +730,7 @@ def _accept(facts, state, reason, evidence, mine, context, config) -> dict:
     if removed_by_a_person(facts, LABEL_TRIAGE):
         return _decision(facts, state, "triage_removed", evidence, t.NOTHING)
     brake = brakes.on_act(_decision, facts, state, evidence, context, ACCEPT, since_writer(mine, facts),
-                          config["limits"])
+                          config["limits"], acted_since_writer(mine, facts))
     if brake:
         return brake
     return _decision(facts, state, reason, evidence, t.ACT, action=ACCEPT, content_id=facts["content_id"])

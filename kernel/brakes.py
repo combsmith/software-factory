@@ -30,32 +30,42 @@ def _attempts(recent: list, intent: str) -> list:
 
 
 def _spent(recent: list) -> list:
-    """The Runs that count toward the Run ceiling: every Run but an approval that landed.
+    """The Runs that count toward the Run ceiling: every Run but an approval or a resolution that landed.
 
-    A landed approval spends no model and is counted as an act. One that did not land, whatever
-    the fault, never reaches the timeline, so the Run ceiling is what bounds it: an approval
-    failing for a cause outside the item, such as an expired token, is not issued for ever.
+    A landed approval spends no model and is counted as an act, and so is a landed resolution (_landed). One that did
+    not land, whatever the fault, is no act, so the Run ceiling is what bounds it: an approval failing for a cause
+    outside the item, such as an expired token, is not issued for ever.
     """
-    return [r for r in recent if not (r["intent"] == t.ISSUE_APPROVAL and r["conclusion"] == "success")]
+    return [r for r in recent if not (r["intent"] in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD) and r["conclusion"] == "success")]
+
+
+def _landed(since: list) -> int:
+    """The resolutions that landed since a writer last acted, in its own second too (`acted`, from acted_since_writer): the queue App's jobs of Intent resolve-thread that
+    succeeded. A resolution is no timeline event, so the port's count of acts never sees one, and each is read from the
+    run records at every call instead (decision 0086, issue 381)."""
+    return sum(1 for r in since if r["intent"] == t.RESOLVE_THREAD and r["status"] == "completed"
+               and r["conclusion"] == "success")
 
 
 def on_act(_decision, facts: dict, state: str, evidence: list, context: dict, action: str, since: list,
-           limits: dict):
+           limits: dict, acted: list):
     """The deferral or Hold the brakes make of an act that moves work on, or None.
 
     An approval is a Run with no Engine: its attempts, and the Run ceiling, bound one that does not land. Every act that
-    lands is on GitHub's timeline, counted since a writer acted, and the count is held to the act ceiling. A count
+    lands is counted since a writer acted: on GitHub's timeline, or, for a resolution, in the run records; and the count
+    is held to the act ceiling. A count
     spent holds the item before the Pause is read: a Hold is a reading and no act, and a Pause changes none (issue 169).
     The Pause then stops the act, and a count of acts that cannot be read defers it. An act that stops work is not
     braked here: it is never refused, and only the Pause stops it.
     """
-    if action == "issue_approval":
-        held = approval_ceilings(_decision, facts, since, limits)
+    if action in ("issue_approval", "resolve_thread"):
+        held = approval_ceilings(_decision, facts, since, limits,
+                                 t.ISSUE_APPROVAL if action == "issue_approval" else t.RESOLVE_THREAD)
         if held:
             return held
     acts = facts.get("acts_since_writer")
     readable = type(acts) is int and acts >= 0
-    if readable and acts >= limits["max_acts_per_item"]:
+    if readable and acts + _landed(acted) >= limits["max_acts_per_item"]:
         return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)
     stopped = paused(_decision, facts, state, evidence, context)
     if stopped:
@@ -82,9 +92,11 @@ def on_run(_decision, facts: dict, state: str, evidence: list, context: dict, in
     return None
 
 
-def approval_ceilings(_decision, facts: dict, since: list, limits: dict):
-    """The Hold an approval meets at its attempts or the Run ceiling, or None. No deferral is read here."""
-    failed = _attempts(since, t.ISSUE_APPROVAL)
+def approval_ceilings(_decision, facts: dict, since: list, limits: dict, intent: str):
+    """The Hold an act made by a Run meets at its attempts or the Run ceiling, or None: an approval, or a resolution
+    (`intent` resolve-thread, issue 381), whose job that does not land is no act and is bounded here. No deferral is
+    read here."""
+    failed = _attempts(since, intent)
     if len(failed) >= limits["max_attempts"]:
         return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
     if len(_spent(since)) >= limits["max_runs_per_item"]:

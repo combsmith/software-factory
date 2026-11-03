@@ -914,12 +914,6 @@
       "to": "converged",
       "by": "human",
       "bound": null
-    },
-    {
-      "from": "adjudicating",
-      "to": "held",
-      "by": "lens",
-      "bound": "max_runs_per_item"
     }
   ]
 }

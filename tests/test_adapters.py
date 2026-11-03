@@ -2238,7 +2238,7 @@ class Acceptance(unittest.TestCase):
         from kernel import issue
         self.assertEqual(set(issue.INTENTS) | set(records.ON_PULL_REQUEST),
                          {"investigate-issue", "judge-readiness", "open-pull-request", "review-change", "fix-findings",
-                          "adjudicate-findings", "issue-approval"})
+                          "adjudicate-findings", "issue-approval", "resolve-thread"})
 
 
 def thread_node(ident: str, opened=PERSON, at: str = "2026-10-21T16:18:57Z", resolved_by=None) -> dict:
@@ -2598,6 +2598,19 @@ class Recorded(unittest.TestCase):
         # Each open pull request is said, whatever another's Runs hold.
         self.assertEqual(self.recorded(listed_runs(lens_run(self.RUN)), *applied_stored("o/r", 39100000000, "x"),
                                        numbers=(26, 27)), {26: ({}, False), 27: ({}, True)})
+
+    def test_what_apply_records_of_a_pull_request_it_opened_is_what_the_reader_reads(self):  # issue 342
+        # The writer, `harness/apply.py`'s `opened`, and the reader agree: the number read back names the pull request.
+        from harness import apply
+        run = dict(lens_run(self.RUN, number=36), item={"repo": "o/r", "type": "issue", "number": 36},
+                   intent="open-pull-request", role="dev-lead", content_id=None)
+        for number in (1, 26, 1000):
+            done = apply.opened("e1", 36, "factory-work/issue-36-1", {"state": "applied", "number": number,
+                                                                  "head": "factory-work/issue-36-1"})
+            kept = dict(lens_applied(self.RUN), effects=[done])
+            got = applied.opened(github.Replay(applied_stored("o/r", 39100000000, kept)), "o/r", listed_runs(run),
+                                 "dev-lead")
+            self.assertEqual(got, {"named": {number: [(self.RUN, 36)]}, "unreadable": set(), "whole": True})
 
     def test_what_an_opening_run_recorded_names_the_pull_request_it_opened(self):  # issue 342
         # An opening Run's own applied/1 names the pull request it opened, in a landed open_pull_request Effect keyed
@@ -3287,8 +3300,14 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
-    # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs.
+    # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs;
+    # P-42.rollup read the rollup, but with no check run's completedAt or detailsUrl, which the port reads.
     "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
+    "a_check_reports_on_its_own": "shape", "a_check_is_read_by_name_from_every_app": "shape",
+    "a_rerun_replaces_only_its_own_run": "shape", "a_check_can_time_out_or_give_no_verdict": "shape",
+    # The threads port reads each thread's first comment with its time and what it replies to; P-41.threads read the
+    # authors and resolvers typed without them, and P-41 reads no thread.
+    "an_actor_has_a_kind": "shape",
     # P-36 recorded the check run as a script's lines, not the rollup the port reads. The conclusion is read as any is, and
     # the Kernel's reading of it is held by test_an_upload_turns_codeqls_verdict_neutral_though_it_failed_to_process.
     "an_upload_turns_codeqls_success_neutral": "shape",

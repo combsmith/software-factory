@@ -954,10 +954,11 @@ class OnlyAPersonEnds(unittest.TestCase):
         later_gone = run(name="r_0OLD02", at=at(30))
         d = go(facts(expired_reviews=["r_0OLD01", "r_0OLD02"]), [old, fresh, later_gone])
         self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
-        # While a thread of the expired Run is open, its category can no longer be joined, so the item defers on the
-        # thread first, and admits nothing: a person resolves it (issue 420, decision 0096's limit).
+        # While a thread of the expired Run is open, its category can no longer be joined, and it asks its Lens's review
+        # all the same (issue 420): decision 0096's limit, which deferred on it, is gone.
         open_old = thread(category=None, severity=None)
-        self.assertEqual(go(dict(expired, threads=[open_old]), [old])["reason"], "thread_unreadable")
+        d = go(dict(expired, threads=[open_old]), [old])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
         # Another Lens's Run past retention asks that Lens's review again, never this one's.
         other = run(name="r_0OTH01", role="security-review", at=at(15))
         self.assertEqual(go(facts(expired_reviews=["r_0OTH01"]), [old, other])["action"], "issue_approval")
@@ -991,6 +992,127 @@ class OnlyAPersonEnds(unittest.TestCase):
                              odd)
         missing = {k: v for k, v in expired.items() if k != "expired_reviews"}
         self.assertEqual(go(missing, [old, fresh])["reason"], "facts_incomplete")
+
+    def test_an_expired_runs_open_thread_asks_its_review_and_is_resolved_after_it(self):  # issue 420
+        # A required Lens's open thread whose Run's record is past retention has no category or severity to join. It
+        # gates, as a security Finding would, and asks its Lens's review of the current content again. Once that review
+        # has succeeded, it is the Lens's judgement of what still stands, raised again on threads of its own (decision
+        # 0075), so the old thread is the Kernel's to resolve: an act the queue App carries out (decision 0086).
+        old = run(name="r_0OLD01", at=at(10))
+        gone = thread(tid="T7", category=None, severity=None, at=at(11))
+        expired = facts(expired_reviews=["r_0OLD01"], threads=[gone])
+        d = go(expired, [old])
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["admit"]["intent"]),
+                         ("verifying", "awaiting_review", ["pr-review"], "admit", "review-change"))
+        fresh = run(name="r_0NEW01", at=at(20))
+        d = go(expired, [old, fresh])
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                         ("adjudicating", "resolve_due", ["T7"], "act", "resolve_thread"))
+        # Resolved by the queue App, it is closed; by the Lens's own App, the author's, or another's, it stays open, and
+        # gates as a security Finding does, whatever it once was.
+        done = dict(gone, resolved=True, resolved_by=dict(QUEUE_APP))
+        self.assertEqual(go(dict(expired, threads=[done]), [old, fresh])["action"], "issue_approval")
+        # Resolved by anyone else, it is no longer the queue App's to resolve, and defers as an unreadable thread does,
+        # so no fix Run is admitted on a Finding no one can read.
+        for by in (dict(gone["opened_by"]), dict(AUTHOR_APP)):
+            d = go(dict(expired, threads=[dict(gone, resolved=True, resolved_by=by)]), [old, fresh])
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "thread_unreadable", "defer"), by)
+        # A person's resolution closes it as it closes any Lens's thread, before the review too.
+        person = dict(gone, resolved=True, resolved_by=dict(MAINTAINER))
+        self.assertEqual(go(dict(expired, threads=[person]), [old, fresh])["action"], "issue_approval")
+        d = go(dict(expired, threads=[person], queue=True, reviews=APPROVED), [old])
+        self.assertNotEqual(d["reason"], "gate_open")
+        # Its queue App's resolution before the fresh review closes nothing: the Lens has not judged yet. A queued item,
+        # which reads past the wait for a review, leaves the queue on it.
+        d = go(dict(expired, threads=[done]), [old])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
+        d = go(dict(expired, threads=[done], queue=True, reviews=APPROVED), [old])
+        self.assertEqual((d["reason"], d["evidence"], d.get("action")), ("gate_open", ["T7"], "dequeue"))
+        # It closes on no ruling, and on a review of any content: a push after that review does not reopen it, though the
+        # re-ask then waits on a review of the new content.
+        pushed = dict(expired, threads=[done], content_id="sha256:bbbb")
+        self.assertEqual(go(pushed, [old, fresh])["reason"], "awaiting_review")
+        d = go(dict(pushed, queue=True, reviews=APPROVED), [old, fresh])
+        self.assertNotEqual(d["reason"], "gate_open")
+        self.assertEqual(go(dict(expired, threads=[done]), [old, fresh])["action"], "issue_approval")
+        # Superseded only by its own Lens's review that succeeded and started after the Run that opened it.
+        for later in (dict(fresh, conclusion="failure", outcome="item"), dict(fresh, started_at=at(10)),
+                      dict(fresh, role="security-review"), dict(fresh, intent="adjudicate-findings"),
+                      dict(fresh, item=dict(fresh["item"], number=fresh["item"]["number"] + 1))):
+            d = go(dict(expired, threads=[done], queue=True, reviews=APPROVED), [old, later])
+            self.assertEqual((d["reason"], d.get("action")), ("gate_open", "dequeue"), later)
+        # A person's gate comes first, as for any act.
+        human = thread(tid="T9", kind="human", name="don-petry", severity=None, at=at(25))
+        self.assertEqual(go(dict(expired, threads=[gone, human]), [old, fresh])["reason"], "human_finding")
+        # A queued item with it open leaves the queue, as one with any gating thread does.
+        d = go(dict(expired, queue=True), [old, fresh])
+        self.assertEqual((d["reason"], d["evidence"], d.get("action")), ("gate_open", ["T7"], "dequeue"))
+        # The other side: a thread with no category is unreadable, and defers, unless it is an expired Run's. One opened
+        # after a later Run of its Lens whose record can be read; one opened before any Run of its Lens; one whose Lens's
+        # expired Run is another Lens's; one with a ruling the port could join; one not a required Lens's.
+        later = run(name="r_0MID01", at="2026-10-11T12:10:30Z")
+        sec = run(name="r_0SEC01", role="security-review", at=at(10))
+        for case, runs, named in ((dict(gone, opened_at=at(9)), [old, fresh], ["r_0OLD01"]),
+                                  (gone, [old, later, fresh], ["r_0OLD01"]),
+                                  (gone, [sec, old, fresh], ["r_0SEC01"]),
+                                  (dict(gone, ruling="accepted"), [old, fresh], ["r_0OLD01"]),
+                                  (dict(gone, ruling="rejected"), [old, fresh], ["r_0OLD01"]),
+                                  (dict(gone, severity="major"), [old], []),
+                                  (dict(gone, category="functional"), [old], []),
+                                  (dict(gone, severity="major"), [old, fresh], ["r_0OLD01"]),
+                                  (dict(gone, category="functional"), [old, fresh], ["r_0OLD01"])):
+            d = go(facts(expired_reviews=named, threads=[case]), runs)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "thread_unreadable", ["T7"]), (case, named))
+        # An opening time that cannot be read joins no Run, and another item's Run is no opener of this one's thread.
+        for bad in ("2026-10-11T12:11:60Z", "2026-10-11T12:11:00", None, 7):
+            d = go(dict(expired, threads=[dict(gone, opened_at=bad)]), [old, fresh])
+            self.assertEqual((d["state"], d["reason"]), (None, "thread_unreadable"), bad)
+        elsewhere = run(name="r_0ELS01", at="2026-10-11T12:10:30Z")
+        elsewhere["item"] = dict(elsewhere["item"], number=elsewhere["item"]["number"] + 1)
+        self.assertEqual(go(expired, [old, elsewhere])["reason"], "awaiting_review")
+        # A re-run's start is its last attempt's: a thread its first attempt may have opened is read past no Run, whether
+        # it was dispatched before the thread or when cannot be read; one dispatched after the thread opened is no opener.
+        rerun = dict(fresh, run="r_0NEW02", started_at=at(30), rerun_by_dispatcher=False)
+        late = dict(gone, opened_at=at(20))
+        for when in (at(15), None):
+            r = dict(rerun, dispatched_at=when) if when else rerun
+            d = go(facts(expired_reviews=["r_0OLD01"], threads=[late]), [old, r])
+            self.assertEqual((d["state"], d["reason"]), (None, "thread_unreadable"), when)
+        d = go(facts(expired_reviews=["r_0OLD01"], threads=[late]), [old, dict(rerun, dispatched_at=at(25))])
+        self.assertEqual(d["reason"], "resolve_due")
+        # A Lens that is not required gates nothing, so nothing waits on its expired thread, nor is it resolved.
+        other = dict(gone, opened_by={"kind": "lens", "name": "coderabbit", "can_write": False})
+        theirs = [run(name="r_0CR001", role="coderabbit", at=at(10)), run(name="r_0CR002", role="coderabbit", at=at(20))]
+        for named in (["r_0OLD01"], ["r_0OLD01", "r_0CR001"]):
+            self.assertEqual(go(facts(expired_reviews=named, threads=[other]), [old, fresh] + theirs)["action"],
+                             "issue_approval", named)
+        # A thread opened at the very start of the expired Run is that Run's; one opened as a later Run starts is the
+        # later one's, whose record can be read.
+        self.assertEqual(go(dict(expired, threads=[dict(gone, opened_at=at(10))]), [old, fresh])["reason"], "resolve_due")
+        self.assertEqual(go(facts(expired_reviews=["r_0OLD01"], threads=[dict(gone, opened_at=at(20))]),
+                            [old, fresh])["reason"], "thread_unreadable")
+        # A list of expired Runs that cannot be read says nothing of any thread: the facts are incomplete.
+        for odd in (None, "r_0OLD01", [7]):
+            d = go(dict(expired, expired_reviews=odd), [old, fresh])
+            self.assertEqual((d["state"], d["reason"]), (None, "facts_incomplete"), odd)
+        # A mark the facts arrive with is no fact: only the Kernel's reading makes one, of each thread by its place, so a
+        # thread that shares an expired one's id takes none of its marks.
+        rejected = thread(tid="T8", category="security", severity="minor", ruling="rejected", resolved=True,
+                          resolved_by=dict(QUEUE_APP))
+        for marks in ({"superseded": True}, {"expired": True, "superseded": True}):
+            d = go(facts(threads=[dict(rejected, **marks)]), [old, fresh])
+            self.assertEqual(d["reason"], "findings_open", marks)
+            d = go(facts(threads=[dict(gone, **marks)]), [old, fresh])
+            self.assertEqual(d["reason"], "thread_unreadable", marks)
+        d = go(dict(expired, threads=[gone, dict(rejected, id="T7")]), [old, fresh])
+        self.assertEqual(d["reason"], "resolve_due")
+        d = go(dict(expired, threads=[dict(gone, resolved=True, resolved_by=dict(QUEUE_APP)), dict(rejected, id="T7")]),
+               [old, fresh])
+        self.assertEqual(d["reason"], "findings_open")
+        # What the Kernel was given is not changed by its reading.
+        before = repr(expired)
+        go(expired, [old, fresh])
+        self.assertEqual(repr(expired), before)
 
     def test_a_thread_whose_resolution_cannot_be_read_defers(self):  # I-13
         # A thread says whether it is resolved, exactly, and a resolved one says who resolved it: without them, a
@@ -2568,6 +2690,54 @@ class Ceilings(unittest.TestCase):
                 self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"]),
                                  ("held", "hold", "act_ceiling", "needs_you"), (action, acts))
 
+    def test_each_landed_resolution_counts_toward_the_act_ceiling(self):  # issue 381, decision 0086
+        # A resolution is no timeline event, so the port's count of acts never sees one: each the queue App's job landed is
+        # read from the run records instead, a Run of Intent resolve-thread that succeeded since a writer last acted.
+        limit = LIMITS["max_acts_per_item"]
+        accepted = [thread(ruling="accepted")]
+        landed = run(intent="resolve-thread", role="pr-review", at=at(12), name="r_0RES001")
+        for reviews, threads, action in (([], [], "issue_approval"), (APPROVED, [], "enqueue"), ([], accepted, "resolve_thread")):
+            d = go(facts(reviews=reviews, threads=threads, acts_since_writer=limit - 2), REVIEWED + [landed])
+            self.assertEqual((d["outcome"], d["action"]), ("act", action), action)
+            d = go(facts(reviews=reviews, threads=threads, acts_since_writer=limit - 1), REVIEWED + [landed])
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "act_ceiling", "hold"), action)
+            two = [landed, dict(landed, run="r_0RES002", started_at=at(13))]
+            d = go(facts(reviews=reviews, threads=threads, acts_since_writer=limit - 2), REVIEWED + two)
+            self.assertEqual(d["reason"], "act_ceiling", action)
+        # One that did not land made no act; nor did one before a writer last acted, nor another Intent's that succeeded.
+        for other in (dict(landed, conclusion="failure", outcome="environment"),
+                      dict(landed, started_at="2026-10-11T11:59:00Z"), dict(landed, intent="review-change")):
+            d = go(facts(acts_since_writer=limit - 1), REVIEWED + [other])
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), other)
+        # One that landed in the writer's own second may follow the writer's action, so it is counted, as the timeline
+        # port counts an act in that second.
+        d = go(facts(acts_since_writer=limit - 1), REVIEWED + [dict(landed, started_at="2026-10-11T12:00:00Z")])
+        self.assertEqual((d["state"], d["reason"]), ("held", "act_ceiling"))
+        # One still running holds the item, as any Run in flight does, and is counted once it has landed.
+        d = go(facts(acts_since_writer=limit - 1), REVIEWED + [dict(landed, status="in_progress", conclusion=None)])
+        self.assertEqual(d["outcome"], "nothing")
+        # A landed resolution spends no model, so the Run ceiling counts it no more than a landed approval; one that did
+        # not land is bounded by the Run ceiling, as an approval that did not land is.
+        ceiling = LIMITS["max_runs_per_item"]
+        failed = [dict(landed, run="r_0RES%03d" % i, started_at=at(13 + i), conclusion="failure", outcome="environment")
+                  for i in range(ceiling)]
+        for threads, action in (([], "issue_approval"), (accepted, "resolve_thread")):
+            # REVIEWED is one Run spent: with ceiling - 2 failed and one landed beside it, the ceiling is not reached.
+            d = go(facts(threads=threads, acts_since_writer=0), REVIEWED + failed[:ceiling - 2] + [landed])
+            self.assertEqual((d["outcome"], d["action"]), ("act", action), action)
+            d = go(facts(threads=threads, acts_since_writer=0), REVIEWED + failed[:ceiling - 1])
+            self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"), action)
+            self.assertEqual(go(facts(threads=threads, acts_since_writer=0), REVIEWED + failed[:ceiling - 2])["action"], action)
+        # A resolution that keeps failing for the item meets its attempts, as an approval does; an approval's failed
+        # attempts are not a resolution's, nor the other way about.
+        limit_attempts = LIMITS["max_attempts"]
+        theirs = [dict(landed, run="r_0RF%03d" % i, started_at=at(13 + i), conclusion="failure", outcome="item")
+                  for i in range(limit_attempts)]
+        d = go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs)
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "attempts_exhausted", [r["run"] for r in theirs]))
+        self.assertEqual(go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs[1:])["action"], "resolve_thread")
+        self.assertEqual(go(facts(acts_since_writer=0), REVIEWED + theirs)["action"], "issue_approval")
+
     def test_an_unreadable_count_of_acts_makes_no_act(self):  # I-13
         # A fact read from outside is never given a default: a count that is not a whole number is unreadable.
         for reviews in ([], APPROVED):
@@ -2836,6 +3006,26 @@ class Queue(unittest.TestCase):
         # The other side: two checks from its own file, both passing, take nothing out.
         d = go(facts(queue=True, reviews=APPROVED, checks=GREEN + [dict(actions)]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
+
+    def test_a_lens_run_replaced_in_its_suite_by_a_created_one_admits_nothing(self):  # I-9, I-27, issue 496
+        # Were a check a job created under a Lens's name to replace the Lens's own run in its suite, it would be all the
+        # facts hold of it. GitHub has not been seen to do that: a created check replaced only one created before it
+        # (trials/P-42.rollup.json), and stood beside a job's run, either first (trials/P-35.json). Read with no file
+        # (decision 0104), it leaves the Lens unreadable all the same, whatever the replaced run concluded.
+        actions = next(c for c in GREEN if isinstance(c["workflow"], str))
+        lens = LENS_OF[actions["name"]]
+        checks = [c for c in GREEN if c is not actions] + [dict(actions, workflow=None, conclusion="success")]
+        unreadable = ["%s:from_workflow:unreadable" % lens]
+        d = go(facts(queue=True, reviews=APPROVED, checks=checks), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                         ("verifying", "check_unreadable", unreadable, "act", "dequeue"))
+        for f in (facts(reviews=APPROVED, checks=checks), facts(checks=checks)):
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                             ("verifying", "check_unreadable", unreadable, "defer"))
+        # The other side: the Lens's own run in its place, with the same verdict, converges and stays queued.
+        self.assertEqual(go(facts(reviews=APPROVED), REVIEWED)["state"], "converged")
+        self.assertEqual(go(facts(queue=True, reviews=APPROVED), REVIEWED)["reason"], "in_merge_queue")
 
     def test_a_queued_item_whose_evidence_goes_missing_or_unreadable_leaves_the_queue(self):  # I-31, I-13
         # GitHub's merge queue knows nothing of an acceptance contract, so a queued item stays only while every

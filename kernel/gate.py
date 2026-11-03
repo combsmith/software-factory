@@ -26,7 +26,8 @@ def closed(th: dict) -> bool:
 
     A person's thread is closed only by that person. A Lens's is closed only by a person, or by the queue App on that
     Lens's accepted ruling (issue 389): the Lens judges, and resolving the thread is the Kernel's act, which the queue
-    App carries out. So no Role decides a Finding about its own work, the author agent resolving the threads that hold
+    App carries out; or, for a thread whose Run's record is past retention, by the queue App once a later review by that
+    Lens has superseded it, with no ruling, since its Finding is gone (issue 420). So no Role decides a Finding about its own work, the author agent resolving the threads that hold
     it closes none, and nor does the Lens's own App. Resolved by anyone else, a thread stays open. A thread that gates
     nothing is closed by whoever resolves it.
     """
@@ -36,7 +37,7 @@ def closed(th: dict) -> bool:
     if is_person(opener):
         return is_person(by) and by["name"] == opener["name"]
     if opener["kind"] == "lens":
-        return is_person(by) or (by["kind"] == "queue" and th["ruling"] == "accepted")
+        return is_person(by) or (by["kind"] == "queue" and (th["ruling"] == "accepted" or th.get("superseded") is True))
     return True
 
 
@@ -47,7 +48,8 @@ def gating_threads(facts: dict, config: dict) -> list:
     required and its Finding is blocking or major, or is a security Finding
     of any severity. Everyone else informs. A Finding that does not gate is
     an annotation on its Lens's check run, and closes when the Lens stops
-    reporting it. A Finding a model Lens has raised gates whatever the class:
+    reporting it. A thread whose Run's record is past retention gates at any severity, as it may have been a security
+    Finding (issue 420). A Finding a model Lens has raised gates whatever the class:
     a dependency update needs no review, and still answers one it was given.
     A thread resolved by someone who may not close it is open (closed).
     """
@@ -60,7 +62,7 @@ def gating_threads(facts: dict, config: dict) -> list:
         if is_person(by):
             out.append(th)
         elif by["kind"] == "lens" and by["name"] in required and (
-                th["category"] == SECURITY or th["severity"] in GATING_SEVERITIES):
+                th["category"] == SECURITY or th["severity"] in GATING_SEVERITIES or th.get("expired") is True):
             out.append(th)
     return out
 

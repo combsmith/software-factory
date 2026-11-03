@@ -834,7 +834,12 @@ class World:
                     self.check(th["opened_by"]["kind"] == "lens" and th["ruling"] == "accepted" and not th["resolved"],
                                "the queue App resolves a thread no Lens accepted")
                     th.update(resolved=True, resolved_by=dict(QUEUE_APP))
-            self.acts += 1
+            # A resolution is no timeline event: the queue App's job is a Run, counted from the run records (0127),
+            # and a Run on the item moves it.
+            self.moves()
+            self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],
+                              "intent": t.RESOLVE_THREAD, "content_id": self.cid(), "status": "completed",
+                              "conclusion": "success", "outcome": None, "started_at": self.now()})
             self.last_act = "resolve_thread"
             self.note("apply: resolved %s" % ", ".join(d["evidence"]))
             return
@@ -1207,8 +1212,7 @@ class World:
                 # Before a job gated by needs starts it has no check run, so a created success stands alone. Its details are
                 # not its own job's, so the port reads it with no file (decision 0104).
                 self.not_started.add(lens)
-                self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
-                                       "conclusion": "success", "completed_at": self.now()})
+                self.create(lens)
                 self.note("check %s: pending, and a job created a passing one under its name, alone" % lens)
                 self.caused(self.by_of(IMPOSTOR))
                 return
@@ -1218,6 +1222,7 @@ class World:
             self.moves()
             if self.faults and roll >= 0.92:
                 # GitHub: a_check_can_time_out_or_give_no_verdict
+                # GitHub: a_check_concludes_timed_out_or_stale
                 self.checks[lens] = self.pick(["timed_out", "neutral", "skipped", "cancelled", "stale"])
                 self.note("check %s: %s" % (lens, self.checks[lens]))
             self.caused("human" if lens in self.rerun else "lens")
@@ -1225,8 +1230,7 @@ class World:
             if self.faults and roll < 0.87 and self.checks[lens] == "failure":
                 if WORKFLOWS[lens] is not None and roll < 0.855:
                     # GitHub: a_job_creates_a_check_in_another_suite
-                    self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
-                                           "conclusion": "success", "completed_at": self.now()})
+                    self.create(lens)
                     self.note("check %s: failure, and a job created a passing one under its name, in its suite" % lens)
                 elif WORKFLOWS[lens] is not None and roll < 0.86:
                     # GitHub: actions_runs_a_job_under_any_name
@@ -1242,6 +1246,16 @@ class World:
                     self.note("check %s: failure, and another App posted a passing one under its name" % lens)
                 # Neither is a Run or an act of the Factory's, nor the Lens's own: the change is the platform's.
                 self.caused(self.by_of(IMPOSTOR))
+
+    def create(self, lens: str):
+        """A passing check a job created under `lens`'s name. It stands beside the Lens's own run in any suite
+        (trials/P-35.json), and replaces only a check a job created earlier under that name, in the suite they share,
+        the head's first (trials/P-42.rollup.json)."""
+        # GitHub: a_rerun_replaces_only_its_own_run
+        self.impostors = [c for c in self.impostors
+                          if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and c["workflow"] is None)]
+        self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
+                               "conclusion": "success", "completed_at": self.now()})
 
     def person(self):
         """The Maintainer acts, or a stranger comments, and the State the Kernel gives may change."""
@@ -1383,15 +1397,17 @@ class World:
                            "I-5 a Lens's thread with no review of its that succeeded")
         since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
                  and r["outcome"] != "superseded"]
-        # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.
-        landed = [r for r in since if r["intent"] == t.ISSUE_APPROVAL and r["conclusion"] == "success"]
+        # A landed approval or resolution is an act, counted below; every other Run, a failed approval among them, is spent.
+        landed = [r for r in since if r["intent"] in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD) and r["conclusion"] == "success"]
+        resolved = [r for r in landed if r["intent"] == t.RESOLVE_THREAD]
         spent = [r for r in since if r not in landed]
         self.check(len(spent) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
         # I-8: every automated action is inside a Run, bounded above, or is an act, bounded here.
         # Only a dequeue, an act that stops work, takes the count past the ceiling, and by one: once it is there, an
         # enqueue is refused, so nothing can enter the queue to be taken out again.
         ceiling = CONFIG["limits"]["max_acts_per_item"]
-        self.check(self.acts <= ceiling or (self.acts == ceiling + 1 and self.last_act == "dequeue"),
+        acts = self.acts + len(resolved)
+        self.check(acts <= ceiling or (acts == ceiling + 1 and self.last_act == "dequeue"),
                    "I-8 acts since a writer exceed the ceiling")
         unlanded = [r for r in spent if r["intent"] == t.ISSUE_APPROVAL]
         self.check(len([r for r in unlanded if r["outcome"] == "item" or (r["outcome"] is None and r["conclusion"]
@@ -1450,7 +1466,9 @@ class World:
             self.step()
         # The person who approves the contract approves it again at the head, and the content the Factory settled on,
         # which confirms each criterion of kind human, until neither waits for them; a deleted contract stays held.
-        for _ in range(3):
+        # Five rounds: each fix push needs a fresh confirmation, and a resolution held at the Run ceiling, as an approval
+        # is, can take one more lap than three allowed (issue 381).
+        for _ in range(5):
             if not self.awaits_a_person():
                 break
             self.minute += 1
