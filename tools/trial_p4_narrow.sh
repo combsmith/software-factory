@@ -57,12 +57,14 @@ while :; do
         found="find failed"
     # find -perm does not see an ACL: ls -e on macOS says what one allows; elsewhere ls's + says one is there, unread.
     if listed=$(ls -lde "$above" 2>/dev/null); then
-        case "$listed" in *" allow "*add_file* | *" allow "*add_subdirectory* | *" allow "*delete_child* | *" allow "*write* | *" allow "*chown*) found="an ACL" ;; esac
+        if printf '%s\n' "$listed" | sed 1d | grep -Eq ' allow .*(add_file|add_subdirectory|delete|write|chown)'; then found="an ACL"; fi
+    elif listed=$(ls -ld "$above"); then
+        case "$listed" in ??????????+*) found="an ACL" ;; esac
     else
-        case "$(ls -ld "$above")" in ??????????+*) found="an ACL" ;; esac
+        found="ls failed"
     fi
     if [ -n "$found" ]; then
-        echo "trial_p4_narrow: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+        echo "trial_p4_narrow: $above is another user's, or can be written by other users and is not sticky, or an ACL may let them; name a directory" \
             "under one only you can write to" >&2
         exit 2
     fi
@@ -108,7 +110,19 @@ unrevoked() {
         "the Maintainer must revoke it by hand." >&2
 }
 
+token_in() {
+    printf '%s\n' "$1" | python3 -I -c '
+import re, sys
+found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.read())
+print(found.group(1) if found else "")' 2>/dev/null || true
+}
+
 finish() {
+    # A stop while the mint's answer is read leaves its token there alone (issue 424).
+    if [ -z "$token" ] && [ -n "${minted:-}" ]; then
+        token=$(token_in "$minted")
+        minted=""
+    fi
     if [ -n "$token" ]; then
         last=$(revoke || true)
         echo "trial_p4_narrow: stopped with a token live; revoking it returned $last" >&2
@@ -161,7 +175,8 @@ with_token() {   # METHOD PATH [BODY_FILE]
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
-    status=$(sed -n '1s/^HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p' "$out/clean-$n")
+    # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
+    status=$(awk 'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-$n")
     body=null
     [ -n "${3:-}" ] && body=$(cat "$3")
     asked="$asked{\"n\": $n, \"call\": \"$1 /$2\", \"body\": $body, \"status\": \"$status\"},"
@@ -180,7 +195,7 @@ printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -i -H @- -H "$ACCEPT" -
 (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
 rm -f "$scratch/raw-1"
 installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["id"])')
-asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(sed -n '1s/^HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p' "$out/clean-1")\"},"
+asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(awk 'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-1")\"},"
 
 # The mint, narrowed: contents read alone, and the one repository. GitHub's answer and its status are held in a
 # variable, never a file, since the minted token is in the answer; python keeps the answer without its token.

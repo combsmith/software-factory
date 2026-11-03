@@ -63,12 +63,14 @@ while :; do
         found="find failed"
     # find -perm does not see an ACL: ls -e on macOS says what one allows; elsewhere ls's + says one is there, unread.
     if listed=$(ls -lde "$above" 2>/dev/null); then
-        case "$listed" in *" allow "*add_file* | *" allow "*add_subdirectory* | *" allow "*delete_child* | *" allow "*write* | *" allow "*chown*) found="an ACL" ;; esac
+        if printf '%s\n' "$listed" | sed 1d | grep -Eq ' allow .*(add_file|add_subdirectory|delete|write|chown)'; then found="an ACL"; fi
+    elif listed=$(ls -ld "$above"); then
+        case "$listed" in ??????????+*) found="an ACL" ;; esac
     else
-        case "$(ls -ld "$above")" in ??????????+*) found="an ACL" ;; esac
+        found="ls failed"
     fi
     if [ -n "$found" ]; then
-        echo "trial_p54_issue_lookup: $above is another user's, or can be written by other users and is not sticky; name a directory" \
+        echo "trial_p54_issue_lookup: $above is another user's, or can be written by other users and is not sticky, or an ACL may let them; name a directory" \
             "under one only you can write to" >&2
         exit 2
     fi
@@ -178,7 +180,7 @@ read_one() {   # NARROWED PATH
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
-    status=$(awk 'BEGIN { head = 1 } head && /^HTTP\/[0-9.]+ [0-9]+/ { found = $2 } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
+    status=$(awk 'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ -z "$status" ]; then
         rm -f "$scratch/raw-$n"
         echo "trial_p54_issue_lookup: GET /$2 with a token narrowed to $1: curl failed; nothing of it is kept" >&2

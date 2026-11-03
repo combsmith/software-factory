@@ -120,11 +120,13 @@ while :; do
         found="find failed"
     # find -perm does not see an ACL: ls -e on macOS says what one allows; elsewhere ls's + says one is there, unread.
     if listed=$(ls -lde "$above" 2>/dev/null); then
-        case "$listed" in *" allow "*add_file* | *" allow "*add_subdirectory* | *" allow "*delete_child* | *" allow "*write* | *" allow "*chown*) found="an ACL" ;; esac
+        if printf '%s\n' "$listed" | sed 1d | grep -Eq ' allow .*(add_file|add_subdirectory|delete|write|chown)'; then found="an ACL"; fi
+    elif listed=$(ls -ld "$above"); then
+        case "$listed" in ??????????+*) found="an ACL" ;; esac
     else
-        case "$(ls -ld "$above")" in ??????????+*) found="an ACL" ;; esac
+        found="ls failed"
     fi
-    [ -z "$found" ] || refuse "$above is another user's, or can be written by other users and is not sticky; name a directory under one only you can write to"
+    [ -z "$found" ] || refuse "$above is another user's, or can be written by other users and is not sticky, or an ACL may let them; name a directory under one only you can write to"
     [ "$above" = / ] && break
     above=$(dirname -- "$above")
 done
@@ -240,7 +242,7 @@ redact() {   # RAW N
     rm -f "$1"
 }
 
-mkdir "$out"
+mkdir -m 700 "$out"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 mkdir "$scratch/ask"
 
