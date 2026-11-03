@@ -597,9 +597,11 @@ def _positional(words: list) -> list:
 
 
 def _bodies(text: str) -> str:
-    """What the here-documents of `text` hold: its lines that are left out once they are taken away, each terminator with them."""
-    kept = set(shell.without_heredocs(text, raw=True).splitlines())
-    return "\n".join(line for line in text.splitlines() if line not in kept)     # a line also outside is in a command's words
+    """What the here-documents of `text` hold, each line as the shell reads it in its body. A line that also stands outside
+    one is still the body's: git \\ before a read, and git \\ before push in a body (Argon on #489)."""
+    bodies = []
+    shell.without_heredocs(text, raw=True, bodies=bodies)
+    return "\n".join(bodies)
 
 
 def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tuple:
@@ -779,8 +781,9 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         # Beside a script, a command that only reads names no write, nor does a comment, nor a read in a substitution, which is a
         # command of its own. What a redirection or a here-document is given may be that script, so they are read whole.
         # What only prints is no write, unless a pipe may carry it to the script, echo 'git push' | bash, or anything
-        # in the command, a compound's closing word or an exec among them, redirects to or from a file (the reviews).
-        piped = any(raw is None and redirected == "|" for raw, redirected, _ in commands)
+        # in the command, a compound's closing word or an exec among them, redirects to or from a file (the reviews),
+        # or $_ gives its last word to what follows: echo 'git push' && bash x.sh "$_" (Argon).
+        piped = any(raw is None and redirected == "|" for raw, redirected, _ in commands) or "$_" in text or "${_" in text
         filed = any(t not in PRINTED_TO and not (op.endswith("&") and t in ("1", "2"))
                     for raw, redirected, _ in commands if raw is not None for op, t in redirected)
         quiet = reading | (set() if piped or filed else printing)

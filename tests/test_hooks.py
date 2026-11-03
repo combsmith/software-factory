@@ -1573,7 +1573,15 @@ class Identity(unittest.TestCase):
                         "f() { echo 'git push origin main'; }; f > /tmp/s.sh; bash /tmp/s.sh", "exec > /tmp/s; echo 'git push'; bash /tmp/s",
                         # printf -v prints nothing: it keeps its text for the shell (Muse). So may any other option.
                         "printf -v x 'git push origin main'; bash -s <<< \"$x\"", "builtin printf -v x 'git push'; bash -s <<< \"$x\"",
-                        "printf -vx 'git push'; bash -s <<< \"$x\"", "printf -v x 'git push origin main'; bash /tmp/x.sh \"$x\""):
+                        "printf -vx 'git push'; bash -s <<< \"$x\"", "printf -v x 'git push origin main'; bash /tmp/x.sh \"$x\"",
+                        # A body's line that also stands outside it is still the body's (Argon on #489).
+                        "git \\\nlog -1\nbash <<'E'\ngit \\\npush origin main\nE",
+                        "true '\ngit \\\n' && bash <<'E'\ngit \\\ncommit -m x\nE",
+                        "bash <<'E'\ngit \\\npush origin main\nE\ngit \\\nlog -1",
+                        # $_ gives what echo printed to what follows; and a backtick's capture, a ( )'s redirection (Argon).
+                        "echo 'git push' && bash /tmp/x.sh \"$_\"", "echo 'git push'; bash /tmp/x.sh \"${_}\"",
+                        "x=`echo 'git push'`; bash /tmp/x.sh \"$x\"", "bash /tmp/x.sh \"`echo 'git push'`\"",
+                        "( echo 'git push origin main'; ) > /tmp/s.sh && sh /tmp/s.sh", "echo 'git push' `true`>/tmp/s; sh /tmp/s"):
             self.assertNotEqual(unseen(command), [], command)
         # Any other reason the hook cannot read the command stands as it did: this gh may be another program.
         spend = identity._budget(5)
@@ -1865,6 +1873,7 @@ class Identity(unittest.TestCase):
     def test_a_write_to_github_through_gh_is_made_as_the_maintainer(self):
         for command in ("gh pr merge 7 --squash", "gh release create v1", "gh api -X POST repos/x/y/rulesets",
                         "gh pr --repo o/r merge 7 --squash", "gh pr -R o/r merge 7", "gh release --repo o/r create v1",
+                        "gh pr --repo=o/r merge 7", "gh pr -Ro/r merge 7",
                         "gh api --method=DELETE repos/x/y", "gh api repos/x/y/issues -f title=x",
                         "gh api -XPATCH repos/x/y"):
             self.assertIn("account_is_machine_user", self.refused(command, FAKE_GH_USER=MACHINE), command)

@@ -11410,6 +11410,10 @@ MUTANTS = ISSUE + [
     ("every reason goes with the script's", 'tools/hooks/identity.py',
      'for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]', 'for why in dict.fromkeys(blind) if names]', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
     # Issue 410: a backtick glued to a redirection, a nested ${...}, and what only prints beside a script.
+    ('$_ carries nothing to what follows', 'tools/hooks/identity.py',
+     ' or "$_" in text or "${_" in text\n', '\n', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    ("a body's line that also stands outside it is not the body's", 'tools/hooks/shell.py',
+     '                if bodies is not None:\n                    bodies.append(line)\n', '', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
     ('a printf given an option only prints', 'tools/hooks/identity.py',
      '        if at is None and program in TEXT_ONLY and not scoped and not (\n                program == "printf" and any(w.startswith("-") for w in words[start + 1:])):\n', '        if at is None and program in TEXT_ONLY and not scoped:\n', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
     ('a gh option before the verb hides a write', 'tools/hooks/identity.py',

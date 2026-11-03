@@ -42,7 +42,7 @@ DELIMITER = re.compile(r"-?[ \t]*[^ \t;&|()<>]*")
 KEPT_TIMES, KEPT_MORE = 8, 4096
 
 
-def without_heredocs(text: str, raw: bool = False) -> str:
+def without_heredocs(text: str, raw: bool = False, bodies: list = None) -> str:
     """`text` with the body of each here-document left out. Raises ValueError if one is never ended.
 
     An operator counts only where the shell would read it: not inside quotes, unless inside a
@@ -53,7 +53,7 @@ def without_heredocs(text: str, raw: bool = False) -> str:
     over several lines there would end the line the body is read after (issue 376). Each script's
     quotes are its own: it is written as requoted writes one, which commands reads as it stands, or,
     with `raw`, as the shell writes it, for a reader that quotes the text itself, as the identity
-    hook's _quoted does, which would otherwise escape it twice.
+    hook's _quoted does, which would otherwise escape it twice. Each line of a body is added to `bodies`, when given.
     """
     out, waiting, stack, kept = [], [], ["code"], []
     room = [KEPT_TIMES * len(text) + KEPT_MORE]     # what is left of it, spent as each level is spelt
@@ -73,6 +73,8 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
                 body.append(line)
+                if bodies is not None:
+                    bodies.append(line)
             continue
         out.append(line)
         i = 0
