@@ -71,8 +71,12 @@ def review_expired(runs: list, facts: dict, role: str) -> bool:
                    for r in runs)
 
 
+# The marks `as_read` puts on an expired Run's thread, for `kernel/gate.py` to read (issue 420).
+MARKS = frozenset({"expired", "superseded"})
+
+
 def expired_threads(facts: dict, runs: list, config: dict) -> dict:
-    """`{thread id: the Run that opened it}` for each required model Lens's thread whose Run's applied/1 is past retention
+    """`{place in the list: the Run that opened it}` for each required model Lens's thread whose Run's applied/1 is past retention
     (issue 420): its category, severity and ruling were never joined, and the latest Run of its Lens that started at or
     before it opened is one `expired_reviews` names. A Lens's Runs on an item run one at a time (section 2, a concurrency
     key per Work item), so a thread is opened between its Run's start and the next's. Any other thread whose category
@@ -82,7 +86,7 @@ def expired_threads(facts: dict, runs: list, config: dict) -> dict:
     required = config["required_lenses"]["model"]
     mine = [r for r in runs if isinstance(r, dict) and r.get("item") == facts.get("item") and is_time(r.get("started_at"))]
     out = {}
-    for th in facts["threads"]:
+    for place, th in enumerate(facts["threads"]):
         by = th.get("opened_by") if isinstance(th, dict) else None
         if not isinstance(by, dict) or by.get("kind") != "lens" or by.get("name") not in required:
             continue
@@ -90,8 +94,12 @@ def expired_threads(facts: dict, runs: list, config: dict) -> dict:
                 or "ruling" not in th or not is_time(th.get("opened_at")) or not isinstance(th.get("id"), str):
             continue
         before = [r for r in mine if r["role"] == by["name"] and r["started_at"] <= th["opened_at"]]
-        if before and max(before, key=lambda r: r["started_at"])["run"] in facts["expired_reviews"]:
-            out[th["id"]] = max(before, key=lambda r: r["started_at"])
+        # A re-run's start is its latest attempt's, so a thread its first attempt opened precedes it: one that may have
+        # been dispatched by then could be the thread's opener, and nothing is read past it.
+        rerun = any(r["role"] == by["name"] and "rerun_by_dispatcher" in r and r["started_at"] > th["opened_at"]
+                    and not (is_time(r.get("dispatched_at")) and r["dispatched_at"] > th["opened_at"]) for r in mine)
+        if before and not rerun and max(before, key=lambda r: r["started_at"])["run"] in facts["expired_reviews"]:
+            out[place] = max(before, key=lambda r: r["started_at"])
     return out
 
 
@@ -100,17 +108,20 @@ def as_read(facts: dict, runs: list, config: dict) -> dict:
     once its Lens has a review that succeeded and started after the Run that opened it, on any content. `kernel/gate.py`
     reads the marks: such a thread gates at any severity, since it may have been a security Finding, and the queue App's
     resolution closes it once it is superseded, with no ruling, since its Finding is gone (decision 0075). Its category,
-    severity and ruling stay as the port gave them. The facts given are never changed."""
+    severity and ruling stay as the port gave them. A mark the facts arrive with is no fact, and is dropped: only this
+    reading makes one. The facts given are never changed."""
     expired = expired_threads(facts, runs, config)
-    if not expired:
+    marked = isinstance(facts.get("threads"), list) and any(isinstance(th, dict) and set(th) & MARKS for th in facts["threads"])
+    if not expired and not marked:
         return facts
 
     def superseded(opener: dict) -> bool:
         return any(r.get("role") == opener["role"] and r.get("intent") == "review-change" and r.get("status") == "completed"
                    and r.get("conclusion") == "success" and is_time(r.get("started_at")) and r["started_at"] > opener["started_at"]
                    and r.get("item") == facts.get("item") for r in runs if isinstance(r, dict))
-    threads = [dict(th, expired=True, superseded=superseded(expired[th["id"]]))
-               if isinstance(th, dict) and th.get("id") in expired else th for th in facts["threads"]]
+    plain = [{k: v for k, v in th.items() if k not in MARKS} if isinstance(th, dict) else th for th in facts["threads"]]
+    threads = [dict(th, expired=True, superseded=superseded(expired[place])) if place in expired else th
+               for place, th in enumerate(plain)]
     return dict(facts, threads=threads)
 
 
@@ -409,9 +420,11 @@ def unreadable_thread(th: dict, lenses: list, facts: dict, config: dict) -> bool
         return True
     if not th["resolved"] and th.get("resolved_by") is not None:
         return True
-    # An expired Run's thread has no category to read, and gates as if it were a security Finding (as_read, issue 420).
+    # An expired Run's open thread has no category to read, and gates as if it were a security Finding (as_read, issue
+    # 420), open or resolved by the queue App ahead of the review that lets it close. One resolved by anyone else is not
+    # the queue App's to resolve, and stays unreadable.
     return (not closed(th) and th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] in lenses
-            and th.get("expired") is not True
+            and not (th.get("expired") is True and (not th["resolved"] or th["resolved_by"]["kind"] == "queue"))
             and (th.get("category") not in t.CATEGORIES or th.get("severity") not in t.SEVERITIES))
 
 

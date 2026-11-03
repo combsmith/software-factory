@@ -1012,12 +1012,16 @@ class OnlyAPersonEnds(unittest.TestCase):
         # gates as a security Finding does, whatever it once was.
         done = dict(gone, resolved=True, resolved_by=dict(QUEUE_APP))
         self.assertEqual(go(dict(expired, threads=[done]), [old, fresh])["action"], "issue_approval")
+        # Resolved by anyone else, it is no longer the queue App's to resolve, and defers as an unreadable thread does,
+        # so no fix Run is admitted on a Finding no one can read.
         for by in (dict(gone["opened_by"]), dict(AUTHOR_APP)):
             d = go(dict(expired, threads=[dict(gone, resolved=True, resolved_by=by)]), [old, fresh])
-            self.assertEqual((d["reason"], d.get("action")), ("findings_open", None), by)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "thread_unreadable", "defer"), by)
         # A person's resolution closes it as it closes any Lens's thread, before the review too.
         person = dict(gone, resolved=True, resolved_by=dict(MAINTAINER))
         self.assertEqual(go(dict(expired, threads=[person]), [old, fresh])["action"], "issue_approval")
+        d = go(dict(expired, threads=[person], queue=True, reviews=APPROVED), [old])
+        self.assertNotEqual(d["reason"], "gate_open")
         # Its queue App's resolution before the fresh review closes nothing: the Lens has not judged yet. A queued item,
         # which reads past the wait for a review, leaves the queue on it.
         d = go(dict(expired, threads=[done]), [old])
@@ -1059,6 +1063,23 @@ class OnlyAPersonEnds(unittest.TestCase):
                                   (dict(gone, category="functional"), [old, fresh], ["r_0OLD01"])):
             d = go(facts(expired_reviews=named, threads=[case]), runs)
             self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "thread_unreadable", ["T7"]), (case, named))
+        # An opening time that cannot be read joins no Run, and another item's Run is no opener of this one's thread.
+        for bad in ("2026-10-11T12:11:60Z", "2026-10-11T12:11:00", None, 7):
+            d = go(dict(expired, threads=[dict(gone, opened_at=bad)]), [old, fresh])
+            self.assertEqual((d["state"], d["reason"]), (None, "thread_unreadable"), bad)
+        elsewhere = run(name="r_0ELS01", at="2026-10-11T12:10:30Z")
+        elsewhere["item"] = dict(elsewhere["item"], number=elsewhere["item"]["number"] + 1)
+        self.assertEqual(go(expired, [old, elsewhere])["reason"], "awaiting_review")
+        # A re-run's start is its last attempt's: a thread its first attempt may have opened is read past no Run, whether
+        # it was dispatched before the thread or when cannot be read; one dispatched after the thread opened is no opener.
+        rerun = dict(fresh, run="r_0NEW02", started_at=at(30), rerun_by_dispatcher=False)
+        late = dict(gone, opened_at=at(20))
+        for when in (at(15), None):
+            r = dict(rerun, dispatched_at=when) if when else rerun
+            d = go(facts(expired_reviews=["r_0OLD01"], threads=[late]), [old, r])
+            self.assertEqual((d["state"], d["reason"]), (None, "thread_unreadable"), when)
+        d = go(facts(expired_reviews=["r_0OLD01"], threads=[late]), [old, dict(rerun, dispatched_at=at(25))])
+        self.assertEqual(d["reason"], "resolve_due")
         # A Lens that is not required gates nothing, so nothing waits on its expired thread, nor is it resolved.
         other = dict(gone, opened_by={"kind": "lens", "name": "coderabbit", "can_write": False})
         theirs = [run(name="r_0CR001", role="coderabbit", at=at(10)), run(name="r_0CR002", role="coderabbit", at=at(20))]
@@ -1074,6 +1095,20 @@ class OnlyAPersonEnds(unittest.TestCase):
         for odd in (None, "r_0OLD01", [7]):
             d = go(dict(expired, expired_reviews=odd), [old, fresh])
             self.assertEqual((d["state"], d["reason"]), (None, "facts_incomplete"), odd)
+        # A mark the facts arrive with is no fact: only the Kernel's reading makes one, of each thread by its place, so a
+        # thread that shares an expired one's id takes none of its marks.
+        rejected = thread(tid="T8", category="security", severity="minor", ruling="rejected", resolved=True,
+                          resolved_by=dict(QUEUE_APP))
+        for marks in ({"superseded": True}, {"expired": True, "superseded": True}):
+            d = go(facts(threads=[dict(rejected, **marks)]), [old, fresh])
+            self.assertEqual(d["reason"], "findings_open", marks)
+            d = go(facts(threads=[dict(gone, **marks)]), [old, fresh])
+            self.assertEqual(d["reason"], "thread_unreadable", marks)
+        d = go(dict(expired, threads=[gone, dict(rejected, id="T7")]), [old, fresh])
+        self.assertEqual(d["reason"], "resolve_due")
+        d = go(dict(expired, threads=[dict(gone, resolved=True, resolved_by=dict(QUEUE_APP)), dict(rejected, id="T7")]),
+               [old, fresh])
+        self.assertEqual(d["reason"], "findings_open")
         # What the Kernel was given is not changed by its reading.
         before = repr(expired)
         go(expired, [old, fresh])
