@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-48",
   "question": "A pull request approved at its head has its description edited before the merge to add a closing keyword for another open issue, and is then merged by the merge queue: is the new issue closed, and is the pull request named its closer?",
-  "pass": "Written on issue 280 on 2026-10-31, before anything ran, and copied here at 2026-11-03T12:14:36Z, before the rest of the run: pass if an issue whose keyword was added after the approval is not closed by the merge, or is closed without the pull request named its closer; fail if it is closed with the pull request named its closer. On canary pull request 53, which says Closes #51 and which the machine user approved at its head d8f7b0e0 on 2026-11-03, a new issue B is opened, and after the approval the description gains Closes #B; the pull request is then merged by the merge queue, enqueued by the Maintainer's login naming that head. The references, each issue's timeline and the approval are read before and after the edit, and each issue's state and closer at once after the merge and a minute later. Issue 280's plan also asked of an issue C, mentioned bare before the approval; with the approval already given that case cannot be made here, and it is not asked. Run on 2026-11-03; issue B is canary issue 94. The issue, the pull request's close and reopen, its description's edit, its branch's restoring after the first attempt, and the queue's check timeout raised for the second and third attempts and restored after each are writes not recorded here. Failed. Before the edit, pull request 53 named 51 alone among its closing references; at once after it, 51 and 94, the machine user's approval still standing, and 94's timeline gained a cross-reference from 53 that will close it, at 12:19:12Z, after the approval at 12:12:52Z, while 51's dates from 2026-10-21. The queue merged 53 on the third attempt, at 13:07:45Z: the first was taken out of the queue, checks_timed_out, its merge group's job waiting 13 minutes for a runner, and the second refused, its required check still queued. Both 51 and 94 then closed, COMPLETED, each ClosedEvent naming pull request 53 its closer and don-petry, who enqueued it, its actor. So a closing keyword added after the approval closes its issue with the pull request named the closer. The timeline tells it apart only by when the cross-reference was made: a bare mention before the approval, turned into a keyword after it, was not tried.",
+  "pass": "Written on issue 280 on 2026-10-31, before anything ran, and copied here at 2026-11-03T12:14:36Z, before the rest of the run: pass if an issue whose keyword was added after the approval is not closed by the merge, or is closed without the pull request named its closer; fail if it is closed with the pull request named its closer. On canary pull request 53, which says Closes #51 and which the machine user approved at its head d8f7b0e0 on 2026-11-03, a new issue B is opened, and after the approval the description gains Closes #B; the pull request is then merged by the merge queue, enqueued by the Maintainer's login naming that head. The references, each issue's timeline and the approval are read before and after the edit, and each issue's state and closer at once after the merge and a minute later. Issue 280's plan also asked of an issue C, mentioned bare before the approval; with the approval already given that case cannot be made here, and it is not asked. Run on 2026-11-03; issue B is canary issue 94. The issue, the pull request's close and reopen, its description's edit, its branch's restoring after the first attempt, and the queue's check timeout raised for the second and third attempts and restored after each are writes not recorded here. Failed. Before the edit, pull request 53 named 51 alone among its closing references; at once after it, 51 and 94, the machine user's approval still standing, and 94's timeline gained a cross-reference from 53 that will close it, at 12:19:12Z, after the approval at 12:12:52Z, while 51's dates from 2026-10-21. The queue merged 53 on the third attempt, at 13:07:45Z: the first was taken out of the queue, checks_timed_out, its merge group's job waiting 13 minutes for a runner, and the second refused, its required check still queued. Both 51 and 94 then closed, COMPLETED, each ClosedEvent naming pull request 53 its closer and don-petry, who enqueued it, its actor. So a closing keyword added after the approval closes its issue with the pull request named the closer. Nothing here shows the timeline can tell such a keyword apart: 94 was opened during the run, so nothing could mention it before the approval, and a bare mention before it, which issue 280's plan asked of an issue C and this run could not make, would date the cross-reference earlier. willCloseTarget is read as it now stands: 94's read true before the close and false after it, and 51's false after it, so once merged it says nothing of which reference closed.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-11-03T12:14:36Z",
   "exchanges": [
@@ -880,7 +880,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, at once after the merge",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, after the first attempt, which the queue took out unmerged",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -968,7 +968,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, at once after the merge",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, at once after the first attempt, which the queue took out unmerged",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -1123,7 +1123,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, at once after the merge",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, at once after the first attempt, which the queue took out unmerged",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -1182,7 +1182,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, a minute after the merge",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, a minute after the first attempt, which the queue took out unmerged",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -1337,7 +1337,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the merge",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the first attempt, which the queue took out unmerged",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -1796,7 +1796,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, its required check run again on the reopen",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, while its required check, run again on the reopen, waited for a runner",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2098,7 +2098,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, the Maintainer's write, naming the approved head, again",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, the Maintainer's write, naming the approved head, the second time",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2155,7 +2155,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, after the trial, restored",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, after the second attempt, restored",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2268,7 +2268,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, at once after it left the queue",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, at once after the second enqueue was refused",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2356,7 +2356,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): pull request 53's queue entries, removals, closes, reopenings and merge, at once after it left the queue",
+        "call": "POST /graphql (gh api graphql): pull request 53's queue entries, removals, closes, reopenings and merge, at once after the second enqueue was refused",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2453,7 +2453,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, at once after the merge",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, at once after the second enqueue was refused",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2608,7 +2608,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, at once after the merge",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, at once after the second enqueue was refused",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2667,7 +2667,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, a minute after the merge",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, a minute after the second enqueue was refused",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2822,7 +2822,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the merge",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the second enqueue was refused",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -3292,7 +3292,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, its required check run again on the reopen",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, its required check passed",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -3380,7 +3380,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, before the second enqueue",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, before the third enqueue",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -3535,7 +3535,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, before the second enqueue",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, before the third enqueue",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -3640,7 +3640,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, after the trial, restored",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, after the third attempt, restored",
         "headers": {
           "accept": "application/vnd.github+json"
         },
