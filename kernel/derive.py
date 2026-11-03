@@ -33,6 +33,15 @@ def since_writer(runs: list, facts: dict) -> list:
     return [r for r in runs if r["started_at"] > mark]
 
 
+def acted_since_writer(runs: list, facts: dict) -> list:
+    """Runs started at or after the last action by a person with write access: an act made in the writer's own second
+    may follow it, so it is counted, as the timeline port counts acts (issue 381). Its count fails closed."""
+    mark = facts.get("last_writer_action_at")
+    if mark is None:
+        return runs
+    return [r for r in runs if r["started_at"] >= mark]
+
+
 def in_progress(runs: list) -> list:
     """Runs that hold the item: started, or admitted and still waiting for a runner."""
     return [r for r in runs if r["status"] != "completed"]

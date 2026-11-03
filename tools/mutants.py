@@ -153,8 +153,8 @@ UNIDENTIFIED = "tests.test_decide.UnidentifiedRuns."
 PUSHER_TESTS = ("tests.test_decide.Convergence.test_an_unreadable_last_pusher_lets_nothing_through",)
 RUN_BRAKES = ("    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts),"
               " limits)\n    if brake:\n        return brake\n")
-ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])\n'
-              "    if brake:\n        return brake\n")
+ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"],\n'
+              "                          acted_since_writer(mine, facts))\n    if brake:\n        return brake\n")
 # The deferral for an unidentified Run in decide.py's _act, the first after the brakes it follows; and the call that
 # reads every deferral of a Run, the first after the brakes in decide.py's _decide and in issue.py's decide.
 UNIDENTIFIED_DEFERS = '        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)\n'
@@ -4740,23 +4740,24 @@ MUTANTS = ISSUE + [
     ("an approval that does not land is issued for ever", "kernel/brakes.py",
      '    if len(failed) >= limits["max_attempts"]:\n', "    if False:\n", ("tests.test_decide.Ceilings",)),
     ("with no writer's action, no Run counts toward a ceiling", "kernel/derive.py",
-     "    if mark is None:\n        return runs\n", "    if mark is None:\n        return []\n",
+     "    if mark is None:\n        return runs\n    return [r for r in runs if r[\"started_at\"] > mark]",
+     "    if mark is None:\n        return []\n    return [r for r in runs if r[\"started_at\"] > mark]",
      ("tests.test_decide.Ceilings",)),
     ("a writer's action does not renew an approval's allowance", "kernel/decide.py",
      "    since = since_writer(mine, facts)\n", "    since = mine\n", ("tests.test_decide.Ceilings",)),
     ("a failed model Run counts as an approval attempt", "kernel/brakes.py",
-     "_attempts(since, t.ISSUE_APPROVAL)",
+     "_attempts(since, intent)",
      '[r for r in since if r["status"] == "completed" and r["conclusion"] != "success" and r.get("outcome") == "item"]',
      ("tests.test_decide.Ceilings",)),
     ("an approval's failed attempts stop an enqueue", "kernel/brakes.py",
-     '    if action == "issue_approval":\n', "    if True:\n", ("tests.test_decide.Ceilings",)),
+     '    if action in ("issue_approval", "resolve_thread"):\n', "    if True:\n", ("tests.test_decide.Ceilings",)),
     ("acts are unlimited", "kernel/brakes.py",
-     '    if readable and acts + _landed(since) >= limits["max_acts_per_item"]:\n', "    if False:\n", ("tests.test_decide.Classes",)),
+     '    if readable and acts + _landed(acted) >= limits["max_acts_per_item"]:\n', "    if False:\n", ("tests.test_decide.Classes",)),
     ("the act ceiling is reached one act late", "kernel/brakes.py",
-     'acts + _landed(since) >= limits["max_acts_per_item"]', 'acts + _landed(since) > limits["max_acts_per_item"]', ("tests.test_decide.Classes",)),
+     'acts + _landed(acted) >= limits["max_acts_per_item"]', 'acts + _landed(acted) > limits["max_acts_per_item"]', ("tests.test_decide.Classes",)),
     ("an enqueue is not held to the act ceiling", "kernel/brakes.py",
-     '    if readable and acts + _landed(since) >= limits["max_acts_per_item"]:\n',
-     '    if readable and acts + _landed(since) >= limits["max_acts_per_item"] and action == "issue_approval":\n',
+     '    if readable and acts + _landed(acted) >= limits["max_acts_per_item"]:\n',
+     '    if readable and acts + _landed(acted) >= limits["max_acts_per_item"] and action == "issue_approval":\n',
      ("tests.test_decide.Ceilings",)),
     ("an unreadable count of acts is read as none", "kernel/brakes.py",
      '    acts = facts.get("acts_since_writer")\n', '    acts = facts.get("acts_since_writer") or 0\n',
@@ -4833,7 +4834,7 @@ MUTANTS = ISSUE + [
      'if past and len(past) > limits["max_unnamed_runs"]', 'if len(past) > limits["max_unnamed_runs"]',
      (UNIDENTIFIED + "test_past_max_unnamed_runs_every_run_defers",)),
     ("the bound of Runs unnamed comes before an approval's brakes", "kernel/decide.py",
-     '    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])\n    if brake:\n        return brake\n',
+     '    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"],\n                          acted_since_writer(mine, facts))\n    if brake:\n        return brake\n',
      '    past = unnamed_past(context, now, config["limits"]) if action == "issue_approval" else []\n    if past and len(past) > config["limits"]["max_unnamed_runs"]:\n        return _decision(facts, state, "runs_unnamed", evidence, t.DEFER)\n    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])\n    if brake:\n        return brake\n',
      (UNIDENTIFIED + "test_past_max_unnamed_runs_every_run_defers",)),
     ("an unnamed run not yet started is read as it is listed", "adapters/records.py",
@@ -5148,7 +5149,7 @@ MUTANTS = ISSUE + [
     ("failed approvals hold an approved item while a Run waits", "kernel/decide.py",
      ' and _action(reason) == "issue_approval":\n', ":\n", ("tests.test_decide.Ceilings",)),
     ("a deferral hides a spent approval count while a Run waits", "kernel/decide.py",
-     "held = brakes.approval_ceilings(_decision, facts, done, config[\"limits\"])",
+     "held = brakes.approval_ceilings(_decision, facts, done, config[\"limits\"], t.ISSUE_APPROVAL)",
      "held = brakes.on_act(_decision, facts, state, evidence, context, _action(reason), done, config[\"limits\"])",
      ("tests.test_decide.Ceilings",)),
     ("spent rounds wait behind a Run in flight", "kernel/decide.py",
@@ -5356,13 +5357,14 @@ MUTANTS = ISSUE + [
                   "    if held:\n        return held\n", "        return pause\n"), ("tests.test_decide.Ceilings",)),
     ("an approval's spent count waits behind the Pause", "kernel/brakes.py",
      *moved_after("kernel/brakes.py",
-                  '    if action == "issue_approval":\n'
-                  "        held = approval_ceilings(_decision, facts, since, limits)\n"
+                  '    if action in ("issue_approval", "resolve_thread"):\n'
+                  "        held = approval_ceilings(_decision, facts, since, limits,\n"
+                  '                                 t.ISSUE_APPROVAL if action == "issue_approval" else t.RESOLVE_THREAD)\n'
                   "        if held:\n            return held\n", "        return stopped\n"),
      ("tests.test_decide.Ceilings",)),
     ("the act ceiling waits behind the Pause", "kernel/brakes.py",
      *moved_after("kernel/brakes.py",
-                  '    if readable and acts + _landed(since) >= limits["max_acts_per_item"]:\n'
+                  '    if readable and acts + _landed(acted) >= limits["max_acts_per_item"]:\n'
                   '        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n', "        return stopped\n"),
      ("tests.test_decide.Ceilings",)),
     ("an unreadable count of acts defers before the Pause", "kernel/brakes.py",
@@ -11501,8 +11503,17 @@ MUTANTS = ISSUE + [
     ("every reason goes with the script's", 'tools/hooks/identity.py',
      'for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]', 'for why in dict.fromkeys(blind) if names]', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
     # Issue 381: the queue App's grant, and each resolution it lands counted as an act.
+    ("a resolution in the writer's own second is no act", 'kernel/derive.py',
+     '    return [r for r in runs if r["started_at"] >= mark]\n\n\ndef in_progress',
+     '    return [r for r in runs if r["started_at"] > mark]\n\n\ndef in_progress', ('tests.test_decide.Ceilings.test_each_landed_resolution_counts_toward_the_act_ceiling',)),
+    ('a resolution that keeps failing is decided again', 'kernel/brakes.py',
+     '    if action in ("issue_approval", "resolve_thread"):\n',
+     '    if action == "issue_approval":\n', ('tests.test_decide.Ceilings.test_each_landed_resolution_counts_toward_the_act_ceiling',)),
+    ("a resolution's attempts are an approval's", 'kernel/brakes.py',
+     '                                 t.ISSUE_APPROVAL if action == "issue_approval" else t.RESOLVE_THREAD)',
+     '                                 t.ISSUE_APPROVAL)', ('tests.test_decide.Ceilings.test_each_landed_resolution_counts_toward_the_act_ceiling',)),
     ('a landed resolution is no act', 'kernel/brakes.py',
-     'if readable and acts + _landed(since) >= limits["max_acts_per_item"]:',
+     'if readable and acts + _landed(acted) >= limits["max_acts_per_item"]:',
      'if readable and acts >= limits["max_acts_per_item"]:', ('tests.test_decide.Ceilings.test_each_landed_resolution_counts_toward_the_act_ceiling',)),
     ('any Run that landed is a resolution', 'kernel/brakes.py',
      'return sum(1 for r in since if r["intent"] == t.RESOLVE_THREAD and r["status"] == "completed"',
