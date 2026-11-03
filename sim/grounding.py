@@ -51,19 +51,20 @@ RULES = (
      ("P-42",), "trials/P-42.rollup.json", None),
     # Contradicted by P-42 (trials/P-42.json): neutral, skipped and cancelled kept an hour, but no timed_out, GitHub
     # concluding a job stopped at its timeout cancelled; issue 388 ruled a step's own timeout a failure
-    # (trials/P-42.step-timeout.json). Left unverified, as the fake applies it: changing it is a story of its own.
+    # (trials/P-42.step-timeout.json). Left unverified, as the fake applies it: issue 496.
     ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
      "or stale, and keeps that conclusion until the content changes or a person runs it again",
      ("P-42",), None, None),
     # Contradicted in part by trials/P-42.rollup.json: the status rollup the port reads held the same runs as
     # filter=latest, by id, name, suite and App, four Apps among them, but it drops a run of a name in a suite once a
     # later one has that name there, a re-run or a post alike, so not every check run on the head is read. Left
-    # unverified, as the fake applies it: changing the rule and the fake is a story of its own.
+    # unverified, as the fake applies it: issue 496.
     ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
      "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), None, None),
-    # Contradicted in part by trials/P-42.rollup.json: a re-run replaced its own runs in the status rollup and the
-    # other suite's run of the name stayed, but a later post of a name in a suite replaced the earlier one too, so a
-    # re-run is not the only thing that replaces. Left unverified, as the fake applies it: a story of its own.
+    # Contradicted in part by trials/P-42.rollup.json: a re-run replaced its own run in the status rollup and the other
+    # suite's run of the name stayed, but a later post of a name in a suite replaced the earlier one too, and one job's
+    # re-run gave the jobs it did not run new check runs, so a re-run is not the only thing that replaces, nor does it
+    # replace only its own. Left unverified, as the fake applies it: issue 496.
     ("a_rerun_replaces_only_its_own_run", "Only a re-run of the same job in the same check suite replaces an earlier "
      "check run: filter=latest is per check suite, so two workflow runs on one commit both stay", ("P-42",), None,
      None),
