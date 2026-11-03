@@ -10251,6 +10251,10 @@ class EditsReadTrial(IssueLookupTrial):
     GIVEN = (CANARY, "96")
     FIRST = "pull_requests"
     KEPT = ('"lastEditedAt": "2026-11-03T19:24:25Z"', '"login": "don-petry"', '"editedAt"')
+    # The port's query, word for word (issue 519): the reader leg reads exactly what the port will send.
+    QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
+             "lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} "
+             "nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}")
     NOT_A_NUMBER = "is not a pull request's number"
     # The stand-in answers the GraphQL read: to a token narrowed to pull_requests, and to any token where the repo is
     # public, as a file beside it says; and it keeps what was sent, for the test to read.
@@ -10271,7 +10275,9 @@ class EditsReadTrial(IssueLookupTrial):
                 {"editedAt": "2026-11-03T19:20:23Z", "createdAt": "2026-11-03T19:20:23Z", "deletedAt": None,
                  "editor": {"__typename": "User", "login": "don-petry", "databaseId": 36422719}}]}}}}}
     else:
-        status, answer = 403, {"message": "Resource not accessible by integration"}
+        # GraphQL refuses an integration with 200, a null in place of what it may not read, and an error.
+        status, answer = 200, {"data": {"repository": {"pullRequest": None}},
+                               "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
 elif "/issues/" in url:''', 1)
 
     def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
@@ -10279,7 +10285,7 @@ elif "/issues/" in url:''', 1)
         listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
         app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]
         installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
-        for public, metadata in ((False, 403), (True, 200)):
+        for public in (False, True):
             with self.subTest(public=public):
                 self.setUp()
                 if public:
@@ -10287,6 +10293,9 @@ elif "/issues/" in url:''', 1)
                 ran = self.run_script()
                 self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
                 calls = self.calls()
+                # Each token is minted, read with once and revoked before the next is minted.
+                self.assertEqual([(c["method"], c["url"].rsplit("/", 1)[1]) for c in calls],
+                                 [("POST", "access_tokens"), ("POST", "graphql"), ("DELETE", "token")] * 2)
                 mints = [c for c in calls if c["url"].endswith("/access_tokens")]
                 self.assertEqual([m["url"].split("/app/")[1] for m in mints],
                                  ["installations/%d/access_tokens" % installation] * 2)
@@ -10299,25 +10308,24 @@ elif "/issues/" in url:''', 1)
                 self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
                 # What was sent is the port's query, the pull request named by variables alone.
                 sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
-                self.assertEqual(len(sent), 2)
                 owner, name = self.CANARY.split("/")
-                self.assertEqual(sent[0]["variables"], {"owner": owner, "name": name, "number": 96})
-                for field in ("lastEditedAt", "editor{__typename login}", "userContentEdits(first:100)", "editedAt",
-                              "pageInfo{hasNextPage endCursor}", "... on Bot{databaseId}"):
-                    self.assertIn(field, sent[0]["query"])
-                self.assertNotIn("96", sent[0]["query"])
+                self.assertEqual(sent, [{"query": self.QUERY, "variables": {"owner": owner, "name": name, "number": 96}}] * 2)
                 texts = {p.name: p.read_text() for p in self.out.iterdir()}
                 self.assertEqual(sorted(texts), ["clean-1", "clean-2", "query.json", "ran_at", "redacted-1", "redacted-2",
                                                  "requests.json"])
                 self.assertEqual(json.loads(texts["query.json"]), sent[0])
                 asked = json.loads(texts["requests.json"])
-                self.assertEqual([(a["narrowed_to"], a["call"], a["status"]) for a in asked if "call" in a],
-                                 [(self.FIRST + ": read", "POST /graphql", 200), ("metadata: read", "POST /graphql", metadata)])
-                self.assertEqual([a for a in asked if "revoked" in a],
-                                 [{"revoked": self.FIRST + ": read", "status": 204}, {"revoked": "metadata: read", "status": 204}])
+                self.assertEqual([(a.get("narrowed_to") or a.get("revoked"), a.get("call"), a["status"]) for a in asked],
+                                 [(self.FIRST + ": read", "POST /graphql", 200), (self.FIRST + ": read", None, 204),
+                                  ("metadata: read", "POST /graphql", 200), ("metadata: read", None, 204)])
                 for kept in self.KEPT:
                     self.assertIn(kept, texts["clean-1"])
+                # The second token's answer: the edits where the repo is public, else GraphQL's refusal, kept as it came.
+                for kept in (self.KEPT if public else ('"FORBIDDEN"', '"pullRequest": null')):
+                    self.assertIn(kept, texts["clean-2"])
+                # Every answer carried a token-shaped string, and the redaction took each out and said so.
                 self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+                self.assertTrue(texts["redacted-1"].strip() and texts["redacted-2"].strip())
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
         for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
@@ -10353,8 +10361,18 @@ elif "/issues/" in url:''', 1)
             self.assertEqual(self.calls(), [], given)
         self.key.unlink()
         ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0)
         self.assertIn("cannot read the key file", ran.stderr)
         self.assertEqual(self.calls(), [])
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the read's, 200 with an error where refused.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 200])
+        self.assertIn('"FORBIDDEN"', (self.out / "clean-2").read_text())
 
 
 
