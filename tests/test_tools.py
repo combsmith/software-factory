@@ -1525,6 +1525,15 @@ for folder, _, names in os.walk(os.environ["TMPDIR"]):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
         self.assertTrue(caught(self.check(), "effect:comment is held by controller and pr-review"))
 
+    def test_a_write_need_no_app_holds_is_caught(self):  # issue 381
+        # A write the table maps to a permission is made by some App; one no App holds is an Effect no one can make.
+        self.apps["queue"]["permissions"]["contents"]["needs"].remove("effect:resolve_thread")
+        self.assertTrue(caught(self.check(), "effect:resolve_thread maps to a permission and no App holds it"))
+        # One that waits is held by no App until it is settled, and a read no App holds is no Effect left unmade.
+        self.needs["effect:resolve_thread"] = {"waits_on": "the queue App's registration"}
+        self.needs["read:facts.example"] = {"permission": "metadata", "level": "read"}
+        self.assertFalse([p for p in self.check() if "no App holds it" in p])
+
     def test_a_need_with_no_mapping_and_no_wait_is_caught(self):
         self.needs["read:facts.reviews"] = {}
         self.needs["read:facts.threads"] = {"permission": "pull_requests", "level": "read", "waits_on": "trial P-2"}

@@ -27,6 +27,8 @@ ADMIT = "admit"  # start one Run
 
 # The Intent of the Run with no Engine that issues an approval: only its `apply` holds the machine user's token.
 ISSUE_APPROVAL = "issue-approval"
+# The Intent of the queue App's job that resolves a Lens's thread as the Kernel's act (decision 0086, issue 381).
+RESOLVE_THREAD = "resolve-thread"
 
 # Attention classes, in the order the control room lists them.
 NEEDS_YOU = "needs_you"

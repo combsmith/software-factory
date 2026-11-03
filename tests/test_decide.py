@@ -2690,6 +2690,38 @@ class Ceilings(unittest.TestCase):
                 self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"]),
                                  ("held", "hold", "act_ceiling", "needs_you"), (action, acts))
 
+    def test_each_landed_resolution_counts_toward_the_act_ceiling(self):  # issue 381, decision 0086
+        # A resolution is no timeline event, so the port's count of acts never sees one: each the queue App's job landed is
+        # read from the run records instead, a Run of Intent resolve-thread that succeeded since a writer last acted.
+        limit = LIMITS["max_acts_per_item"]
+        accepted = [thread(ruling="accepted")]
+        landed = run(intent="resolve-thread", role="pr-review", at=at(12), name="r_0RES001")
+        for reviews, threads, action in (([], [], "issue_approval"), (APPROVED, [], "enqueue"), ([], accepted, "resolve_thread")):
+            d = go(facts(reviews=reviews, threads=threads, acts_since_writer=limit - 2), REVIEWED + [landed])
+            self.assertEqual((d["outcome"], d["action"]), ("act", action), action)
+            d = go(facts(reviews=reviews, threads=threads, acts_since_writer=limit - 1), REVIEWED + [landed])
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "act_ceiling", "hold"), action)
+            two = [landed, dict(landed, run="r_0RES002", started_at=at(13))]
+            d = go(facts(reviews=reviews, threads=threads, acts_since_writer=limit - 2), REVIEWED + two)
+            self.assertEqual(d["reason"], "act_ceiling", action)
+        # One that did not land made no act; nor did one before a writer last acted, nor another Intent's that succeeded.
+        for other in (dict(landed, conclusion="failure", outcome="environment"),
+                      dict(landed, started_at="2026-10-11T11:59:00Z"), dict(landed, intent="review-change")):
+            d = go(facts(acts_since_writer=limit - 1), REVIEWED + [other])
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), other)
+        # One still running holds the item, as any Run in flight does, and is counted once it has landed.
+        d = go(facts(acts_since_writer=limit - 1), REVIEWED + [dict(landed, status="in_progress", conclusion=None)])
+        self.assertEqual(d["outcome"], "nothing")
+        # A landed resolution spends no model, so the Run ceiling counts it no more than a landed approval; one that did
+        # not land is bounded by the Run ceiling, as an approval that did not land is.
+        ceiling = LIMITS["max_runs_per_item"]
+        many = [dict(landed, run="r_0RES%03d" % i, started_at=at(13 + i)) for i in range(ceiling)]
+        d = go(facts(acts_since_writer=0), REVIEWED + many)
+        self.assertNotEqual(d["reason"], "run_ceiling")
+        failed = [dict(m, conclusion="failure", outcome="environment") for m in many]
+        d = go(facts(acts_since_writer=0), REVIEWED + failed)
+        self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
+
     def test_an_unreadable_count_of_acts_makes_no_act(self):  # I-13
         # A fact read from outside is never given a default: a count that is not a whole number is unreadable.
         for reviews in ([], APPROVED):
