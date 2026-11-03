@@ -232,7 +232,7 @@ class Task(unittest.TestCase):
     def test_a_pull_requests_task_carries_its_change_first_as_outside_text(self):  # decision 0050
         t = built([text()])
         self.assertEqual(t["texts"][0], {"id": "diff:" + CONTENT.split(":")[1], "trust": "outside",
-                                         "source": facts()["last_pusher"], "body": DIFF.decode()})
+                                         "source": facts()["last_pusher"], "body": task.numbered(DIFF.decode())})
         self.assertEqual([x["id"] for x in t["texts"][1:]], ["thread:PRRT_kw1"])
         # Whoever pushed it, the Maintainer among them, the change is outside text: it is what a review judges.
         self.assertEqual(facts()["last_pusher"], "don-petry")
@@ -253,6 +253,32 @@ class Task(unittest.TestCase):
         content = "sha256:" + hashlib.sha256(raw).hexdigest()
         with self.assertRaises(task.Refused):
             built(record=record(admit=dict(REVIEW, content_id=content)), facts=facts(content), diff=raw)
+
+    def test_each_line_the_head_holds_is_given_its_number_there(self):  # decision 0137
+        # On a long diff the model counted a head line one off from its hunk's header; the Task gives it the numbers.
+        diff = ("diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -3,3 +3,4 @@ def x():\n a\n-b\n+c\n+d\n e\n"
+                "@@ -40 +41,2 @@\n-old\n\\ No newline at end of file\n+new\r\n+\n"
+                "diff --git a/g b/g\nnew file mode 100644\n--- /dev/null\n+++ b/g\n@@ -0,0 +1 @@\n+only\n")
+        self.assertEqual(task.numbered(diff), (
+            "diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -3,3 +3,4 @@ def x():\n3| a\n-b\n4|+c\n5|+d\n6| e\n"
+            "@@ -40 +41,2 @@\n-old\n\\ No newline at end of file\n41|+new\r\n42|+\n"
+            "diff --git a/g b/g\nnew file mode 100644\n--- /dev/null\n+++ b/g\n@@ -0,0 +1 @@\n1|+only\n"))
+        # A hunk ends when its counts are spent, each counted on its own side, a header's omitted count being one: the
+        # next file's header, and lines that start like a hunk's after it, are as git wrote them. A line no hunk holds
+        # ends one early.
+        for spent, given in (("@@ -1,2 +1 @@\n x\n-y\n--- a/h\n+++ b/h\n context\n",
+                              "@@ -1,2 +1 @@\n1| x\n-y\n--- a/h\n+++ b/h\n context\n"),
+                             ("@@ -1,3 +1,2 @@\n x\n y\n-z\n+++ b/h\n", "@@ -1,3 +1,2 @@\n1| x\n2| y\n-z\n+++ b/h\n"),
+                             ("@@ -5 +5 @@\n-a\n+b\n+++ b/x\n \n", "@@ -5 +5 @@\n-a\n5|+b\n+++ b/x\n \n"),
+                             ("@@ -1,3 +1,3 @@\n x\ndiff --git a/i b/i\n+y\n", "@@ -1,3 +1,3 @@\n1| x\ndiff --git a/i b/i\n+y\n")):
+            self.assertEqual(task.numbered(spent), given)
+        # An empty line inside a hunk is a context line some tools strip, and is numbered as one.
+        self.assertEqual(task.numbered("@@ -5,2 +5,2 @@\n\n x\n"), "@@ -5,2 +5,2 @@\n5|\n6| x\n")
+        # A diff with no hunk, or none at all, is carried as it is.
+        for plain in ("", "Binary files a/p and b/p differ\n", "+not in a hunk\n"):
+            self.assertEqual(task.numbered(plain), plain)
+        # Numbered file by file, as the budget cuts it, the diff is numbered as a whole is: the bound is one measure.
+        self.assertEqual("".join(task.numbered(p) for p in task.FILE_START.split(diff) if p), task.numbered(diff))
 
     def test_a_change_over_its_budget_is_cut_at_a_files_boundary_and_says_how_much(self):  # decision 0050, L-56
         def part(name, n):
@@ -289,7 +315,7 @@ class Task(unittest.TestCase):
                                                                                          characters=20)))
         self.assertEqual(narrow["omitted"], [{"kind": "diff", "texts": 1, "characters": len(b)}])
         self.assertEqual(narrow_texts["omitted"], [{"kind": "thread", "texts": 1, "characters": 30}])
-        self.assertEqual(narrow_texts["texts"][0]["body"], DIFF.decode())
+        self.assertEqual(narrow_texts["texts"][0]["body"], task.numbered(DIFF.decode()))
         every = with_change(a + b, size(a), [text("thread:T1", body="t" * 30), text("comment:C1", body="u" * 90)], 20)
         self.assertEqual([o["kind"] for o in every["omitted"]], ["comment", "diff", "thread"])
 
@@ -660,7 +686,7 @@ class Job(unittest.TestCase):
     def test_a_review_given_part_of_the_diff_is_never_asked(self):  # issue 327
         # The Kernel holds a pull request whose diff no Task carries whole. Were one admitted all the same, the run job
         # writes a failed Result, the Factory's fault, before the CLI is started: a review never judges part of a change.
-        whole = task.carried(DIFF.decode())
+        whole = task.carried(task.numbered(DIFF.decode()))
         for room, asked in ((whole, True), (whole - 1, False), (1, False)):
             with tempfile.TemporaryDirectory() as d:
                 where = pathlib.Path(d)

@@ -211,7 +211,7 @@
           "minimum": 1
         },
         "max_diff_characters": {
-          "description": "The longest diff, in characters as a Task carries it, escaped, that a review is given whole. A pull request whose diff is longer, or whose length was not read, is held too large; the Harness gives a Run no more (issue 327).",
+          "description": "The longest diff, in characters as a Task carries it, numbered and escaped, that a review is given whole. A pull request whose diff is longer, or whose length was not read, is held too large; the Harness gives a Run no more (issue 327).",
           "type": "integer",
           "minimum": 1
         },
