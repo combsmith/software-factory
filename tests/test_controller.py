@@ -191,6 +191,40 @@ class Record(unittest.TestCase):
         approval = passed(reads(runs=[run()]))["record"]["pull_requests"][0]
         self.assertEqual((approval["decision"].get("action"), approval["run"]), ("issue_approval", "r_000002A"))
 
+    def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
+        # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
+        # named by run-name/1 with an Intent of its own, so the records port counts each. Until the configuration names
+        # that workflow, each stays an act no write serves.
+        queued = config(workflows=dict(CONTROLLER["workflows"], queue="queue.yml"))
+        approved = reads(pulls=[pr(1), pr(2, reviews=[support.review()])], runs=[run(number=2)])
+        out = passed(approved, cfg=queued)
+        got = [(e["decision"].get("action"), e["run"]) for e in out["record"]["pull_requests"]]
+        self.assertEqual(got, [(None, "r_000002A"), ("enqueue", "r_000003A")])
+        self.assertEqual(out["dispatch"][1], {"run": "r_000003A", "name": "sf %s#2 enqueue-merge pr-review sha256:aaaa r_000003A" % REPO})
+        self.assertEqual((records.named(out["dispatch"][1]["name"])["intent"], records.named(out["dispatch"][1]["name"])["item"]["type"]),
+                         ("enqueue-merge", "pull_request"))
+        self.assertEqual(out["acts"], [])
+        before = passed(approved)
+        self.assertEqual([(e["decision"].get("action"), e["run"]) for e in before["record"]["pull_requests"]],
+                         [(None, "r_000002A"), ("enqueue", None)])
+        self.assertEqual([a["action"] for a in before["acts"]], ["enqueue"])
+        # Each act by its own Intent.
+        accepted = reads(pulls=[pr(2, threads=[support.thread(ruling="accepted")])], runs=[run(number=2)])
+        person = support.thread(kind="human", name="don-petry", severity=None)
+        gated = reads(pulls=[pr(2, queue=True, reviews=[support.review()], threads=[person])], runs=[run(number=2)])
+        for given, intent in ((accepted, "resolve-thread"), (gated, "dequeue-merge")):
+            out = passed(given, cfg=queued)
+            self.assertEqual([records.named(d["name"])["intent"] for d in out["dispatch"]], [intent], intent)
+            self.assertEqual(out["acts"], [], intent)
+        # An act the queue App does not make stays one no write serves.
+        out = passed(reads(pulls=[], issues=[an_issue(7)]), cfg=queued)
+        self.assertEqual(([a["action"] for a in out["acts"]], out["dispatch"]), (["accept"], []))
+
+    def test_the_queue_workflows_runs_are_read_once_it_is_named(self):  # issue 381
+        self.assertEqual(entry.run_files(CONTROLLER), ["run.yml", "approve.yml"])
+        named = dict(CONTROLLER, workflows=dict(CONTROLLER["workflows"], queue="queue.yml"))
+        self.assertEqual(entry.run_files(named), ["run.yml", "approve.yml", "queue.yml"])
+
     def test_the_runs_to_dispatch_are_named_by_their_run_names(self):  # section 3.10
         out = passed(reads(pulls=[pr(1), pr(2)], runs=[run(number=2)]))
         self.assertEqual(out["dispatch"], [

@@ -124,6 +124,37 @@ class Effects(unittest.TestCase):
             found.append(answered(effects.dispatch_path(controller(), kind), body, status))
         return found
 
+    def test_a_queue_act_is_dispatched_to_the_queue_workflow_once_it_is_named(self):  # issue 381
+        cfg = controller()
+        self.assertIsNone(cfg["workflows"]["queue"])
+        self.assertNotIn("queue.yml", json.dumps(sorted(effects.workflow_permits(cfg))))
+        named = dict(cfg, workflows=dict(cfg["workflows"], queue="queue.yml"))
+        path = effects.dispatch_path(named, "queue")
+        self.assertIn(("POST", path), effects.workflow_permits(named))
+        queued = config(workflows=dict(config()["controller"]["workflows"], queue="queue.yml"))
+        o = passed(reads(pulls=[pr(2, reviews=[support.review()])], runs=[run(number=2)]), cfg=queued)
+        plan = writes_.plan(o)
+        self.assertEqual([w["type"] for w in plan["writes"]], ["dispatch_queue", "tracking_issue"])
+        self.assertEqual([(w["type"], w["item"], w["run"], w["name"], w["action"]) for w in plan["writes"][:1]],
+                         [t[:5] for t in effects.expected(o["record"], OWNER)[:1]])
+        w = plan["writes"][0]
+        body = {"ref": "main", "inputs": {"name": w["name"], "item": "%s#%d" % (w["item"]["repo"], w["item"]["number"]),
+                                          "pass": o["record"]["pass"]}}
+        replay = github.Replay([answered(path, body, 204)])
+        got = self.apply(plan, o["record"], effects.Allowed(replay, effects.workflow_permits(named)), named)
+        self.assertEqual([(x["type"], x["state"], x["reason"]) for x in got["writes"] if x["type"] == "dispatch_queue"],
+                         [("dispatch_queue", "sent", None)])
+        self.assertEqual(replay._left, [])
+        # A person's Pause stops it, as it stops any dispatch.
+        paused = {"org": "true", "repos": {"combsmith/software-factory": "false"}}
+        got = self.apply(plan, o["record"], effects.Allowed(github.Replay([]), effects.workflow_permits(named)), named, pause=paused)
+        self.assertEqual([x["reason"] for x in got["writes"] if x["type"] == "dispatch_queue"], ["paused"])
+        # Unnamed, the act is no write the port sends, and a plan that dispatches one is not the record's.
+        unnamed = passed(reads(pulls=[pr(2, reviews=[support.review()])], runs=[run(number=2)]))
+        self.assertEqual([w["type"] for w in writes_.plan(unnamed)["writes"]][:2], ["not_built", "tracking_issue"])
+        with self.assertRaises(effects.Refused):
+            effects.apply(plan, unnamed["record"], {"workflow": None, "controller": None}, cfg, OWNER, pause=clear(plan, cfg), issues=[])
+
     def test_every_write_the_port_sends_has_the_shape_a_trial_recorded(self):
         # L-50: a dispatch is a POST of a workflow's dispatches with a ref and its inputs, answered 204 with no body, as
         # the pass job's own token's was in trials/P-9.json; GitHub names no run in its answer.

@@ -44,6 +44,7 @@
             "enum": [
               "dispatch_run",
               "dispatch_approval",
+              "dispatch_queue",
               "dispatch_successor",
               "status_on_item",
               "dequeue",

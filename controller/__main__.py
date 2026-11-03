@@ -137,14 +137,20 @@ def recorded_effects(transport, config: dict, runs, own: int, before, since: str
             "whole": from_runs["whole"] and from_passes["whole"]}
 
 
+def run_files(controller: dict) -> list:
+    """The workflow files whose runs are the item's Runs: the run and approval files, and the queue App's once it is
+    named, so each resolution it lands is counted from its Run (issue 381)."""
+    workflows = controller["workflows"]
+    return [workflows["run"], workflows["approval"]] + ([workflows["queue"]] if workflows["queue"] is not None else [])
+
+
 def read(transport, config: dict, run_id: str, previous, now: str, clock, started) -> dict:
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     kept = records.known(pass_.earlier(reads_.previous_records(previous), now) or [])
     try:
-        runs = records.runs(transport, home, branch, [controller["workflows"]["run"], controller["workflows"]["approval"]],
-                            dispatcher(controller), kept=kept)
+        runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller), kept=kept)
     except Unanswered:
         runs = None
     try:

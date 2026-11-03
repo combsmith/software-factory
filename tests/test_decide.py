@@ -2728,6 +2728,26 @@ class Ceilings(unittest.TestCase):
             d = go(facts(threads=threads, acts_since_writer=0), REVIEWED + failed[:ceiling - 1])
             self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"), action)
             self.assertEqual(go(facts(threads=threads, acts_since_writer=0), REVIEWED + failed[:ceiling - 2])["action"], action)
+        # A landed enqueue or dequeue is counted on the timeline, and spends no Run either (issue 381).
+        for intent in ("enqueue-merge", "dequeue-merge"):
+            d = go(facts(acts_since_writer=0), REVIEWED + failed[:ceiling - 2] + [dict(landed, intent=intent)])
+            self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), intent)
+            d = go(facts(acts_since_writer=limit - 1), REVIEWED + [dict(landed, intent=intent)])
+            self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), intent)
+        # An enqueue that keeps failing is held as an approval is: its attempts, then the Run ceiling.
+        queue_failed = [dict(landed, run="r_0EQ%03d" % i, intent="enqueue-merge", started_at=at(13 + i), conclusion="failure",
+                             outcome="item") for i in range(LIMITS["max_attempts"])]
+        d = go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + queue_failed)
+        self.assertEqual((d["state"], d["reason"]), ("held", "attempts_exhausted"))
+        self.assertEqual(go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + queue_failed[1:])["action"], "enqueue")
+        # Failing for the environment, its own jobs alone reach the Run ceiling: an approved item's enqueue spends no
+        # model, so the Runs other Intents spent never hold it (FR-39).
+        env = [dict(q, run="r_0EV%03d" % i, outcome="environment", started_at=at(13 + i)) for i, q in
+               enumerate(queue_failed * ceiling)][:ceiling]
+        d = go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + env)
+        self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
+        self.assertEqual(go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + env[1:])["action"], "enqueue")
+        self.assertEqual(go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + failed)["action"], "enqueue")
         # A resolution that keeps failing for the item meets its attempts, as an approval does; an approval's failed
         # attempts are not a resolution's, nor the other way about.
         limit_attempts = LIMITS["max_attempts"]

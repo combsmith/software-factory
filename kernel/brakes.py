@@ -32,11 +32,13 @@ def _attempts(recent: list, intent: str) -> list:
 def _spent(recent: list) -> list:
     """The Runs that count toward the Run ceiling: every Run but an approval or a resolution that landed.
 
-    A landed approval spends no model and is counted as an act, and so is a landed resolution (_landed). One that did
+    A landed approval spends no model and is counted as an act, and so is a landed resolution (_landed), and a landed
+    enqueue or dequeue, which the timeline counts (issue 381). One that did
     not land, whatever the fault, is no act, so the Run ceiling is what bounds it: an approval failing for a cause
     outside the item, such as an expired token, is not issued for ever.
     """
-    return [r for r in recent if not (r["intent"] in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD) and r["conclusion"] == "success")]
+    return [r for r in recent if not (r["intent"] in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD, t.ENQUEUE_MERGE, t.DEQUEUE_MERGE)
+                                      and r["conclusion"] == "success")]
 
 
 def _landed(since: list) -> int:
@@ -58,9 +60,15 @@ def on_act(_decision, facts: dict, state: str, evidence: list, context: dict, ac
     The Pause then stops the act, and a count of acts that cannot be read defers it. An act that stops work is not
     braked here: it is never refused, and only the Pause stops it.
     """
-    if action in ("issue_approval", "resolve_thread"):
-        held = approval_ceilings(_decision, facts, since, limits,
-                                 t.ISSUE_APPROVAL if action == "issue_approval" else t.RESOLVE_THREAD)
+    # Each act a Run makes, by the Intent of that Run: its jobs that do not land are held to its attempts and the Run
+    # ceiling, as an approval's are.
+    run_acts = {"issue_approval": t.ISSUE_APPROVAL, "resolve_thread": t.RESOLVE_THREAD}
+    if action in run_acts:
+        held = approval_ceilings(_decision, facts, since, limits, run_acts[action])
+        if held:
+            return held
+    if action == "enqueue":
+        held = enqueue_ceilings(_decision, facts, since, limits)
         if held:
             return held
     acts = facts.get("acts_since_writer")
@@ -100,6 +108,19 @@ def approval_ceilings(_decision, facts: dict, since: list, limits: dict, intent:
     if len(failed) >= limits["max_attempts"]:
         return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
     if len(_spent(since)) >= limits["max_runs_per_item"]:
+        return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
+    return None
+
+
+def enqueue_ceilings(_decision, facts: dict, since: list, limits: dict):
+    """The Hold an enqueue meets once the queue App's jobs that make it keep failing, or None (issue 381). An approved
+    item's enqueue spends no model, so the Run ceiling other Runs spent never holds it (FR-39): its own jobs alone are
+    counted, the item's failures to its attempts and every one that did not land to the Run ceiling."""
+    failed = _attempts(since, t.ENQUEUE_MERGE)
+    if len(failed) >= limits["max_attempts"]:
+        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
+    unlanded = [r for r in since if r["intent"] == t.ENQUEUE_MERGE and r["status"] == "completed" and r["conclusion"] != "success"]
+    if len(unlanded) >= limits["max_runs_per_item"]:
         return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
     return None
 

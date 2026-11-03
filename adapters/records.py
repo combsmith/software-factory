@@ -33,7 +33,8 @@ NAME = re.compile(r"sf ([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]
                   r"([a-z][a-z-]{0,60}[a-z]) (sha256:[0-9a-f]{4,64}) (r_[0-9A-Z]{6,26})")
 # The Intents a pull request's Runs carry, as kernel/decide.py admits them, and an issue's, as kernel/issue.py does.
 # A name with any other Intent cannot be placed on an item: its row cannot be read.
-ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms.ISSUE_APPROVAL, terms.RESOLVE_THREAD}
+ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms.ISSUE_APPROVAL, terms.RESOLVE_THREAD,
+                   terms.ENQUEUE_MERGE, terms.DEQUEUE_MERGE}
 # GitHub's words for a run that has not started, and how each ends, as the run record holds them. A Run whose job never
 # started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
 # bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt. A first attempt
