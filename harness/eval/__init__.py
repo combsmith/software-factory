@@ -14,7 +14,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
 exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
 log. Results and cases stay in the scratch directory;
-only `eval-report.json`, of hashes, verdicts and codes, is written where the upload finds it."""
+only `eval-report.json`, of hashes, verdicts, codes and each unanswered case's cause, held to a shape with no words
+(decision 0131), is written where the upload finds it."""
 from __future__ import annotations
 
 import copy
@@ -44,6 +45,11 @@ KIND_LEAST = 20
 KINDS = ("finding", "met")
 BLOCKING = "blocking"       # a case that expects a Finding of this severity must pass, whatever the bar (decision 0120)
 BLOCKING_LEAST = 1          # and a set holds one, or a true word for them could mean none exist
+# What a case's `cause` may say, each held to a shape that holds no words: an exception's class, the last line of this
+# repo's own code it passed, a code, and the CLI's subtype and exit. Never a message, which could quote a case.
+CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,63}")
+AT = re.compile(r"(?:adapters|controller|harness|kernel|release|tools)/[a-z0-9_/]+\.py:[1-9][0-9]{0,5}")
+WORD = re.compile(r"[a-z][a-z_]{0,63}")
 
 
 class Stop(Exception):
@@ -163,24 +169,63 @@ def _planned(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> tuple:
     return kept, found, place
 
 
+def cause_of(err: BaseException) -> dict:
+    """Why a case raised, as `eval-report/1`'s `cause` holds it: the exception's class, and the last line of this repo's
+    code outside its tests that it passed through. Never its message, which could quote a case or the model (issue 309)."""
+    said, at = {}, None
+    if CLASS.fullmatch(type(err).__name__):
+        said["exception"] = type(err).__name__
+    step = err.__traceback__
+    while step is not None:
+        try:
+            place = "%s:%d" % (pathlib.Path(step.tb_frame.f_code.co_filename).resolve().relative_to(ROOT).as_posix(),
+                               step.tb_lineno)
+        except ValueError:
+            place = ""
+        at = place if AT.fullmatch(place) else at
+        step = step.tb_next
+    if at is not None:
+        said["at"] = at
+    return said
+
+
+def seen_of(review) -> dict:
+    """What the CLI said of the last case `review` asked, where it watched the call: its subtype and its exit, or that it
+    timed out; each held to its shape, or left out."""
+    seen = getattr(review, "seen", None)
+    if not isinstance(seen, dict):
+        return {}
+    said = {}
+    if isinstance(seen.get("subtype"), str) and WORD.fullmatch(seen["subtype"]):
+        said["subtype"] = seen["subtype"]
+    if type(seen.get("exit")) is int and -255 <= seen["exit"] <= 255:
+        said["exit"] = seen["exit"]
+    if seen.get("timed_out") is True:
+        said["timed_out"] = True
+    return said
+
+
 def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> str:
     """Each case the set names, read from the home into the scratch directory as the bytes its manifest hashed, and
-    why each that is not there is not: `fetched.json`, by id, a code or null."""
+    why each that is not there is not: `fetched.json`, by id, a code or null, and `fetch-causes.json`, by id, what a read
+    that raised raised, by its class and place alone."""
     from adapters import heldout
     _, found, place = _planned(env, root, workspace)
-    why = {}
+    why, causes = {}, {}
     # Each case is written as it is read, so that no more than one is held at a time, whatever the set's count.
     for entry in found["cases"]:
         try:
             data, code = heldout.case(transport, env.get("HELDOUT_OWNER"), env.get("HELDOUT_REPO"), found["role"], entry)
-        except Exception:
+        except Exception as err:
             data, code = None, "unanswered"
+            causes[entry["id"]] = cause_of(err)
         why[entry["id"]] = code
         if data is not None:
             path = within(place / "cases", "%s.json" % entry["id"])
             with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
                 out.write(data)
     _write(place, "fetched.json", why)
+    _write(place, "fetch-causes.json", causes)
     return "fetched %d of %d cases" % (len([c for c in why.values() if c is None]), found["count"])
 
 
@@ -251,14 +296,16 @@ def case_fault(case: dict):
     return None
 
 
-def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
+def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = None) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
     `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
     `unreadable`, `not_this_set`; one `case_fault` finds a fault in is `unreadable` by that code; one whose expected Finding
     is off its rubric is `unreadable`, `answer_off_rubric`; every other is given to `review`, which returns its `result/1`,
-    and scored against the case by `tools/eval_result.py`."""
+    and scored against the case by `tools/eval_result.py`. What `cause_of` and `seen_of` say of a case unanswered, or
+    stopped by the Engine, goes in `causes`, by id, where one is given."""
     assessed, interrupted = {}, False
+    causes = {} if causes is None else causes
     for entry in found["cases"]:
         code = why.get(entry["id"], "not_found") if isinstance(why, dict) else "not_found"
         if interrupted:
@@ -297,16 +344,21 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             result = review(case)
         except Stop as stop:
             assessed[entry["id"]] = ("unreadable", [stop.code if stop.code in eval_result_codes() else "unanswered"])
+            if stop.code not in eval_result_codes() and isinstance(stop.code, str) and WORD.fullmatch(stop.code):
+                causes[entry["id"]] = {"stop": stop.code}
             continue
-        except Exception:
+        except Exception as err:
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
+            causes[entry["id"]] = dict(cause_of(err), **seen_of(review))
             continue
-        except BaseException:
+        except BaseException as err:
             interrupted = True
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
+            causes[entry["id"]] = cause_of(err)
             continue
         if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
             assessed[entry["id"]] = ("unreadable", [result["reason"]])
+            causes[entry["id"]] = seen_of(review)
             continue
         said = eval_result.score(case, result)
         # What the scorer says is codes of the report's enum: nothing of a case's content, and no word of the model's. A
@@ -401,11 +453,14 @@ def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
     return all(assessed[case] == (PASS, []) for case in blocking_cases(found, expected))
 
 
-def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None) -> dict:
+def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None,
+           causes: dict = None) -> dict:
     """The `eval-report/1` of this run: the plan's Release, commit and set, each case by id and hash, in the manifest's
-    order, with its verdict and codes, whether the set holds `split_ok`'s kinds, whether each cleared its bar, and whether
-    every case that expects a blocking Finding passed."""
-    cases = [{"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1]}
+    order, with its verdict and codes and, where one was found, its cause, whether the set holds `split_ok`'s kinds,
+    whether each cleared its bar, and whether every case that expects a blocking Finding passed."""
+    causes = causes or {}
+    cases = [dict({"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1]},
+                  **({"cause": causes[e["id"]]} if causes.get(e["id"]) else {}))
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "cases": cases,
@@ -453,9 +508,14 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     """The `run` step's work, given the review Intent as `review`: every case assessed, and the report written where
     the upload finds it, whatever the verdicts, so that a set that fails is uploaded too and `judge` fails the run."""
     kept, found, place = _planned(env, root, workspace)
-    assessed = assess(found, _read(place, "fetched.json"), place, review)
+    try:
+        causes = _read(place, "fetch-causes.json")
+    except Stop:
+        causes = {}
+    causes = dict(causes) if isinstance(causes, dict) else {}
+    assessed = assess(found, _read(place, "fetched.json"), place, review, causes)
     written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
-                     blocking_pass(found, place, assessed))
+                     blocking_pass(found, place, assessed), causes)
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
@@ -466,8 +526,11 @@ def tally(document: dict) -> str:
     codes = [code for case in document["cases"] for code in case["reasons"]]
     closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
     closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
+    # Each cause by what it says, held to its schema like the rest, with how many cases gave it.
+    causes = [" ".join("%s=%s" % (k, v) for k, v in sorted(case["cause"].items())) for case in document["cases"] if case.get("cause")]
     return "; ".join(["%d of %d passed" % (document["passed"], len(document["cases"])),
-                      ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed)
+                      ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed
+                     + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))])
 
 
 def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
