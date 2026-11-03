@@ -1,5 +1,5 @@
 """The queue act's step: one enqueue, dequeue or set of resolutions, through the queue App's token alone (issue 381,
-decision 0129). `harness/queue.py` decides; this step reads and writes for it.
+decision 0130). `harness/queue.py` decides; this step reads and writes for it.
 
     python3 -m harness.queue_step NAME ITEM PASS OUT
 

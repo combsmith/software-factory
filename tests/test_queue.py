@@ -1,4 +1,4 @@
-"""The queue App's act (issue 381, decision 0129): the port held to what the trials recorded, the job's rulings, and its
+"""The queue App's act (issue 381, decision 0130): the port held to what the trials recorded, the job's rulings, and its
 step through its two credentials."""
 from __future__ import annotations
 

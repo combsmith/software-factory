@@ -1,5 +1,5 @@
 """The queue act: one enqueue, dequeue or set of resolutions, by the queue App, from a Run with no Engine (issue 381,
-decision 0129). It decides nothing itself, and each step that fails writes nothing:
+decision 0130). It decides nothing itself, and each step that fails writes nothing:
 
 1. Its Decision is read from the pass record by its own Run id, never from an input's text: an act the queue App makes,
    or the Run finds none and does nothing (`superseded`, `no_decision`).
@@ -7,7 +7,7 @@ decision 0129). It decides nothing itself, and each step that fails writes nothi
    them, stops it unless it is exactly unset or `false` (`superseded`, `paused`). The pass read every scope just before
    it dispatched the act; this read sees a Pause set since, where the repo sets none of its own.
 3. The pull request is read again with the queue App's own token, which reads it and its threads and nothing else
-   (decision 0129's ruling A): an enqueue and a dequeue are made only while it is open at the head the pass read beside
+   (decision 0130's ruling A): an enqueue and a dequeue are made only while it is open at the head the pass read beside
    the Decision (`superseded`, `closed_under_act` or `head_moved`), and the enqueue is bound to that head by
    `expectedHeadOid`, which GitHub refuses once the head moved (trials/P-57.json). What is already done is recovered
    and nothing is written: an enqueue of a pull request in the merge queue, a dequeue of one not in it, a resolution

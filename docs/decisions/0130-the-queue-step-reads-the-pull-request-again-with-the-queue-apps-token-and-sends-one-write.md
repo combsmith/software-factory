@@ -1,4 +1,4 @@
-# 0129. The queue step reads the pull request again with the queue App's token, and sends one write
+# 0130. The queue step reads the pull request again with the queue App's token, and sends one write
 
 Status: accepted. The Factory Builder's rulings of 2026-11-03 on the queue step of "A narrow queue App, combsmith-sf-queue, enqueues and dequeues with contents and pull-request write alone (P-2)" (issue 381), part of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182): its second part, the queue App's act, its port and its step, of three. It builds what decision 0128 left as not built, but the workflow files and reconciliation.
 

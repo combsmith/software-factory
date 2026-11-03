@@ -1,4 +1,4 @@
-"""The queue App's writes (issue 381, decision 0129): an enqueue bound to a head, a dequeue, and the resolution of a
+"""The queue App's writes (issue 381, decision 0130): an enqueue bound to a head, a dequeue, and the resolution of a
 Lens's thread, each through the queue App's own token, narrowed to its item by `Queuing`.
 
 The App holds `contents: write` and `metadata: read` alone, and each request here is one a trial recorded it making:
