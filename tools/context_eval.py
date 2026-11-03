@@ -15,8 +15,10 @@ the CLI's output, as `--output-format stream-json` or `json` gives it; only the 
 and the first words of the commands they were given, and the result's counts are taken from it, never a text block, a
 tool's result, a prompt or an answer. PRISTINE and WORK are the export as made and as the agent left it; what differs
 between them is counted, by file, in lines. VERDICTS is JSON with `held_out_test`, `verify` and `mutant`, which the
-runner judged. META is JSON with `commit`, `ran_at`, `cli_version`, `cap_turns` and `code`, the reason code the task
-sentence names. `mutants` prints, as JSON, the names and targets of the mutants WORK's `tools/mutants.py` holds that
+runner judged. META is JSON with `commit`, `ran_at`, `cli_version`, `cap_turns`, `task_sha256`, the sha256 of the task
+sentence, and `code`, the reason code it names. The record names neither the code nor anything the agent named: whether it
+added a test, a mutant and the code is all it holds of them, so the task's rule is named nowhere the record may be copied
+(the Maintainer's choice, issue 8). `mutants` prints, as JSON, the names and targets of the mutants WORK's `tools/mutants.py` holds that
 PRISTINE's does not, for the runner to break.
 """
 from __future__ import annotations
@@ -47,7 +49,6 @@ TOKEN_LENGTH = 24      # a word longer than this, of letters and digits, is read
 # A mutant's entry in tools/mutants.py: its name, then the file it targets.
 MUTANT = re.compile(r'^\s*\(\s*"([^"\n]+)",\s*(?:"([^"\n]+)"|([A-Z_]+))\s*,', re.M)
 # A mutant's name as the house style writes one: words, a few marks, no quotes; the schema holds it to the same.
-MUTANT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _:'(),.-]{0,119}$")
 
 
 def _messages(text: str) -> list:
@@ -274,21 +275,18 @@ def record(transcript: str, pristine: pathlib.Path, work: pathlib.Path, verdicts
             old = _read(pristine, pristine / rel).splitlines()
             added_lines += [line for line in difflib.unified_diff(old, _read(work, work / rel).splitlines(), lineterm="", n=0)
                             if line.startswith("+") and not line.startswith("+++")]
-    reason = (code if isinstance(code, str) and re.fullmatch(r"[a-z_]+", code)
-              and any(re.search(r"(?<![a-z_])%s(?![a-z_])" % re.escape(code), line) for line in added_lines) else None)
-    mutant = mutants[0][0] if mutants else None
-    if mutant is not None and (any(_token(word) for word in mutant.split()) or not MUTANT_NAME.match(mutant)):
-        mutant = None
+    reason = isinstance(code, str) and re.fullmatch(r"[a-z_]+", code) is not None \
+        and any(re.search(r"(?<![a-z_])%s(?![a-z_])" % re.escape(code), line) for line in added_lines)
     judged = {k: verdicts.get(k) for k in ("held_out_test", "verify", "mutant")}
     if judged["mutant"] == "killed" and not mutants_kept(pristine, work):
         judged["mutant"] = "survived"       # a mutant dropped from the list is one that cannot have been killed
     restored = meta.get("restored") if isinstance(meta.get("restored"), list) else []
     run = {
         "commit": meta.get("commit"), "ran_at": meta.get("ran_at"), "cli_version": meta.get("cli_version"),
-        "cap_turns": meta.get("cap_turns"),
+        "cap_turns": meta.get("cap_turns"), "task_sha256": meta.get("task_sha256"),
         "read": read, "outside_reads": outside, "ran": ran, "unread_commands": ran.count(UNREADABLE),
         "changed": changed, "restored": restored,
-        "added": {"test": tests[0] if tests else None, "mutant": mutant, "reason": reason},
+        "added": {"test": bool(tests), "mutant": bool(mutants), "reason": reason},
         "cost": {k: counts.get(k) for k in ("turns", "duration_ms", "usd", "input_tokens", "output_tokens")},
         "verdicts": judged,
     }

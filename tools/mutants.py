@@ -10869,6 +10869,13 @@ MUTANTS = ISSUE + [
      'os.O_RDONLY | os.O_NOFOLLOW', 'os.O_RDONLY', ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
     ('a file another name holds is read once open', "tools/context_eval.py",
      '        if os.fstat(handle.fileno()).st_nlink != 1:\n            return ""\n', '', ('tests.test_tools.ContextEval.test_a_link_the_agent_left_is_never_followed',)),
+    # Issue 8, hash only: a run records whether, never what, and the sentence by its sha256 alone.
+    ('a context run records a test it did not add', 'tools/context_eval.py', '"test": bool(tests),', '"test": True,', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a context run records a mutant it did not add', 'tools/context_eval.py', '"mutant": bool(mutants),', '"mutant": True,', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ("a context run's code counts inside a longer word", 'tools/context_eval.py', '%s(?![a-z_])" % re.escape(code)', '%s" % re.escape(code)', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ("a context run records another sentence's hash", 'tools/context_eval.py', '"task_sha256": meta.get("task_sha256"),', '"task_sha256": "0" * 64,', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('the context eval hashes the sentence with its newline', 'tools/context_eval.sh', 'task_sha256=$(printf \'%s\' "$sentence" |', 'task_sha256=$(printf \'%s\\n\' "$sentence" |', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
+    ("the context eval names the agent's mutants in what it checked", 'tools/context_eval.sh', '"added": len(json.loads(a[10])["names"])},', '"added": json.loads(a[10])["names"]},', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
     # Issue 414: eval is read only where the shell may run it, never the word in a quoted title or message.
     ("eval in a quoted title is read as code", "tools/hooks/shell.py",
      'PROSE = re.compile(r"\'[^\']*\'|\\"(?:[^\\"\\\\$`]|\\\\.)*\\"")', 'PROSE = re.compile(r"\'[^\']*\'")', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
