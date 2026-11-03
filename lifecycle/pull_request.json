@@ -730,6 +730,18 @@
       "bound": "person"
     },
     {
+      "from": "converged",
+      "to": "held",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
       "from": "verifying",
       "to": "held",
       "by": "factory",

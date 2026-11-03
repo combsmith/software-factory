@@ -1007,6 +1007,30 @@ def acceptance_reading(facts: dict) -> tuple:
     return "passing", []
 
 
+def description_anchor(facts: dict, edited: str):
+    """The time the description's edit at `edited` is measured against: on an outsider's pull request, a person's last
+    look before the edit, by approving or by admitting it; on any other, the machine user's first approval, dismissed
+    since or not, after that look; or None where there is neither, or a person looked after the edit. A look in the edit's second saw
+    nothing that can be told: the reading that stops work wins."""
+    approved = ("approved",)
+    looks = [rv["submitted_at"] for rv in facts["reviews"]
+             if is_person(rv["by"]) and approved[0] in (rv["state"], rv["dismissed_from"])]
+    looks += [ev["at"] for ev in facts["label_events"]
+              if ev["label"] == t.LABEL_ADMIT and ev["action"] == "labeled" and is_person(ev["by"])]
+    if any(look > edited for look in looks):
+        return None
+    before = [look for look in looks if look < edited]
+    last = max(before) if before else None
+    # On an outsider's pull request the description's author is the threat, and a person already looked: the anchor
+    # is that look itself, so an edit after the admission holds before any approval (issue 519).
+    if facts["class"] == "outside":
+        return last
+    firsts = [rv["submitted_at"] for rv in facts["reviews"]
+              if rv["by"]["kind"] == t.MACHINE_USER and approved[0] in (rv["state"], rv["dismissed_from"])
+              and (last is None or rv["submitted_at"] > last)]
+    return min(firsts) if firsts else None
+
+
 def standing_approval(facts: dict, config: dict):
     """The approver's undismissed approval of this content, if any.
 
@@ -1115,6 +1139,11 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # might be someone else's content, so it is read before the model review is excused and before the approval.
     if not isinstance(facts.get("last_pusher"), str) or facts["last_pusher"] == "":
         return {"state": None, "reason": "last_pusher_unreadable", "evidence": []}
+    # So could the description's last edit, which may have added a closing keyword since the approval (issue 519).
+    # Absent or null, it is no edit; anything else that is not a time is read before the approval.
+    edited = facts.get("description_edited_at")
+    if edited is not None and not is_time(edited):
+        return {"state": None, "reason": "description_unreadable", "evidence": []}
     # So could a required Lens's thread whose category or severity cannot be read: a security Finding at any severity.
     unread = unreadable_threads(facts, config)
     if unread:
@@ -1226,6 +1255,13 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # a Hold the facts establish, read here so that a queued item leaves the queue on it too.
     if config["approver"] in (facts["author"], facts["last_pusher"]):
         return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}
+    # An approval covers the diff, not the description, whose closing keywords GitHub acts on at the merge (P-48). An
+    # edit after the first approval since a person last looked, whoever made it, a reviewer App's among them, holds the
+    # item until a person approves after it, having read it (P-58, issue 519). The first, never the latest: a push or a
+    # dismissal brings a fresh approval, which must not clear the edit. A queued item leaves the queue on it.
+    anchor = description_anchor(facts, edited) if edited is not None else None
+    if anchor is not None and edited > anchor:
+        return {"state": t.HELD, "reason": "description_edited_after_approval", "evidence": [edited]}
     approval = standing_approval(facts, config)
     if approval is not None:
         return {"state": t.CONVERGED, "reason": "approved", "evidence": [approval["commit"]]}
