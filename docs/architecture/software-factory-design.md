@@ -943,8 +943,9 @@ every item. The cost is accepted (issue 433): a Task the model cannot finish in 
 window can raise the automatic pause, which stops no act. No Run has a tool (decision 0050), so an
 item can slow its Run only by what the model reads. The design that first gives a Run a tool, issue
 314, rules on this again, since an item can then hang its Run. One the CLI ends because the model could not finish,
-`error_max_structured_output_retries` or `error_max_turns`, is `no_answer`, an attempt on its item, because words in the
-item can lead the model there; any other way the CLI says it erred stays `environment` (decision 0122). A Run `cancelled`
+`error_max_structured_output_retries` or `error_max_turns`, or that its tier's cost ceiling stopped,
+`error_max_budget_usd`, is `no_answer`, an attempt on its item, because words in the item can lead the model there; any
+other way the CLI says it erred stays `environment` (decisions 0122 and 0136). A Run `cancelled`
 with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, and a
 first attempt an `if:` skipped, `skipped`, each of which the records port reads as `cancelled`. A row `skipped` on a later
 attempt reads `failure`, an attempt, since the shim's `if:` skips any re-run and the list shows only the latest

@@ -133,7 +133,7 @@
         },
         "cost_ceiling_usd": {
           "type": "number",
-          "minimum": 0
+          "minimum": 0.01
         }
       }
     },
