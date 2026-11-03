@@ -2093,6 +2093,18 @@ class MakeLeavesNothing(unittest.TestCase):
             time.sleep(0.1)
         return False
 
+    def living(self, pid: int) -> bool:
+        """Whether the process lives, read once: there, and not a zombie. A reading of ps that names no state is no
+        reading, and the process is asked again, so one reaped in between is read as ended."""
+        try:
+            os.kill(pid, 0)
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+            if not state:
+                os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return not state.startswith("Z")
+
     def test_a_run_killed_for_its_time_leaves_the_temporary_folder_as_it_found_it(self):
         env = self.slow()
         before = sorted(os.listdir(self.place))
@@ -2156,7 +2168,7 @@ class MakeLeavesNothing(unittest.TestCase):
         try:
             # It returned while the process that holds its output still lives. A process that has just ended may stand
             # unreaped as a zombie, which a signal still finds, so one is read as ended (issue 503).
-            self.assertFalse(self.gone(pid))
+            self.assertTrue(self.living(pid))
         finally:
             os.kill(pid, signal.SIGKILL)
 
