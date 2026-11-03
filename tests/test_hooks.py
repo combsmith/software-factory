@@ -2154,8 +2154,9 @@ class MakeLeavesNothing(unittest.TestCase):
         self.assertEqual(self.out_of_time(env)[0], False)
         pid = int((outside / "pid").read_text())
         try:
-            # It returned while the process that holds its output still lives.
-            os.kill(pid, 0)
+            # It returned while the process that holds its output still lives. A process that has just ended may stand
+            # unreaped as a zombie, which a signal still finds, so one is read as ended (issue 503).
+            self.assertFalse(self.gone(pid))
         finally:
             os.kill(pid, signal.SIGKILL)
 
