@@ -2728,6 +2728,23 @@ class Ceilings(unittest.TestCase):
             d = go(facts(threads=threads, acts_since_writer=0), REVIEWED + failed[:ceiling - 1])
             self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"), action)
             self.assertEqual(go(facts(threads=threads, acts_since_writer=0), REVIEWED + failed[:ceiling - 2])["action"], action)
+        # A resolution that keeps failing for the item meets its attempts, as an approval does; an approval's failed
+        # attempts are not a resolution's, nor the other way about.
+        limit_attempts = LIMITS["max_attempts"]
+        theirs = [dict(landed, run="r_0RF%03d" % i, started_at=at(13 + i), conclusion="failure", outcome="item")
+                  for i in range(limit_attempts)]
+        d = go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs)
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "attempts_exhausted", [r["run"] for r in theirs]))
+        self.assertEqual(go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs[1:])["action"], "resolve_thread")
+        self.assertEqual(go(facts(acts_since_writer=0), REVIEWED + theirs)["action"], "issue_approval")
+
+    def test_a_queue_job_spends_no_run_when_it_lands_and_is_held_by_its_own_when_it_does_not(self):  # issue 381
+        # The queue App's enqueue and dequeue are each a Run once the queue workflow is named. One that landed is on the
+        # timeline among the acts, so it spends no Run; one that keeps failing is held by its own jobs alone.
+        limit, ceiling = LIMITS["max_acts_per_item"], LIMITS["max_runs_per_item"]
+        landed = run(intent="resolve-thread", role="pr-review", at=at(12), name="r_0RES001")
+        failed = [dict(landed, run="r_0RES%03d" % i, started_at=at(13 + i), conclusion="failure", outcome="environment")
+                  for i in range(ceiling)]
         # A landed enqueue or dequeue is counted on the timeline, and spends no Run either (issue 381).
         for intent in ("enqueue-merge", "dequeue-merge"):
             d = go(facts(acts_since_writer=0), REVIEWED + failed[:ceiling - 2] + [dict(landed, intent=intent)])
@@ -2748,15 +2765,25 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
         self.assertEqual(go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + env[1:])["action"], "enqueue")
         self.assertEqual(go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + failed)["action"], "enqueue")
-        # A resolution that keeps failing for the item meets its attempts, as an approval does; an approval's failed
-        # attempts are not a resolution's, nor the other way about.
-        limit_attempts = LIMITS["max_attempts"]
-        theirs = [dict(landed, run="r_0RF%03d" % i, started_at=at(13 + i), conclusion="failure", outcome="item")
-                  for i in range(limit_attempts)]
-        d = go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs)
-        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "attempts_exhausted", [r["run"] for r in theirs]))
-        self.assertEqual(go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs[1:])["action"], "resolve_thread")
-        self.assertEqual(go(facts(acts_since_writer=0), REVIEWED + theirs)["action"], "issue_approval")
+        # One that never started, or was cancelled, did not land either.
+        cancelled = [dict(q, run="r_0CN%03d" % i, conclusion="cancelled", outcome=None, started_at=at(13 + i)) for i, q in
+                     enumerate(queue_failed * ceiling)][:ceiling]
+        d = go(facts(reviews=APPROVED, acts_since_writer=0), REVIEWED + cancelled)
+        self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
+        # A dequeue's own job in flight is waited on, never sent again beside it; its jobs that keep failing hold the
+        # item at the Run ceiling, for the Maintainer to stop the merge; another Intent's Runs spent never do.
+        person = thread(tid="T9", kind="human", name="don-petry", severity=None)
+        queued = facts(queue=True, reviews=APPROVED, threads=[person], acts_since_writer=0)
+        self.assertEqual(go(queued, REVIEWED)["action"], "dequeue")
+        flying = dict(landed, run="r_0DQ001", intent="dequeue-merge", status="in_progress", conclusion=None)
+        self.assertEqual(go(queued, REVIEWED + [flying])["outcome"], "nothing")
+        self.assertEqual(go(queued, REVIEWED + [dict(flying, intent="review-change")])["action"], "dequeue")
+        dq = [dict(landed, run="r_0DF%03d" % i, intent="dequeue-merge", started_at=at(13 + i), conclusion="failure",
+                   outcome="environment") for i in range(ceiling)]
+        d = go(queued, REVIEWED + dq)
+        self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
+        self.assertEqual(go(queued, REVIEWED + dq[1:])["action"], "dequeue")
+        self.assertEqual(go(queued, REVIEWED + failed)["action"], "dequeue")
 
     def test_an_unreadable_count_of_acts_makes_no_act(self):  # I-13
         # A fact read from outside is never given a default: a count that is not a whole number is unreadable.

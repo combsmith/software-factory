@@ -265,7 +265,7 @@ def status_head(entry: dict, kernel: dict) -> dict:
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     """One pass: the record, the Runs to dispatch, the acts, the view, the alerts and whether a successor starts."""
     rules = reads_.configured(config["controller"])
-    queue_named = config["controller"]["workflows"]["queue"] is not None
+    queue_named = writes_.queue_workflow(config["controller"]) is not None
     before = earlier(reads_.previous_records(previous), now)
     previous, before = (None, []) if before is None else (before, before)
     # Facts that are not facts, and an item listed twice, never reach the Kernel and no record could hold them: the

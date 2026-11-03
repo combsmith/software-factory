@@ -195,7 +195,9 @@ class Record(unittest.TestCase):
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
         # named by run-name/1 with an Intent of its own, so the records port counts each. Until the configuration names
         # that workflow, each stays an act no write serves.
+        account = {"id": 349593770, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
         queued = config(workflows=dict(CONTROLLER["workflows"], queue="queue.yml"))
+        queued["controller"]["accounts"] = dict(queued["controller"]["accounts"], queue=account)
         approved = reads(pulls=[pr(1), pr(2, reviews=[support.review()])], runs=[run(number=2)])
         out = passed(approved, cfg=queued)
         got = [(e["decision"].get("action"), e["run"]) for e in out["record"]["pull_requests"]]
@@ -204,6 +206,10 @@ class Record(unittest.TestCase):
         self.assertEqual((records.named(out["dispatch"][1]["name"])["intent"], records.named(out["dispatch"][1]["name"])["item"]["type"]),
                          ("enqueue-merge", "pull_request"))
         self.assertEqual(out["acts"], [])
+        # Named with no queue App's account beside it, a landed enqueue or dequeue would be counted nowhere: nothing is sent.
+        alone = config(workflows=dict(CONTROLLER["workflows"], queue="queue.yml"))
+        self.assertEqual([(e["decision"].get("action"), e["run"]) for e in passed(approved, cfg=alone)["record"]["pull_requests"]],
+                         [(None, "r_000002A"), ("enqueue", None)])
         before = passed(approved)
         self.assertEqual([(e["decision"].get("action"), e["run"]) for e in before["record"]["pull_requests"]],
                          [(None, "r_000002A"), ("enqueue", None)])
@@ -223,6 +229,8 @@ class Record(unittest.TestCase):
     def test_the_queue_workflows_runs_are_read_once_it_is_named(self):  # issue 381
         self.assertEqual(entry.run_files(CONTROLLER), ["run.yml", "approve.yml"])
         named = dict(CONTROLLER, workflows=dict(CONTROLLER["workflows"], queue="queue.yml"))
+        self.assertEqual(entry.run_files(named), ["run.yml", "approve.yml"])
+        named["accounts"] = dict(CONTROLLER["accounts"], queue={"id": 349593770, "type": "Bot", "login": "combsmith-sf-queue[bot]"})
         self.assertEqual(entry.run_files(named), ["run.yml", "approve.yml", "queue.yml"])
 
     def test_the_runs_to_dispatch_are_named_by_their_run_names(self):  # section 3.10

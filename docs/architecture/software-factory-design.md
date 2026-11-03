@@ -616,7 +616,8 @@ Kernel, the whole context (`paused`, `active_runs`, `model_deferred_until`, `pas
 present, since a key left out reads differently from null),
 every run record it read, once for the pass, each read's `date` and `age` from GitHub, and, in one
 list for pull requests and one for issues, each item's facts, its Decision and the Run id the
-Controller minted for an admission or an approval, or null. The configuration is not copied: it is
+Controller minted for an admission, an approval or, once the queue workflow is named, a queue act
+(decision 0128), or null. The configuration is not copied: it is
 the data at `release`. A Decision carries no id and no Release of its own: both are the pass's. The
 record serves three purposes. Any decision can be replayed on a laptop from exactly what the Kernel
 saw, with the Release's own data files. A Run is started from a Decision in it, and from nothing

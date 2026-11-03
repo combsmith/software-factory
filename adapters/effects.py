@@ -109,7 +109,7 @@ def workflow_permits(config: dict) -> dict:
         return body == {"ref": branch}
     permits = {("POST", dispatch_path(config, "run")): run, ("POST", dispatch_path(config, "approval")): run,
                ("POST", dispatch_path(config, "poller")): poller}
-    if config["workflows"]["queue"] is not None:
+    if writes_.queue_workflow(config) is not None:
         permits[("POST", dispatch_path(config, "queue"))] = run
     return permits
 

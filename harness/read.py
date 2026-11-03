@@ -122,8 +122,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
     number = parts["item"]["number"]
     # The threads are held to what the item's Lenses recorded, read from their Runs (adapters/applied.py, issue 338).
-    listed = records.runs(transport, home, branch, [controller["workflows"]["run"], controller["workflows"]["approval"]],
-                          facts_.dispatcher_of(controller))
+    listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
     found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
                              config["authority"])
     opener = facts_.opener_of(controller, config["kernel"], config["apps"])

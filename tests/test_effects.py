@@ -128,10 +128,14 @@ class Effects(unittest.TestCase):
         cfg = controller()
         self.assertIsNone(cfg["workflows"]["queue"])
         self.assertNotIn("queue.yml", json.dumps(sorted(effects.workflow_permits(cfg))))
+        account = {"id": 349593770, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
         named = dict(cfg, workflows=dict(cfg["workflows"], queue="queue.yml"))
         path = effects.dispatch_path(named, "queue")
+        self.assertNotIn(("POST", path), effects.workflow_permits(named))      # no queue App's account yet
+        named["accounts"] = dict(named["accounts"], queue=account)
         self.assertIn(("POST", path), effects.workflow_permits(named))
         queued = config(workflows=dict(config()["controller"]["workflows"], queue="queue.yml"))
+        queued["controller"]["accounts"] = dict(queued["controller"]["accounts"], queue=account)
         o = passed(reads(pulls=[pr(2, reviews=[support.review()])], runs=[run(number=2)]), cfg=queued)
         plan = writes_.plan(o)
         self.assertEqual([w["type"] for w in plan["writes"]], ["dispatch_queue", "tracking_issue"])

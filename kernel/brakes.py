@@ -125,6 +125,16 @@ def enqueue_ceilings(_decision, facts: dict, since: list, limits: dict):
     return None
 
 
+def dequeue_ceiling(_decision, facts: dict, since: list, limits: dict):
+    """The Hold a dequeue meets once the queue App's jobs that make it keep failing, or None (issue 381). A dequeue stops
+    work and is never refused at the act ceiling; but a job that cannot land is not sent for ever: once as many of its
+    own as the Run ceiling did not land, the item is held, and the Maintainer stops the merge."""
+    unlanded = [r for r in since if r["intent"] == t.DEQUEUE_MERGE and r["status"] == "completed" and r["conclusion"] != "success"]
+    if len(unlanded) >= limits["max_runs_per_item"]:
+        return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
+    return None
+
+
 def run_ceilings(_decision, facts: dict, evidence: list, intent: str, recent: list, limits: dict):
     """The Hold a Run of this Intent meets at its attempts, its rounds or the Run ceiling, or None. No deferral is read
     here: decide.py asks it alone while a Run is in flight, when a spent count holds the item whatever would defer."""

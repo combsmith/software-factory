@@ -93,7 +93,8 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
                           acted_since_writer(mine, facts))
     if brake:
         return brake
-    # An approval is a Run, so a Run that cannot be told whose it is defers it. An enqueue admits none (decision 0036).
+    # An approval is a Run, so a Run that cannot be told whose it is defers it. An enqueue admits none (decision 0036);
+    # once it is a Run of the queue App's, the queue step reads the item again and sends nothing it finds done (issue 381).
     if action == "issue_approval" and unnamed_within(context, now, config["limits"]) != []:
         return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
     past = unnamed_past(context, now, config["limits"]) if action == "issue_approval" else []
@@ -183,6 +184,14 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         pause = brakes.paused(_decision, facts, state, evidence, context, attention=t.NEEDS_YOU)
         if pause:
             return pause
+        # Its own job, once it is one (issue 381): one in flight is waited on, never sent again beside it, and its jobs
+        # that keep failing hold the item at the Run ceiling, for the Maintainer to stop the merge.
+        mine = runs_on(runs, facts)
+        if any(r["intent"] == t.DEQUEUE_MERGE for r in in_progress(mine)):
+            return _decision(facts, state, reason, evidence, t.NOTHING)
+        held = brakes.dequeue_ceiling(_decision, facts, since_writer(mine, facts), config["limits"])
+        if held:
+            return held
         return _decision(facts, state, reason, evidence, t.ACT, action="dequeue", content_id=facts["content_id"])
     # Fail to a deferral, never to an action.
     if state is None:

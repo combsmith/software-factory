@@ -19,8 +19,7 @@ def item(transport, config: dict, number: int, now: str, clock) -> tuple:
     `controller/configuration.load`'s; `clock` gives the facts' `read_at`, `now` the time the context is built at."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    listed = records.runs(transport, home, branch, [controller["workflows"]["run"], controller["workflows"]["approval"]],
-                          facts_.dispatcher_of(controller))
+    listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
     found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),

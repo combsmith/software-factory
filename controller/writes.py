@@ -18,6 +18,14 @@ from controller.shared import checked
 QUEUE_INTENTS = {"enqueue": t.ENQUEUE_MERGE, "dequeue": t.DEQUEUE_MERGE, "resolve_thread": t.RESOLVE_THREAD}
 
 
+def queue_workflow(controller: dict):
+    """The queue App's workflow file, once `controller/1` names it and the queue App's account beside it, or None. A
+    landed enqueue or dequeue is counted among the acts only as the queue App's, which takes its account, so neither is
+    dispatched while that is unknown (issue 381)."""
+    file, account = controller["workflows"]["queue"], controller["accounts"]["queue"]
+    return file if file is not None and account is not None else None
+
+
 def plan(out: dict) -> dict:
     """`writes/1` for the pass `pass_.run` returned as `out`."""
     record = out["record"]
