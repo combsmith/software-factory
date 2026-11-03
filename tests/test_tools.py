@@ -5486,22 +5486,28 @@ exit 0
         return subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / out), str(folder / "key.pem"), *args],
                               capture_output=True, text=True, env=env, cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
 
+    def stopped(self, folder: pathlib.Path, *args) -> tuple:
+        """The script stopped once its stand-in python3 holds the mint's answer: (exit code, stdout, stderr)."""
+        env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": "C"}
+        ran = subprocess.Popen([SIGNAL_SHELL, str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / "out"), str(folder / "key.pem"),
+                                *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                               cwd=str(folder), stdin=subprocess.DEVNULL, start_new_session=True)
+        deadline = time.monotonic() + 30
+        while not (folder / "reading").exists() and ran.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if ran.poll() is None:
+            os.killpg(ran.pid, signal.SIGTERM)
+        said, told = ran.communicate(timeout=60)
+        return ran.returncode, said, told
+
     def test_a_stop_while_the_token_is_read_revokes_it_from_the_answer_still_held(self):
         # Issue 424 (Muse): stopped while the mint's answer is parsed, P-4 finds the token in it and revokes it.
         folder = self.stand_in(mint_body='{"token": "%s", "expires_at": "2026-10' % self.TOKEN)
         real = os.path.realpath(sys.executable)
         (folder / "bin" / "python3").write_text(ReachScript.PYTHON % (real, real))
         (folder / "bin" / "python3").chmod(0o755)
-        env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": "C"}
-        ran = subprocess.Popen([SIGNAL_SHELL, str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / "out"), str(folder / "key.pem"),
-                                "x/canary", "x/other"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
-                               cwd=str(folder), stdin=subprocess.DEVNULL, start_new_session=True)
-        deadline = time.monotonic() + 30
-        while not (folder / "reading").exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        os.killpg(ran.pid, signal.SIGTERM)
-        said, told = ran.communicate(timeout=60)
-        self.assertNotEqual(ran.returncode, 0, told)
+        code, said, told = self.stopped(folder, "x/canary", "x/other")
+        self.assertNotEqual(code, 0, told)
         self.assertEqual([c.split(" ", 1)[0] for c in (folder / "calls").read_text().splitlines()], ["GET", "POST", "DELETE"], told)
         self.assertIn("stopped with a token live; revoking it returned 204", told)
         self.assertNotIn(self.TOKEN, said + told)
