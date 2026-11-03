@@ -189,13 +189,15 @@ def rules(text: str) -> list:
 class Validator(unittest.TestCase):
     LIMIT = 2       # seconds; a search of 4,000 characters takes well under a millisecond unless it backtracks
 
-    def backtracks(self, pattern: str) -> bool:
-        """Whether `pattern` runs past the limit on a long value of the shapes that make a pattern backtrack, each after
-        the literal text the pattern opens with, so that it reaches a repeat behind that text. It does not reach a repeat
-        behind a class: a guard on patterns the repo writes, not a proof."""
+    def backtracks(self, pattern, opens: str = None) -> bool:
+        """Whether `pattern`, a text or a compiled pattern with its flags, runs past the limit on a long value of the
+        shapes that make a pattern backtrack, each after the literal text the pattern opens with, or `opens` where that
+        text sits behind a class, so that it reaches a repeat behind that text: a guard on patterns the repo writes, not
+        a proof."""
         compiled = re.compile(pattern)
-        opens = re.match(r"\^?((?:\\[^A-Za-z0-9]|[^\\\[\](){}.*+?|^$])*)", pattern).group(1)
-        opens = re.sub(r"\\(.)", r"\1", opens)
+        if opens is None:
+            opens = re.match(r"\^?((?:\\[^A-Za-z0-9]|[^\\\[\](){}.*+?|^$])*)", compiled.pattern).group(1)
+            opens = re.sub(r"\\(.)", r"\1", opens)
         def over(_signum, _frame):
             raise TimeoutError
         before = signal.signal(signal.SIGALRM, over)
@@ -10354,6 +10356,16 @@ class EnvironmentsDrift(unittest.TestCase):
             {"name": name, "can_admins_bypass": False, "deployment_branch_policy": {"custom_branch_policies": True, "protected_branches": False}}
             for name in self.WANTED]}
         self.policies = {name: (200, {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]}) for name in self.WANTED}
+
+    def test_the_pattern_that_reads_a_workflows_environment_does_not_backtrack(self):  # issue 361's audit, S8786
+        # SonarCloud reads the blanks before the value as overlapping it. An attempt starts at a line's start alone, and
+        # once past `environment:` it ends in a repeat that matches to the line's end: this holds that, on the value's
+        # line and on the mapping's `name:` line, with the check that holds the schemas' patterns. That it notices one
+        # is the two mutants' to show, since a pattern that backtracks written here is CodeQL's alert.
+        guard = Validator()
+        for opens in ("environment:", "  environment: \t", "environment:\n", "  environment:\n    name: \t"):
+            with self.subTest(opens=opens):
+                self.assertFalse(guard.backtracks(environments_drift.WORKFLOW, opens))
 
     def compare(self, wanted=None) -> list:
         return environments_drift.compare(self.listed, self.policies, set(self.WANTED if wanted is None else wanted))
