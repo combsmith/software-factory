@@ -151,6 +151,15 @@ def opener_of(controller: dict, kernel: dict, apps: dict):
     return account["id"], "Bot"
 
 
+def run_files_of(controller: dict) -> list:
+    """The workflow files whose runs are an item's Runs, wherever the records port lists them: the run and approval files,
+    and the queue App's once `controller/1` names it with that App's account beside it, so each act it lands is counted
+    from its Run (issue 381)."""
+    workflows = controller["workflows"]
+    queue = workflows["queue"] if controller["accounts"]["queue"] is not None else None
+    return [workflows["run"], workflows["approval"]] + ([queue] if queue is not None else [])
+
+
 def dispatcher_of(controller: dict) -> tuple:
     """The pass's token's account, by id and type, which alone dispatches a Run; with none held, no account GitHub gives,
     id 0, so that no run is a Run."""

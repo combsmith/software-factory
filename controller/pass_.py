@@ -37,6 +37,7 @@ from controller import feed as feed_
 from controller import health as health_
 from controller import reads as reads_
 from controller import reconcile as reconcile_
+from controller import writes as writes_
 from controller.shared import Refused, checked, key, moment, seconds, text
 from kernel import decide as pull_request
 from kernel import issue
@@ -264,6 +265,7 @@ def status_head(entry: dict, kernel: dict) -> dict:
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     """One pass: the record, the Runs to dispatch, the acts, the view, the alerts and whether a successor starts."""
     rules = reads_.configured(config["controller"])
+    queue_named = writes_.queue_workflow(config["controller"]) is not None
     before = earlier(reads_.previous_records(previous), now)
     previous, before = (None, []) if before is None else (before, before)
     # Facts that are not facts, and an item listed twice, never reach the Kernel and no record could hold them: the
@@ -286,7 +288,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             # The facts port reads no run: the records port's list says whether the Runs were read whole.
             facts["complete"]["runs"] = facts["complete"].get("runs") is True and whole
             d = decide(facts, runs, context, kernel, now)
-            minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"
+            minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval" \
+                or (queue_named and d["outcome"] == t.ACT and d.get("action") in writes_.QUEUE_INTENTS)
             out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
                             **status_head(entry, kernel)))
         return out
@@ -317,6 +320,10 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             dispatch.append({"run": e["run"], "name": name})
         elif d["outcome"] == t.ACT and d["action"] == "issue_approval":
             name = _run_name(d["item"], t.ISSUE_APPROVAL, config["kernel"]["owner_role"], d["content_id"], e["run"])
+            dispatch.append({"run": e["run"], "name": name})
+        elif d["outcome"] == t.ACT and d["action"] in writes_.QUEUE_INTENTS and e["run"] is not None:
+            name = _run_name(d["item"], writes_.QUEUE_INTENTS[d["action"]], config["kernel"]["owner_role"], d["content_id"],
+                             e["run"])
             dispatch.append({"run": e["run"], "name": name})
         elif d["outcome"] == t.ACT:
             acts.append(d)

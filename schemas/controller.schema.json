@@ -374,13 +374,14 @@
       }
     },
     "workflows": {
-      "description": "The workflow file a dispatch of each kind starts, under .github/workflows/; the records port lists the run and approval files as the Role workflow files",
+      "description": "The workflow file a dispatch of each kind starts, under .github/workflows/; the records port lists the run and approval files, and the queue file once it is named, as the Role workflow files",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "run",
         "approval",
-        "poller"
+        "poller",
+        "queue"
       ],
       "properties": {
         "run": {
@@ -393,6 +394,14 @@
         },
         "poller": {
           "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
+        },
+        "queue": {
+          "description": "The queue App's workflow, which carries out an enqueue, a dequeue and a resolution, each a dispatched Run (issue 381); null until it exists, and while it is, each of those acts is recorded not_built",
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
         }
       }

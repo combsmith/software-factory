@@ -194,6 +194,9 @@ class Matching(unittest.TestCase):
         self.assertEqual(check(seen(), recorded(), records(old), accounts=TOKEN)["unmatched"], [])
         approving = written(("dispatch_approval", ITEM, "r_01JA7Q", None, "sent"))
         self.assertEqual(check(seen(), recorded(written_=[approving]), records(r), accounts=TOKEN)["unmatched"], [])
+        # A queue act's dispatch is matched as an approval's is (issue 381).
+        queued = written(("dispatch_queue", ITEM, "r_01JA7Q", None, "sent"))
+        self.assertEqual(check(seen(), recorded(written_=[queued]), records(r), accounts=TOKEN)["unmatched"], [])
         # Records that cannot be read match no dispatch: it is unmatched, beside the short reconciliation.
         found = check(seen(), recorded([dict(applied(("approve", "K", "applied")), effects="none")], [sent]), records(r),
                       accounts=TOKEN)
