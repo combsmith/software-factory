@@ -1,6 +1,6 @@
 {
   "schema": "context-eval/1",
-  "task": "An empty diff never converges. The reason is `empty_diff`.",
+  "task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "held_out_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "runs": [
     {
@@ -41,9 +41,9 @@
       ],
       "restored": [],
       "added": {
-        "test": "tests/test_decide.py::test_empty_diff_never_converges",
-        "mutant": "an empty diff converges",
-        "reason": "empty_diff"
+        "test": true,
+        "mutant": true,
+        "reason": true
       },
       "cost": {
         "turns": 23,

@@ -11,7 +11,8 @@
 # in run_cli, so no key or token of this shell reaches it. REPO is a checkout of software-factory and COMMIT a commit
 # in it: `git archive` of that commit is the agent's whole world, with no history, no remote and no other checkout.
 # SENTENCE is a file holding the task's one sentence, outside REPO, which names the rule and its reason code and
-# nothing of how. HELD_OUT is the boundary test for that rule, outside REPO and OUT, copied from the private home by
+# nothing of how; the record carries only its sha256, of the one line with no newline, as the private home's task
+# hash is taken, and never the sentence or its code (issue 8). HELD_OUT is the boundary test for that rule, outside REPO and OUT, copied from the private home by
 # the Maintainer: it is copied into the export only after the agent has stopped, run on its own, and taken out again
 # before `make verify`, the mutation check and the record, and this script never prints it. CLI, if given, is the
 # CLI's program; by default the build the native installer kept for PIN, else `claude` on PATH. Whichever it is, it
@@ -23,15 +24,18 @@
 #      the judge's own files put back;
 #   3. the agent: the CLI headless, the sentence as its whole prompt, CAP turns at most, with a scratch HOME and its
 #      login alone, its network tools refused; its transcript is captured and never printed. Its shell is not
-#      sandboxed (trial P-26 has no fixture yet): the record counts each path it named outside the export and each
-#      command it could not read, so a run that looked elsewhere says so;
+#      sandboxed (trial P-26 failed: the CLI's sandbox hands a tool the parent's environment): the record counts
+#      each path it named outside the export and each command it could not read, so a run that looked elsewhere
+#      says so;
 #   4. the judge, from the export as made: the held-out test copied in, run, and taken out; the Makefile and every
 #      tool but tools/mutants.py put back as made, each one the agent had changed recorded; `make verify`; the whole
 #      mutation check, which must kill every mutant, the agent's among them;
-#   5. the record: tools/context_eval.py reads the transcript for the paths read, the first words of each command
-#      and the result's counts, counts the changes by file, and writes OUT/record.json, a context-eval/1 run.
+#   5. the record: tools/context_eval.py reads the transcript for the paths read, the export's own words of each command
+#      and the result's counts, counts the changes by file, and writes OUT/record.json, a context-eval/1 run, which
+#      says whether the agent added a test, a mutant and the sentence's code and names none of them.
 # OUT receives record.json, checked.json (each step's exit and counts), ran_at and requests.json (what was asked,
-# without the sentence's answer or the transcript). The scratch directories are deleted, the transcript with them.
+# without the sentence, its answer or the transcript). None of them names the rule or anything the agent named, so
+# none can carry the rule into the repo. The scratch directories are deleted, the transcript with them.
 set -euo pipefail
 set +x
 export LC_ALL=C
@@ -135,6 +139,7 @@ import re, sys
 found = re.findall(r"`([a-z_]+)`", sys.stdin.read())
 print(found[0] if len(found) == 1 else "")')
 [ -n "$code" ] || refuse "SENTENCE names no reason code, or more than one, in backticks"
+task_sha256=$(printf '%s' "$sentence" | python3 -I -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')
 held_out=$(real "$6")
 case "$(basename "$held_out")" in test_*.py) ;; *) refuse "HELD_OUT is named test_<something>.py" ;; esac
 
@@ -249,8 +254,9 @@ printf '{"held_out_test": "%s", "verify": "%s", "mutant": "%s"}\n' "$test_verdic
 python3 -I -c '
 import json, sys
 json.dump({"commit": sys.argv[1], "ran_at": open(sys.argv[2]).read().strip(), "cli_version": sys.argv[3],
-           "cap_turns": int(sys.argv[4]), "code": sys.argv[5], "restored": sys.argv[6].split()}, open(sys.argv[7], "w"))' \
-    "$commit" "$out/ran_at" "$version" "$CAP" "$code" "$restored" "$scratch/meta.json"
+           "cap_turns": int(sys.argv[4]), "code": sys.argv[5], "restored": sys.argv[6].split(), "task_sha256": sys.argv[8]},
+          open(sys.argv[7], "w"))' \
+    "$commit" "$out/ran_at" "$version" "$CAP" "$code" "$restored" "$scratch/meta.json" "$task_sha256"
 
 # 5. The record, written in the scratch directory, which the recorder is told is its own and reads and writes under
 # alone, then copied to OUT; and what was checked. Neither holds a word of the model's.
@@ -263,9 +269,9 @@ import json, sys
 a = sys.argv
 json.dump({"agent": {"exit": int(a[1]), "stderr": {"lines": int(a[2]), "characters": int(a[3])}},
            "held_out_test": {"exit": int(a[4]), "verdict": a[5]}, "verify": {"exit": int(a[6]), "verdict": a[7]},
-           "mutants": {"exit": int(a[8]), "verdict": a[9], "added": json.loads(a[10])["names"]},
+           "mutants": {"exit": int(a[8]), "verdict": a[9], "added": len(json.loads(a[10])["names"])},
            "judge_restored": a[11].split(), "record": {"exit": int(a[12])},
-           "sandbox": "none: the agent'"'"'s shell had a scratch HOME, its login and no key, and no other boundary (trial P-26 has no fixture)"},
+           "sandbox": "none: the agent'"'"'s shell had a scratch HOME, its login and no key, and no other boundary (trial P-26 failed: the sandbox of the CLI hands a tool the environment of its parent)"},
           open(a[13], "w"), indent=2)' \
     "$code3" "$err_lines" "$err_chars" "$code_test" "$test_verdict" "$code_verify" "$verify_verdict" \
     "$code_mutants" "$mutant_verdict" "$found" "$restored" "$code5" "$out/checked.json"
@@ -277,7 +283,7 @@ env = {"CLAUDE_CONFIG_DIR": "the configuration directory the Factory alone uses,
 json.dump([{"n": 1, "via": "cli", "call": "claude --version", "env": env, "cwd": "the export"},
            {"n": 3, "via": "cli", "call": "claude -p SENTENCE --max-turns %s --allowedTools %s --disallowedTools %s %s"
             % (sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]), "env": env, "cwd": "the export of " + sys.argv[5],
-            "pinned": sys.argv[6], "prompt": "the one sentence, which the record carries as the task",
+            "pinned": sys.argv[6], "prompt": "the one sentence, which the record carries as its sha256 alone",
             "sandbox": "none; the record counts what the agent named outside the export"}],
           open(sys.argv[7], "w"), indent=2)' "$CAP" "$ALLOWED" "$REFUSED" "$OPTIONS" "$commit" "$PIN" "$out/requests.json"
 
