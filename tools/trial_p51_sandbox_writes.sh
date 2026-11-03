@@ -60,22 +60,40 @@ cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 [[ -f "$4" ]] || refuse "no stub at '$4'"
 stub=$(cd "$(dirname "$4")" && pwd -P)/$(basename "$4")
 case "$(basename -- "$1")" in .|..) refuse "$1 names no new directory, since it ends in . or ..; name the directory itself" ;; esac
-# OUT is made here, by this script alone: one made since it was found absent is refused, never written into.
-mkdir -p -- "$(dirname -- "$1")"
+# A name read past a directory that is not there says nothing of where it leads, so none is taken (issue 424).
+case "/$1/" in */../*) refuse "$1 holds .., which is read one way here and another by mkdir; name OUT without it" ;; esac
 # OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
 # sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
-# that fails says nothing, and is refused as such. OUT is made where the check read, never through the path as given.
-above=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)
-target=$above/$(basename -- "$1")
+# that fails says nothing, and is refused as such.
+check_above() {
+    local above=$1 found
+    while :; do
+        found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
+            found="find failed"
+        # find -perm does not see an ACL: ls -e on macOS says what one allows; elsewhere ls's + says one is there, unread.
+        if listed=$(ls -lde "$above" 2>/dev/null); then
+            if printf '%s\n' "$listed" | sed 1d | grep -Eq ' allow .*(add_file|add_subdirectory|delete|write|chown)'; then found="an ACL"; fi
+        elif listed=$(ls -ld "$above"); then
+            case "$listed" in ??????????+*) found="an ACL" ;; esac
+        else
+            found="ls failed"
+        fi
+        [[ -z "$found" ]] || refuse "$above is another user's, or can be written by other users and is not sticky, or an ACL may let them; name a directory under one only you can write to"
+        [[ "$above" != / ]] || break
+        above=$(dirname -- "$above")
+    done
+}
 uid=$(id -u)
-while :; do
-    found=$(find "$above" -maxdepth 0 \( ! -user 0 ! -user "$uid" -o \( -perm -0020 -o -perm -0002 \) ! -perm -1000 \) -print) ||
-        found="find failed"
-    [[ -z "$found" ]] || refuse "$above is another user's, or can be written by other users and is not sticky; name a" \
-        "directory under one only you can write to"
-    [[ "$above" != / ]] || break
-    above=$(dirname -- "$above")
-done
+# The deepest directory that stands is read first, so a refused run leaves nothing behind (issue 424).
+near=$(dirname -- "$1")
+until [[ -d "$near" || "$near" == . ]]; do near=$(dirname -- "$near"); done
+check_above "$(CDPATH= cd -- "$near" && pwd -P)"
+# OUT is made here, by this script alone: one made since it was found absent is refused, never written into. What this
+# made above it is its user's alone, and read too, and OUT is made where the check read, never through the path as given.
+(umask 077 && mkdir -p -- "$(dirname -- "$1")")
+parent=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)
+check_above "$parent"
+target=$parent/$(basename -- "$1")
 mkdir -m 700 -- "$target" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
 out=$(cd "$target" && pwd -P)
 
