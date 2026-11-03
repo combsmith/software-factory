@@ -784,10 +784,11 @@ CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 
 
-def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
+def _balanced(text: str, i: int, close: str, comments: bool = True, singles: bool = True) -> int:
     """The index just past where a run opened before `i` closes: a ) that may hold nested $( ), or a ` or }.
     Quotes inside are skipped, and so are a parameter expansion's `${...}` and, in a `( )` and with `comments`, a
-    comment (decision 0032). Runs to the end of the text when it never closes."""
+    comment (decision 0032). Without `singles`, as in a ${...} in double quotes, a ' is a character. Runs to the end
+    of the text when it never closes."""
     depth, quote, start = 0, None, i
     while i < len(text):
         c = text[i]
@@ -796,17 +797,19 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
         elif quote == '"' and text.startswith("$(", i):
             i = _balanced(text, i + 2, ")") - 1     # a substitution in double quotes has quotes of its own (#410)
         elif quote == '"' and text.startswith("${", i):
-            i = _balanced(text, i + 2, "}") - 1     # and so has a ${...}: "${x:-")"}" is one word (the security pass)
+            # And so has a ${...}, in which a ' is a character: "${x:-")"}" and "${x:-it's}" are words (the security
+            # pass, Argon on #520).
+            i = _balanced(text, i + 2, "}", singles=False) - 1
         elif quote:
             quote = None if c == quote else quote
         elif c == "\\":
             i += 1
-        elif text.startswith("$'", i):
+        elif singles and text.startswith("$'", i):
             i = (ansi_end(text, i + 2) or len(text)) - 1        # $'...', in which a backslash escapes
-        elif c in "'\"":
+        elif c == '"' or c == "'" and singles:
             quote = c
         elif text.startswith("${", i):
-            i = _balanced(text, i + 2, "}") - 1
+            i = _balanced(text, i + 2, "}", singles=singles) - 1
         elif comments and close == ")" and c == "#" and (i == start or text[i - 1] in " \t\n;&|()"):
             end = text.find("\n", i)        # a comment runs to the end of its line
             i = (len(text) if end < 0 else end) - 1

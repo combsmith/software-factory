@@ -1529,6 +1529,10 @@ class Identity(unittest.TestCase):
             self.assertNotEqual(self.codes(command), "", command[:40])
         self.assertEqual(shell._balanced('echo "a \\" )") tail', 0, ")"), 14)     # an escaped " ends no double quotes
         self.assertEqual(shell._balanced('echo "${x:-")"}") tail', 0, ")"), 17)    # nor does a ${...}'s own (the security pass)
+        # In which a ' is a character, as in a ${...} it holds, and a $'...' is no quote (Argon on #520).
+        for word in ("${x:-it's}", "${x:-${y:-it's}}", "${x:-$'}"):
+            self.assertEqual(shell._balanced('echo "%s") tail' % word, 0, ")"), len('echo "%s")' % word), word)
+        self.assertEqual(shell._balanced("echo ${x:-')'}) tail", 0, ")"), 15)     # outside double quotes, a ' is a quote
         for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',
                         'echo "$(echo "$(printf "%s" "hello (world)")")"; git commit -m x',
                         'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)"; git commit -m x'):
@@ -1626,6 +1630,7 @@ class Identity(unittest.TestCase):
                         "echo 'git push' > >(\\bash)", "echo 'git push' > >( (bash) )", "echo 'git push' > >(b\\ash)",
                         "echo 'git push' > >(\\\nbash)", "echo 'git push' >>(bash)", "echo 'git push' > >( bash)",
                         "echo 'git push' > >(bash>/dev/null)", "echo 'git push' > >(/bin/bash 2>&1)",  # glued (Muse)
+                        "echo 'git push' >>(( bash))",     # and a subshell's ( spaced (Argon on #520)
                         # One in <( ) reads what its command is given, as any shell does, as main reads it (Argon on #520).
                         "cat <(bash); git commit -m x", "echo 'git push' | cat <(bash)", "{ cat <(bash); } <<< 'git push'",
                         # A body's line that also stands outside it is still the body's (Argon on #489).
