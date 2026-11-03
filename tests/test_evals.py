@@ -452,7 +452,7 @@ class TheSet(unittest.TestCase):
 
     @pending
     def test_a_fresh_agent_given_the_repo_adds_a_rule_and_passes_the_check(self):
-        # Decision 0013 and docs/context-engineering.md: the context's test (issue 8, decision 0042). The runs are made at
+        # Decision 0013 and docs/context-engineering.md: the context's test (issue 8, decision 0129). The runs are made at
         # the Maintainer's terminal by tools/context_eval.sh and recorded in evals/context/task.json; this holds the record:
         # the sha256 of the task sentence and of the held-out answer, never the sentence, so the rule is named nowhere
         # here (the Maintainer's choice), and the newest three runs on that sentence all passed, each adding a test, a

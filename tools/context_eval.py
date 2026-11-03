@@ -12,7 +12,8 @@ and takes it out before this module is called.
 is followed to where it really is and must lie under the system's scratch directory, where the runner keeps its own:
 the transcript is the model's own words and is never inside the repo, nor is the record written there. TRANSCRIPT is
 the CLI's output, as `--output-format stream-json` or `json` gives it; only the names of the tools it used, the paths
-and the first words of the commands they were given, and the result's counts are taken from it, never a text block, a
+they were given (a file the export as made does not hold by its folder alone), of each command its program, its flags
+and the paths and modules the export holds, and the result's counts are taken from it, never a text block, a
 tool's result, a prompt or an answer. PRISTINE and WORK are the export as made and as the agent left it; what differs
 between them is counted, by file, in lines. VERDICTS is JSON with `held_out_test`, `verify` and `mutant`, which the
 runner judged. META is JSON with `commit`, `ran_at`, `cli_version`, `cap_turns`, `task_sha256`, the sha256 of the task
@@ -43,12 +44,18 @@ PATH_INPUTS = ("file_path", "path", "notebook_path")
 COMMAND_INPUT = "command"
 PATH = re.compile(r"^\.?[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$")
 WORD = re.compile(r"^[a-z0-9_./=-]+$")
+# After a command's program, a word is kept only as a flag, or as a path or module the export as made holds: any other
+# word may be one the agent chose, the task's code or a name of its test among them, and ends the record of it.
+FLAG = re.compile(r"^--?[a-z]+(-[a-z]+)*$")
+# And these, the words of the commands the root AGENTS.md names and of git's reads, which no agent chooses.
+KNOWN = ("unittest", "verify", "diff", "status", "log", "show")
+# Where a file the export as made does not hold is recorded: the deepest folder it does hold, and at the top this.
+TOP = "./"
 FIRST_WORDS = 4
 UNREADABLE = "unreadable"
 TOKEN_LENGTH = 24      # a word longer than this, of letters and digits, is read as a token and never recorded
 # A mutant's entry in tools/mutants.py: its name, then the file it targets.
 MUTANT = re.compile(r'^\s*\(\s*"([^"\n]+)",\s*(?:"([^"\n]+)"|([A-Z_]+))\s*,', re.M)
-# A mutant's name as the house style writes one: words, a few marks, no quotes; the schema holds it to the same.
 
 
 def _messages(text: str) -> list:
@@ -91,17 +98,44 @@ def _relative(given: str, work: pathlib.Path):
     return rel if PATH.match(rel) else None
 
 
-def _first_words(command) -> str:
-    """A command's first words, each held to WORD and to no credential's shape; a word that is not one ends the
-    record of it, and a command with no such word is unreadable."""
+def _held(word: str, pristine: pathlib.Path) -> bool:
+    """Whether the export as made holds `word` as a path, a file or a folder, or as a dotted module of a file or folder,
+    so that it is the repo's own name and never one the agent chose."""
+    for rel in (word.rstrip("/"), word.replace(".", "/") + ".py", word.replace(".", "/")):
+        parts = rel.split("/")
+        if rel and not rel.startswith("/") and ".." not in parts and "" not in parts \
+                and os.path.lexists(os.path.join(str(pristine), rel)):
+            return True
+    return False
+
+
+def _first_words(command, pristine: pathlib.Path) -> str:
+    """A command's first words, each held to WORD and to no credential's shape: its program, then each flag and each
+    path or module the export as made holds. A word that is none of them ends the record of it, so the task's code or
+    a name the agent chose never reaches it; a command with no such word is unreadable."""
     if not isinstance(command, str):
         return UNREADABLE
     words = []
     for word in command.strip().split()[:FIRST_WORDS]:
         if not WORD.match(word) or _token(word):
             break
+        if words and not FLAG.match(word) and word not in KNOWN and not _held(word, pristine):
+            break
+        if not words and "/" in word and not _held(word, pristine):
+            break
         words.append(word)
     return " ".join(words) if words else UNREADABLE
+
+
+def _where(rel: str, pristine: pathlib.Path) -> str:
+    """A path as the record holds it: as it is where the export as made holds it, else by the deepest folder of it
+    that the export holds, so a file the agent named is never recorded by its name (issue 8)."""
+    if _held(rel, pristine):
+        return rel
+    parts = rel.split("/")[:-1]
+    while parts and not _held("/".join(parts), pristine):
+        parts.pop()
+    return "/".join(parts) + "/" if parts else TOP
 
 
 def _token(word: str) -> bool:
@@ -110,10 +144,11 @@ def _token(word: str) -> bool:
                             and re.search(r"[a-z]", word) is not None)
 
 
-def reads_and_commands(text: str, work: pathlib.Path) -> tuple:
-    """(the paths the agent read, in order, each once; the first words of each command it ran, in order; the result's
-    counts; how many paths it named outside the export), from the transcript. Only a tool_use block's name and the
-    named inputs are read; a text block, a tool's result and the result's text are never."""
+def reads_and_commands(text: str, work: pathlib.Path, pristine: pathlib.Path) -> tuple:
+    """(the paths the agent read, in order, each once, a file the export as made does not hold by its folder alone; the
+    first words of each command it ran, in order; the result's counts; how many paths it named outside the export),
+    from the transcript. Only a tool_use block's name and the named inputs are read; a text block, a tool's result and
+    the result's text are never."""
     read, ran, counts, seen, outside = [], [], {}, set(), 0
     for message in _messages(text):
         if message.get("type") == "result":
@@ -131,10 +166,11 @@ def reads_and_commands(text: str, work: pathlib.Path) -> tuple:
                 continue
             given = block.get("input") if isinstance(block.get("input"), dict) else {}
             if COMMAND_INPUT in given:
-                ran.append(_first_words(given[COMMAND_INPUT]))
+                ran.append(_first_words(given[COMMAND_INPUT], pristine))
             for key in PATH_INPUTS:
                 if key in given:
                     path = _relative(given[key], work)
+                    path = path if path is None else _where(path, pristine)
                     if path is None:
                         outside += 1
                     elif path not in seen:
@@ -262,21 +298,31 @@ def record(transcript: str, pristine: pathlib.Path, work: pathlib.Path, verdicts
     """One run's record, valid against context-eval/1's run, or None when what it was given does not make one."""
     if not isinstance(verdicts, dict) or not isinstance(meta, dict):
         return None
-    read, ran, counts, outside = reads_and_commands(transcript, work)
-    changed = changes(pristine, work)
+    read, ran, counts, outside = reads_and_commands(transcript, work, pristine)
+    # A file the export as made does not hold is counted under its folder, never by the name the agent gave it.
+    raw = changes(pristine, work)
+    changed, at = [], {}
+    for change in raw:
+        where = _where(change["path"], pristine)
+        if where in at:
+            at[where]["added"] += change["added"]
+            at[where]["removed"] += change["removed"]
+        else:
+            at[where] = dict(change, path=where)
+            changed.append(at[where])
     mutants = new_mutants(pristine, work)
     tests = new_tests(pristine, work)
     code = meta.get("code")
     # The reason code counts as added only on a line the agent added to the Kernel, as a whole word.
     added_lines = []
-    for change in changed:
+    for change in raw:
         rel = change["path"]
         if rel.startswith("kernel/") and _own(work, work / rel):
             old = _read(pristine, pristine / rel).splitlines()
             added_lines += [line for line in difflib.unified_diff(old, _read(work, work / rel).splitlines(), lineterm="", n=0)
                             if line.startswith("+") and not line.startswith("+++")]
     reason = isinstance(code, str) and re.fullmatch(r"[a-z_]+", code) is not None \
-        and any(re.search(r"(?<![a-z_])%s(?![a-z_])" % re.escape(code), line) for line in added_lines)
+        and any(re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(code), line) for line in added_lines)
     judged = {k: verdicts.get(k) for k in ("held_out_test", "verify", "mutant")}
     if judged["mutant"] == "killed" and not mutants_kept(pristine, work):
         judged["mutant"] = "survived"       # a mutant dropped from the list is one that cannot have been killed
