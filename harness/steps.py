@@ -130,7 +130,7 @@ def exit_with(step, *given) -> None:
 
 
 def handed_on(environ: dict) -> str:
-    """`python3 -m harness.steps`, a workflow's first job's step after its checkout of the Channel: the commit it got,
+    """`python3 -m harness.steps`, a workflow's first job's step after its checkout of its own commit: the commit it got,
     as the step's output `commit`, which every later job checks out."""
     sha = commit()
     with open(environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
