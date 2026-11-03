@@ -109,6 +109,9 @@ TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "t
              "uniq", "cut", "tr", "diff", "test", "[", "true", "false"}
 SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
 UNSEEN_SCRIPT = "a shell reads a script the hook cannot see"
+# A shell that a process substitution runs, given no script: it reads what is written to it (#410).
+PROCESS_SHELL = re.compile(r"[<>]\(\s*(?:[^\s()<>;&|]*/)?(?:%s)(?=[\s);&|]|$)"
+                           % "|".join(re.escape(name) for name in sorted(SHELLS_AND_SOURCE)))
 # gh's commands that only read, as READS are git's: beside a script the hook cannot see, what they are given names no write
 # (issue 488). A `gh api` reads too, given only these options, and no word the shell would change: flags cluster, as -iX does.
 GH_API_READING = {"--jq", "-q", "--paginate", "--include", "-i", "--silent", "--template", "-t", "--hostname", "--cache", "--slurp",
@@ -782,6 +785,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         if _only_reads(tool, words) and not WRITE_TEXT.search(" ".join(_bare(w) for i, w in enumerate(marked) if i != at)):
             reading.add(index)
         calls += [(tool, where, words, kind) for where in wheres]
+    if PROCESS_SHELL.search(shell._masked(shell.without_heredocs(text))):
+        blind.append(UNSEEN_SCRIPT)     # echo 'git push' > >(bash): what is written to it is its script (#410)
     said = " ".join(w for words, _, _ in commands for w in words or [])     # as the shell runs it: g''it push is git push
     writes = any(kind for _, _, _, kind in calls)
     if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or writes):
@@ -1392,8 +1397,11 @@ def takes_next(word: str, valued: str, optional: str = "") -> bool:
 
 def _quoted(text: str) -> str:
     """`text` with each command substitution outside quotes, $(...) or `...`, made one quoted word $(...), as one in
-    double quotes is: so that what it gives a command is read as a word that cannot be read, not as words cut off."""
+    double quotes is: so that what it gives a command is read as a word that cannot be read, not as words cut off.
+    What each holds is spelt as shell._nested spells a body's script, each level's quotes its own and a ${...}'s
+    substitutions read, within the same budget (#410). Raises ValueError past it."""
     out, i, quote, braces = [], 0, None, 0     # braces: where a ${...} that began ends; a # in it begins no comment
+    room = [shell.KEPT_TIMES * len(text) + shell.KEPT_MORE]
     while i < len(text):
         c = text[i]
         if quote is None and text.startswith("${", i) and i >= braces:
@@ -1409,7 +1417,7 @@ def _quoted(text: str) -> str:
             if end is None:
                 return text
             # A script of its own, whose quotes are its own: escaped, as below, so that shlex keeps the word whole.
-            out.append("$(%s)" % text[i + 2:end].replace("\\", "\\\\").replace('"', '\\"'))
+            out.append("$(%s)" % shell._nested(text[i + 2:end], room).replace("\\", "\\\\").replace('"', '\\"'))
             i = end + 1
             continue
         elif quote == '"':
@@ -1438,7 +1446,7 @@ def _quoted(text: str) -> str:
                 inner = re.sub(r"\\([\\`$])", r"\1", inner)
             # One double-quoted word holding $(inner): inside it shlex reads only \ and ", so escaping those keeps
             # inner's own quotes literal and the word intact, whatever inner holds.
-            out.append('"$(%s)"' % inner.replace("\\", "\\\\").replace('"', '\\"'))
+            out.append('"$(%s)"' % shell._nested(inner, room).replace("\\", "\\\\").replace('"', '\\"'))
             i = end + 1
             continue
         out.append(c)

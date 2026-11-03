@@ -55,7 +55,7 @@ def without_heredocs(text: str, raw: bool = False, bodies: list = None) -> str:
     with `raw`, as the shell writes it, for a reader that quotes the text itself, as the identity
     hook's _quoted does, which would otherwise escape it twice. Each line of a body is added to `bodies`, when given.
     """
-    out, waiting, stack, kept = [], [], ["code"], []
+    out, waiting, stack, kept, quoted = [], [], ["code"], [], set()
     room = [KEPT_TIMES * len(text) + KEPT_MORE]     # what is left of it, spent as each level is spelt
     for line in text.split("\n"):
         if waiting:
@@ -65,11 +65,17 @@ def without_heredocs(text: str, raw: bool = False, bodies: list = None) -> str:
                 # A script the reader could not read, an apostrophe in prose between backticks (`it's`), stays data, as on
                 # main: the shell fails it and writes the body mangled, and refusing a commit message for it would be a
                 # false refusal (decision 0040's triage row).
-                scripts = [script for script in expanded("\n".join(body)) if _readable(script)] if expands else []
-                if scripts:
-                    nested = [_nested(script, room) for script in scripts]     # each level's quotes its own
-                    kept.append((expands, "".join('<"$(%s)" ' % (script if raw else _escaped(_spent(script, room)))
-                                                  for script in nested)))
+                # Each level's quotes its own, and read so: a substitution in the script's own double quotes, with quotes
+                # of its own, is one word to the reader as to the shell (#410).
+                scripts = [(script, _nested(script, room)) for script in expanded("\n".join(body))] if expands else []
+                nested = [(script, spelt) for script, spelt in scripts if _readable(spelt)]
+                if nested:
+                    # Raw, as the shell writes it, for a reader that spells each level itself (the identity hook's
+                    # _quoted). In a double-quoted substitution the word is unquoted once by the level around it, so
+                    # it is written as spelt there, not escaped again (Codex on #395).
+                    kept.append((expands, "".join('<"$(%s)" ' % (script if raw else spelt if expands in quoted
+                                                                 else _escaped(_spent(spelt, room)))
+                                                  for script, spelt in nested)))
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
                 body.append(line)
@@ -116,6 +122,8 @@ def without_heredocs(text: str, raw: bool = False, bodies: list = None) -> str:
                     # literal, as the shell keeps it.
                     literal = re.search(r"[\\'\"]", DELIMITER.match(line, i + 2).group())
                     expands = None if literal else (len(out) - 1, i)
+                    if expands and "double" in stack:
+                        quoted.add(expands)
                     waiting.append((found.group(1) == "-", _terminator(DELIMITER.match(line, i + 2).group(), found.group(3)),
                                     expands, []))
                     i = found.end()
@@ -139,7 +147,7 @@ def _spent(script: str, room: list) -> str:
     ValueError when no room is left: a reading the hook would cut short is one it cannot read (issue 376)."""
     room[0] -= 2 * len(script) + 8
     if room[0] < 0:
-        raise ValueError("a here-document's substitutions nest deeper than the hook reads")
+        raise ValueError("substitutions are nested deeper than the hook reads")     # in a body or in a word (#410)
     return script
 
 
@@ -169,7 +177,9 @@ def _nested(script: str, room: list, comments: bool = True) -> str:
             else:
                 end = _balanced(script, i + 2, ")")
                 inner = script[i + 2:end - 1] if script[end - 1:end] == ")" else script[i + 2:]
-            word = "$(%s)" % _escaped(_spent(_nested(inner, room), room))
+            # Charged before it is read, so deep nesting is cut at once, and again as spelt, since each level's
+            # escaping may double what it holds (#410).
+            word = "$(%s)" % _escaped(_spent(_nested(_spent(inner, room), room), room))
             out.append(word if quote == '"' else '"%s"' % word)
             i = end
             continue
@@ -783,6 +793,8 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
         c = text[i]
         if quote == '"' and c == "\\":
             i += 1      # in double quotes \" is a quote, which does not end them (issue 376: a script _nested spells)
+        elif quote == '"' and text.startswith("$(", i):
+            i = _balanced(text, i + 2, ")") - 1     # a substitution in double quotes has quotes of its own (#410)
         elif quote:
             quote = None if c == quote else quote
         elif c == "\\":
