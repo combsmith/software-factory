@@ -5642,7 +5642,7 @@ MUTANTS = ISSUE + [
     ("the fake creates no check beside a failure", "sim/world.py", 'if WORKFLOWS[lens] is not None and roll < 0.855:', 'if False:', SIM_CREATED),
     ("the fake creates no check alone", "sim/world.py", 'if self.faults and WORKFLOWS[lens] is not None and roll < 0.02:', 'if False:', SIM_CREATED),
     # Issue 496: a created check replaces only one created before under its name (trials/P-42.rollup.json, P-35).
-    ("a later created check stands beside the earlier", "sim/world.py", '        self.impostors = [c for c in self.impostors\n', '        self.impostors = [c for c in self.impostors if False or\n', SIM_CREATES),
+    ("a later created check stands beside the earlier", "sim/world.py", 'if not (c["name"] == CHECKS[lens]', 'if True or not (c["name"] == CHECKS[lens]', SIM_CREATES),
     ("a created check replaces another workflow's", "sim/world.py", 'c["app_id"] == APPS[lens] and c["workflow"] is None)]', 'c["app_id"] == APPS[lens])]', SIM_CREATES),
     ("a created check replaces another App's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and', 'if not (c["name"] == CHECKS[lens] and', SIM_CREATES),
     ("the read asks for no details", "adapters/checks.py", 'startedAt completedAt detailsUrl\n', 'startedAt completedAt\n', JOB_PORT),
