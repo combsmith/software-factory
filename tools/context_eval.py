@@ -337,24 +337,48 @@ def _lists_of(text: str):
     return (module, lists) if lists else None
 
 
-def _data(node) -> bool:
-    """Whether a list entry, or a part of one, is data: a constant, a name, a tuple or list of data, data joined by
-    `+`, a star of data, or a call of the file's own HELPERS or of a string's `replace` with data alone. Nothing else,
-    so no entry runs code of the agent's when the runner reads its list."""
-    if isinstance(node, (ast.Constant, ast.Name)):
+def _data(node, bound: set) -> bool:
+    """Whether a list entry, or a part of one, is data: a constant, a name the export's file binds at its top level
+    (`bound`), a tuple or list of data, data joined by `+`, a star of data, or a call of the file's own HELPERS or of a
+    string's `replace` with data alone. Nothing else, so no entry runs code of the agent's when the runner reads its
+    list, and none names what the export's file does not define."""
+    if isinstance(node, ast.Constant):
         return True
+    if isinstance(node, ast.Name):
+        return node.id in bound
     if isinstance(node, (ast.Tuple, ast.List)):
-        return all(_data(e) for e in node.elts)
+        return all(_data(e, bound) for e in node.elts)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return _data(node.left) and _data(node.right)
+        return _data(node.left, bound) and _data(node.right, bound)
     if isinstance(node, ast.Starred):
-        return _data(node.value)
+        return _data(node.value, bound)
     if isinstance(node, ast.Call) and not node.keywords:
         called = node.func
-        own = isinstance(called, ast.Name) and called.id in HELPERS
-        replace = isinstance(called, ast.Attribute) and called.attr == "replace" and _data(called.value)
-        return (own or replace) and all(_data(arg) for arg in node.args)
+        own = isinstance(called, ast.Name) and called.id in HELPERS and called.id in bound
+        replace = isinstance(called, ast.Attribute) and called.attr == "replace" and _data(called.value, bound)
+        return (own or replace) and all(_data(arg, bound) for arg in node.args)
     return False
+
+
+def _bound(module) -> set:
+    """The names a module binds at its top level: what it assigns and the functions it defines."""
+    names = set()
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                names.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))      # `A, B = ...` too
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+    return names
+
+
+def _targets_inside(entry) -> bool:
+    """Whether an entry's target, its second part where that is written out, is a path inside the tree: never absolute,
+    never through `..`, so the runner never breaks a file outside the tree it judges."""
+    if isinstance(entry, ast.Tuple) and len(entry.elts) > 1 and isinstance(entry.elts[1], ast.Constant):
+        target = entry.elts[1].value
+        return isinstance(target, str) and PATH.match(target) is not None and ".." not in target.split("/")
+    return True
 
 
 def _name(entry):
@@ -383,7 +407,7 @@ def judged_mutants(pristine: pathlib.Path, work: pathlib.Path) -> tuple:
     if made is None or left is None or len(made[1]) != len(left[1]):
         return before, after != before
     (made_module, made_lists), (left_module, left_lists) = made, left
-    raw, edits, other = before.encode("utf-8"), [], False
+    raw, edits, other, bound = before.encode("utf-8"), [], False, _bound(made_module)
     lines = raw.splitlines(keepends=True)
     for made_list, left_list in zip(made_lists, left_lists):
         kept = {ast.dump(e) for e in made_list.elts}
@@ -394,7 +418,7 @@ def judged_mutants(pristine: pathlib.Path, work: pathlib.Path) -> tuple:
             dumped = ast.dump(entry)
             if dumped in kept:
                 continue
-            if not _data(entry):
+            if not (_data(entry, bound) and _targets_inside(entry)):
                 other = True
                 continue
             text = ast.get_source_segment(after, entry)
@@ -410,8 +434,13 @@ def judged_mutants(pristine: pathlib.Path, work: pathlib.Path) -> tuple:
         if added:
             close = _offset(lines, made_list.end_lineno, made_list.end_col_offset) - 1
             head = raw[:close].rstrip()
-            comma = "" if not made_list.elts or head.endswith((b",", b"[")) else ","
-            edits.append((len(head), close, comma + "\n" + "".join("    %s,\n" % entry for entry in added)))
+            edits.append((len(head), close, "\n" + "".join("    %s,\n" % entry for entry in added)))
+            # The last entry as made gains a comma right after it where it has none, before any comment on its line.
+            if made_list.elts:
+                last = made_list.elts[-1]
+                end = _offset(lines, last.end_lineno, last.end_col_offset)
+                if not raw[end:close].lstrip(b" \t\n").startswith(b","):
+                    edits.append((end, end, ","))
     # Outside its lists, the file must be the export's: compared with each list emptied, so where an entry stands is
     # never a change.
     for made_list, left_list in zip(made_lists, left_lists):

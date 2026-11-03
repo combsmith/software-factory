@@ -9421,7 +9421,11 @@ class ContextEval(unittest.TestCase):
 
     def test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries(self):  # issue 511
         pristine, work = self.export()
-        made = (pristine / "tools" / "mutants.py").read_text()
+        # The export's file defines one of its helpers, as this repo's does.
+        made = ("def moved_after(rel, block, anchor):\n    return ()\n\n\nPAIR_PY, PAIR_TESTS = \"kernel/derive.py\", (\"t\",)\n"
+                + (pristine / "tools" / "mutants.py").read_text())
+        (pristine / "tools" / "mutants.py").write_text(made)
+        (work / "tools" / "mutants.py").write_text(made.replace("]\n", '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n'))
         entry = '("an empty diff converges", DERIVE, "c", "d", ("t",))'
         with_entry = made.replace("]\n", "    %s,\n]\n" % entry)
         # The agent's entry alone, wherever it stands in the list: kept, and nothing put back.
@@ -9434,13 +9438,16 @@ class ContextEval(unittest.TestCase):
         self.assertEqual(context_eval.judged_mutants(pristine, work), (with_entry, True))
         # An entry in the file's own style is data: strings joined, a helper of the file's own, a string's replace.
         for styled in ('("joined", DERIVE, "a" + "b", "c", ("t",))', '*moved_after(DERIVE, "a", "b")',
-                       '("replaced", DERIVE, DERIVE.replace("k", "j"), "c", ("t",))'):
+                       '("replaced", DERIVE, DERIVE.replace("k", "j"), "c", ("t",))', '("paired", PAIR_PY, "a", "b", PAIR_TESTS)'):
             (work / "tools" / "mutants.py").write_text(made.replace("]\n", "    %s,\n]\n" % styled))
             self.assertEqual(context_eval.judged_mutants(pristine, work), (made.replace("]\n", "    %s,\n]\n" % styled), False),
                              styled)
         # An entry that runs code is put back; so is one with keywords; so is a file that is no module, a link or none.
         for code in ('("x", DERIVE, __import__("os").getcwd(), "c", ("t",))', '("x", DERIVE, sorted("ab", key=len), "c", ("t",))',
-                     '("x", DERIVE, [c for c in "ab"], "c", ("t",))'):
+                     '("x", DERIVE, [c for c in "ab"], "c", ("t",))',
+                     # A name the export's file does not bind, and a target outside the tree, absolute or through `..`.
+                     '("x", ELSEWHERE, "a", "b", ("t",))', '("x", "../outside.py", "a", "b", ("t",))',
+                     '("x", "/etc/hosts", "a", "b", ("t",))', '("x", "kernel/../../outside.py", "a", "b", ("t",))'):
             (work / "tools" / "mutants.py").write_text(made.replace("]\n", "    %s,\n]\n" % code))
             self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True), code)
         (work / "tools" / "mutants.py").write_text("MUTANTS = [\n")
@@ -9459,12 +9466,13 @@ class ContextEval(unittest.TestCase):
                          (made.replace('("a rule", DERIVE, "a", "b", ("t",))', '("a rule", DERIVE, "a2", "b", ("t",))'), False))
         (work / "tools" / "mutants.py").write_text(made.replace('    ("a rule", DERIVE, "a", "b", ("t",)),\n', ""))
         self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
-        # A list whose last entry has no comma gains one before the agent's.
-        (pristine / "tools" / "mutants.py").write_text(made.replace('("t",)),\n]', '("t",))\n]'))
+        # A list whose last entry has no comma gains one right after it, before a comment on its line.
+        (pristine / "tools" / "mutants.py").write_text(made.replace('("t",)),\n]', '("t",))  # the last, a, b\n]'))
         (work / "tools" / "mutants.py").write_text(with_entry)
         text, other = context_eval.judged_mutants(pristine, work)
         self.assertIsNotNone(context_eval._lists_of(text), "the judge's file is a module")
         self.assertEqual((len(context_eval._lists_of(text)[1][0].elts), other), (2, False))
+        self.assertIn('("t",)),  # the last, a, b', text)
         # The lists as this repo writes them, `MUTANTS = ISSUE + [...]`: an entry the agent put in either is kept there.
         joined = ('DERIVE = "kernel/derive.py"\nISSUE = [\n    ("an issue rule", DERIVE, "a", "b", ("t",)),\n]\n'
                   'MUTANTS = ISSUE + [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n]\n')
@@ -9636,7 +9644,7 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         commit = subprocess.run(["git", "-C", str(folder), "rev-parse", "HEAD"], env=env, check=True, capture_output=True, text=True).stdout.strip()
         return folder, commit
 
-    def stand_in(self, version=None, tamper=False, rig=False) -> pathlib.Path:
+    def stand_in(self, version=None, tamper=False, rig=False, clean=True) -> pathlib.Path:
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
         if tamper:
@@ -9644,7 +9652,7 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         if rig:
             (folder / "rig").write_text("")
         (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
-        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere"), clean=True).replace("/nowhere/", ""))
+        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere"), clean=clean).replace("/nowhere/", ""))
         cli = folder / "claude"
         cli.write_text(self.STAND_IN)
         cli.chmod(0o755)
@@ -9762,6 +9770,23 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual((record["verdicts"]["mutant"], record["passed"], record["restored"]),
                          ("survived", False, ["tools/mutants.py"]))
         self.assertTrue(record["added"]["mutant"], "the agent's entry was kept")
+        # A rigged runner with nothing to survive: the judge's runner, the export's, runs and kills the agent's mutant.
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-rigged-killed")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(rig=True) / "claude")
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["mutant"], record["restored"]), ("killed", ["tools/mutants.py"]), ran.stderr)
+        # A run whose agent named paths outside its export, and a command that cannot be read, fails though every
+        # verdict passes (issue 511).
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-looked-out")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(clean=False) / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"], record["outside_reads"], record["unread_commands"], record["passed"]),
+                         ({"held_out_test": "pass", "verify": "pass", "mutant": "killed"}, 2, 1, False))
         # The agent that rewrites the judge's Makefile: it is put back as made, recorded, and the judge is the export's own.
         folder, commit = self.repo()
         out = self.home.parent / (self.home.name + "-tampered")
