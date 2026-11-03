@@ -122,8 +122,8 @@ def without_heredocs(text: str, raw: bool = False, bodies: list = None) -> str:
                     # literal, as the shell keeps it.
                     literal = re.search(r"[\\'\"]", DELIMITER.match(line, i + 2).group())
                     expands = None if literal else (len(out) - 1, i)
-                    if expands and "double" in stack:
-                        quoted.add(expands)
+                    if expands and stack.count("double") == 1:
+                        quoted.add(expands)     # one level in: deeper, main's reading (the Claude review of #520)
                     waiting.append((found.group(1) == "-", _terminator(DELIMITER.match(line, i + 2).group(), found.group(3)),
                                     expands, []))
                     i = found.end()
@@ -795,6 +795,8 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
             i += 1      # in double quotes \" is a quote, which does not end them (issue 376: a script _nested spells)
         elif quote == '"' and text.startswith("$(", i):
             i = _balanced(text, i + 2, ")") - 1     # a substitution in double quotes has quotes of its own (#410)
+        elif quote == '"' and text.startswith("${", i):
+            i = _balanced(text, i + 2, "}") - 1     # and so has a ${...}: "${x:-")"}" is one word (the security pass)
         elif quote:
             quote = None if c == quote else quote
         elif c == "\\":

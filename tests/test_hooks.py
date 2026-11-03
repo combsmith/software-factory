@@ -1515,7 +1515,14 @@ class Identity(unittest.TestCase):
         # word, and a here-document inside "$( )". Each passes, as each would without the nesting.
         script = 'printf "%s" "$(printf "%s" "hello )")")'
         self.assertEqual(shell._balanced(script + " tail", 0, ")"), len(script))
+        # A nest deeper than the budget spells is read as main reads it, not refused (the Claude review of #520).
+        nest = "x"
+        for _ in range(11):
+            nest = 'echo "$(%s)"' % nest
+        for command in (nest + "; git commit -m x", nest.replace('"', "") + "; git commit -m x"):
+            self.assertEqual(self.codes(command), "", command[:40])
         self.assertEqual(shell._balanced('echo "a \\" )") tail', 0, ")"), 14)     # an escaped " ends no double quotes
+        self.assertEqual(shell._balanced('echo "${x:-")"}") tail', 0, ")"), 17)    # nor does a ${...}'s own (the security pass)
         for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',
                         'echo "$(echo "$(printf "%s" "hello (world)")")"; git commit -m x',
                         'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)"; git commit -m x'):
@@ -1523,7 +1530,8 @@ class Identity(unittest.TestCase):
         # What each level holds is read: a write past an inner quote's ), and a ${...}'s substitution at the top (Argon).
         for command in ('echo "$(echo "$(echo \'")\'; git push origin main; echo \'"\')")"',
                         'cat <<E\n$(echo "$(echo \'")\'; git push origin main; echo \'"\')")\nE',
-                        "echo $(echo ${x:-$(git push origin main)})", 'echo "$(echo ${#x[$(git push origin main)]})"'):
+                        "echo $(echo ${x:-$(git push origin main)})", 'echo "$(echo ${#x[$(git push origin main)]})"',
+                        'cat <<E\n$(echo "${x:-")"}"; git push origin main)\nE'):
             commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
             self.assertIn(["git", "push", "origin", "main"], [w for w, _ in commands if w], command)
 
@@ -1549,6 +1557,11 @@ class Identity(unittest.TestCase):
                         "bash /tmp/x.sh; gh --repo o/r pr view 1",
                         # A process substitution that a quote holds runs no shell (#410).
                         "git log -1 --grep '> >(bash)'; git commit -m 'echo > >(bash)'",
+                        # One in <( ) is written nothing, and one given -c runs a script the hook reads (the Claude review).
+                        "diff <(bash -c 'ls') <(ls); git commit -m x", "git commit -m x; cat <(bash -c 'echo hi')",
+                        "git commit -m x; tee >(bash -c 'cat > /dev/null') < f",
+                        # A here-document's body is data, whatever it spells (Argon).
+                        "cat <<'E'\necho 'git push' > >(bash)\nE\ngit commit -m x",
                         "git log --format='%h commit' -1; bash /tmp/x.sh",
                         "state=$(gh pr view 1 --json state --jq .state); bash /tmp/x.sh \"$state\"",
                         "for n in $(gh pr list --json number --jq '.[].number'); do bash /tmp/x.sh $n; done",
@@ -1603,6 +1616,10 @@ class Identity(unittest.TestCase):
                         "printf -vx 'git push'; bash -s <<< \"$x\"", "printf -v x 'git push origin main'; bash /tmp/x.sh \"$x\"",
                         # A shell a process substitution runs reads what is written to it (#410).
                         "echo 'git push' > >(bash)", "echo 'git push origin main' | tee >(/bin/sh -s) >/dev/null",
+                        # The shell's other spellings of that shell, and zsh's >>( ) (the security pass).
+                        "echo 'git push' > >(\\bash)", "echo 'git push' > >( (bash) )", "echo 'git push' > >(b\\ash)",
+                        "echo 'git push' > >(\\\nbash)", "echo 'git push' >>(bash)", "echo 'git push' > >( bash)",
+                        "echo 'git push' > >(bash>/dev/null)", "echo 'git push' > >(/bin/bash 2>&1)",  # glued (Muse)
                         # A body's line that also stands outside it is still the body's (Argon on #489).
                         "git \\\nlog -1\nbash <<'E'\ngit \\\npush origin main\nE",
                         "true '\ngit \\\n' && bash <<'E'\ngit \\\ncommit -m x\nE",
@@ -2812,10 +2829,13 @@ class MergesAndSettings(Asks):
         # Codex on #395: a nested "$(...)" whose own quotes hold a ( or a ), in a body and in a here-document inside
         # "$( )", passes; a write past such a quote is asked about (Argon on #395).
         for command in ('cat <<EOF > /tmp/o\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF',
-                        'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)" > /tmp/o'):
+                        'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)" > /tmp/o',
+                        # Two levels in, main's reading, which passes (the Claude review of #520).
+                        'echo "$(echo "$(cat <<EOF\n$(printf "%s" "x (y)")\nEOF\n)")" > /tmp/o'):
             self.assertEqual(self.run_(command), "", command)
         for command in ('cat <<E\n$(echo "$(echo \'")\'; rm kernel/gate.py; echo \'"\')")\nE',
-                        'echo "$(cat <<EOF\n$(printf "%s" "x (y)"; rm kernel/gate.py)\nEOF\n)" > /tmp/o'):
+                        'echo "$(cat <<EOF\n$(printf "%s" "x (y)"; rm kernel/gate.py)\nEOF\n)" > /tmp/o',
+                        'echo "$(echo "$(cat <<EOF\n$(printf "%s" "x (y)"; rm kernel/gate.py)\nEOF\n)")" > /tmp/o'):
             self.asked(self.run_(command), "protected_path", command)
 
 
