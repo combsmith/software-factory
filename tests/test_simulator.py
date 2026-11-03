@@ -755,12 +755,6 @@ class Simulation(unittest.TestCase):
                         if found:
                             named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[found.group(1)]]
                             self.assertEqual({c["workflow"] for c in named}, {None}, seed)
-                        # In the Lens's own suite: it replaced the Lens's failure, and the status rollup holds it alone
-                        # (issue 496, trials/P-42.rollup.json).
-                        found = re.search(r"check (\S+): failure, and a job created .* which replaced it", line)
-                        if found:
-                            named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[found.group(1)]]
-                            self.assertEqual([(c["workflow"], c["conclusion"]) for c in named], [(None, "success")], seed)
                     # And once its job has reported, its check run is listed.
                     self.assertEqual({w.checks[lens] for lens in w.not_started} - {"pending"}, set(), seed)
                 beside += sum("failure, and a job created" in line for line in w.trace)
@@ -769,19 +763,26 @@ class Simulation(unittest.TestCase):
         self.assertTrue(alone)
         self.assertIn("from_workflow:unreadable", shown)
 
-    def test_a_created_check_in_a_lens_own_suite_replaces_its_failure_and_one_elsewhere_stands_beside(self):  # issue 496
-        # The status rollup holds the latest run of a name in each check suite (trials/P-42.rollup.json).
+    def test_a_created_check_stands_beside_the_lens_run_and_replaces_only_one_created_before(self):  # issue 496
+        # A created check and the Lens's own run of one name both stay in its suite (trials/P-35.json); a later created
+        # check replaces the earlier one there (trials/P-42.rollup.json); another workflow's or App's stays as well.
         lens = next(k for k in world.APPS if world.WORKFLOWS[k] is not None)
-        for own, want in ((True, [(None, "success")]), (False, [(world.WORKFLOWS[lens], "failure"), (None, "success")])):
-            w = World(sorted(SEEDS)[0])
-            w.checks[lens], w.completed[lens] = "failure", w.now()
-            w.created(lens, own_suite=own)
-            named = [(c["workflow"], c["conclusion"]) for c in w.facts()["checks"] if c["name"] == world.CHECKS[lens]]
-            self.assertEqual(sorted(named, key=str), sorted(want, key=str), own)
-            # A push leaves both behind, and the new head lists the Lens's own run again.
-            w.push(world.MAINTAINER["name"], writer=True)
-            named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[lens]]
-            self.assertEqual([(c["workflow"], c["conclusion"]) for c in named], [(world.WORKFLOWS[lens], "pending")], own)
+        w = World(sorted(SEEDS)[0])
+        w.checks[lens], w.completed[lens] = "failure", w.now()
+        other = {"name": world.CHECKS[lens], "app_id": world.IMPOSTOR_APP, "workflow": None, "conclusion": "success",
+                 "completed_at": w.now()}
+        w.impostors += [dict(other), dict(other, app_id=world.APPS[lens], workflow=world.IMPOSTOR_WORKFLOW)]
+        w.create(lens)
+        first = w.impostors[-1]["completed_at"]
+        w.minute += 60
+        w.create(lens)
+        named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[lens]]
+        self.assertEqual(sorted(((c["app_id"], c["workflow"], c["conclusion"]) for c in named), key=str),
+                         sorted([(world.APPS[lens], world.WORKFLOWS[lens], "failure"), (world.APPS[lens], None, "success"),
+                                 (world.IMPOSTOR_APP, None, "success"),
+                                 (world.APPS[lens], world.IMPOSTOR_WORKFLOW, "success")], key=str), named)
+        created = [c for c in named if c["app_id"] == world.APPS[lens] and c["workflow"] is None]
+        self.assertNotEqual(created[0]["completed_at"], first)
 
     def test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause(self):
         # The faults while queued are reached: a dismissed approval, an open gate and a Hold each take one out.

@@ -2960,9 +2960,10 @@ class Queue(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
 
     def test_a_lens_run_replaced_in_its_suite_by_a_created_one_admits_nothing(self):  # I-9, I-27, issue 496
-        # The status rollup holds the latest run of a name in each check suite (trials/P-42.rollup.json), so a job's check
-        # under a Lens's name, landing in that Lens's own suite, replaces the Lens's run: it is all the facts hold of it.
-        # Read with no file (decision 0104), it leaves the Lens unreadable, whatever the replaced run concluded.
+        # Were a check a job created under a Lens's name to replace the Lens's own run in its suite, it would be all the
+        # facts hold of it. GitHub has not been seen to do that: a created check replaced only one created before it
+        # (trials/P-42.rollup.json), and stood beside a job's run, either first (trials/P-35.json). Read with no file
+        # (decision 0104), it leaves the Lens unreadable all the same, whatever the replaced run concluded.
         actions = next(c for c in GREEN if isinstance(c["workflow"], str))
         lens = LENS_OF[actions["name"]]
         checks = [c for c in GREEN if c is not actions] + [dict(actions, workflow=None, conclusion="success")]

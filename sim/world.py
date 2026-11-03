@@ -197,7 +197,6 @@ class World:
         self.checks = dict.fromkeys(APPS, "pending")
         self.completed = dict.fromkeys(self.checks)   # when each check completed, or None
         self.impostors = []        # checks another App posted under a required Lens's name, on this head
-        self.replaced = set()      # the Lenses whose own run a later check under its name replaced in its suite
         self.rerun = set()         # the checks a person ran again on this head, whose verdicts are that person's
         self.queue = False
         self.last_push = self.now()
@@ -240,8 +239,6 @@ class World:
         # An upload stops code scanning giving a verdict until a push, so only these seeds serve one, from a stream of its own
         # that moves no draw of any other part of the world.
         self.uploads = random.Random("uploads %d" % seed) if seed % UPLOAD_EVERY == UPLOAD else None
-        # Which suite a created check lands in draws from a stream of its own, which moves no other draw.
-        self.suites = random.Random("suites %d" % seed)
         # The Lenses whose job a created check stands alone before: it has no check run of its own until it starts.
         self.not_started = set()
         # Whether a review's Result covers its rubric draws from its own generator, so the rest of each world stays as it
@@ -329,8 +326,7 @@ class World:
             # GitHub: a_check_is_read_with_its_own_jobs_file
             "checks": [{"name": CHECKS[k], "app_id": APPS[k], "workflow": WORKFLOWS[k], "conclusion": v,
                         "completed_at": self.completed.get(k)}
-                       for k, v in sorted(self.checks.items())
-                       if k not in self.not_started and k not in self.replaced] + copy.deepcopy(self.impostors),
+                       for k, v in sorted(self.checks.items()) if k not in self.not_started] + copy.deepcopy(self.impostors),
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
@@ -998,7 +994,6 @@ class World:
         # A check run cannot be deleted: another App's stays on the head it was posted on, and the new head has none.
         self.impostors = []
         self.not_started = set()
-        self.replaced = set()
         self.rerun = set()
         # GitHub: a_push_leaves_the_queue
         self.queue = False
@@ -1212,8 +1207,7 @@ class World:
                 # Before a job gated by needs starts it has no check run, so a created success stands alone. Its details are
                 # not its own job's, so the port reads it with no file (decision 0104).
                 self.not_started.add(lens)
-                self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
-                                       "conclusion": "success", "completed_at": self.now()})
+                self.create(lens)
                 self.note("check %s: pending, and a job created a passing one under its name, alone" % lens)
                 self.caused(self.by_of(IMPOSTOR))
                 return
@@ -1231,8 +1225,8 @@ class World:
             if self.faults and roll < 0.87 and self.checks[lens] == "failure":
                 if WORKFLOWS[lens] is not None and roll < 0.855:
                     # GitHub: a_job_creates_a_check_in_another_suite
-                    # Which suite it lands in, the Lens's own or another, draws from a stream of its own.
-                    self.created(lens, own_suite=self.suites.random() < 0.5)
+                    self.create(lens)
+                    self.note("check %s: failure, and a job created a passing one under its name, in its suite" % lens)
                 elif WORKFLOWS[lens] is not None and roll < 0.86:
                     # GitHub: actions_runs_a_job_under_any_name
                     self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": IMPOSTOR_WORKFLOW,
@@ -1248,17 +1242,15 @@ class World:
                 # Neither is a Run or an act of the Factory's, nor the Lens's own: the change is the platform's.
                 self.caused(self.by_of(IMPOSTOR))
 
-    def created(self, lens: str, own_suite: bool):
-        """A job's check under `lens`'s name, after the Lens failed: in another suite it stands beside the failure; in the
-        Lens's own suite, the first of the head's, it replaces it, since the status rollup holds the latest run of a name
-        in each suite (trials/P-42.rollup.json)."""
-        if own_suite:
-            # GitHub: a_rerun_replaces_only_its_own_run
-            self.replaced.add(lens)
+    def create(self, lens: str):
+        """A passing check a job created under `lens`'s name. It stands beside the Lens's own run in any suite
+        (trials/P-35.json), and replaces only a check a job created earlier under that name, in the suite they share,
+        the head's first (trials/P-42.rollup.json)."""
+        # GitHub: a_rerun_replaces_only_its_own_run
+        self.impostors = [c for c in self.impostors
+                          if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and c["workflow"] is None)]
         self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
                                "conclusion": "success", "completed_at": self.now()})
-        self.note("check %s: failure, and a job created a passing one under its name, %s" % (
-            lens, "in its suite, which replaced it" if own_suite else "in another suite"))
 
     def person(self):
         """The Maintainer acts, or a stranger comments, and the State the Kernel gives may change."""

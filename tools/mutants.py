@@ -74,7 +74,7 @@ NAMING_TESTS = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_ex
 ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 SIM_CREATED = ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)
-SIM_SUITES = ("tests.test_simulator.Simulation.test_a_created_check_in_a_lens_own_suite_replaces_its_failure_and_one_elsewhere_stands_beside",)
+SIM_CREATES = ("tests.test_simulator.Simulation.test_a_created_check_stands_beside_the_lens_run_and_replaces_only_one_created_before",)
 JOB_PORT = ("tests.test_adapters.Contract.test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids",
             "tests.test_adapters.Contract.test_a_created_check_under_a_lens_name_does_not_pass")
 WIRE_RUNS = ("tests.test_adapters.EffectsRecorded.test_each_run_in_the_window_is_read_once_and_only_a_listed_one",)
@@ -5640,12 +5640,11 @@ MUTANTS = ISSUE + [
     ("a job id may be of any length", "adapters/checks.py", '/job/([1-9][0-9]{0,18})")', '/job/([1-9][0-9]*)")', JOB_PORT),
     ("the job's URL may have more in it", "adapters/checks.py", 'r"https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/', 'r"https://github\\.com/.+/.+/actions/', JOB_PORT),
     ("the fake creates no check beside a failure", "sim/world.py", 'if WORKFLOWS[lens] is not None and roll < 0.855:', 'if False:', SIM_CREATED),
-    # Issue 496: the status rollup holds the latest run of a name in each check suite (trials/P-42.rollup.json).
-    ("a created check in a Lens's own suite replaces nothing", "sim/world.py", '            self.replaced.add(lens)\n', '            pass\n', SIM_SUITES),
-    ("the fake lists a Lens's replaced run", "sim/world.py", 'if k not in self.not_started and k not in self.replaced]', 'if k not in self.not_started]', SIM_SUITES),
-    ("a push leaves a replaced run replaced", "sim/world.py", '        self.not_started = set()\n        self.replaced = set()\n', '        self.not_started = set()\n', SIM_SUITES),
-    ("a created check replaces wherever it lands", "sim/world.py", '        if own_suite:\n', '        if True:\n', SIM_SUITES),
     ("the fake creates no check alone", "sim/world.py", 'if self.faults and WORKFLOWS[lens] is not None and roll < 0.02:', 'if False:', SIM_CREATED),
+    # Issue 496: a created check replaces only one created before under its name (trials/P-42.rollup.json, P-35).
+    ("a later created check stands beside the earlier", "sim/world.py", '        self.impostors = [c for c in self.impostors\n', '        self.impostors = [c for c in self.impostors if False or\n', SIM_CREATES),
+    ("a created check replaces another workflow's", "sim/world.py", 'c["app_id"] == APPS[lens] and c["workflow"] is None)]', 'c["app_id"] == APPS[lens])]', SIM_CREATES),
+    ("a created check replaces another App's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and', 'if not (c["name"] == CHECKS[lens] and', SIM_CREATES),
     ("the read asks for no details", "adapters/checks.py", 'startedAt completedAt detailsUrl\n', 'startedAt completedAt\n', JOB_PORT),
     ("the read asks for no run id", "adapters/checks.py", 'workflowRun { databaseId file { path } }', 'workflowRun { file { path } }', JOB_PORT),
     ("the read asks for no check id", "adapters/checks.py", 'id databaseId name conclusion', 'id name conclusion', JOB_PORT),
@@ -7215,7 +7214,7 @@ MUTANTS = ISSUE + [
     # Issue 440: the fake GitHub does what P-36 recorded.
     ("the fake's upload changes nothing", 'sim/world.py', '            self.checks[SCANNING] = "neutral"\n', '', ("tests.test_simulator.Simulation.test_the_seeds_upload_under_codeqls_tool",)),
     ("a job stays unstarted past its check", 'sim/world.py', '            self.not_started.discard(lens)\n', '', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
-    ("a job with no check run yet lists one", 'sim/world.py', 'if k not in self.not_started and k not in self.replaced]', 'if k not in self.replaced]', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
+    ("a job with no check run yet lists one", 'sim/world.py', ' if k not in self.not_started] + copy', '] + copy', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
     ("every seed serves an upload", 'sim/world.py', 'if seed % UPLOAD_EVERY == UPLOAD else None', 'if True else None', ("tests.test_simulator.Simulation.test_the_seeds_upload_under_codeqls_tool",)),
     # Decision 0121: a CLI with no answer is told from an answer that fails, closes the eval's gate, and stays an attempt.
     ("a CLI with no answer reads as an answer that fails", 'harness/engine.py', 'return failed(task, "no_answer", usage)', 'return failed(task, "result_invalid", usage)', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),

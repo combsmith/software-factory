@@ -61,16 +61,21 @@ RULES = (
      "gives stale only to a check run left incomplete for 14 days, which no trial can wait for; the fake still gives "
      "both, so the Kernel's reading of each is met"),
     # trials/P-42.rollup.json: the status rollup the port reads held the same runs as filter=latest, by id, name, suite
-    # and App, five Apps on one head, and only the latest run of each name in each check suite (issue 496).
-    ("a_check_is_read_by_name_from_every_app", "Every check run the status rollup holds on the head is read with its "
-     "exact name and the id of the App that reported it, from every App, never merged or renamed; it holds the latest "
-     "run of each name in each check suite", ("P-42",), "trials/P-42.rollup.json", None),
+    # and App, five Apps on one head. It left out a run its job's re-run replaced, and a check a job created that a later
+    # one created under its name replaced; a job's run and a created check of one name both stayed there, as in
+    # trials/P-35.json (issue 496).
+    ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
+     "the App that reported it, from every App, never merged or renamed; the status rollup leaves out only a run that "
+     "its job's re-run, or a later check created under its name in its suite, replaced", ("P-42",),
+     "trials/P-42.rollup.json", None),
     # trials/P-42.rollup.json: a re-run replaced its own run in the status rollup and the other suite's run of the name
-    # stayed, and a later check a job created under a name replaced the earlier one in its suite. One job's re-run also
-    # gave its run's other jobs new check runs with their old conclusions, which changes no verdict (issue 496).
-    ("a_rerun_replaces_only_its_own_run", "A later run of a name in a check suite, a re-run or a check a job created, "
-     "replaces the earlier run of that name in that suite alone: filter=latest and the status rollup are per check "
-     "suite, so two workflow runs on one commit both stay", ("P-42",), "trials/P-42.rollup.json", None),
+    # stayed, and a later check a job created under a name replaced the one created earlier in its suite; trials/P-35.json
+    # shows a job's run and a created check of one name both kept there, either first. One job's re-run also gave its
+    # run's other jobs new check runs with their old conclusions, which changes no verdict (issue 496).
+    ("a_rerun_replaces_only_its_own_run", "A re-run of a job replaces only that job's earlier run, in its own check "
+     "suite, and a check a job creates replaces only one created earlier under its name there; a job's run and a "
+     "created check of one name both stay, and so do two workflow runs on one commit", ("P-42",),
+     "trials/P-42.rollup.json", None),
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
      "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
      None),
