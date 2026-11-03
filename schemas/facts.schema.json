@@ -287,7 +287,7 @@
             "$ref": "#/$defs/actor"
           },
           "category": {
-            "description": "The Finding's category, as the authority table names it: a person's thread is human. A required Lens's, and its severity, come from its own Finding record joined by surface.key, never the comment text; null there is unreadable. Null for a Lens that writes it only as prose. A security Finding gates at any severity",
+            "description": "The Finding's category, as the authority table names it: a person's thread is human. A required Lens's, and its severity, come from its own Finding record joined by surface.key, never the comment text; null there is unreadable, but for a thread whose Run's record is past retention, which gates at any severity until a later review by its Lens closes it (decision 0125). Null for a Lens that writes it only as prose. A security Finding gates at any severity",
             "enum": [
               "functional",
               "security",
@@ -311,7 +311,7 @@
             ]
           },
           "resolved_by": {
-            "description": "Who resolved the thread, of what kind and with what access; null unless it is resolved. A person's thread resolved by anyone but that person stays open, and a Lens's resolved by anyone but a person, or the queue App on that Lens's accepted ruling",
+            "description": "Who resolved the thread, of what kind and with what access; null unless it is resolved. A person's thread resolved by anyone but that person stays open, and a Lens's resolved by anyone but a person, or the queue App on that Lens's accepted ruling, or, for a thread whose Run's record is past retention, once a later review by that Lens has run (decision 0125)",
             "type": [
               "object",
               "null"
@@ -339,7 +339,7 @@
             "$ref": "#/$defs/time"
           },
           "ruling": {
-            "description": "A Lens's thread: what the Lens that opened it, the owner of its category, last decided of its Finding, accepted or rejected, joined from that Lens's own record by surface.key, never the comment text. Null where it decided nothing, decided twice in one Run, is not the owner, or the thread is no Lens's. Only on an accepted ruling does the queue App's resolution close the thread",
+            "description": "A Lens's thread: what the Lens that opened it, the owner of its category, last decided of its Finding, accepted or rejected, joined from that Lens's own record by surface.key, never the comment text. Null where it decided nothing, decided twice in one Run, is not the owner, or the thread is no Lens's. Only on an accepted ruling does the queue App's resolution close the thread, but for one whose Run's record is past retention, which has none (decision 0125)",
             "enum": [
               "accepted",
               "rejected",

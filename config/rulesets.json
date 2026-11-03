@@ -1,7 +1,7 @@
 {
   "schema": "rulesets/1",
   "repo": "combsmith/software-factory",
-  "read_on": "2026-11-01",
+  "read_on": "2026-11-03",
   "rulesets": {
     "main": {
       "id": 24886320,
@@ -101,6 +101,20 @@
         "update": {},
         "deletion": {},
         "non_fast_forward": {}
+      }
+    },
+    "factory channel branches": {
+      "id": 26415167,
+      "target": "branch",
+      "enforcement": "active",
+      "include": [
+        "refs/heads/factory/**/*"
+      ],
+      "exclude": [],
+      "bypass_actors": [],
+      "rules": {
+        "creation": {},
+        "update": {}
       }
     }
   }

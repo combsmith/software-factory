@@ -1479,6 +1479,65 @@ class Identity(unittest.TestCase):
         self.assertEqual(shell.grown(kept + "b", "c"), kept + "b")
         self.assertTrue(all(len(word) <= shell.WORD_KEPT for word in shell.AGAIN | {"in", "case"}))
 
+    def test_a_read_beside_a_script_names_no_commit_or_push(self):  # issue 488
+        script = "a shell reads a script the hook cannot see"
+
+        def unseen(command):
+            spend = identity._budget(5)
+            commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), spend, scopes=True, marked=True)
+            return [said for _, said in identity._calls(commands, "/tmp", command, dict(os.environ), spend)[1] if said.startswith(script)]
+
+        # Each names a write to main, by the word it holds or by being gh's.
+        reads = ["pr view", "pr list", "pr checks", "pr diff", "pr status", "issue view", "issue list", "run view", "run list",
+                 "release view", "release list", "repo view", "api repos/o/r/rulesets/1 --jq .name"]
+        for read in reads:
+            for command in ("bash /tmp/x.sh; gh %s pr" % read, "gh %s; bash /tmp/x.sh" % read, 'bash /tmp/x.sh "$(gh %s)"' % read):
+                self.assertEqual(unseen(command), [], command)
+        for read in ("log", "status", "diff", "show", "rev-parse", "ls-remote", "ls-tree", "ls-files", "fetch", "grep", "merge-base", "rev-list"):
+            for command in ("git %s merge; bash /tmp/x.sh" % read, "bash /tmp/x.sh; git -C /tmp %s --x commit" % read, 'bash /tmp/x.sh $(git %s commit)' % read):
+                self.assertEqual(unseen(command), [], command)
+        for command in ("bash /tmp/x.sh; gh pr view 80 --repo o/r --json reviews --jq '.reviews[].commit.oid'",
+                        "bash /tmp/x.sh; gh --repo o/r pr view 1",
+                        "git log --format='%h commit' -1; bash /tmp/x.sh",
+                        "state=$(gh pr view 1 --json state --jq .state); bash /tmp/x.sh \"$state\"",
+                        "for n in $(gh pr list --json number --jq '.[].number'); do bash /tmp/x.sh $n; done",
+                        "cat > /tmp/x.sh <<'E'\necho hi\nE\nbash /tmp/x.sh; gh pr view 1 --json state --jq .state",
+                        "bash <<'E'\necho hi\nE\ngh pr view 1",
+                        "git log $(git rev-parse commit); bash /tmp/x.sh",
+                        "bash /tmp/x.sh # git push"):
+            self.assertEqual(unseen(command), [], command)
+        for command in ("bash /tmp/x.sh; git push origin main", "bash /tmp/x.sh; git commit -m x", "bash /tmp/x.sh; git log -1; git push",
+                        "bash /tmp/x.sh; git add commit.txt",
+                        "M=push; bash /tmp/x.sh; git $M",
+                        "bash /tmp/x.sh; gh pr merge 1", "bash /tmp/x.sh; gh pr create", "bash /tmp/x.sh; gh pr edit 1",
+                        "bash /tmp/x.sh; gh api -X POST repos/o/r/x", "bash /tmp/x.sh; gh api repos/o/r/x -f a=b",
+                        "bash /tmp/x.sh; gh api repos/o/r/x -X \"$M\"", "bash /tmp/x.sh; gh api repos/o/r/x --method $M",
+                        "bash /tmp/x.sh; gh api repos/o/r/x -Fa=b", "bash /tmp/x.sh; gh api -fa=b repos/o/r/x", "bash /tmp/x.sh; gh api repos/o/r/x $FLAGS",
+                        "bash /tmp/x.sh; gh api repos/o/r/x --input /tmp/y", "bash /tmp/x.sh; gh api repos/o/r/x --raw-field a=b", "bash /tmp/x.sh; gh api repos/o/r/x --field a=b",
+                        "bash /tmp/x.sh; gh alias set y 'pr merge'", "bash /tmp/x.sh; foo 'git push'", "bash /tmp/x.sh; git log $(git push)",
+                        "bash /tmp/x.sh; git log -1; echo \"$(git push)\"", "bash /tmp/x.sh; g''it push",
+                        "bash <<E\ngit push\nE", "bash /tmp/x.sh <<E\ngit -C /tmp commit\nE", "cat > /tmp/x.sh <<'E'\ngit push\nE\nbash /tmp/x.sh; gh pr view 1",
+                        # A flag clustered, or a word the shell would change (Argon).
+                        "bash /tmp/x.sh; gh api -iX PUT repos/o/r/pulls/1/merge", "bash /tmp/x.sh; gh api -if body=x repos/o/r/x",
+                        "bash /tmp/x.sh; gh api `printf %s -X` PUT repos/o/r/x", "bash /tmp/x.sh; gh api {-X,PUT} repos/o/r/x",
+                        "bash /tmp/x.sh; gh api repos/o/r/x --method GET",
+                        # What a read is given may be what it prints for the script, or sets for it (Argon).
+                        "git log -1 --format='git push' | sh", "git log -1 --format='git commit -m x' > /tmp/s; sh /tmp/s",
+                        "bash /tmp/x.sh; gh api rate_limit --jq '\"git push\"'", "git status -- \"${x:=git commit -m x}\"; bash /tmp/x.sh",
+                        "_=\"${x:=git commit}\" git status; bash /tmp/x.sh",
+                        # A line of a body that also stands outside it is read there, in a command's words (Argon).
+                        "true '\ngit commit -m x\n' && bash <<'E'\ngit commit -m x\nE",
+                        # What a here-string gives a shell is the script itself (the reviews).
+                        "bash <<< 'git push origin main'", "sh <<< 'gh pr merge 1'", "bash -s <<< \"git commit -m x\"",
+                        # Where this leaves it, as main reads them: a program that prints its text is not told from one that runs it.
+                        "bash /tmp/x.sh; grep -n 'git push' f", "bash /tmp/x.sh; echo 'git push done'"):
+            self.assertNotEqual(unseen(command), [], command)
+        # Any other reason the hook cannot read the command stands as it did: this gh may be another program.
+        spend = identity._budget(5)
+        command = "PATH=/tmp gh pr view 1"
+        commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), spend, scopes=True, marked=True)
+        self.assertIn("command_unreadable", [code for code, _ in identity._calls(commands, "/tmp", command, dict(os.environ), spend)[1]])
+
     @wall_clock
     def test_the_readings_issue_174_adds_run_in_linear_time(self):
         # Each new reading is one pass: a comment, a $'...' refused at its backslash, escaped backticks, ( and ${...}.
@@ -2034,6 +2093,18 @@ class MakeLeavesNothing(unittest.TestCase):
             time.sleep(0.1)
         return False
 
+    def living(self, pid: int) -> bool:
+        """Whether the process lives, read once: there, and not a zombie. A reading of ps that names no state is no
+        reading, and the process is asked again, so one reaped in between is read as ended."""
+        try:
+            os.kill(pid, 0)
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+            if not state:
+                os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return not state.startswith("Z")
+
     def test_a_run_killed_for_its_time_leaves_the_temporary_folder_as_it_found_it(self):
         env = self.slow()
         before = sorted(os.listdir(self.place))
@@ -2095,8 +2166,9 @@ class MakeLeavesNothing(unittest.TestCase):
         self.assertEqual(self.out_of_time(env)[0], False)
         pid = int((outside / "pid").read_text())
         try:
-            # It returned while the process that holds its output still lives.
-            os.kill(pid, 0)
+            # It returned while the process that holds its output still lives. A process that has just ended may stand
+            # unreaped as a zombie, which a signal still finds, so one is read as ended (issue 503).
+            self.assertTrue(self.living(pid))
         finally:
             os.kill(pid, signal.SIGKILL)
 

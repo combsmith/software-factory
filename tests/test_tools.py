@@ -189,13 +189,15 @@ def rules(text: str) -> list:
 class Validator(unittest.TestCase):
     LIMIT = 2       # seconds; a search of 4,000 characters takes well under a millisecond unless it backtracks
 
-    def backtracks(self, pattern: str) -> bool:
-        """Whether `pattern` runs past the limit on a long value of the shapes that make a pattern backtrack, each after
-        the literal text the pattern opens with, so that it reaches a repeat behind that text. It does not reach a repeat
-        behind a class: a guard on patterns the repo writes, not a proof."""
+    def backtracks(self, pattern, opens: str = None) -> bool:
+        """Whether `pattern`, a text or a compiled pattern with its flags, runs past the limit on a long value of the
+        shapes that make a pattern backtrack, each after the literal text the pattern opens with, or `opens` where that
+        text sits behind a class, so that it reaches a repeat behind that text: a guard on patterns the repo writes, not
+        a proof."""
         compiled = re.compile(pattern)
-        opens = re.match(r"\^?((?:\\[^A-Za-z0-9]|[^\\\[\](){}.*+?|^$])*)", pattern).group(1)
-        opens = re.sub(r"\\(.)", r"\1", opens)
+        if opens is None:
+            opens = re.match(r"\^?((?:\\[^A-Za-z0-9]|[^\\\[\](){}.*+?|^$])*)", compiled.pattern).group(1)
+            opens = re.sub(r"\\(.)", r"\1", opens)
         def over(_signum, _frame):
             raise TimeoutError
         before = signal.signal(signal.SIGALRM, over)
@@ -10173,6 +10175,47 @@ class Rulesets(unittest.TestCase):
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
 
+    def test_no_branch_may_stand_where_a_channels_tag_should(self):  # decision 0124
+        apps = (ROOT / "config" / "apps.json").read_text()
+
+        def run(rulesets):
+            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets),
+                                            "config/defaults.json": json.dumps(self.defaults), "config/apps.json": apps,
+                                            ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
+        name = check_rulesets.CHANNEL_BRANCHES
+        self.assertEqual(run(self.rulesets), [])
+        # It targets branches alone, so it cannot refuse the release App's tags.
+        self.assertEqual(self.rulesets["rulesets"][name]["target"], "branch")
+        self.assertTrue(all(ref.startswith("refs/heads/") for ref in self.rulesets["rulesets"][name]["include"]))
+        # No shim may stand on main while it is not read back: the same id a person records after applying it.
+        with mock.patch.dict(check_rulesets.SHIMS, {"poller.yml": "x"}):
+            unread = copy.deepcopy(self.rulesets)
+            unread["rulesets"][name]["id"] = None
+            self.assertTrue(caught(run(unread), "%s has no id read back from GitHub, and a shim is held" % name))
+            unread["rulesets"][name]["id"] = 7
+            self.assertEqual(run(unread), [])
+        with mock.patch.dict(check_rulesets.SHIMS, clear=True):
+            unread["rulesets"][name]["id"] = None
+            self.assertEqual(run(unread), [])
+        for why, change in (("off", {"enforcement": "disabled"}), ("no rules", {"rules": {}}),
+                            ("creation alone", {"rules": {"creation": {}}}), ("update alone", {"rules": {"update": {}}}),
+                            ("another rule", {"rules": {"creation": {}, "update": {}, "deletion": {}}}),
+                            ("over tags", {"target": "tag"}), ("over nothing", {"include": []}),
+                            ("over another name", {"include": ["refs/heads/other/**/*"]})):
+            with self.subTest(why=why):
+                broken = copy.deepcopy(self.rulesets)
+                broken["rulesets"][name].update(change)
+                self.assertTrue(caught(run(broken), "the ruleset %s is not recorded" % name), why)
+        gone = copy.deepcopy(self.rulesets)
+        del gone["rulesets"][name]
+        self.assertTrue(caught(run(gone), "the ruleset %s is not recorded" % name))
+        for why, change in (("a bypass", {"bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]}),
+                            ("a name left out", {"exclude": ["refs/heads/factory/x"]})):
+            with self.subTest(why=why):
+                broken = copy.deepcopy(self.rulesets)
+                broken["rulesets"][name].update(change)
+                self.assertTrue(caught(run(broken), "%s lets someone bypass it" % name), why)
+
     def test_the_tag_rulesets_that_guard_every_key_are_held(self):  # decision 0115
         apps = (ROOT / "config" / "apps.json").read_text()
 
@@ -10324,7 +10367,15 @@ except OSError:
 
     def setUp(self):
         self.recorded = json.loads((ROOT / "config" / "rulesets.json").read_text())["rulesets"]
+        # A ruleset not yet applied is recorded with a null id; here it has the id its applying will give it.
+        for ruleset in self.recorded.values():
+            ruleset["id"] = 555 if ruleset["id"] is None else ruleset["id"]
         self.live = {name: as_github(name, r) for name, r in self.recorded.items()}
+
+    def tree(self) -> pathlib.Path:
+        """A copy of the repo holding that record, since the script and its reader read the record from where they stand."""
+        whole = json.loads((ROOT / "config" / "rulesets.json").read_text())
+        return clone({"config/rulesets.json": json.dumps(dict(whole, rulesets=self.recorded))})
 
     def compare(self, listed=None, status=200) -> list:
         listed = [{"id": r["id"], "name": n} for n, r in self.live.items()] if listed is None else listed
@@ -10355,6 +10406,9 @@ except OSError:
         listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
         self.assertTrue(caught(self.compare(listed + [{"id": 1, "name": "org-wide"}]), "'org-wide', id 1, is not in"))
         self.assertTrue(caught(self.compare(listed[:1]), "records the ruleset 'factory release tags', id"))
+        # A ruleset recorded and not yet applied is reported until its id is written down (decision 0124).
+        unapplied = dict(self.recorded, main=dict(self.recorded["main"], id=None))
+        self.assertTrue(caught(rulesets_drift.compare(unapplied, listed, {}), "records the ruleset 'main', id None"))
 
     def test_a_ruleset_sharing_a_recorded_name_is_drift(self):
         org = copy.deepcopy(self.live["main"])
@@ -10380,8 +10434,9 @@ except OSError:
         listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
         bodies = [head + json.dumps(self.live[n]) for n in self.live]
         self.assertEqual(run(head + json.dumps(listed), argv=["--ids"]), (0, "".join("%d\n" % i["id"] for i in listed)))
-        self.assertEqual(run(head + json.dumps(listed), *bodies), (0, "no drift\n"))
-        code, out = run(head + json.dumps(listed), bodies[0])
+        with mock.patch.object(rulesets_drift, "ROOT", self.tree()):
+            self.assertEqual(run(head + json.dumps(listed), *bodies, head + "[]"), (0, "no drift\n"))
+            code, out = run(head + json.dumps(listed), bodies[0])
         self.assertEqual(code, 1)
         self.assertIn("%d rulesets were listed and 1 answers given" % len(listed), out)
         self.assertEqual(run("HTTP/2.0 404 Not Found\n\n{}", argv=["--ids"]), (0, "\n"))
@@ -10401,7 +10456,20 @@ except OSError:
         self.assertTrue(caught(self.compare(status=404), "answered 404, not 200"))
         self.assertTrue(caught(rulesets_drift.compare(self.recorded, None, {}), "list of the repo's rulesets could not"))
 
-    def run_script(self, live: dict) -> tuple:
+    def test_a_branch_standing_under_factory_is_drift(self):  # decision 0124
+        # A branch made before the ruleset outlasts it, so the read that says the rule holds looks for one.
+        self.assertEqual(rulesets_drift.branch_problems(200, []), [])
+        self.assertIn("the branch refs/heads/factory/v0-next stands under factory/",
+                      rulesets_drift.branch_problems(200, [{"ref": "refs/heads/factory/v0-next"}])[0])
+        for said in ((404, None), (200, {"ref": "x"}), (0, None)):
+            self.assertIn("were answered", rulesets_drift.branch_problems(*said)[0], said)
+        done, _ = self.run_script(self.live, branches=[{"ref": "refs/heads/factory/v0-next"}])
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("the branch refs/heads/factory/v0-next stands", done.stdout)
+        done, _ = self.run_script(self.live)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "no drift"), done.stderr)
+
+    def run_script(self, live: dict, branches=()) -> tuple:
         bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
         (bin_ / "gh").write_text(self.STAND_IN)
         (bin_ / "gh").chmod(0o755)
@@ -10411,17 +10479,20 @@ except OSError:
         (bin_ / "repos_combsmith_software-factory_rulesets_per_page=100").write_text(head + json.dumps(listed))
         for r in live.values():
             (bin_ / ("repos_combsmith_software-factory_rulesets_%d" % r["id"])).write_text(head + json.dumps(r))
+        (bin_ / "repos_combsmith_software-factory_git_matching-refs_heads_factory").write_text(head + json.dumps(list(branches)))
         env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(pathlib.Path(SCRATCH.name).resolve()))
         # The stand-in, never a real gh further down the path, answers: else the test would read GitHub.
         self.assertEqual(shutil.which("gh", path=env["PATH"]), str(bin_ / "gh"))
-        done = subprocess.run(["sh", str(self.SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+        script = self.tree() / "tools" / "rulesets_drift.sh"
+        done = subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True, timeout=60)
         return done, (bin_ / "calls").read_text().splitlines()
 
     def test_the_script_reads_each_ruleset_redacts_it_and_compares(self):
         done, calls = self.run_script(self.live)
         self.assertEqual((done.returncode, done.stdout.strip()), (0, "no drift"), done.stderr)
         ids = sorted(r["id"] for r in self.live.values())
-        self.assertEqual(sorted(calls), sorted(["api --include repos/combsmith/software-factory/rulesets?per_page=100"]
+        self.assertEqual(sorted(calls), sorted(["api --include repos/combsmith/software-factory/rulesets?per_page=100",
+                                                "api --include repos/combsmith/software-factory/git/matching-refs/heads/factory"]
                                                + ["api --include repos/combsmith/software-factory/rulesets/%d" % i
                                                   for i in ids]))
         self.live["main"]["enforcement"] = "evaluate"
@@ -10453,6 +10524,16 @@ class EnvironmentsDrift(unittest.TestCase):
             {"name": name, "can_admins_bypass": False, "deployment_branch_policy": {"custom_branch_policies": True, "protected_branches": False}}
             for name in self.WANTED]}
         self.policies = {name: (200, {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]}) for name in self.WANTED}
+
+    def test_the_pattern_that_reads_a_workflows_environment_does_not_backtrack(self):  # issue 361's audit, S8786
+        # SonarCloud reads the blanks before the value as overlapping it. An attempt starts at a line's start alone, and
+        # once past `environment:` it ends in a repeat that matches to the line's end: this holds that, on the value's
+        # line and on the mapping's `name:` line, with the check that holds the schemas' patterns. That it notices one
+        # is the two mutants' to show, since a pattern that backtracks written here is CodeQL's alert.
+        guard = Validator()
+        for opens in ("environment:", "  environment: \t", "environment:\n", "  environment:\n    name: \t"):
+            with self.subTest(opens=opens):
+                self.assertFalse(guard.backtracks(environments_drift.WORKFLOW, opens))
 
     def compare(self, wanted=None) -> list:
         return environments_drift.compare(self.listed, self.policies, set(self.WANTED if wanted is None else wanted))
