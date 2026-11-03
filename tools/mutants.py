@@ -5641,7 +5641,7 @@ MUTANTS = ISSUE + [
     ("the job's URL may have more in it", "adapters/checks.py", 'r"https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/', 'r"https://github\\.com/.+/.+/actions/', JOB_PORT),
     ("the fake creates no check beside a failure", "sim/world.py", 'if WORKFLOWS[lens] is not None and roll < 0.855:', 'if False:', SIM_CREATED),
     # Issue 496: the status rollup holds the latest run of a name in each check suite (trials/P-42.rollup.json).
-    ("a created check in a Lens's own suite replaces nothing", "sim/world.py", '            self.replaced.add(lens)\n', '', SIM_SUITES),
+    ("a created check in a Lens's own suite replaces nothing", "sim/world.py", '            self.replaced.add(lens)\n', '            pass\n', SIM_SUITES),
     ("the fake lists a Lens's replaced run", "sim/world.py", 'if k not in self.not_started and k not in self.replaced]', 'if k not in self.not_started]', SIM_SUITES),
     ("a push leaves a replaced run replaced", "sim/world.py", '        self.not_started = set()\n        self.replaced = set()\n', '        self.not_started = set()\n', SIM_SUITES),
     ("a created check replaces wherever it lands", "sim/world.py", '        if own_suite:\n', '        if True:\n', SIM_SUITES),
