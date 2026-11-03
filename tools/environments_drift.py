@@ -21,8 +21,11 @@ from tools.rulesets_drift import answer
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PAGE = 100     # the script reads one page of this many; a full page may not be all
 PLAIN = re.compile(r"[A-Za-z0-9_-]+")
-# A job's environment: its value, or, in the mapping's form, the `name:` on the next line.
-WORKFLOW = re.compile(r"^[ \t]*environment:[ \t]*(?:#[^\n]*)?(?:\n[ \t]*name:[ \t]*)?([^\n]*)$", re.M)
+# A job's environment: its value, or, in the mapping's form, the `name:` on the next line. Linear, though SonarCloud reads
+# the blanks before the value as overlapping it: an attempt starts only at a line's start, and once past `environment:`
+# it ends in `([^\n]*)$`, which matches to the line's end whatever came before, so nothing after the colon fails and
+# backtracks. Its input is this repo's own workflow files, read at the Maintainer's terminal.
+WORKFLOW = re.compile(r"^[ \t]*environment:[ \t]*(?:#[^\n]*)?(?:\n[ \t]*name:[ \t]*)?([^\n]*)$", re.M)  # NOSONAR
 MAIN_ALONE = [("main", "branch")]
 OWN_LIST = {"custom_branch_policies": True, "protected_branches": False}
 
