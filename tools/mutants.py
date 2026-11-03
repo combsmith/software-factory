@@ -5644,6 +5644,7 @@ MUTANTS = ISSUE + [
     # Issue 496: a created check replaces only one created before under its name (trials/P-42.rollup.json, P-35).
     ("a later created check stands beside the earlier", "sim/world.py", 'if not (c["name"] == CHECKS[lens]', 'if True or not (c["name"] == CHECKS[lens]', SIM_CREATES),
     ("a created check replaces another workflow's", "sim/world.py", 'c["app_id"] == APPS[lens] and c["workflow"] is None)]', 'c["app_id"] == APPS[lens])]', SIM_CREATES),
+    ("a created check replaces another name's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"]', 'if not (c["app_id"]', SIM_CREATES),
     ("a created check replaces another App's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and', 'if not (c["name"] == CHECKS[lens] and', SIM_CREATES),
     ("the read asks for no details", "adapters/checks.py", 'startedAt completedAt detailsUrl\n', 'startedAt completedAt\n', JOB_PORT),
     ("the read asks for no run id", "adapters/checks.py", 'workflowRun { databaseId file { path } }', 'workflowRun { file { path } }', JOB_PORT),

@@ -767,11 +767,16 @@ class Simulation(unittest.TestCase):
         # A created check and the Lens's own run of one name both stay in its suite (trials/P-35.json); a later created
         # check replaces the earlier one there (trials/P-42.rollup.json); another workflow's or App's stays as well.
         lens = next(k for k in world.APPS if world.WORKFLOWS[k] is not None)
+        # Another Lens GitHub Actions runs, whose created check has the same App and no file, but another name.
+        neighbour = next((k for k in world.APPS if world.WORKFLOWS[k] is not None and k != lens
+                          and world.APPS[k] == world.APPS[lens]), None)
+        self.assertIsNotNone(neighbour)
         w = World(sorted(SEEDS)[0])
         w.checks[lens], w.completed[lens] = "failure", w.now()
         other = {"name": world.CHECKS[lens], "app_id": world.IMPOSTOR_APP, "workflow": None, "conclusion": "success",
                  "completed_at": w.now()}
         w.impostors += [dict(other), dict(other, app_id=world.APPS[lens], workflow=world.IMPOSTOR_WORKFLOW)]
+        w.create(neighbour)
         w.create(lens)
         first = w.impostors[-1]["completed_at"]
         w.minute += 60
@@ -783,6 +788,9 @@ class Simulation(unittest.TestCase):
                                  (world.APPS[lens], world.IMPOSTOR_WORKFLOW, "success")], key=str), named)
         created = [c for c in named if c["app_id"] == world.APPS[lens] and c["workflow"] is None]
         self.assertNotEqual(created[0]["completed_at"], first)
+        # The other Lens's created check stays: one replaces only its own name's.
+        self.assertEqual([c["conclusion"] for c in w.facts()["checks"]
+                          if c["name"] == world.CHECKS[neighbour] and c["workflow"] is None], ["success"])
 
     def test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause(self):
         # The faults while queued are reached: a dismissed approval, an open gate and a Hold each take one out.
