@@ -25,8 +25,12 @@ TEXT_ID = re.compile(r"[a-z]+:[A-Za-z0-9_-]+")
 SOURCE = re.compile(r"[A-Za-z0-9-]+(\[bot\])?")
 # Where one file's part of a diff begins, as git writes it: the diff is cut only there, never inside a file.
 FILE_START = re.compile(r"(?=^diff --git )", re.M)
-# A hunk's header, as git writes it: the base's lines it holds, and the head's first line and how many it holds.
-HUNK = re.compile(r"@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+# A hunk's header, as git writes it: the base's lines it holds, and the head's first line and how many it holds. Each
+# number is of nine digits at most, so no header is a number Python will not read; a longer one is no header.
+HUNK = re.compile(r"@@ -\d{1,9}(?:,(\d{1,9}))? \+(\d{1,9})(?:,(\d{1,9}))? @@")
+# One row of a diff as git ends it, at a newline alone: a form feed, a lone carriage return or a Unicode line separator
+# inside a line is the line's own text, never the start of another row.
+ROW = re.compile(r"[^\n]*\n|[^\n]+")
 # What leads a line the head's file holds, after its number there (decision 0137).
 SEPARATOR = "|"
 
@@ -85,11 +89,12 @@ def carried(body: str) -> int:
 def numbered(diff: str) -> str:
     """The diff as a Task carries it: each line of a hunk that the head's file holds, a context line or an added one, led
     by its number in that file and SEPARATOR; a removed line, git's note that a file has no last newline, and every line
-    outside a hunk as git wrote them (decision 0137). A hunk ends when its header's counts are spent, or at a line no hunk
-    holds, so a file's next header is never read as a removed line. The model is given the head's numbers, not left to
+    outside a hunk as git wrote them (decision 0137). A row ends at a newline alone, as git ends one, so no text of a
+    line can start a row of its own. A hunk ends when its header's counts are spent, or at a line no hunk holds, so a
+    file's next header is never read as a removed line. The model is given the head's numbers, not left to
     count them from the header: on a long diff it counted one off."""
     out, old, new, line = [], 0, 0, 0
-    for row in diff.splitlines(keepends=True):
+    for row in ROW.findall(diff):
         mark = row[:1]
         if (old > 0 or new > 0) and mark in (" ", "+", "-", "\\", "\r", "\n"):
             if mark == "-":

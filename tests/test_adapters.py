@@ -623,6 +623,14 @@ class Diff(unittest.TestCase):
         # Neither side counts the diff as git wrote it: the head's line is numbered on both.
         self.assertIn('\n1|+"caf', carried["body"])
         self.assertEqual(got["diff"]["characters"], task.carried(sent.decode()) + len("1|"))
+        # An added line's own text is never a header to the count: one that would read as a header past a line break git
+        # does not end a row at, and with a number Python refuses, is counted as the line it is.
+        forged = ('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+x = 1  # @@ -1 +' + "9" * 5000 + ' @@\n').encode()
+        answer = github._answer(200, {"Content-Type": github.DIFF}, forged)
+        exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
+                                                                 body=answer["body"]))
+        got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+        self.assertEqual(got["diff"]["characters"], task.carried(forged.decode()) + len("1|"))
 
     def test_the_content_is_hashed_over_the_bytes_github_sent(self):
         # A diff that is not UTF-8 keeps its bytes: its content id is theirs, so two diffs one byte apart are two.

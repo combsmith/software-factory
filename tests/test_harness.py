@@ -272,8 +272,22 @@ class Task(unittest.TestCase):
                              ("@@ -5 +5 @@\n-a\n+b\n+++ b/x\n \n", "@@ -5 +5 @@\n-a\n5|+b\n+++ b/x\n \n"),
                              ("@@ -1,3 +1,3 @@\n x\ndiff --git a/i b/i\n+y\n", "@@ -1,3 +1,3 @@\n1| x\ndiff --git a/i b/i\n+y\n")):
             self.assertEqual(task.numbered(spent), given)
-        # An empty line inside a hunk is a context line some tools strip, and is numbered as one.
+        # An empty line inside a hunk is a context line some tools strip, and is numbered as one, ended either way.
         self.assertEqual(task.numbered("@@ -5,2 +5,2 @@\n\n x\n"), "@@ -5,2 +5,2 @@\n5|\n6| x\n")
+        self.assertEqual(task.numbered("@@ -5,2 +5,2 @@\r\n\r\n x\r\n"), "@@ -5,2 +5,2 @@\r\n5|\r\n6| x\r\n")
+        # A row ends at a newline alone, as git ends one: a form feed, a lone carriage return or a Unicode line break in
+        # a line is its own text, and starts no row, so text from outside cannot forge a header or end a hunk early.
+        for brk in ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", " ", " ", "\r"):
+            self.assertEqual(task.numbered("@@ -1,3 +1,3 @@\n a\n-b\n+x = 'p%sq'\n c\n" % brk),
+                             "@@ -1,3 +1,3 @@\n1| a\n-b\n2|+x = 'p%sq'\n3| c\n" % brk, repr(brk))
+            forged = "@@ -1,3 +1,6 @@\n a\n+x = 1  # %s@@ -1 +900,9 @@\n+if not ok:\n+    return\n b\n c\n" % brk
+            self.assertEqual(task.numbered(forged), "@@ -1,3 +1,6 @@\n1| a\n2|+x = 1  # %s@@ -1 +900,9 @@\n3|+if not ok:\n"
+                                                    "4|+    return\n5| b\n6| c\n" % brk, repr(brk))
+        # A header whose number is longer than nine digits is no header: it is carried as written, and never read as a
+        # number, which Python refuses past 4300 digits.
+        for long in ("1" * 10, "9" * 5000):
+            huge = "@@ -1 +%s @@\n+x\n" % long
+            self.assertEqual(task.numbered(huge), huge)
         # A diff with no hunk, or none at all, is carried as it is.
         for plain in ("", "Binary files a/p and b/p differ\n", "+not in a hunk\n"):
             self.assertEqual(task.numbered(plain), plain)

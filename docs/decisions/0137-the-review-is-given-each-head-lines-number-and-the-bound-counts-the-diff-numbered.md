@@ -6,7 +6,7 @@ Status: accepted. The Factory Builder's ruling of 2026-11-03 on eval run 4171811
 
 | What | Decided | Because |
 |---|---|---|
-| The numbers | The Task's diff text leads each line of a hunk that the head's file holds, a context line or an added one, with its line number in the head's file and `\|`, as `87\|+    if not items:`. A removed line, git's note that a file has no last newline, and every line outside a hunk are as git wrote them. A hunk ends when its header's counts are spent, or at a line no hunk holds, so the next file's `--- a/` is never read as a removed line. `harness/task.py`'s `numbered()` does it | The scorer places a Finding by the head's lines, and the model was left to count them from each hunk's header, inside a diff carried as one JSON string. Counting, it landed one line off on a long diff |
+| The numbers | The Task's diff text leads each line of a hunk that the head's file holds, a context line or an added one, with its line number in the head's file and `\|`, as `87\|+    if not items:`. A removed line, git's note that a file has no last newline, and every line outside a hunk are as git wrote them. A hunk ends when its header's counts are spent, or at a line no hunk holds, so the next file's `--- a/` is never read as a removed line. A row ends at a newline alone, as git ends one: a form feed, a lone carriage return or a Unicode line break inside a line is that line's text, so an author's text can neither forge a header nor end a hunk early. A header's numbers are of nine digits at most, and a longer one is no header, so no diff makes the count raise. `harness/task.py`'s `numbered()` does it | The scorer places a Finding by the head's lines, and the model was left to count them from each hunk's header, inside a diff carried as one JSON string. Counting, it landed one line off on a long diff |
 | The text | The text's id is still `diff:<content id>`, and the bytes are still held to the content the Decision admitted before they are numbered. The numbers are added by the Harness, from the bytes, never read from the item | What the Run judges is still only the admitted content; the numbers are the Release's rendering of it |
 | One measure | `adapters/pull.py` counts `characters` as `harness/task.py` carries the diff, numbered and escaped, by the same two functions, and the Task's budget counts each file's part the same way. Numbered file by file, a diff is numbered as it is whole, so the Kernel's bound and the Task's cut stay one measure (0065) | Two counts can drift: a port that counted the diff as git wrote it would admit a diff the Task then cuts, and a review would never be asked |
 | The prompt | `roles/pr-review/prompt.md` says what the numbers are: the head's line, and none on a removed line; a Finding's `start_line` and `end_line` are the numbers the diff gives the lines where the problem is | A number the model is not told the meaning of is one more thing to guess |
@@ -20,7 +20,7 @@ severity agree with `tools/eval_result.score`; the lines did not. With the eval'
 (the pin is 2.1.306) and model `opus`, on synthetic cases made from this repo's own files, each with one logic error
 planted at a known head line: on diffs of about 30 lines the review cited PR-3 at the exact line 5 times of 5. On diffs
 of 100 to 140 lines, whose earlier hunks shift the head's numbering from the base's, it was at the line 4 times of 6 and
-one line off twice; told how to count in the prompt alone, 5 of 6; given the numbers, 6 of 6. With this record's prompt and Task, 6 of 6 again on the long diffs.
+one line off twice; told how to count in the prompt alone, 5 of 6; given the numbers, 6 of 6. With this record's prompt and Task, 6 of 6 again on the long diffs and 6 of 6 on the short.
 
 ## Limits
 
@@ -34,8 +34,8 @@ case.
 
 | Boundary | Check |
 |---|---|
-| Each line of a hunk the head holds is led by its number there; a removed line, the no-newline note and a line outside a hunk are as git wrote them; a hunk ends when its counts are spent; numbered file by file is numbered whole | `tests/test_harness.py::test_each_line_the_head_holds_is_given_its_number_there` |
-| The port counts the diff as the Task carries it, numbered, and the Task carries it numbered | `tests/test_adapters.py::test_the_diff_is_counted_as_the_harness_counts_the_task_it_carries` |
+| Each line of a hunk the head holds is led by its number there; a removed line, the no-newline note and a line outside a hunk are as git wrote them; a hunk ends when its counts are spent; a row ends at a newline alone, and a header of a number past nine digits is none; numbered file by file is numbered whole | `tests/test_harness.py::test_each_line_the_head_holds_is_given_its_number_there` |
+| The port counts the diff as the Task carries it, numbered, and the Task carries it numbered; an added line's text forging a header is counted as the line it is | `tests/test_adapters.py::test_the_diff_is_counted_as_the_harness_counts_the_task_it_carries` |
 | The Task's budget counts the diff numbered, and a review given part of it is never asked | `tests/test_harness.py::test_a_change_over_its_budget_is_cut_at_a_files_boundary_and_says_how_much`, `tests/test_harness.py::test_a_review_given_part_of_the_diff_is_never_asked` |
 | A Finding placed at the line the public example's Task numbers passes the scorer, and the review is told what the numbers are | `tests/test_evals.py::test_a_finding_at_the_line_its_task_numbers_is_where_the_scorer_looks` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
