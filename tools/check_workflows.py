@@ -82,10 +82,12 @@ SHIMS = {}
 # A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
 # commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309); and the Run's
 # jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196); and the approving
-# act's, whose wake approve_job_problems holds the same way (trial P-55). The release job
+# act's, whose wake approve_job_problems holds the same way (trial P-55), and the queue act's, which queue_job_problems
+# holds so (decision 0128). The release job
 # moves the Release every Run calls, so it cannot be one: it runs main's file, and release_problems holds every line of
 # it (issue 197's ruling 4′).
-SHAPED = {"eval.yml": ("shim", "install"), "run-jobs.yml": ("install",), "approve-job.yml": ("install",), "release.yml": ("shim",)}
+SHAPED = {"eval.yml": ("shim", "install"), "run-jobs.yml": ("install",), "approve-job.yml": ("install",),
+          "queue-job.yml": ("install",), "release.yml": ("shim",)}
 # The one workflow that wakes on another's end, and the Run's, which it does not name (trial P-55).
 WAKES, RUN_WORKFLOW = "poller.yml", "sf-run"
 # The Run's lane (issue 196's ruling 6): one concurrency group for each Work item, on the one job that calls the Run's
@@ -93,6 +95,7 @@ WAKES, RUN_WORKFLOW = "poller.yml", "sf-run"
 # whole beyond env:, with: and secrets:: the run's name, the lane, and a job's output of one of its steps.
 RUN_JOBS = "run-jobs.yml"
 APPROVE_JOB = "approve-job.yml"
+QUEUE_JOB = "queue-job.yml"
 LANE = "${{ inputs.item }}"
 RUN_NAME = "${{ inputs.name }}"
 OUTPUT = re.compile(r"^\$\{\{ steps\.[a-z][\w-]*\.outputs\.[a-z][\w-]* \}\}$")
@@ -140,7 +143,7 @@ PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
 # dispatches the poller, and the calling job above it, since a called job can be granted no more than its caller. A
 # wake holds no secret, no environment and no checkout in either file, so its write never stands beside a key.
 WAKE_JOB, LANE_JOB = "wake", "lane"
-WAKE_FILES, LANE_FILES = (RUN_JOBS, APPROVE_JOB), ("run.yml", "approve.yml")
+WAKE_FILES, LANE_FILES = (RUN_JOBS, APPROVE_JOB, QUEUE_JOB), ("run.yml", "approve.yml", "queue.yml")
 SECRETS_NAMED = re.compile(r"\bsecrets\s*[.\[]", re.I)      # by a dot or an index, as an expression may write it
 ACTIONS_WRITE = {PASS_JOB, WAKE_JOB, LANE_JOB}
 # The Run's jobs and the approving act's, each with its wake, each held word for word, as run.yml is (#196's ruling 7, decisions
@@ -449,11 +452,87 @@ jobs:
         timeout-minutes: 2
         run: timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"
 """
+# The queue act's job and its wake, held word for word as the approving act's is (issue 381, decision 0128): `queue` holds
+# the queue App's key, the job's own token with reads of the Actions runs and of the code alone, to find the pass record,
+# and the Pause as the vars context gives it, which the step reads before it mints the App's token.
+QUEUE_JOB_FILE = """name: sf-queue-job
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  queue:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: factory-queue
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ job.workflow_sha }}
+          fetch-tags: true
+          persist-credentials: false
+      - name: Make the queue act, if its Decision stands and no Pause is set
+        env:
+          NAME: ${{ inputs.name }}
+          ITEM: ${{ inputs.item }}
+          PASS: ${{ inputs.pass }}
+          GITHUB_TOKEN: ${{ github.token }}
+          QUEUE_APP_KEY: ${{ secrets.QUEUE_APP_KEY }}
+          FACTORY_PAUSED: ${{ vars.FACTORY_PAUSED }}
+        timeout-minutes: 4
+        run: python3 -m harness.queue_step
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: applied
+          path: applied/applied.json
+          if-no-files-found: ignore
+      - name: Leave the Run's outcome
+        if: always()
+        env:
+          NAME: ${{ inputs.name }}
+        timeout-minutes: 2
+        run: python3 -m harness.outcome
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: outcome
+          path: outcome/outcome.json
+          if-no-files-found: error
+  wake:
+    needs:
+      - queue
+    if: always() && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Wake the next pass, since a Run the pass's token started wakes nothing when it ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        timeout-minutes: 2
+        run: timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || echo "the next pass waits for the backstop"
+"""
 # Each key and the environment it lives in, by the one file that may name them (decision 0035): no other workflow names
 # either, so no other job, and no job a fork's code could reach, holds the key.
 KEYED = {PASS_WORKFLOW: re.compile(r"factory-poller|CONTROLLER_APP_KEY", re.I),      # GitHub's names of these
          RUN_JOBS: re.compile(r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I),     # ignore case
-         APPROVE_JOB: re.compile(r"factory-approve|APPROVER_TOKEN", re.I)}
+         APPROVE_JOB: re.compile(r"factory-approve|APPROVER_TOKEN", re.I),
+         QUEUE_JOB: re.compile(r"factory-queue|QUEUE_APP_KEY", re.I)}
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
 ACTIONS_APP = 15368
 # A workflow that cannot be written within a rule. It is exempt from the rules named and from no other,
@@ -1446,6 +1525,13 @@ def approve_job_problems(text: str) -> list:
     return []
 
 
+def queue_job_problems(text: str) -> list:
+    """What is wrong with queue-job.yml: anything but QUEUE_JOB_FILE, word for word but for its comments."""
+    if _held(text) != _held(QUEUE_JOB_FILE):
+        return ["it is not the queue act's one job, word for word"]
+    return []
+
+
 def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
     """What is wrong with one live workflow by its file's name: a shim not held word for word by its hash in SHIMS, a
     workflow that wakes on another's end that is not the poller, or the pass job anywhere but the poller and the pass."""
@@ -1470,6 +1556,8 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
         problems += run_jobs_problems(text, root)
     if name == APPROVE_JOB:
         problems += approve_job_problems(text)
+    if name == QUEUE_JOB:
+        problems += queue_job_problems(text)
     if name == PASS_WORKFLOW:
         problems += pass_problems(text)
     for owner, named in KEYED.items():
