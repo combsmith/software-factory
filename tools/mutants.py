@@ -7204,6 +7204,7 @@ MUTANTS = ISSUE + [
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     # SonarCloud's S8786 on a workflow's environment: the pattern stays linear.
+    ("the workflow's environment pattern backtracks on its name line", 'tools/environments_drift.py', '(?:\\n[ \\t]*name:[ \\t]*)?', '(?:\\n(?:[ \\t]*)*name:[ \\t]*)?', ("tests.test_tools.EnvironmentsDrift.test_the_pattern_that_reads_a_workflows_environment_does_not_backtrack",)),
     ("the workflow's environment pattern backtracks", 'tools/environments_drift.py', '(?:\\n[ \\t]*name:[ \\t]*)?([^\\n]*)$", re.M)', '(?:\\n[ \\t]*name:[ \\t]*)?([ \\t]*[^\\n]*)*!$", re.M)', ("tests.test_tools.EnvironmentsDrift.test_the_pattern_that_reads_a_workflows_environment_does_not_backtrack",)),
     # Issue 440: the fake GitHub does what P-36 recorded.
     ("the fake's upload changes nothing", 'sim/world.py', '            self.checks[SCANNING] = "neutral"\n', '', ("tests.test_simulator.Simulation.test_the_seeds_upload_under_codeqls_tool",)),
