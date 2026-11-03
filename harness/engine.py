@@ -135,7 +135,7 @@ def _answer(text: str):
     """The CLI's answer, or None: one JSON object, or the last `result` of a stream of them."""
     try:
         said = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):     # an answer nested past what Python parses is no answer either
         return None
     if isinstance(said, list):
         results = [m for m in said if isinstance(m, dict) and m.get("type") == "result"]
@@ -147,7 +147,7 @@ def version(cli: str, env: dict, call) -> str:
     """The version the CLI says it is, or "" if it would not say."""
     try:
         done = call([cli, "--version"], env=env, timeout=30)
-    except (OSError, subprocess.SubprocessError):       # a CLI that cannot be started says no version
+    except (OSError, ValueError, subprocess.SubprocessError):     # a CLI that cannot be started says no version
         return ""
     if done.returncode != 0:
         return ""
@@ -180,7 +180,7 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
             reason = "no_answer"
     except subprocess.TimeoutExpired:
         reason = "engine_timeout"
-    except OSError:
+    except (OSError, ValueError):       # a call that cannot be made, as an argument Python refuses, is the Engine's fault
         reason = "engine_failed"
     seconds = clock() - began
     usage = _usage(config, session, seconds, said)

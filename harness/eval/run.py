@@ -9,14 +9,16 @@ when the time it has left is less than a case's tier allows, so that the job end
 reached is unanswered, and the run fails.
 
 Nothing of a case, a Task or a Result is printed or written: each Result is scored in this step's memory and never
-kept, and only `eval-report.json`, of hashes, verdicts and codes, is written in the workspace, by `score`."""
+kept, and only `eval-report.json`, of hashes, verdicts, codes and causes, is written in the workspace, by `score`.
+The CLI's call is watched for a case's cause alone: its exit, its subtype, or that it timed out (decision 0131)."""
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 
-from harness import run as live, task as tasks
+from harness import engine, run as live, task as tasks
 from harness.eval import Stop, _planned, exit_with, score
 
 # The seconds the job may spend before the last case is started, counted from when `plan` was made: the job's 120
@@ -44,8 +46,30 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
     with open(os.path.join(str(live.ROOT), "roles", "pr-review.json"), encoding="utf-8") as f:
         manifest = json.load(f)
     deadline = began + BUDGET
+    asked = call or live.cli_call
+    seen = {}
+
+    def watched(args, env, timeout):
+        """The CLI's call, as the Engine makes it, with what it said of the case kept for its cause: its exit, the
+        subtype its answer names, that it timed out, or the class of what the call raised. Nothing of the answer itself
+        is kept."""
+        if args[1:] == ["--version"]:
+            return asked(args, env=env, timeout=timeout)
+        try:
+            done = asked(args, env=env, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            seen["timed_out"] = True
+            raise
+        except Exception as err:
+            seen["raised"] = type(err).__name__
+            raise
+        seen["exit"] = done.returncode
+        said = engine._answer(done.stdout) if isinstance(done.stdout, str) else None
+        seen["subtype"] = said.get("subtype") if isinstance(said, dict) else None
+        return done
 
     def review(case: dict) -> dict:
+        seen.clear()
         facts = case["facts"]
         admit = {"role": case["role"], "intent": case["intent"], "content_id": facts.get("content_id")}
         # The issue a change serves, as a live Run reads it (adapters/texts.py), where the case holds one (decision 0110).
@@ -65,7 +89,8 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
             raise Stop("issue_not_whole")
         if deadline - clock() < the_task["limits"]["seconds"] + VERSION_READS:
             raise Stop("unanswered")
-        return live.answer(the_task, env, config, call, clock)
+        return live.answer(the_task, env, config, watched, clock)
+    review.seen = seen
     return review
 
 
