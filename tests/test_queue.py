@@ -97,6 +97,9 @@ class Port(unittest.TestCase):
                                                              "variables": {"owner": owner, "name": name, "pr": 2}}))
         allowed.send(github.request("POST", "/graphql", body={"query": queue_.RESOLVE, "variables": {"id": "PRRT_kwDOVFD6786xYpyG"}}))
         other = "PR_kwDOVFD6788AAAABLg1GyQ"
+        # The job's port writes through Queuing alone: a resolution of a thread it never listed is not sent.
+        p, asked = port()
+        self.assertEqual((p.resolve("PRRT_kwDOVFD6786xYpyG")["fault"], asked.sent), ("environment", []))
         for req in (github.request("POST", "/graphql", body={"query": queue_.ENQUEUE, "variables": {"id": other, "h": HEAD}}),
                     github.request("POST", "/graphql", body={"query": queue_.DEQUEUE, "variables": {"id": other}}),
                     github.request("POST", "/graphql", body={"query": queue_.RESOLVE, "variables": {"id": "PRRT_kwDOVFD6786xOTHER"}}),
@@ -173,10 +176,12 @@ class Job(unittest.TestCase):
                             ({"status": 502, "headers": {}, "body": None}, "github_unavailable"),
                             (None, "github_unavailable"), ({"status": 401, "headers": {}, "body": {}}, "token_refused")):
             p, _ = port(pull(), member(False), answer)
-            self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], why)
+            done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
+            self.assertEqual((done["effects"][0]["state"] != "applied", ended["outcome"], ended["reason"]), (True, "environment", why))
         for read in ({"status": 200, "headers": {}, "body": {"number": 2}}, pull(number=3)):
             p, _ = port(read)
-            self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "pull_unreadable")
+            ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]
+            self.assertEqual((ended["outcome"], ended["reason"]), ("environment", "pull_unreadable"))
 
     def test_a_dequeue_is_made_at_the_head_decided_on_and_claims_nothing_it_did_not_see_taken(self):
         person = support.thread(kind="human", name="don-petry", severity=None)
@@ -207,6 +212,7 @@ class Job(unittest.TestCase):
         self.assertEqual([(e["type"], e["state"], e["key"]) for e in done["effects"]],
                          [("resolve_thread", "applied", "PRRT_kwDOVFD6786xYpyG")])
         self.assertIsNone(ended["outcome"])
+        self.assertEqual(asked.sent[1]["body"], {"query": queue_.RESOLVE, "variables": {"id": "PRRT_kwDOVFD6786xYpyG"}})
         # One GitHub shows resolved already is recovered, and nothing is written.
         shown = copy.deepcopy(listed)
         shown["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"][0]["isResolved"] = True
@@ -222,7 +228,8 @@ class Job(unittest.TestCase):
             else:
                 node["resolvedBy"].update(change)
             p, _ = port(listed, back)
-            self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "not_read_back")
+            done, ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})
+            self.assertEqual((done["effects"][0]["state"], ended["outcome"], ended["reason"]), ("failed", "environment", "not_read_back"))
         # An answer about another thread claims nothing.
         back = recorded("P-5.queue.json", 15)
         back["body"]["data"]["resolveReviewThread"]["thread"]["id"] = "PRRT_kwDOVFD6786xYylP"
@@ -244,7 +251,14 @@ class Job(unittest.TestCase):
         paged["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"] = "x"
         for unread in [cut, short, paged] + malformed:
             p, _ = port(unread)
-            self.assertEqual(queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], "threads_unreadable")
+            ended = queue.job(rec, rid, p, {"release": rec["release"], "paused": ""})[1]
+            self.assertEqual((ended["outcome"], ended["reason"]), ("environment", "threads_unreadable"))
+        # A Decision that names no thread reads nothing and writes nothing.
+        empty = copy.deepcopy(rec)
+        empty["pull_requests"][0]["decision"]["evidence"] = []
+        p, asked = port()
+        self.assertEqual((queue.job(empty, rid, p, {"release": rec["release"], "paused": ""})[1]["reason"], asked.sent),
+                         ("no_decision", []))
 
     def test_a_resolution_writes_nothing_unless_every_thread_is_there_and_stops_at_its_first_failure(self):
         ids = ("PRRT_kwDOVFD6786xYpyG", "PRRT_kwDOVFD6786xYylP")
@@ -307,6 +321,7 @@ class Step(unittest.TestCase):
 
         def find(transport, *a):
             reads_through.append(transport)
+            self.found_with = a
             if isinstance(found, Exception):
                 raise found
             return self.rec if found is None else found
@@ -333,6 +348,7 @@ class Step(unittest.TestCase):
                          ("applied", "environment", "token_not_revoked"))
         # The record is found through the job's own token, held to the item's repo and reads.
         self.assertEqual([type(t).__name__ for t in reads_through], ["Approving"])
+        self.assertEqual((self.found_with[0], self.found_with[-1]), (ITEM["repo"], self.argv[2]))
         # The queue App's token is minted with the grants its three acts take, and nothing more.
         self.assertEqual(wanted, [("combsmith-sf-queue", ITEM["repo"], {"contents": "write"}, "k")])
         self.assertEqual(len(asked.sent), 3)
@@ -352,8 +368,10 @@ class Step(unittest.TestCase):
                                    (dict(self.rec, release="factory/v9.9.9"), None, "release_differs"),
                                    (elsewhere, None, "not_the_decision"),
                                    (None, queue_step.identity.Refused("key_unreadable"), "key_unreadable")):
-            (done, ended), _, _, asked = self.written(environ, found=found, minted=minted)
+            (done, ended), _, wanted, asked = self.written(environ, found=found, minted=minted)
             self.assertEqual((ended["reason"], asked.sent), (why, []), why)
+            if minted is None:
+                self.assertEqual(wanted, [], why)
         # A run-name that names another content id, Role or act than its Decision's: nothing is minted.
         name = self.name
         for other in (name.replace(self.decided["content_id"], "sha256:bbbb"), name.replace(" pr-review ", " lens-security "),
@@ -388,6 +406,18 @@ class Step(unittest.TestCase):
         return queue_step.configuration.load(steps.ROOT, self.rec["release"], "controller")
 
     def test_the_step_writes_its_records_and_fails_by_its_code(self):
+        # A Run that succeeds writes both records and stops nothing.
+        environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": ""}
+        asked = Answers(pull(), member(False), recorded("P-57.json", 9))
+        with tempfile.TemporaryDirectory() as d, \
+                unittest.mock.patch.object(queue_step.passes, "find", lambda *a: self.rec), \
+                unittest.mock.patch.object(queue_step.identity, "from_key", lambda *a: (asked, lambda: True)):
+            said = queue_step.step(self.argv, environ, d, lambda: 0, lambda token: "live")
+            done = json.loads(pathlib.Path(d, "out", "applied.json").read_text())
+            ended = json.loads(pathlib.Path(d, "out", "outcome.json").read_text())
+        self.assertEqual(said, "enqueue applied")
+        self.assertEqual(([(e["type"], e["state"], e["key"]) for e in done["effects"]], done["run"], ended["outcome"]),
+                         ([("enqueue", "applied", NODE)], self.rid, None))
         environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": "true"}
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(queue_step.passes, "find", lambda *a: self.rec):

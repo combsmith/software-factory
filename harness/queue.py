@@ -114,6 +114,8 @@ def _resolve(run: str, release: str, decided: dict, port) -> tuple:
     """Each thread the Decision names, resolved by the queue App unless GitHub already shows it resolved. Nothing is
     written unless every one is still there, and nothing after the first write that fails: a Run that fails counts
     toward the Run ceiling, never as an act, so a resolution it landed before failing is bounded there alone."""
+    if not decided["evidence"]:
+        return _records(run, release, "resolve_thread", [], ("superseded", "no_decision"))
     read = port.threads()
     if read["fault"] is not None:
         return _records(run, release, "resolve_thread", [], (read["fault"]["fault"], read["fault"]["reason"]))
