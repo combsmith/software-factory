@@ -31,6 +31,7 @@ Its protected paths and each Lens's inputs are also the Kernel's `protected_path
 | The protected paths and each Lens's inputs are one list, in `hooks.json`, the Kernel's too, matched as the hooks match | `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
 | In `rulesets.json`, CodeQL fails on a security alert of any severity, and a thread left open holds a merge | `examples/invalid/rulesets.a-security-alert-below-high-passes.json`, `examples/invalid/rulesets.a-thread-left-open-merges.json` |
 | Nobody bypasses `main`, and only the admin role, whoever holds it, moves a `factory/*` tag | `examples/invalid/rulesets.main-with-a-bypass.json`, `examples/invalid/rulesets.a-release-tag-a-writer-may-move.json` |
+| Nobody bypasses the refusal of a branch under the Channels' name, created or updated (decision 0124) | `examples/invalid/rulesets.a-channel-branch-someone-may-bypass-to-make.json`, `tools/check_rulesets.py` |
 | Each check `main` requires is a deterministic Lens's, pinned to that Lens's App; `verify` is among them; each code-scanning tool is a Lens no workflow runs | `tools/check_rulesets.py` |
 | An approval `main` counts is exactly one, a code owner's, of the last push, a stale one dismissed, and `.github/CODEOWNERS` names only the machine user's team on every path (decision 0092) | `tools/check_rulesets.py` |
 | A secret a workflow names has a row in `credential-ages.json` naming its workflows | `tests/test_tools.py::test_every_secret_a_workflow_names_has_a_row_and_each_row_names_its_workflows` |

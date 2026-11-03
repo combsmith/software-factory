@@ -1,5 +1,6 @@
 #!/bin/sh
-# Compare the Factory repo's live rulesets with config/rulesets.json (issues 62 and 95). Run by hand, never in CI.
+# Compare the Factory repo's live rulesets with config/rulesets.json (issues 62 and 95), and report any branch under
+# factory/ (decision 0124). Run by hand, never in CI.
 # It reads through whoever is logged in to gh, and mints nothing. Each answer is written outside the repo, redacted
 # by tools/redact_trial.py, and the raw answer deleted, before tools/rulesets_drift.py reads what is left on stdin.
 set -eu
@@ -22,5 +23,6 @@ ids=$(python3 -I "$root/tools/rulesets_drift.py" --ids < "$dir/list")
 for id in $ids; do
   read_one "ruleset-$id" "repos/$repo/rulesets/$id"
 done
-{ cat "$dir/list"; printf '\0'; for id in $ids; do cat "$dir/ruleset-$id"; printf '\0'; done; } |
+read_one branches "repos/$repo/git/matching-refs/heads/factory"
+{ cat "$dir/list"; printf '\0'; for id in $ids; do cat "$dir/ruleset-$id"; printf '\0'; done; cat "$dir/branches"; printf '\0'; } |
   python3 -I "$root/tools/rulesets_drift.py"
