@@ -1804,6 +1804,12 @@ class Convergence(unittest.TestCase):
         d = go(facts(**outside, label_events=admitted, reviews=looked_then_dismissed, description_edited_at="2026-10-11T12:20:00Z"),
                REVIEWED)
         self.assertNotEqual(d["reason"], "description_edited_after_approval")
+        # One a person dismissed was taken back: the edit holds still.
+        taken_back = rv + [review(kind="human", name="don-petry", state="dismissed", dismissed_from="approved",
+                                  dismissed_by={"kind": "human", "name": "colleague", "can_write": True}, at="2026-10-11T12:25:00Z")]
+        d = go(facts(**outside, label_events=admitted, reviews=taken_back, description_edited_at="2026-10-11T12:20:00Z"),
+               REVIEWED)
+        self.assertEqual(d["reason"], "description_edited_after_approval")
         # Its twin, the Factory's own pull request: the same edit after a person's look and before the first approval
         # holds nothing, so reviewer Apps' early edits leave the Factory's work to go on.
         own = rv + [review(kind="human", name="don-petry", at="2026-10-11T12:05:00Z")]

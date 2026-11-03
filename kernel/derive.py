@@ -1014,8 +1014,10 @@ def description_anchor(facts: dict, edited: str):
     after the edit. In one second no order can be told, so the reading that stops work wins: a look in the edit's
     second saw nothing, an approval in a look's second came after it, and an edit in the anchor's second after that."""
     approved = ("approved",)
+    # A person's approval is a look, dismissed since or not, unless a person dismissed it, taking the look back.
     looks = [rv["submitted_at"] for rv in facts["reviews"]
-             if is_person(rv["by"]) and approved[0] in (rv["state"], rv["dismissed_from"])]
+             if is_person(rv["by"]) and (rv["state"] == "approved"
+                                         or (rv["dismissed_from"] == "approved" and not is_person(rv["dismissed_by"])))]
     if facts["class"] == "outside":
         looks += [ev["at"] for ev in facts["label_events"]
                   if ev["label"] == t.LABEL_ADMIT and ev["action"] == "labeled" and is_person(ev["by"])]
