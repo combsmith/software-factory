@@ -143,11 +143,12 @@ def _spent(script: str, room: list) -> str:
     return script
 
 
-def _nested(script: str, room: list) -> str:
+def _nested(script: str, room: list, comments: bool = True) -> str:
     """`script` with each substitution in it, at any depth, spelt as `requoted` spells one, "$(...)" with its own script
     escaped, so that the hook reads each level's quotes as that level's own (issue 376, the review of pull request
     395). A backtick is made a $( ), its \\`, \\$ and \\\\ taken out, and in double quotes its \\" too, as the shell takes
-    them; what a single quote or a comment holds is left as it stands, and what a ${...} holds is spelt as a script is."""
+    them; what a single quote or a comment holds is left as it stands, and what a ${...} holds is spelt as a script is,
+    with no comment in it: its # is a length or a pattern (`comments`)."""
     out, i, quote = [], 0, None
     while i < len(script):
         c = script[i]
@@ -183,10 +184,10 @@ def _nested(script: str, room: list) -> str:
             end = _balanced(script, i + 2, "}")
             closed = script[end - 1:end] == "}"
             inner = script[i + 2:end - 1] if closed else script[i + 2:end]
-            out.append("${%s%s" % (_nested(_spent(inner, room), room), "}" if closed else ""))
+            out.append("${%s%s" % (_nested(_spent(inner, room), room, comments=False), "}" if closed else ""))
             i = end
             continue
-        elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|("):
+        elif c == "#" and comments and (i == 0 or script[i - 1] in " \t\n;&|("):
             end = script.find("\n", i)
             end = len(script) if end < 0 else end
             out.append(script[i:end])

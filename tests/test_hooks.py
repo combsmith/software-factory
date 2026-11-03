@@ -1502,6 +1502,10 @@ class Identity(unittest.TestCase):
         # Each ${...} read as a script is charged to the budget, so one in another in another ... is cut short (Muse).
         with self.assertRaises(ValueError):
             shell.without_heredocs("cat <<EOF\n$(echo " + "${x:-" * 400 + "y" + "}" * 400 + ")\nEOF\ngit push")
+        # A # in a ${...} is a length or a pattern, never a comment, so a substitution after it is still read (Argon).
+        for body in ("$(echo ${#a[$(git push origin main)]})", "$(echo ${x:- # $(git push origin main)})"):
+            self.assertIn(["git", "push", "origin", "main"],
+                          [w for w, _ in shell.commands(shell.without_heredocs("cat <<E\n%s\nE" % body), scopes=True) if w], body)
 
     def test_a_read_beside_a_script_names_no_commit_or_push(self):  # issue 488
         script = "a shell reads a script the hook cannot see"
@@ -1581,7 +1585,10 @@ class Identity(unittest.TestCase):
                         # $_ gives what echo printed to what follows; and a backtick's capture, a ( )'s redirection (Argon).
                         "echo 'git push' && bash /tmp/x.sh \"$_\"", "echo 'git push'; bash /tmp/x.sh \"${_}\"",
                         "x=`echo 'git push'`; bash /tmp/x.sh \"$x\"", "bash /tmp/x.sh \"`echo 'git push'`\"",
-                        "( echo 'git push origin main'; ) > /tmp/s.sh && sh /tmp/s.sh", "echo 'git push' `true`>/tmp/s; sh /tmp/s"):
+                        "( echo 'git push origin main'; ) > /tmp/s.sh && sh /tmp/s.sh", "echo 'git push' `true`>/tmp/s; sh /tmp/s",
+                        # What assigns as it prints, and a function that takes a printing command's name (Argon).
+                        "echo \"${x:=git commit -m test}\"; sh script.sh \"$x\"", "echo ${x=git push}; bash /tmp/x.sh \"$x\"",
+                        "echo() { bash /tmp/x.sh; }; echo 'git push'", "function grep { bash /tmp/x.sh; }; grep 'git push' f"):
             self.assertNotEqual(unseen(command), [], command)
         # Any other reason the hook cannot read the command stands as it did: this gh may be another program.
         spend = identity._budget(5)

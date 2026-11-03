@@ -596,6 +596,11 @@ def _positional(words: list) -> list:
     return out
 
 
+def _defined(name: str, text: str) -> bool:
+    """Whether `text` may define a function called `name`: name() or function name, anywhere in it."""
+    return re.search(r"(?<![\w/.-])%s\s*\(\s*\)|\bfunction\s+%s\b" % (re.escape(name), re.escape(name)), text) is not None
+
+
 def _bodies(text: str) -> str:
     """What the here-documents of `text` hold, each line as the shell reads it in its body. A line that also stands outside
     one is still the body's: git \\ before a read, and git \\ before push in a body (Argon on #489)."""
@@ -711,9 +716,11 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             blind.append(runner)
             if at is None and set(words[1:]) & (WRITES | GH_WRITES):
                 always.append(("command_unreadable", "%s, and it is given a commit or a push" % runner))
-        # printf with an option may not print at all: printf -v x 'git push' keeps it for a shell to read (Muse).
+        # printf with an option may not print at all: printf -v x 'git push' keeps it for a shell to read (Muse). Nor
+        # does what assigns as it prints, echo "${x:=git push}", or a function of that name (Argon).
         if at is None and program in TEXT_ONLY and not scoped and not (
-                program == "printf" and any(w.startswith("-") for w in words[start + 1:])):
+                program == "printf" and any(w.startswith("-") for w in words[start + 1:])) and not any(
+                "${" in w and "=" in w for w in marked) and not _defined(program, text):
             printing.add(index)
         if at is None:
             # A substitution is read as a command of its own below; its text is not the wrapper's to read as a push.
