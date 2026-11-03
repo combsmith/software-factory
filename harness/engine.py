@@ -6,7 +6,7 @@ that trial hardened it:
 - in an environment of exactly the names below, the one key from the job's environment the CLI needs among them, under
   the one name the CLI's scrub removes from what a tool is handed, and the scrub set (issue 287);
 - with the Task's limits: its turns as `--max-turns`, its seconds as the call's timeout, and its `cost_ceiling_usd` as
-  `--max-budget-usd`, which the pin accepts and holds its own estimate of spend to (issue 517);
+  `--max-budget-usd`, which the pin accepts and holds its own estimate of spend to (decision 0136);
 - with no tool at all, `--tools ""`, whatever the Task holds; structured output still works with none (P-13 at
   2.1.306). The scrub is set only with no tool: on a Linux runner at 2.1.306, with the scrub on, a sandboxed tool
   wrote anywhere the runner's user can, and with it off a tool is handed the credential (P-50, P-51, issue 312; P-26),
@@ -30,9 +30,10 @@ from harness import shared
 from tools.jsonschema_lite import validate
 
 ENGINE = "claude-cli"
-# How the CLI says the model could not finish, as P-13 recorded it at the pin (`trials/P-13.ended.json`). A model reads an
+# How the CLI says the model could not finish, as P-13 recorded it at the pin (`trials/P-13.ended.json`), and the tier's
+# cost ceiling reached, as the pinned binary names it and no trial has yet recorded (decision 0136). A model reads an
 # item's text, so such a run is the item's, not the Factory's. Any other way it errs stays the Factory's (decision 0122).
-MODEL_ENDED = ("error_max_structured_output_retries", "error_max_turns")
+MODEL_ENDED = ("error_max_budget_usd", "error_max_structured_output_retries", "error_max_turns")
 CREDENTIAL_NAME = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 # Every name the CLI is given, and its value where it is fixed. Nothing else of the job's environment reaches it.
@@ -100,7 +101,7 @@ def argv(cli: str, task: dict, model: str, session: str, instructions: str = "")
     return ([cli, "-p", PROMPT + instructions + TASK + json.dumps(task, sort_keys=True), "--json-schema",
              json.dumps(handed(task)),
              "--model", model, "--session-id", session, "--max-turns", str(task["limits"]["turns"]),
-             # The tier's ceiling, which the CLI holds the Run's estimated spend to (issue 517)
+             # The tier's ceiling, which the CLI holds the Run's estimated spend to (decision 0136)
              "--max-budget-usd", str(task["limits"]["cost_ceiling_usd"])]
             + OPTIONS + ["--tools", ""])
 

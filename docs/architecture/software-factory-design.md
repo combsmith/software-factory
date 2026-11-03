@@ -658,8 +658,8 @@ A review needs neither, and text a stranger wrote is exactly what an injection a
 Trust classes are `maintainer`, `role`, `advisory` and `outside`. Text of any class is data: it
 cannot change the Task's permissions, limits or result schema.
 
-`cost_ceiling_usd` limits this one Run. The Harness enforces it, because it knows what its own Run
-has spent. It is not an input to Admission.
+`cost_ceiling_usd` limits this one Run. The Harness gives it to the CLI, which stops the Run at its
+own estimate of what the Run has spent (decision 0136). It is not an input to Admission.
 
 ```json
 {
