@@ -15,6 +15,7 @@ import shlex
 
 # Characters that end a word on their own. All but the redirections also end a simple command.
 PUNCTUATION = ";&|()`\n<>"
+UNREAD_OPERAND = "$( )"     # a redirection's operand that a backtick gives: a word no hook can read, as "$( )" is
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 # Programs that run the command string given to -c or --command, as a shell does.
 STRINGS = {"flock", "script", "runuser", "su"}
@@ -41,7 +42,7 @@ DELIMITER = re.compile(r"-?[ \t]*[^ \t;&|()<>]*")
 KEPT_TIMES, KEPT_MORE = 8, 4096
 
 
-def without_heredocs(text: str, raw: bool = False) -> str:
+def without_heredocs(text: str, raw: bool = False, bodies: list = None) -> str:
     """`text` with the body of each here-document left out. Raises ValueError if one is never ended.
 
     An operator counts only where the shell would read it: not inside quotes, unless inside a
@@ -52,7 +53,7 @@ def without_heredocs(text: str, raw: bool = False) -> str:
     over several lines there would end the line the body is read after (issue 376). Each script's
     quotes are its own: it is written as requoted writes one, which commands reads as it stands, or,
     with `raw`, as the shell writes it, for a reader that quotes the text itself, as the identity
-    hook's _quoted does, which would otherwise escape it twice.
+    hook's _quoted does, which would otherwise escape it twice. Each line of a body is added to `bodies`, when given.
     """
     out, waiting, stack, kept = [], [], ["code"], []
     room = [KEPT_TIMES * len(text) + KEPT_MORE]     # what is left of it, spent as each level is spelt
@@ -72,6 +73,8 @@ def without_heredocs(text: str, raw: bool = False) -> str:
                 out.append(line)    # kept, so that a substitution read again still ends its here-document
             else:
                 body.append(line)
+                if bodies is not None:
+                    bodies.append(line)
             continue
         out.append(line)
         i = 0
@@ -140,11 +143,12 @@ def _spent(script: str, room: list) -> str:
     return script
 
 
-def _nested(script: str, room: list) -> str:
+def _nested(script: str, room: list, comments: bool = True) -> str:
     """`script` with each substitution in it, at any depth, spelt as `requoted` spells one, "$(...)" with its own script
     escaped, so that the hook reads each level's quotes as that level's own (issue 376, the review of pull request
     395). A backtick is made a $( ), its \\`, \\$ and \\\\ taken out, and in double quotes its \\" too, as the shell takes
-    them; what a single quote, a comment or a ${...} holds is left as it stands."""
+    them; what a single quote or a comment holds is left as it stands, and what a ${...} holds is spelt as a script is,
+    with no comment in it: its # is a length or a pattern (`comments`)."""
     out, i, quote = [], 0, None
     while i < len(script):
         c = script[i]
@@ -174,11 +178,16 @@ def _nested(script: str, room: list) -> str:
         elif c in "'\"":
             quote = c
         elif script.startswith("${", i):
+            # What a ${...} holds is spelt as a script's is, so a substitution in it is one quoted word, as _quoted
+            # makes one at the top (#410): ${x:-$(git push)} in a substitution is read as it is outside one.
+            # It is charged to the budget as a substitution is, so a ${ in a ${ in a ${ ... is cut short (Muse).
             end = _balanced(script, i + 2, "}")
-            out.append(script[i:end])
+            closed = script[end - 1:end] == "}"
+            inner = script[i + 2:end - 1] if closed else script[i + 2:end]
+            out.append("${%s%s" % (_nested(_spent(inner, room), room, comments=False), "}" if closed else ""))
             i = end
             continue
-        elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|("):
+        elif c == "#" and comments and (i == 0 or script[i - 1] in " \t\n;&|("):
             end = script.find("\n", i)
             end = len(script) if end < 0 else end
             out.append(script[i:end])
@@ -330,6 +339,16 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
                 arm.append(token)
                 found.append((None, [token]))       # a list, so that no quoted pattern is read as a mark
             continue
+        if punctuation and "`" in token and (token[0] in "<>" or operator is not None):
+            # A redirection whose operand is a backtick's substitution, glued (<<<`) or not: what it runs is read as
+            # commands of its own, as any backtick's is, and the redirection keeps an operand that cannot be read, as
+            # > "$( )" does (#410). A backtick that closes before an operator (`date`>f) is main's reading, below.
+            if token[0] in "<>":
+                if words and words[-1].isdigit():
+                    words.pop()     # the 2 of 2>`date`
+                operator = (operator or "") + token[:token.index("`")]
+            targets.append((operator, UNREAD_OPERAND))
+            operator, token = None, token[token.index("`"):]
         if punctuation:
             if scopes and "(" in token and ("<" in token or ">" in token):
                 # <( or >(: a process of its own, whose commands are read between SCOPE's marks (decision 0040); its

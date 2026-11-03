@@ -9214,7 +9214,7 @@ class ContextEval(unittest.TestCase):
         return "\n".join(lines) + "\n"
 
     META = {"commit": "9bfc81383b36f8613d9f4a25e9377046aff27a92", "ran_at": "2026-10-21T09:00:00Z", "cli_version": "2.1.302",
-            "cap_turns": 80, "code": "empty_diff"}
+            "cap_turns": 80, "code": "empty_diff", "task_sha256": "b" * 64}
     PASSED = {"held_out_test": "pass", "verify": "pass", "mutant": "killed"}
 
     def test_the_record_holds_paths_counts_and_verdicts_and_no_model_text(self):
@@ -9227,44 +9227,87 @@ class ContextEval(unittest.TestCase):
         # no such word is unreadable, and counted; the result's counts are the cost.
         self.assertEqual(run["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
         self.assertEqual(run["outside_reads"], 2)
-        self.assertEqual(run["ran"], ["python3 -m unittest tests.test_decide", "echo", "python3 run.py", "unreadable"])
+        self.assertEqual(run["ran"], ["python3 -m unittest tests.test_decide", "echo", "python3", "unreadable"])
         self.assertEqual(run["unread_commands"], 1)
         self.assertEqual(run["restored"], [])
         self.assertEqual(run["cost"], {"turns": 7, "duration_ms": 1234, "usd": 0.25, "input_tokens": 100, "output_tokens": 20})
         self.assertEqual(run["changed"], [{"path": "kernel/derive.py", "added": 2, "removed": 0},
                                           {"path": "tests/test_decide.py", "added": 3, "removed": 0},
                                           {"path": "tools/mutants.py", "added": 1, "removed": 0}])
-        self.assertEqual(run["added"], {"test": "tests/test_decide.py::test_empty_diff_never_converges",
-                                        "mutant": "an empty diff converges", "reason": "empty_diff"})
+        # Of what the agent added, and of the rule, only whether: no name it chose and not the code (issue 8).
+        self.assertEqual((run["added"], run["task_sha256"]), ({"test": True, "mutant": True, "reason": True}, "b" * 64))
         self.assertEqual((run["verdicts"], run["passed"]), (self.PASSED, True))
-        for word in self.PROSE.values():
+        for word in list(self.PROSE.values()) + ["test_empty_diff_never_converges", "an empty diff converges", "empty_diff"]:
             self.assertNotIn(word, json.dumps(run))
+        # The rule is named nowhere (issue 8). A command keeps its program, its flags and the paths and modules the
+        # export as made holds, so one that names the code or a test the agent chose is cut there; a file the export
+        # does not hold, made or only named, is read and changed under its folder; a program it does not hold is none.
+        (work / "tests" / "test_empty_diff.py").write_text("import unittest\n")
+        (work / "tests" / "empty_diff_help.py").write_text("x = 1\ny = 2\n")
+        (work / "empty_diff.txt").write_text("x\n")
+        planted = "\n".join(json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "p%d" % i, "name": name, "input": given}]}}) for i, (name, given) in enumerate((
+                ("Bash", {"command": "grep -rn empty_diff kernel"}),
+                ("Bash", {"command": "grep -rn kernel/derive.py empty_diff"}),
+                ("Bash", {"command": "python3 -m unittest tests.test_decide.T.test_empty_diff_never_converges"}),
+                ("Bash", {"command": "python3 --grep=empty_diff kernel"}),
+                ("Bash", {"command": "tests/empty_diff.sh -x"}),
+                ("Bash", {"command": "make verify"}),
+                ("Read", {"file_path": str(work / "tests" / "test_empty_diff.py")}),
+                ("Read", {"file_path": str(work / "kernel" / "empty_diff" / "x.py")}),
+                ("Read", {"file_path": str(work / "empty_diff.txt")}))))
+        named = context_eval.record(planted, pristine, work, self.PASSED, self.META)
+        self.assertEqual(named["ran"], ["grep -rn", "grep -rn kernel/derive.py", "python3 -m unittest", "python3",
+                                        "unreadable", "make verify"])
+        self.assertEqual(named["read"], ["tests/", "kernel/", "./"])
+        self.assertIn({"path": "tests/", "added": 3, "removed": 0}, named["changed"])
+        self.assertIn({"path": "./", "added": 1, "removed": 0}, named["changed"])
+        self.assertEqual(validate(named, context_eval.RUN_SCHEMA), [])
+        self.assertNotIn("empty_diff", json.dumps(named))
+        for made in ("tests/test_empty_diff.py", "tests/empty_diff_help.py", "empty_diff.txt"):
+            (work / made).unlink()
         # A verdict that fails, fails the run; the code that is not in the Kernel's change is not the reason added.
         failed = context_eval.record(self.transcript(work), pristine, work, dict(self.PASSED, mutant="survived"), self.META)
         self.assertEqual((failed["verdicts"]["mutant"], failed["passed"]), ("survived", False))
         unchanged = context_eval.record(self.transcript(work), *self.export(changed=False), self.PASSED, self.META)
-        self.assertEqual((unchanged["changed"], unchanged["added"]), ([], {"test": None, "mutant": None, "reason": None}))
+        self.assertEqual((unchanged["changed"], unchanged["added"]), ([], {"test": False, "mutant": False, "reason": False}))
+        # A test alone, or a mutant alone, is that one added and not the other.
+        for part, want in (("tests/test_decide.py", {"test": True, "mutant": False, "reason": False}),
+                           ("tools/mutants.py", {"test": False, "mutant": True, "reason": False})):
+            one_pristine, one = self.export(changed=False)
+            (one / part).write_text((work / part).read_text())
+            self.assertEqual(context_eval.record(self.transcript(one), one_pristine, one, self.PASSED, self.META)["added"],
+                             want, part)
         # The code is the reason added only on a line the agent added to the Kernel, as a whole word.
         (work / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "empty_diff_x"\n    return f\n')
-        self.assertIsNone(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["reason"])
+        self.assertIs(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["reason"], False)
+        for word in ("x_empty_diff", "empty_diff2", "x1empty_diff", "Xempty_diff", "empty_diffX"):
+            (work / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "%s"\n    return f\n' % word)
+            self.assertIs(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["reason"],
+                          False, word)
+        # A code that is none is never added, though the Kernel's new line holds it, and an empty one, which any line
+        # would hold, is none.
+        for code in (None, "Empty Diff", "", 7):
+            planted_pristine, planted = self.export()
+            (planted / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "%s"\n    return f\n' % code)
+            self.assertIs(context_eval.record(self.transcript(planted), planted_pristine, planted, self.PASSED,
+                                              dict(self.META, code=code))["added"]["reason"], False, code)
         # A mutant dropped from the list cannot have been killed: the judge's verdict is overridden. A mutant named
-        # like a token is not recorded. What the judge put back is carried.
+        # like a token is added, and its name is not recorded. What the judge put back is carried.
         (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n')
         dropped = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
         self.assertEqual((dropped["verdicts"]["mutant"], dropped["passed"]), ("survived", False))
         (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
                                                '    ("gh' + 'p_0123456789abcdefghijklmnopqrstuvwxyz", DERIVE, "c", "d", ("t",)),\n]\n')
-        self.assertIsNone(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["mutant"])
-        # A name in the house style, with a Hold's capital, a comma and a parenthesis, is recorded; one too long is not.
-        (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
-                                               '    ("a Hold under a merge is done, not held (issue 237)", DERIVE, "c", "d", ("t",)),\n]\n')
-        self.assertEqual(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["mutant"],
-                         "a Hold under a merge is done, not held (issue 237)")
-        # A change under a dot-directory is seen, and a transcript with no result is recorded with its cost unknown.
+        tokened = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertIs(tokened["added"]["mutant"], True)
+        self.assertNotIn("0123456789abcdefghijklmnopqrstuvwxyz", json.dumps(tokened))
+        # A change under a new dot-directory is seen, at the top since the export holds no such folder, and a transcript
+        # with no result is recorded with its cost unknown.
         (work / ".github").mkdir()
         (work / ".github" / "x.yml").write_text("on: push\n")
         seen = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
-        self.assertIn({"path": ".github/x.yml", "added": 1, "removed": 0}, seen["changed"])
+        self.assertIn({"path": "./", "added": 1, "removed": 0}, seen["changed"])
         no_result = "\n".join(self.transcript(work).splitlines()[:-1])
         unknown = context_eval.record(no_result, pristine, work, self.PASSED, self.META)
         self.assertEqual(unknown["cost"], {"turns": None, "duration_ms": None, "usd": None, "input_tokens": None, "output_tokens": None})
@@ -9286,11 +9329,11 @@ class ContextEval(unittest.TestCase):
         (work / "tools" / "mutants.py").unlink()
         (work / "tools" / "mutants.py").symlink_to(outside / "mutants.py")
         run = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
-        self.assertEqual(run["added"], {"test": None, "mutant": None, "reason": None})
+        self.assertEqual(run["added"], {"test": False, "mutant": False, "reason": False})
         self.assertEqual(context_eval.new_tests(pristine, work), [])
         self.assertEqual(context_eval.new_mutants(pristine, work), [])
         self.assertNotIn("private", json.dumps(run))
-        self.assertIn({"path": "tests/test_x.py", "added": 1, "removed": 0}, run["changed"])
+        self.assertIn({"path": "tests/", "added": 1, "removed": 0}, run["changed"])
         self.assertEqual(run["verdicts"]["mutant"], "survived")      # the mutants the export held are gone with the link
         # A whole tests/ that is a link is not read either.
         pristine, work = self.export(changed=False)
@@ -9334,7 +9377,7 @@ class ContextEval(unittest.TestCase):
         self.assertIsNone(context_eval.record(text, pristine, work, self.PASSED, dict(self.META, commit="short")))
         self.assertIsNone(context_eval.record(text, pristine, work, {"held_out_test": "pass"}, self.META))
         # A transcript with no JSON reads nothing.
-        read, ran, counts, outside = context_eval.reads_and_commands("the model said " + self.PROSE["said"], work)
+        read, ran, counts, outside = context_eval.reads_and_commands("the model said " + self.PROSE["said"], work, pristine)
         self.assertEqual((read, ran, counts, outside), ([], [], {}, 0))
         # The CLI's json form, one list, is read as the stream is.
         as_list = json.dumps([json.loads(line) for line in text.splitlines()])
@@ -9493,20 +9536,26 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual(validate(record, context_eval.RUN_SCHEMA), [])
         self.assertEqual((record["verdicts"], record["passed"], record["commit"], record["cli_version"]),
                          ({"held_out_test": "pass", "verify": "pass", "mutant": "killed"}, True, commit, self.PIN))
-        self.assertEqual(record["added"], {"test": "tests/test_decide.py::test_empty_diff_never_converges",
-                                           "mutant": "an empty diff converges", "reason": "empty_diff"})
+        # The sentence is carried as its sha256 alone, and what the agent added as whether it did (issue 8).
+        self.assertEqual(record["added"], {"test": True, "mutant": True, "reason": True})
+        self.assertEqual(record["task_sha256"], hashlib.sha256(self.SENTENCE.encode()).hexdigest())
         self.assertEqual([c["path"] for c in record["changed"]], ["kernel/derive.py", "tests/test_decide.py", "tools/mutants.py"])
-        self.assertEqual(record["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+        # The stand-in reads a kernel/AGENTS.md this export does not hold, so it is recorded by its folder.
+        self.assertEqual(record["read"], ["AGENTS.md", "kernel/", "kernel/derive.py"])
         self.assertEqual((record["outside_reads"], record["restored"]), (2, []))
         checked = json.loads(texts["checked.json"])
         self.assertEqual((checked["agent"]["exit"], checked["agent"]["stderr"]["lines"], checked["mutants"]["added"]),
-                         (0, 1, ["an empty diff converges"]))
+                         (0, 1, 1))
         self.assertIn("none", checked["sandbox"])
         everything = "".join(texts.values()) + ran.stdout + ran.stderr
         for word in self.PROSE.values():
             self.assertNotIn(word, everything)
         self.assertNotIn("NEVER-SEEN", everything)
         self.assertNotIn("test_the_rule_holds", everything, "the held-out test is never recorded")
+        # Nothing in OUT or on the terminal names the rule or what the agent named: not the sentence, its code, the
+        # test or the mutant the agent added.
+        for word in (self.SENTENCE, "empty_diff", "test_empty_diff_never_converges", "an empty diff converges"):
+            self.assertNotIn(word, everything)
 
     def test_a_verdict_that_fails_is_recorded_and_fails_the_run(self):
         folder, commit = self.repo(verify="verify:\n\t@exit 1\n")

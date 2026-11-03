@@ -1,0 +1,4493 @@
+{
+  "schema": "trial/1",
+  "trial": "P-48",
+  "question": "A pull request approved at its head has its description edited before the merge to add a closing keyword for another open issue, and is then merged by the merge queue: is the new issue closed, and is the pull request named its closer?",
+  "pass": "Written on issue 280 on 2026-10-31, before anything ran, and copied here at 2026-11-03T12:14:36Z, before the rest of the run: pass if an issue whose keyword was added after the approval is not closed by the merge, or is closed without the pull request named its closer; fail if it is closed with the pull request named its closer. On canary pull request 53, which says Closes #51 and which the machine user approved at its head d8f7b0e0 on 2026-11-03, a new issue B is opened, and after the approval the description gains Closes #B; the pull request is then merged by the merge queue, enqueued by the Maintainer's login naming that head. The references, each issue's timeline and the approval are read before and after the edit, and each issue's state and closer at once after the merge and a minute later. Issue 280's plan also asked of an issue C, mentioned bare before the approval; with the approval already given that case cannot be made here, and it is not asked. Run on 2026-11-03; issue B is canary issue 94. The issue, the pull request's close and reopen, its description's edit, its branch's restoring after the first attempt, and the queue's check timeout raised for the second and third attempts and restored after each are writes not recorded here. Failed. Before the edit, pull request 53 named 51 alone among its closing references; at once after it, 51 and 94, the machine user's approval still standing, and 94's timeline gained a cross-reference from 53 that will close it, at 12:19:12Z, after the approval at 12:12:52Z, while 51's dates from 2026-10-21. The queue merged 53 on the third attempt, at 13:07:45Z: the first was taken out of the queue, checks_timed_out, its merge group's job waiting 13 minutes for a runner, and the second refused, its required check still queued. Both 51 and 94 then closed, COMPLETED, each ClosedEvent naming pull request 53 its closer and don-petry, who enqueued it, its actor. So a closing keyword added after the approval closes its issue with the pull request named the closer. Nothing here shows the timeline can tell such a keyword apart: 94 was opened during the run, so nothing could mention it before the approval, and a bare mention before it, which issue 280's plan asked of an issue C and this run could not make, would date the cross-reference earlier. willCloseTarget is read as it now stands: 94's read true before the close and false after it, and 51's false after it, so once merged it says nothing of which reference closed.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-03T12:14:36Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, as it stands, approved",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:14:37 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EBF7:2F96DA:1762C69:4D04B1A:6AE9D02C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4890",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "110"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "BLOCKED",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, before the edit",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:14:39 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EBF9:60781:1894C94:50B04B6:6AE9D02E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4888",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "112"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, before the edit",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:14:39 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EBFA:178468:19CCD74:548B0B1:6AE9D02F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4887",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "113"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, after the reopen ran the required check",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:19:10 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EC84:63F9C:17AD122:4E13112:6AE9D13E",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4762",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "238"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "CLEAN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, at once after the description gained Closes #94",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:19:18 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EC90:18F976:1844E30:4FE03E4:6AE9D146",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4755",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "245"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "CLEAN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, after the edit",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:19:19 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EC91:2F75B1:17F9C73:4F1A218:6AE9D147",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4754",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "246"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, after the edit",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:19:19 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EC92:1604A6:17F1E30:4EE2A26:6AE9D147",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4753",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "247"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, a minute after the edit",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:20:20 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "ECAE:2A53C6:6FFFD8:173841E:6AE9D184",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4738",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "262"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "CLEAN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the edit",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:20:21 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "ECB2:3E809:75E1E1:1873997:6AE9D185",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4735",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "265"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, the Maintainer's write, naming the approved head",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+            "h": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:20:23 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "ECB3:2C1605:799DB3:191FCD6:6AE9D185",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4734",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "266"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": {
+              "mergeQueueEntry": {
+                "state": "QUEUED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, after the first attempt, which the queue took out unmerged",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:41:36 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EF05:154254:1AA2A86:57899C3:6AE9D67F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4503",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "497"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "CLEAN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, at once after the first attempt, which the queue took out unmerged",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:41:37 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EF06:3025F5:19C90ED:54D47C4:6AE9D680",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4502",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "498"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, at once after the first attempt, which the queue took out unmerged",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:41:37 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EF07:178468:1DA3274:6121322:6AE9D681",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4501",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "499"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, a minute after the first attempt, which the queue took out unmerged",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:42:38 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EF1E:3D43C0:BD95AE:2708AD2:6AE9D6BD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4978",
+          "x-ratelimit-reset": "1793713147",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "22"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the first attempt, which the queue took out unmerged",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:42:38 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EF1F:B36F5:BA3179:2671B6A:6AE9D6BE",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4494",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "506"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's queue entries, removals, closes, reopenings and merge, after the first attempt: the queue took it out, checks_timed_out, its merge group's job waiting 13 minutes for a runner; the run's clean-up then closed it and deleted its branch",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){timelineItems(last:20,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,CLOSED_EVENT,REOPENED_EVENT,HEAD_REF_DELETED_EVENT,HEAD_REF_RESTORED_EVENT,MERGED_EVENT]){nodes{__typename ... on AddedToMergeQueueEvent{createdAt actor{login}} ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}} ... on ClosedEvent{createdAt actor{login}} ... on ReopenedEvent{createdAt actor{login}} ... on HeadRefDeletedEvent{createdAt} ... on HeadRefRestoredEvent{createdAt} ... on MergedEvent{createdAt actor{login} commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:43:59 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "EFEE:4EC98:C1D150:2811C14:6AE9D70F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4409",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "591"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:14:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "ReopenedEvent",
+                      "createdAt": "2026-11-03T12:14:45Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:20:23Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:36:26Z",
+                      "reason": "checks_timed_out",
+                      "actor": {
+                        "login": "github-merge-queue"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:42:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "HeadRefDeletedEvent",
+                      "createdAt": "2026-11-03T12:42:41Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, reopened, its branch restored at the approved head",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:44:07 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F006:2F96DA:1AFFD7B:58EE2E1:6AE9D717",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4399",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "601"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "BLOCKED",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, the canary's ruleset main, before the queue's check timeout is raised for the trial",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:44:08 GMT",
+          "etag": "W/\"45c8d0640a1fb3f1d1dba2ec060d0479f1bc293e1525e3893bc2fbc6ea0da848\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F008:86D6D:1A91139:57A1291:6AE9D718",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4924",
+          "x-ratelimit-reset": "1793711280",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "76"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T03:55:10.469-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, with the queue's check timeout at 60 minutes",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 12:44:09 GMT",
+          "etag": "W/\"aeed85ebfe067ca79f20103b4eca1b5052afa1f8217c54d26c6b154197e1fee5\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F00A:C491A:187EC92:50C1731:6AE9D719",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4724",
+          "x-ratelimit-reset": "1793711585",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "276"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 60
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T06:44:09.232-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, while its required check, run again on the reopen, waited for a runner",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:00 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4B7:60781:1E228D1:62F3AB3:6AE9DACF",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4193",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "807"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "BLOCKED",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, before the second enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:00 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4B8:2451C:1C05892:5CA581A:6AE9DAD0",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4191",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "809"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, before the second enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:01 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4B9:2EBC0A:1BF46E4:5BE7048:6AE9DAD1",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4881",
+          "x-ratelimit-reset": "1793713147",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "119"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, the Maintainer's write, naming the approved head, the second time",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+            "h": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:02 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4BA:63F9C:1C64772:5DADED1:6AE9DAD1",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4190",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "810"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": null
+          },
+          "errors": [
+            {
+              "type": "UNPROCESSABLE",
+              "path": [
+                "enqueuePullRequest"
+              ],
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 35
+                }
+              ],
+              "message": "Pull request Required status check \"p2-queue-check\" is queued."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, after the second attempt, restored",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:20 GMT",
+          "etag": "W/\"cf017c3a64dd19feac876be3f900e5d0393440aea44f213bec213a1f4d4b4ae6\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F4BF:385615:1E5070C:64BA8D9:6AE9DAE4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4074",
+          "x-ratelimit-reset": "1793711585",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "926"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T07:00:19.635-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, at once after the second enqueue was refused",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:21 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4C1:86D6D:1C6EA55:5DCFFFF:6AE9DAE4",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4184",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "816"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "CLEAN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's queue entries, removals, closes, reopenings and merge, at once after the second enqueue was refused",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){timelineItems(last:20,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,CLOSED_EVENT,REOPENED_EVENT,HEAD_REF_DELETED_EVENT,HEAD_REF_RESTORED_EVENT,MERGED_EVENT]){nodes{__typename ... on AddedToMergeQueueEvent{createdAt actor{login}} ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}} ... on ClosedEvent{createdAt actor{login}} ... on ReopenedEvent{createdAt actor{login}} ... on HeadRefDeletedEvent{createdAt} ... on HeadRefRestoredEvent{createdAt} ... on MergedEvent{createdAt actor{login} commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:22 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4C2:339E7D:1B4B4D6:59DAA13:6AE9DAE5",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4183",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "817"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:14:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "ReopenedEvent",
+                      "createdAt": "2026-11-03T12:14:45Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:20:23Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:36:26Z",
+                      "reason": "checks_timed_out",
+                      "actor": {
+                        "login": "github-merge-queue"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:42:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "HeadRefDeletedEvent",
+                      "createdAt": "2026-11-03T12:42:41Z"
+                    },
+                    {
+                      "__typename": "HeadRefRestoredEvent",
+                      "createdAt": "2026-11-03T12:44:00Z"
+                    },
+                    {
+                      "__typename": "ReopenedEvent",
+                      "createdAt": "2026-11-03T12:44:01Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, at once after the second enqueue was refused",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:22 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4C3:111E53:1C06BB1:5C60525:6AE9DAE6",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4182",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "818"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, at once after the second enqueue was refused",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:00:23 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F4C4:385615:1E52038:64BFC41:6AE9DAE6",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4180",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "820"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, a minute after the second enqueue was refused",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:01:23 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F500:3ABB99:1DCADEC:6377D73:6AE9DB23",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4155",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "845"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the second enqueue was refused",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:01:24 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F502:C93F5:1AD490A:585A56E:6AE9DB24",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4154",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "846"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's queue entries, removals, closes, reopenings and merge, after the second attempt: its required check still queued after 15 minutes, the enqueue was refused for it",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){timelineItems(last:20,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,CLOSED_EVENT,REOPENED_EVENT,HEAD_REF_DELETED_EVENT,HEAD_REF_RESTORED_EVENT,MERGED_EVENT]){nodes{__typename ... on AddedToMergeQueueEvent{createdAt actor{login}} ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}} ... on ClosedEvent{createdAt actor{login}} ... on ReopenedEvent{createdAt actor{login}} ... on HeadRefDeletedEvent{createdAt} ... on HeadRefRestoredEvent{createdAt} ... on MergedEvent{createdAt actor{login} commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:01:54 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F510:C491A:1A6AEE3:571CCB9:6AE9DB42",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4147",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "853"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:14:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "ReopenedEvent",
+                      "createdAt": "2026-11-03T12:14:45Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:20:23Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:36:26Z",
+                      "reason": "checks_timed_out",
+                      "actor": {
+                        "login": "github-merge-queue"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:42:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "HeadRefDeletedEvent",
+                      "createdAt": "2026-11-03T12:42:41Z"
+                    },
+                    {
+                      "__typename": "HeadRefRestoredEvent",
+                      "createdAt": "2026-11-03T12:44:00Z"
+                    },
+                    {
+                      "__typename": "ReopenedEvent",
+                      "createdAt": "2026-11-03T12:44:01Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, as it stands, open, before the third attempt",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:01:55 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F511:C491A:1A6B36C:571DB81:6AE9DB43",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4146",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "854"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "CLEAN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, the canary's ruleset main, before the queue's check timeout is raised for the trial",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:01:57 GMT",
+          "etag": "W/\"cf017c3a64dd19feac876be3f900e5d0393440aea44f213bec213a1f4d4b4ae6\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F513:86D6D:1C9F8F6:5E71C2E:6AE9DB44",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4297",
+          "x-ratelimit-reset": "1793711280",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "703"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T07:00:19.635-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, with the queue's check timeout at 180 minutes",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:01:58 GMT",
+          "etag": "W/\"be537cc1a2a02b33feddf3b5b3d580505119289e6d32dd51bb6af795a72c1a5d\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F515:E9F62:1D36781:602B093:6AE9DB46",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4040",
+          "x-ratelimit-reset": "1793711585",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "960"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 180
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T07:01:57.733-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, its required check passed",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:02:09 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F519:1D20D0:1BC6328:5B5AB20:6AE9DB51",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4145",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "855"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "OPEN",
+                "merged": false,
+                "mergedAt": null,
+                "mergeCommit": null,
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "CLEAN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "OPEN"
+                    },
+                    {
+                      "number": 94,
+                      "state": "OPEN"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, before the third enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:02:10 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F51A:3401A4:1C47CD2:5D17EB6:6AE9DB52",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4868",
+          "x-ratelimit-reset": "1793713147",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "132"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, before the third enqueue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:02:11 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F51B:C491A:1A729DD:5736245:6AE9DB52",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4867",
+          "x-ratelimit-reset": "1793713147",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "133"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "OPEN",
+                "stateReason": null,
+                "closedAt": null,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): enqueuePullRequest with expectedHeadOid, the Maintainer's write, naming the approved head, the third time",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+            "h": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:02:12 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F51C:2EBC0A:1C3D4D0:5CD62FB:6AE9DB53",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4144",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "856"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": {
+              "mergeQueueEntry": {
+                "state": "QUEUED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/rulesets/25328026, after the third attempt, restored",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:07:54 GMT",
+          "etag": "W/\"03fa0353b01bb7a3d331248dd949d95962036bcece698290d92eda34a810a0ae\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F68A:4EC98:EDFB4B:312D519:6AE9DCAA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3803",
+          "x-ratelimit-reset": "1793711585",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1197"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 1,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 1,
+                "min_entries_to_merge_wait_minutes": 0,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 15
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "p2-queue-check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-11-03T07:07:53.992-06:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's head, state, merge, queue, review decision, closing references and latest reviews, at once after it left the queue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){id number headRefOid state merged mergedAt mergeCommit{oid} isInMergeQueue reviewDecision mergeStateStatus closingIssuesReferences(first:10){nodes{number state}} latestReviews(first:10){nodes{author{login} state commit{oid} submittedAt}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:07:55 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F68D:191756:E66FFE:2F970F1:6AE9DCAB",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3936",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1064"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "id": "PR_kwDOVFD6788AAAABJ6G5UQ",
+                "number": 53,
+                "headRefOid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0",
+                "state": "MERGED",
+                "merged": true,
+                "mergedAt": "2026-11-03T13:07:45Z",
+                "mergeCommit": {
+                  "oid": "7737f8f9e4c4e0d61313e1aed108a44f3ec23929"
+                },
+                "isInMergeQueue": false,
+                "reviewDecision": "APPROVED",
+                "mergeStateStatus": "UNKNOWN",
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 51,
+                      "state": "CLOSED"
+                    },
+                    {
+                      "number": 94,
+                      "state": "CLOSED"
+                    }
+                  ]
+                },
+                "latestReviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "login": "coderabbitai"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-10-21T23:48:35Z"
+                    },
+                    {
+                      "author": {
+                        "login": "donpetry-bot"
+                      },
+                      "state": "APPROVED",
+                      "commit": {
+                        "oid": "d8f7b0e041ec276fc6ea7b89173264aa9f2d2ba0"
+                      },
+                      "submittedAt": "2026-11-03T12:12:52Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 53's queue entries, removals, closes, reopenings and merge, at once after it left the queue",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:53){timelineItems(last:20,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,CLOSED_EVENT,REOPENED_EVENT,HEAD_REF_DELETED_EVENT,HEAD_REF_RESTORED_EVENT,MERGED_EVENT]){nodes{__typename ... on AddedToMergeQueueEvent{createdAt actor{login}} ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}} ... on ClosedEvent{createdAt actor{login}} ... on ReopenedEvent{createdAt actor{login}} ... on HeadRefDeletedEvent{createdAt} ... on HeadRefRestoredEvent{createdAt} ... on MergedEvent{createdAt actor{login} commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:07:56 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F68E:38C3A1:EBEC41:3095E25:6AE9DCAB",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3935",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1065"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:14:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "ReopenedEvent",
+                      "createdAt": "2026-11-03T12:14:45Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:20:23Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-03T12:36:26Z",
+                      "reason": "checks_timed_out",
+                      "actor": {
+                        "login": "github-merge-queue"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T12:42:40Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "HeadRefDeletedEvent",
+                      "createdAt": "2026-11-03T12:42:41Z"
+                    },
+                    {
+                      "__typename": "HeadRefRestoredEvent",
+                      "createdAt": "2026-11-03T12:44:00Z"
+                    },
+                    {
+                      "__typename": "ReopenedEvent",
+                      "createdAt": "2026-11-03T12:44:01Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-03T13:02:12Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-03T13:07:44Z",
+                      "reason": "merged",
+                      "actor": {
+                        "login": "github-merge-queue"
+                      }
+                    },
+                    {
+                      "__typename": "MergedEvent",
+                      "createdAt": "2026-11-03T13:07:45Z",
+                      "actor": {
+                        "login": "don-petry"
+                      },
+                      "commit": {
+                        "oid": "7737f8f9e4c4e0d61313e1aed108a44f3ec23929"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T13:07:45Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, at once after the merge",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:07:56 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F68F:38C3A1:EBF186:3096F83:6AE9DCAC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3934",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1066"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "CLOSED",
+                "stateReason": "COMPLETED",
+                "closedAt": "2026-11-03T13:07:47Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T13:07:47Z",
+                      "actor": {
+                        "login": "don-petry"
+                      },
+                      "stateReason": "COMPLETED",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, at once after the merge",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:07:57 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F690:27AEB0:EB2257:3089779:6AE9DCAD",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3933",
+          "x-ratelimit-reset": "1793711336",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1067"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "CLOSED",
+                "stateReason": "COMPLETED",
+                "closedAt": "2026-11-03T13:07:48Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T13:07:49Z",
+                      "actor": {
+                        "login": "don-petry"
+                      },
+                      "stateReason": "COMPLETED",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 51's state and its timeline's references, connections and close, with the closer, a minute after the merge",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:51){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:08:57 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F6B2:2ECBFF:EE04C8:3128D14:6AE9DCE9",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4803",
+          "x-ratelimit-reset": "1793713147",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "197"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 51,
+                "state": "CLOSED",
+                "stateReason": "COMPLETED",
+                "closedAt": "2026-11-03T13:07:47Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-21T23:46:33Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-22T16:07:38Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-23T15:58:08Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-24T14:56:35Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-25T15:05:51Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-26T17:41:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-27T16:54:50Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-28T17:32:48Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-29T17:38:43Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-30T17:17:14Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-31T16:24:53Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-01T17:17:05Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-02T20:55:15Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "Issue"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T13:07:47Z",
+                      "actor": {
+                        "login": "don-petry"
+                      },
+                      "stateReason": "COMPLETED",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 94's state and its timeline's references, connections and close, with the closer, a minute after the merge",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:94){number state stateReason closedAt timelineItems(first:50,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT,REFERENCED_EVENT]){nodes{__typename ... on ClosedEvent{createdAt actor{login} stateReason closer{__typename ... on PullRequest{number} ... on Commit{oid}}} ... on CrossReferencedEvent{createdAt willCloseTarget source{__typename ... on PullRequest{number}}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ReferencedEvent{createdAt commit{oid}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 03 Nov 2026 13:08:58 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F6B4:12DC84:EB6563:3082EA7:6AE9DCEA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1793714937",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "3"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 94,
+                "state": "CLOSED",
+                "stateReason": "COMPLETED",
+                "closedAt": "2026-11-03T13:07:48Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-03T12:19:12Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-03T13:07:49Z",
+                      "actor": {
+                        "login": "don-petry"
+                      },
+                      "stateReason": "COMPLETED",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 53
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[14].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization",
+    "exchanges[18].request.headers.authorization",
+    "exchanges[19].request.headers.authorization",
+    "exchanges[20].request.headers.authorization",
+    "exchanges[21].request.headers.authorization",
+    "exchanges[22].request.headers.authorization",
+    "exchanges[23].request.headers.authorization",
+    "exchanges[24].request.headers.authorization",
+    "exchanges[25].request.headers.authorization",
+    "exchanges[26].request.headers.authorization",
+    "exchanges[27].request.headers.authorization",
+    "exchanges[28].request.headers.authorization",
+    "exchanges[29].request.headers.authorization",
+    "exchanges[30].request.headers.authorization",
+    "exchanges[31].request.headers.authorization",
+    "exchanges[32].request.headers.authorization",
+    "exchanges[33].request.headers.authorization",
+    "exchanges[34].request.headers.authorization",
+    "exchanges[35].request.headers.authorization",
+    "exchanges[36].request.headers.authorization",
+    "exchanges[37].request.headers.authorization",
+    "exchanges[38].request.headers.authorization",
+    "exchanges[39].request.headers.authorization",
+    "exchanges[40].request.headers.authorization",
+    "exchanges[41].request.headers.authorization",
+    "exchanges[42].request.headers.authorization",
+    "exchanges[43].request.headers.authorization",
+    "exchanges[44].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}

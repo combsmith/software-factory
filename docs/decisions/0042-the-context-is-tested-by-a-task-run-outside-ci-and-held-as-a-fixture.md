@@ -1,10 +1,6 @@
 # 0042. The context is tested by a task run outside CI, and the runs are held as a fixture
 
-Status: accepted. Taken as a working ruling on 2026-10-20, which the Maintainer may overturn in review, for
-"The context's test: a fresh agent adds a rule to the Kernel without being told how" (issue 8), the last story of slice 0.
-It adds to `docs/decisions/0013-context-is-part-of-the-product.md`, whose last row it builds, and to
-`docs/decisions/0033-the-factorys-model-credential-is-for-now-the-maintainers-own-subscription-and-a-trial-of-a-vendors-cli-records-no-repo.md`, whose login and pin the runs
-use. The Maintainer chose, the same day, that the task takes a rule other than issue 237's, by the criteria below.
+Status: replaced by `docs/decisions/0129-the-contexts-task-is-held-by-its-sentences-sha256-and-a-run-records-whether-it-added-a-test-a-mutant-and-the-code-never-what.md`.
 
 ## Decision
 
