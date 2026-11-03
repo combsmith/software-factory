@@ -4824,6 +4824,10 @@ class Trials(unittest.TestCase):
                          ("enqueuePullRequest", "N"))
         for query, variables in ((expected, {"id": "N", "h": "main"}), (expected, {"id": "N", "h": head.upper()}),
                                  (expected, {"id": "N", "h": 7}), (expected, {"id": "N"}),
+                                 # a commit's id whole: neither abbreviated nor one character more
+                                 (expected, {"id": "N", "h": head[:7]}), (expected, {"id": "N", "h": head + "0"}),
+                                 # the head asked for in the input but not declared, with no variable for it
+                                 (expected.replace(",$h:GitObjectID!", ""), {"id": "N"}),
                                  (expected.replace(",expectedHeadOid:$h", ""), {"id": "N", "h": head}),
                                  (expected.replace(",$h:GitObjectID!", ""), {"id": "N", "h": head}),
                                  (expected.replace("GitObjectID!", "String!"), {"id": "N", "h": head}),

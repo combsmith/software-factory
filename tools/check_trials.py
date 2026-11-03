@@ -376,7 +376,9 @@ def node_repo(node: str):
 
 def written(request: dict):
     """(the write, the node id it writes) of a GraphQL mutation a fixture may record, or None: one root field among
-    WRITES, its input's one key bound to the one variable `id`, a node id, and nothing after its selection."""
+    WRITES, its input's key bound to the variable `id`, a node id, and nothing after its selection. An enqueue alone may
+    also name the head it expects, `expectedHeadOid` bound to one more variable `h`, declared GitObjectID!, a commit's
+    id whole."""
     body = request.get("body") if isinstance(request, dict) and isinstance(request.get("body"), dict) else {}
     query, variables = body.get("query"), body.get("variables")
     if request.get("via") != "graphql" or not isinstance(query, str) or '"' in query or "#" in query \
