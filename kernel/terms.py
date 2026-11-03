@@ -29,6 +29,8 @@ ADMIT = "admit"  # start one Run
 ISSUE_APPROVAL = "issue-approval"
 # The Intent of the queue App's job that resolves a Lens's thread as the Kernel's act (decision 0086, issue 381).
 RESOLVE_THREAD = "resolve-thread"
+# The Intents of the queue App's jobs that enqueue and dequeue an item (issue 381).
+ENQUEUE_MERGE, DEQUEUE_MERGE = "enqueue-merge", "dequeue-merge"
 
 # Attention classes, in the order the control room lists them.
 NEEDS_YOU = "needs_you"

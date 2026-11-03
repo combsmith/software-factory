@@ -9,7 +9,7 @@ Not built yet, by the stories that hold their rules: relay.py, backpressure.py, 
 |---|---|
 | The pass asks the Kernel through its entry points alone, each Lifecycle's `decide` and `unnamed_scope`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
 | The pass record holds what the Kernel was given, and replays every Decision | `tests/test_controller.py::test_the_pass_record_holds_what_the_kernel_was_given_and_replays_it` |
-| A Run id is minted for an admission or an approval alone | `tests/test_controller.py::test_only_an_admission_or_an_approval_gets_a_run_id` |
+| A Run id is minted for an admission, an approval, or a queue act once its workflow is named | `tests/test_controller.py::test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named` |
 | A Run is dispatched by its run-name; a capacity fault defers model Runs for its window | `tests/test_controller.py::test_the_runs_to_dispatch_are_named_by_their_run_names`, `tests/test_controller.py::test_a_capacity_fault_defers_model_runs_for_its_window` |
 | An item whose facts are not facts, or listed twice, is left out, as one alert; any other is decided as without it | `tests/test_controller.py::test_an_item_whose_facts_are_not_facts_is_left_out_and_raises_one_alert` |
 | An issue is asked of the issues' Kernel, under its own Lifecycle, and its repo's Pause is read | `tests/test_controller.py::test_an_issue_is_asked_of_the_issues_kernel_with_its_own_lifecycle` |

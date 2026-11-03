@@ -32,7 +32,8 @@
   "workflows": {
     "run": "run.yml",
     "approval": "approve.yml",
-    "poller": "poller.yml"
+    "poller": "poller.yml",
+    "queue": null
   },
   "read_gap_seconds": 180,
   "not_run_seconds": 21600,

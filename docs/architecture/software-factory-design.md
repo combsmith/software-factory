@@ -616,7 +616,8 @@ Kernel, the whole context (`paused`, `active_runs`, `model_deferred_until`, `pas
 present, since a key left out reads differently from null),
 every run record it read, once for the pass, each read's `date` and `age` from GitHub, and, in one
 list for pull requests and one for issues, each item's facts, its Decision and the Run id the
-Controller minted for an admission or an approval, or null. The configuration is not copied: it is
+Controller minted for an admission, an approval or, once the queue workflow is named, a queue act
+(decision 0128), or null. The configuration is not copied: it is
 the data at `release`. A Decision carries no id and no Release of its own: both are the pass's. The
 record serves three purposes. Any decision can be replayed on a laptop from exactly what the Kernel
 saw, with the Release's own data files. A Run is started from a Decision in it, and from nothing
@@ -969,9 +970,12 @@ access acted hold the item, reason `attempts_exhausted` (I-28). An approval that
 and does not count toward the Run ceiling, which stays the cost ceiling (FR-39). One that does not
 land, whatever its fault, is never on the timeline, so it counts toward the Run ceiling like any
 Run: an approval failing for a cause outside the item, such as an expired token, is not an attempt,
-and without this would be issued for ever. Every other act, an enqueue,
-a dequeue or a label the Controller adds, is the Controller's and has no run record. Every act that
-lands, the approval among them, is counted from GitHub's timeline as `acts_since_writer` (§3.3).
+and without this would be issued for ever. An enqueue, a dequeue and a resolution are the queue
+App's, each a dispatched Run of the queue workflow once the configuration names it (decision 0128):
+a failing resolution is bounded as an approval is, and a failing enqueue by its own jobs alone, since
+an approved item's enqueue spends no model. Every other act, a label the Controller adds, has no run
+record. Every act that lands, the approval among them, is counted from GitHub's timeline as
+`acts_since_writer` (§3.3), and a resolution, which is on no timeline, from its Run (decision 0127).
 So every automated action on an item is either inside a Run, bounded by `max_runs_per_item`, or is
 an act, bounded by `max_acts_per_item` (I-8).
 
@@ -1250,7 +1254,7 @@ work, so a fact that cannot be read takes the item out rather than leaving it to
 Three things are left alone. `factory:hands-off` is never acted on (§4.7). A merged or closed item
 is ended. An item whose base is not protected is not served, so the Factory makes no change to it.
 
-The Controller's App makes the dequeue. It is an act that stops work: counted, never refused at the
+The queue App makes the dequeue (decision 0128). It is an act that stops work: counted, never refused at the
 act ceiling (I-8), and not delayed by a Run in progress. Under a Pause, or a Pause that cannot be
 read, it defers, reason `paused` or `pause_unreadable`, as every act does, and the item is the
 Maintainer's to see: only they can stop the merge then. Meanwhile the queue can merge over anything

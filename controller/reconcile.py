@@ -38,7 +38,7 @@ MATCHES = {
 }
 # A write GitHub gives no key for, an event of the timeline, is matched by its item: each recorded once.
 BY_ITEM = ("dequeue",)
-DISPATCHES = ("dispatch_run", "dispatch_approval")
+DISPATCHES = ("dispatch_run", "dispatch_approval", "dispatch_queue")
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")

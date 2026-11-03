@@ -13,6 +13,18 @@ from kernel import terms as t
 
 from controller.shared import checked
 
+# The queue App's acts, each a dispatched Run of the queue workflow under an Intent of its own, once the configuration
+# names that workflow (issue 381); until then each is recorded `not_built`.
+QUEUE_INTENTS = {"enqueue": t.ENQUEUE_MERGE, "dequeue": t.DEQUEUE_MERGE, "resolve_thread": t.RESOLVE_THREAD}
+
+
+def queue_workflow(controller: dict):
+    """The queue App's workflow file, once `controller/1` names it and the queue App's account beside it, or None. A
+    landed enqueue or dequeue is counted among the acts only as the queue App's, which takes its account, so neither is
+    dispatched while that is unknown (issue 381)."""
+    file, account = controller["workflows"]["queue"], controller["accounts"]["queue"]
+    return file if file is not None and account is not None else None
+
 
 def plan(out: dict) -> dict:
     """`writes/1` for the pass `pass_.run` returned as `out`."""
@@ -28,7 +40,8 @@ def plan(out: dict) -> dict:
         add("not_built", act["item"], action=act["action"])
     for dispatch in out["dispatch"]:
         decision = runs[dispatch["run"]]
-        kind = "dispatch_run" if decision["outcome"] == t.ADMIT else "dispatch_approval"
+        kind = "dispatch_run" if decision["outcome"] == t.ADMIT else \
+            "dispatch_queue" if decision.get("action") in QUEUE_INTENTS else "dispatch_approval"
         add(kind, decision["item"], dispatch["run"], dispatch["name"])
     for e in record["pull_requests"]:
         if e.get("head"):

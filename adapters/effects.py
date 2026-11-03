@@ -37,13 +37,14 @@ import urllib.parse
 from adapters import acceptance, checks, identity, pause as pause_, threads
 from adapters.github import Live, Unanswered, request
 from controller import feed as feed_
+from controller import writes as writes_
 from kernel import terms as t
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
            for p in sorted((ROOT / "schemas").glob("*.schema.json"))}
-DISPATCHES = {"dispatch_run": "run", "dispatch_approval": "approval", "dispatch_successor": "poller"}
+DISPATCHES = {"dispatch_run": "run", "dispatch_approval": "approval", "dispatch_queue": "queue", "dispatch_successor": "poller"}
 REFUSED = {401, 403}
 TITLE = "Factory alerts"
 FIRST_LINE = "The Factory's alerts, as a pass of its own found them: codes alone, and nothing from outside the Factory."
@@ -94,8 +95,9 @@ def dispatch_path(config: dict, kind: str) -> str:
 
 
 def workflow_permits(config: dict) -> dict:
-    """The requests the pass job's own token may send: a dispatch of each of the three files, on the home branch, a
-    Run's or an approval's with its three inputs, the successor's with none; and nothing else."""
+    """The requests the pass job's own token may send: a dispatch of each of the files, on the home branch, a Run's, an
+    approval's or a queue act's with its three inputs, the successor's with none; and nothing else. The queue file is one
+    only once the configuration names it (issue 381)."""
     branch = config["home"]["branch"]
 
     def run(body) -> bool:
@@ -105,8 +107,11 @@ def workflow_permits(config: dict) -> dict:
 
     def poller(body) -> bool:
         return body == {"ref": branch}
-    return {("POST", dispatch_path(config, "run")): run, ("POST", dispatch_path(config, "approval")): run,
-            ("POST", dispatch_path(config, "poller")): poller}
+    permits = {("POST", dispatch_path(config, "run")): run, ("POST", dispatch_path(config, "approval")): run,
+               ("POST", dispatch_path(config, "poller")): poller}
+    if writes_.queue_workflow(config) is not None:
+        permits[("POST", dispatch_path(config, "queue"))] = run
+    return permits
 
 
 def run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:
@@ -135,6 +140,10 @@ def expected(record: dict, owner_role: str) -> list:
         elif d["outcome"] == t.ACT and d.get("action") == "issue_approval":
             dispatches.append(("dispatch_approval", d["item"], e["run"],
                                run_name(d["item"], t.ISSUE_APPROVAL, owner_role, d["content_id"], e["run"]), None))
+        elif d["outcome"] == t.ACT and d["action"] in writes_.QUEUE_INTENTS and e["run"] is not None:
+            dispatches.append(("dispatch_queue", d["item"], e["run"],
+                               run_name(d["item"], writes_.QUEUE_INTENTS[d["action"]], owner_role, d["content_id"], e["run"]),
+                               None))
         elif d["outcome"] == t.ACT:
             acts.append(("not_built", d["item"], None, None, d["action"]))
     statuses = [("status_on_item", e["decision"]["item"], None, None, None) for e in status_entries(record)]
