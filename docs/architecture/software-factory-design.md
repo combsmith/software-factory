@@ -352,7 +352,7 @@ its State whatever the flags say.
 moves work on, an approval, an enqueue or a resolution, is made only while the count is below
 `max_acts_per_item`. A resolution is no timeline event, so each the queue App's job landed, a Run of
 Intent `resolve-thread` that succeeded since a writer last acted, is added to the count from the run
-records (decision 0126); at the ceiling the item is held, reason `act_ceiling`, for the Maintainer to
+records (decision 0127); at the ceiling the item is held, reason `act_ceiling`, for the Maintainer to
 see. An act that stops work, a Hold label or a dequeue, is counted and never refused. A count that
 is missing, negative or not a whole number is unreadable: the Kernel defers and makes no act
 (I-13). The count comes from the timeline, which is paged like any list, and `complete.timeline`

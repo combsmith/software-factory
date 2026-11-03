@@ -834,7 +834,7 @@ class World:
                     self.check(th["opened_by"]["kind"] == "lens" and th["ruling"] == "accepted" and not th["resolved"],
                                "the queue App resolves a thread no Lens accepted")
                     th.update(resolved=True, resolved_by=dict(QUEUE_APP))
-            # A resolution is no timeline event: the queue App's job is a Run, counted from the run records (0126),
+            # A resolution is no timeline event: the queue App's job is a Run, counted from the run records (0127),
             # and a Run on the item moves it.
             self.moves()
             self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],

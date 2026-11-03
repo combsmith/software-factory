@@ -1,4 +1,4 @@
-# 0126. The queue App holds contents: write alone, and each resolution it lands counts as an act
+# 0127. The queue App holds contents: write alone, and each resolution it lands counts as an act
 
 Status: accepted. The Factory Builder's assignment of 2026-11-03 on "A narrow queue App, combsmith-sf-queue, enqueues and dequeues with contents and pull-request write alone (P-2)" (issue 381), part of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182). It carries out window 3's reading that the App's least permission is `contents: write`, and builds the count decision 0086's row "Counting it" waited on. It changes decision 0086's rows "The needs", where the resolve act waited on the queue App, "Counting it", whose count was still to come, and "The Lifecycle", whose Run ceiling after a Lens's App resolved out of turn the Kernel no longer reaches.
 
