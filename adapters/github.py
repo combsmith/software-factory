@@ -46,7 +46,8 @@ STORED = 64 * 1024              # bytes an artifact's download may hold: an outc
 PASSED = 1024 * 1024            # bytes a pass record's download may hold, zipped: its facts for every open item
 BOUNDS = (STORED, PASSED)       # the only bounds a download is asked under
 # The other redirect followed: a commit's tarball, by its whole sha, to codeload alone (decision 0138, P-60).
-TARBALL = re.compile(r"/repos/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/tarball/([0-9a-f]{40})")
+# An owner or a repo is never `.` or `..`, which a URL would read as a step up the API's own paths.
+TARBALL = re.compile(r"/repos/((?!\.{1,2}/)[A-Za-z0-9_.-]{1,100})/((?!\.{1,2}/)[A-Za-z0-9_.-]{1,100})/tarball/([0-9a-f]{40})")
 CODELOAD = "codeload.github.com"
 TARRED = 32 * 1024 * 1024       # bytes a tarball may hold, gzipped: this repo's head is under 5 MiB
 REDIRECTS = {301, 302, 303, 307, 308}

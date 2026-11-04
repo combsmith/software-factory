@@ -163,6 +163,8 @@ class Transport(unittest.TestCase):
         archive = "https://codeload.github.com/o/r/legacy.tar.gz/" + sha
         self.assertEqual((github.tarball(path)["follow"], github.tarball(path)["bound"]), (True, github.TARRED))
         for other in ("/repos/o/r/tarball/main", "/repos/o/r/tarball/" + sha[:7], "/repos/o/r/tarball/" + sha.upper(),
+                      "/repos/../r/tarball/" + sha, "/repos/o/../tarball/" + sha, "/repos/./r/tarball/" + sha,
+                      "/repos/o/./tarball/" + sha,
                       "/repos/o/r/zipball/" + sha, "/repos/o/r/tarball/%s?x=1" % sha, "/repos/o/r/tarball/%s/x" % sha):
             with self.assertRaises(github.Unanswered, msg=other):
                 github.tarball(other)

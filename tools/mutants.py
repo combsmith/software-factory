@@ -6364,6 +6364,9 @@ MUTANTS = ISSUE + [
      'return held["calls"][done] if done < len(held["calls"]) else None',
      (P59_TESTS + "test_the_stub_answers_the_trials_calls_and_logs_only_the_markers_names",)),
     # Decision 0138: the review reads the pull request's head, with the read tools alone, held to it by --restricted.
+    ("a tarball's owner may be a step up", 'adapters/github.py',
+     'TARBALL = re.compile(r"/repos/((?!\\.{1,2}/)[',
+     'TARBALL = re.compile(r"/repos/([', ('tests.test_adapters.Transport.test_a_commits_tarball_alone_follows_one_redirect_and_only_to_its_archive_on_codeload',)),
     ("the tarball's redirect follows from any path", 'adapters/github.py',
      '        tarred = TARBALL.fullmatch(path) is not None\n',
      '        tarred = True\n', ('tests.test_adapters.Transport.test_a_commits_tarball_alone_follows_one_redirect_and_only_to_its_archive_on_codeload',)),

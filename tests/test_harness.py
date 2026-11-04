@@ -970,14 +970,24 @@ class Head(unittest.TestCase):
         self.assertEqual(written, {"files": 22, "folders": 10, "bytes": 9107, "links_left_out": 0})
         self.assertTrue(os.path.isfile(os.path.join(into, ".github", "CODEOWNERS")))
         # Nothing of the archive's own modes is kept: the files and folders are their user's alone.
-        modes = {oct(os.stat(os.path.join(r, n)).st_mode & 0o777) for r, ds, fs in os.walk(into) for n in ds + fs}
-        self.assertEqual(modes, {"0o600", "0o700"})
+        for rel, mode in (("", 0o700), (".github", 0o700), (".github/workflows", 0o700), (".github/CODEOWNERS", 0o600),
+                          ("p2/a.md", 0o600), ("trial/p-33/open.md", 0o600)):
+            self.assertEqual(os.stat(os.path.join(into, rel)).st_mode & 0o777, mode, rel)
         # A commit codeload does not hold is answered 404 there, after the API's redirect: no head.
         with self.assertRaises(head.Refused):
             head.fetch(github.Replay([p60["exchanges"][6], p60["exchanges"][5]]), p60["repo"], "0" * 39 + "1")
         for sha_ in ("7737f8f", "7737F8F9E4C4E0D61313E1AED108A44F3EC23929", None):
             with self.assertRaises(head.Refused):
                 head.fetch(github.Replay(p60["exchanges"][:2]), p60["repo"], sha_)
+        # Nor of a repo named as a step up the API's paths: the transport refuses it before anything is sent (Sonar's
+        # S7044 on the change).
+        class Refusing:
+            def send(self, req):
+                raise AssertionError("nothing is sent")
+        for repo in ("../..", "o/..", "./r", "o/.", "o", "o/r/x", "", None, "o/r?x"):
+            with self.assertRaises(head.Refused, msg=repo):
+                head.fetch(Refusing(), repo, sha)
+        self.assertTrue(github.TARBALL.fullmatch("/repos/o.k/r..x/tarball/" + sha))
 
     def test_regular_files_and_folders_alone_are_written_and_links_are_left_out(self):
         members = [("a/", b"5", b""), ("a/b.txt", b"0", b"bee\n"), ("c.txt", b"\0", b"see"), ("link", b"2", b""),

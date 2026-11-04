@@ -31,7 +31,7 @@ class Refused(Exception):
 
 def fetch(transport, repo: str, sha: str) -> bytes:
     """The gzipped tarball of `repo` at `sha`, the bytes codeload sent; Refused unless it answered them. The transport
-    asks for no commit but by its whole sha in lower case."""
+    asks for no commit but by its whole sha in lower case, and of no repo whose owner or name is `.` or `..`."""
     try:
         answer = transport.send(github.tarball("/repos/%s/tarball/%s" % (repo, sha)))
     except github.Unanswered:
