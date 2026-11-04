@@ -521,6 +521,7 @@ class Simulation(unittest.TestCase):
         machine, person, colleague = world.MACHINE, world.MAINTAINER, world.COLLEAGUE
         for reviews, edited, held in (
                 ([review(machine, 15)], 20, True),
+                ([review(machine, 15, dismissed_by=person)], 20, True),
                 ([review(machine, 15), review(machine, 25)], 20, True),
                 ([review(machine, 15), review(colleague, 25)], 20, False),
                 ([review(machine, 15), review(person, 25, dismissed_by=colleague)], 20, True),
