@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-58",
   "question": "Does a pull request's `lastEditedAt` move when its description is edited, and not when only its title is, or when its head is pushed; and does an edit by a bot or an App move it?",
-  "pass": "Written 2026-11-03, before the run, at the top of tools/trial_p58_edits.sh: pass if a token for the reader's installation narrowed to pull_requests: read, on the canary alone, is answered 200 to the query the facts port will send, word for word (issue 526), with no errors, and with the pull request's lastEditedAt, its editor, and its userContentEdits, each edit with its editedAt and its editor's login and type, the same as the Maintainer's login read them for that pull request in trials/P-58.json; fail otherwise, and a rule that reads them through the reader waits on what the answer says. Recorded, deciding nothing: what a token, narrowed to metadata: read alone is answered for the same read. This is the reader App's leg of P-58, owed by trials/P-58.json, run by the Maintainer at his terminal on 2026-11-04 from a main checkout: each token was minted from the reader's key, used once and revoked, GitHub answering 204 to each revocation (mints and revocations not recorded here). Passed. The pull_requests: read token was answered 200 with no errors: lastEditedAt 2026-11-03T19:24:25Z, editor github-actions, a Bot, and five edits, totalCount 5 with no next page, the same as the Maintainer's last read in trials/P-58.json by editedAt, login and type. Each edit names its editor's type, login and databaseId: github-actions, coderabbitai and cubic-dev-ai each a Bot, don-petry a User twice, so bots and Apps edit a description as a person does. The entry for the opening text has an editedAt, 19:19:03, earlier than its createdAt, 19:19:26, which is cubic's edit's time: an edit is told by its editedAt, not its createdAt. The metadata: read token was answered the same, word for word; but the canary is public, and a public repo's pull requests are readable with no grant at all, so this says nothing of what metadata: read alone is answered on a private repo.",
+  "pass": "Written 2026-11-03, before the run, at the top of tools/trial_p58_edits.sh: pass if a token for the reader's installation narrowed to pull_requests: read, on the canary alone, is answered 200 to the query the facts port will send, word for word (issue 526), with no errors, and with the pull request's lastEditedAt, its editor, and its userContentEdits, each edit with its editedAt and its editor's login and type, the same as the Maintainer's login read them for that pull request in trials/P-58.json; fail otherwise, and a rule that reads them through the reader waits on what the answer says. Recorded, deciding nothing: what a token, narrowed to metadata: read alone is answered for the same read. This is the reader App's leg of P-58, owed by trials/P-58.json, run by the Maintainer at his terminal on 2026-11-04 from a main checkout: each token was minted from the reader's key, used once and revoked, GitHub answering 204 to each revocation (each revocation recorded here, as the script wrote its status; the mints not). Passed. The pull_requests: read token was answered 200 with no errors: lastEditedAt 2026-11-03T19:24:25Z, editor github-actions, a Bot, and five edits, totalCount 5 with no next page, the same as the Maintainer's last read in trials/P-58.json by editedAt, login and type. Each edit names its editor's type, login and databaseId: github-actions, coderabbitai and cubic-dev-ai each a Bot, don-petry a User twice, so bots and Apps edit a description as a person does. The entry for the opening text has an editedAt, 19:19:03, earlier than its createdAt, 19:19:26, which is cubic's edit's time: an edit is told by its editedAt, not its createdAt. The metadata: read token was answered the same, word for word; but the canary is public, and a public repo's pull requests are readable with no grant at all, so this says nothing of what metadata: read alone is answered on a private repo, nor that pull_requests: read is the grant that reads these there: the private-repo case for both grants stays open until a private Consumer repo exists (slice 3), as P-56's does.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-11-04T17:47:41Z",
   "exchanges": [
@@ -123,6 +123,26 @@
           "kind": "app",
           "name": "combsmith-sf-reader"
         },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
         "via": "graphql",
         "call": "POST /graphql (tools/trial_p58_edits.sh): pull request 96's lastEditedAt, editor and userContentEdits, with an installation token, narrowed to metadata: read, used once and revoked",
         "headers": {
@@ -227,13 +247,33 @@
           }
         }
       }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
     }
   ],
   "removed": [
     "exchanges[0].request.headers.authorization",
     "exchanges[1].request.headers.authorization",
-    "exchanges[0].response.headers: every header but those a trial's fixture keeps, tools/redact_trial.py's report naming each",
-    "exchanges[1].response.headers: every header but those a trial's fixture keeps, tools/redact_trial.py's report naming each"
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization"
   ],
   "verdict": "pass"
 }
