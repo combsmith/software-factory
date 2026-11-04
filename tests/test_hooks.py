@@ -181,7 +181,8 @@ class Budgets(unittest.TestCase):
             """What `linear` would judge of measures spending each of `cpus`, and how many it took. The machine is made
             as loaded as it can be, so a judgement read outside the scripted slack fails every time (issue 536)."""
             ran = []
-            with mock.patch("os.getloadavg", return_value=(1000.0, 1000.0, 1000.0)):
+            with mock.patch("os.getloadavg", return_value=(1000.0, 1000.0, 1000.0)), \
+                    mock.patch("tests.support.cores", return_value=10):
                 self.assertGreater(slack(), 5.0, "the load is forced past the scripted stall's")
                 with mock.patch("tests.support.Spent", support.scripted_spends(cpus)), \
                         mock.patch("tests.support.slack", return_value=2.0):
