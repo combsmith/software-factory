@@ -155,6 +155,121 @@ class Transport(unittest.TestCase):
         except github.Unanswered as err:
             self.assertNotIn("sig=", held(err))
 
+    def test_a_commits_tarball_alone_follows_one_redirect_and_only_to_its_archive_on_codeload(self):
+        # Decision 0138, the Maintainer's "Tarball, allow codeload": a commit's tarball, by its whole sha, follows one
+        # redirect, to codeload over HTTPS on its own port, at that repo's and that commit's archive alone (P-60).
+        sha = "7737f8f9e4c4e0d61313e1aed108a44f3ec23929"
+        path = "/repos/o/r/tarball/" + sha
+        archive = "https://codeload.github.com/o/r/legacy.tar.gz/" + sha
+        self.assertEqual((github.tarball(path)["follow"], github.tarball(path)["bound"]), (True, github.TARRED))
+        for other in ("/repos/o/r/tarball/main", "/repos/o/r/tarball/" + sha[:7], "/repos/o/r/tarball/" + sha.upper(),
+                      "/repos/o/r/zipball/" + sha, "/repos/o/r/tarball/%s?x=1" % sha, "/repos/o/r/tarball/%s/x" % sha):
+            with self.assertRaises(github.Unanswered, msg=other):
+                github.tarball(other)
+        for bound in (github.STORED, github.TARRED + 1, "32"):
+            with self.assertRaises(github.Unanswered, msg=bound):
+                github.request("GET", path, follow=True, bound=bound)
+        with self.assertRaises(github.Unanswered):
+            github.request("GET", "/repos/o/r/actions/artifacts/9/zip", follow=True, bound=github.TARRED)
+        self.assertEqual(github.codeload(archive, path), archive)
+        self.assertEqual(github.codeload(archive + "?token=redacted", path), archive + "?token=redacted")
+        for url in ("http://codeload.github.com/o/r/legacy.tar.gz/" + sha, "https://codeload.github.com:443/o/r/legacy.tar.gz/" + sha,
+                    "https://u@codeload.github.com/o/r/legacy.tar.gz/" + sha, "https://codeload.github.com.evil.com/o/r/legacy.tar.gz/" + sha,
+                    "https://CODELOAD.github.com/o/r/legacy.tar.gz/" + sha, "https://evil.example/o/r/legacy.tar.gz/" + sha,
+                    "https://codeload.github.com/o/other/legacy.tar.gz/" + sha, "https://codeload.github.com/o/r/legacy.tar.gz/" + "e" * 40,
+                    "https://codeload.github.com/o/r/legacy.zip/" + sha, "https://codeload.github.com/o/r/legacy.tar.gz/%s/../x" % sha,
+                    archive + "#x", archive + " b", archive + "\r\nHost: e", None, 7):
+            with self.assertRaises(github.Unanswered, msg=url):
+                github.codeload(url, path)
+        with self.assertRaises(github.Unanswered):
+            github.codeload(archive, "/repos/o/r/actions/artifacts/9/zip")
+        # The replay answers the trial's two exchanges in turn: the API's redirect, then codeload's archive, the bytes it
+        # sent, as the live transport would hand them back.
+        p60 = exchanges("P-60")
+        asked = p60[0]["request"]["call"].split()[1]
+        answer = github.Replay(p60[:2]).send(github.tarball(asked))
+        self.assertEqual((answer["status"], github.raw(answer["body"])[:2]), (200, b"\x1f\x8b"))
+        self.assertEqual(github.raw(answer["body"]), github.base64.b64decode(p60[1]["response"]["body"]["base64"]))
+        with self.assertRaises(github.Unanswered):
+            github.Replay(p60[:2]).send(github.request("GET", asked))
+        # A codeload answer that redirects again is refused: there is no second hop. P-60 saw codeload redirect only
+        # from plain HTTP, which the transport never asks.
+        again = copy.deepcopy(p60[:2])
+        again[1]["response"] = {"status": 301, "headers": {"location": archive}, "body": None}
+        with self.assertRaises(github.Unanswered) as refused:
+            github.Replay(again).send(github.tarball(asked))
+        self.assertIn("no second", str(refused.exception))
+        # Over its bound, it is refused, never cut short.
+        big = copy.deepcopy(p60[:2])
+        big[1]["response"]["body"] = "z" * (github.TARRED + 1)
+        with self.assertRaises(github.Unanswered):
+            github.Replay(big).send(github.tarball(asked))
+
+    def test_the_live_transport_sends_no_token_to_codeload_and_follows_no_second_hop(self):
+        sha = "7737f8f9e4c4e0d61313e1aed108a44f3ec23929"
+        path, archive = "/repos/o/r/tarball/" + sha, "https://codeload.github.com/o/r/legacy.tar.gz/" + sha
+        sent = []
+
+        class Gzip(io.BytesIO):
+            status, headers = 200, {"Content-Type": "application/x-gzip"}
+
+        class Opener:
+            def __init__(self, size, moved=archive, again=False):
+                self.size, self.moved, self.again = size, moved, again
+
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2 or self.again:
+                    raise github.Redirected(302, self.moved)
+                return Gzip(b"z" * self.size)
+        for live, token in ((github.Live("t"), "Bearer t"), (github.Live.anonymous(), None)):
+            sent.clear()
+            live.opener = Opener(github.TARRED)
+            got = live.send(github.tarball(path))
+            self.assertEqual((got["status"], len(github.raw(got["body"]))), (200, github.TARRED))
+            first, second = sent
+            self.assertEqual((first.full_url, first.get_header("Authorization")), ("https://api.github.com" + path, token))
+            self.assertEqual((second.full_url, second.get_method()), (archive, "GET"))
+            self.assertEqual({k.lower() for k, _ in second.header_items()}, {"user-agent"})
+            live.opener = Opener(github.TARRED + 1)
+            with self.assertRaises(github.Unanswered):
+                live.send(github.tarball(path))
+            # A redirect off codeload's archive is refused before it is followed, naming no address.
+            sent.clear()
+            live.opener = Opener(1, moved="https://evil.example/o/r/legacy.tar.gz/%s?token=secret" % sha)
+            with self.assertRaises(github.Unanswered) as refused:
+                live.send(github.tarball(path))
+            self.assertEqual(len(sent), 1)
+            self.assertNotIn("secret", held(refused.exception))
+            # And codeload's own redirect is refused: no second hop, and no address named.
+            sent.clear()
+            live.opener = Opener(1, moved=archive + "?token=secret", again=True)
+            with self.assertRaises(github.Unanswered) as refused:
+                live.send(github.tarball(path))
+            self.assertEqual(len(sent), 2)
+            self.assertNotIn("secret", held(refused.exception))
+
+    def test_a_transport_with_no_token_sends_a_commits_tarball_alone(self):
+        # Decision 0138: the eval job and the canary read the public cases' repo's heads with no credential at all, and
+        # a transport made for that sends nothing else, so no other read is ever made with no token by mistake.
+        anonymous = github.Live.anonymous()
+        sent = []
+
+        class Opener:
+            def open(self, req, timeout=None):
+                sent.append(req)
+                raise AssertionError("nothing is sent")
+        anonymous.opener = Opener()
+        for req in (github.request("GET", "/repos/o/r"), github.request("GET", "/repos/o/r/tarball/" + "a" * 40),
+                    github.download("/repos/o/r/actions/artifacts/9/zip"), github.request("POST", "/repos/o/r/issues", body={})):
+            with self.assertRaises(github.Unanswered, msg=req["path"]):
+                anonymous.send(req)
+        self.assertEqual(sent, [])
+        # And a transport given a token still needs one: no token is never taken for an anonymous one.
+        for token in ("", None):
+            with self.assertRaises(github.Unanswered):
+                github.Live(token)
+
     def test_a_redirects_address_is_read_alike_by_both_transports_and_never_named_when_refused(self):
         # A malformed address is refused, never let through as another error, and the refusal does not name it.
         for url in ("https://[productionresultssa7.blob.core.windows.net&sig=secret]/actions-results/x",

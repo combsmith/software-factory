@@ -1,6 +1,6 @@
 # 0045. The transport follows one redirect: an artifact's download, to GitHub's artifact storage alone
 
-Status: accepted. The Maintainer's ruling of 2026-10-21 on "Records port: the Factory's own run records, unidentified Runs and the cache" (issue 192), built in `adapters/artifacts.py`. It adds to `docs/decisions/0044-the-ports-are-the-one-place-that-reaches-the-network-through-one-transport-held-to-githubs-api.md`, whose transport follows no redirect, the one exception, and to the standard "Nothing is fetched" in `docs/standards/security-boundaries.md`.
+Status: replaced by `docs/decisions/0138-the-review-reads-the-pull-requests-head-with-the-read-tools-alone-held-to-it-by-restricted.md`.
 
 ## Decision
 

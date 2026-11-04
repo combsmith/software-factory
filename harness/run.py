@@ -1,10 +1,11 @@
 """The `run` job: one Task, one call of the Engine, one Result (design sections 2.3 and 3.10, issue 194).
 
-    python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT
+    python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT [HEAD]
     python3 -m harness.run TASK OUT
 
 The second form is the workflow's: TASK is the folder `python3 -m harness.read` wrote, holding each of the first
-form's files by its name, the Run id among them in `run`.
+form's files by its name, the Run id among them in `run`, and the head it unpacked, `head/`, which a review reads as
+the folder the CLI starts in (decision 0138); a review given no head is never asked.
 
 RECORD is the pass record the Run was admitted in, RUN its Run id, FACTS the item's facts as the Run reads them, DIFF the
 bytes of the pull request's diff as GitHub served them, empty for an issue, TEXTS
@@ -80,20 +81,25 @@ def instructions(root: pathlib.Path, the_task: dict) -> str:
     return told
 
 
-def cli_call(args: list, env: dict, timeout: float):
-    """The CLI, started in an empty directory of its own, with nothing on its input and its answer captured."""
+def cli_call(args: list, env: dict, timeout: float, head: str = None):
+    """The CLI, started in an empty directory of its own, or in the head it reviews where one is given (decision 0138),
+    with nothing on its input and its answer captured."""
     with tempfile.TemporaryDirectory() as empty:
-        return subprocess.run(args, env=env, timeout=timeout, cwd=empty, stdin=subprocess.DEVNULL,
-                              capture_output=True, text=True, errors="replace", check=False)
+        return subprocess.run(args, env=env, timeout=timeout, cwd=empty if head is None else head,
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", check=False)
 
 
 def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotonic, session=None, base=None) -> str:
     """Build the Task, run the Engine, and write the Result and its digest into OUT. Returns the digest.
 
     The job reads and writes only inside the directory it runs in, `base`, by default the working directory: each path
-    is followed to where it really is, and one outside is refused before anything is opened, naming no path."""
+    is followed to where it really is, and one outside is refused before anything is opened, naming no path. A ninth
+    path, the workflow's form's, is the head the reader unpacked, which a review reads (decision 0138)."""
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
-    record, run, facts, diff, texts, role, findings, out = paths
+    record, run, facts, diff, texts, role, findings, out = paths[:8]
+    head = os.path.realpath(os.path.join(inside, paths[8])) if len(paths) > 8 else None
+    if head is not None and not head.startswith(inside + os.sep):
+        raise task.Refused("a path the job was given is outside the directory it runs in")
     # OUT is new, and not a link either: a link to nowhere would be followed and the Result written where it points.
     if os.path.lexists(os.path.join(inside, out)):
         raise task.Refused("OUT exists; the Result is written into a new directory")
@@ -112,7 +118,7 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     with open(diff, "rb") as f:
         change = f.read()
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
-    result = answer(the_task, job_env, config, call, clock, session or str(uuid.uuid4()))
+    result = answer(the_task, job_env, config, call, clock, session or str(uuid.uuid4()), head)
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
     # The Result is its own user's alone to read, as every step's files are (`harness/steps.py`).
@@ -122,15 +128,21 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     return digest
 
 
-def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.monotonic, session: str = None) -> dict:
+def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.monotonic, session: str = None,
+           head: str = None) -> dict:
     """The Result of `the_task`: the Engine's, or a failed one for the Factory's own fault read before the CLI starts.
-    A live Run and a held-out case are answered by this one function (issue 309, ruling 5)."""
+    A live Run and a held-out case are answered by this one function (issue 309, ruling 5). A reviewing Intent reads the
+    pull request's head, the folder `head`, with the read tools alone; one with no head to read is never asked, by the
+    Factory's fault `head_unreadable` (decision 0138). `call` is the CLI's, given the head as its folder."""
     session = session or str(uuid.uuid4())
     fault, told = None, None
-    if the_task["intent"] in REVIEWING and any(o["kind"] == "diff" for o in the_task["omitted"]):
+    reviewing = the_task["intent"] in REVIEWING
+    if reviewing and any(o["kind"] == "diff" for o in the_task["omitted"]):
         # The Kernel holds a pull request whose diff no Task carries whole; one admitted all the same is never reviewed
         # in part (issue 327).
         fault = "diff_not_whole"
+    elif reviewing and not (isinstance(head, str) and os.path.isdir(head)):
+        fault = "head_unreadable"
     else:
         try:
             told = instructions(ROOT, the_task)
@@ -139,15 +151,21 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     if fault:
         # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
         return engine.failed(the_task, fault, engine.usage_of(config["harness"], session))
-    return engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock, session,
-                      told)
+    asked = call or cli_call
+
+    def called(args, env, timeout):
+        # The head is the folder the CLI starts in, for a review alone; any other Intent's call is as it always was.
+        return asked(args, env=env, timeout=timeout, head=head) if reviewing else asked(args, env=env, timeout=timeout)
+    return engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], called, clock, session, told,
+                      read=reviewing)
 
 
 RUN_ID = re.compile(r"r_[0-9A-Z]{6,26}")
 
 
 def from_folder(folder: str, out: str, base=None) -> list:
-    """The first form's arguments from the folder `harness.read` wrote: its files by name, and the Run id it holds."""
+    """The first form's arguments from the folder `harness.read` wrote: its files by name, the Run id it holds, and the
+    head it unpacked, `head`."""
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
     real = os.path.realpath(os.path.join(inside, folder))
     if not real.startswith(inside + os.sep):
@@ -158,13 +176,14 @@ def from_folder(folder: str, out: str, base=None) -> list:
         raise task.Refused("the Run id cannot be read")
     named = [os.path.join(folder, n) for n in ("record.json", "facts.json", "diff", "texts.json", "role.json",
                                                "findings.json")]
-    return [named[0], run] + named[1:] + [out]
+    return [named[0], run] + named[1:] + [out, os.path.join(folder, "head")]
 
 
 def main(argv: list, job_env: dict) -> int:
     argv = argv or ["task", "result"]      # the workflow's form: the reader's folder, and the Result's
-    if len(argv) not in (2, 8):
-        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT, or TASK OUT", file=sys.stderr)
+    if len(argv) not in (2, 8, 9):
+        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT [HEAD], or TASK OUT",
+              file=sys.stderr)
         return 2
     try:
         if len(argv) == 2:

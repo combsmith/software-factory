@@ -10,6 +10,7 @@
     "intent",
     "facts",
     "diff",
+    "head",
     "expected"
   ],
   "properties": {
@@ -33,6 +34,11 @@
     },
     "diff": {
       "type": "string"
+    },
+    "head": {
+      "description": "The commit the case's diff was taken at, whole, in lower case: the head the review reads (decision 0138).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
     },
     "issue": {
       "description": "The issue the change serves, as a live Run's Task holds it (decision 0110): optional, so a case without one is reviewed on its diff alone.",

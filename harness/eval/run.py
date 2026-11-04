@@ -3,7 +3,8 @@
 What is measured is what runs (design §3.14, issue 309's ruling 5). A case's Task is built by `harness/task.from_admission`,
 the function a live Run's is built by, from the case's facts and its diff, with the Release's own configuration and the
 Role's manifest; only the admission is the case's own, its content the case's facts give, and its Run a fresh id. It
-is answered by `harness/run.answer`, as a live Run is: the same pin, the tier's limits, `--tools ""` and the scrub.
+is answered by `harness/run.answer`, as a live Run is: the same pin, the tier's limits, the read tools held to the case's
+head, which `fetch` unpacked under `heads/`, and the scrub (decision 0138); each head is removed once its case is asked.
 The step holds the model's credential and the CLI's path alone (`tools/check_workflows.py`), and stops starting cases
 when the time it has left is less than a case's tier allows, so that the job ends before its own timeout: a case not
 reached is unanswered, and the run fails.
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
 
@@ -36,12 +38,13 @@ def run_id() -> str:
     return "r_" + "".join(ALPHABET[b % 32] for b in os.urandom(20))
 
 
-def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
+def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, place=None):
     """The review Intent, as `assess` asks it: a case's `result/1`, or Stop with the code that says why there is none.
     Its Task is the case's, built as a live Run's; a case its Task is refused for is `not_this_set`, and one whose diff is
     over the bound `diff_not_whole`, and nothing is asked of the model: `harness.eval.case_fault` has told the rest apart. The
     configuration and the manifest are the checkout's own, the Release's, as a live Run's are. `began` is when `plan`
-    was made, by `clock`, the runner's own: no case is started once less time is left of BUDGET than it may take."""
+    was made, by `clock`, the runner's own: no case is started once less time is left of BUDGET than it may take. A case's
+    head is the folder `heads/<id>` under `place`, the scratch directory, as `fetch` unpacked it (decision 0138)."""
     config = dict(live.configuration(), release=release)
     with open(os.path.join(str(live.ROOT), "roles", "pr-review.json"), encoding="utf-8") as f:
         manifest = json.load(f)
@@ -49,14 +52,14 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
     asked = call or live.cli_call
     seen = {}
 
-    def watched(args, env, timeout):
-        """The CLI's call, as the Engine makes it, with what it said of the case kept for its cause: its exit, the
-        subtype its answer names, that it timed out, or the class of what the call raised. Nothing of the answer itself
-        is kept."""
+    def watched(args, env, timeout, **given):
+        """The CLI's call, as the Engine makes it, in the case's head where it reads one, with what it said of the case
+        kept for its cause: its exit, the subtype its answer names, that it timed out, or the class of what the call
+        raised. Nothing of the answer itself is kept."""
         if args[1:] == ["--version"]:
-            return asked(args, env=env, timeout=timeout)
+            return asked(args, env=env, timeout=timeout, **given)
         try:
-            done = asked(args, env=env, timeout=timeout)
+            done = asked(args, env=env, timeout=timeout, **given)
         except subprocess.TimeoutExpired:
             seen["timed_out"] = True
             raise
@@ -89,17 +92,22 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time):
             raise Stop("issue_not_whole")
         if deadline - clock() < the_task["limits"]["seconds"] + VERSION_READS:
             raise Stop("unanswered")
-        return live.answer(the_task, env, config, watched, clock)
+        head = os.path.join(str(place), "heads", case["id"]) if place is not None else None
+        try:
+            return live.answer(the_task, env, config, watched, clock, head=head)
+        finally:
+            if head is not None:
+                shutil.rmtree(head, ignore_errors=True)
     review.seen = seen
     return review
 
 
 def step(env, root, workspace, call=None, clock=time.time):
-    kept, _, _ = _planned(env, root, workspace)
+    kept, _, place = _planned(env, root, workspace)
     began = kept.get("planned_at")
     if not isinstance(began, int) or isinstance(began, bool):
         raise Stop("scratch_unreadable")
-    return score(env, root, workspace, reviewer(env, kept["release"], began, call, clock))
+    return score(env, root, workspace, reviewer(env, kept["release"], began, call, clock, place))
 
 
 if __name__ == "__main__":

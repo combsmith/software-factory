@@ -190,9 +190,14 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT):
-        """`commit` is what `steps.commit()` gives, or a function that stands in for it."""
-        calls = {"minted": [], "revoked": 0, "tags": []}
+           refs=TAGS, commit=CHECKED_OUT, tarred=None):
+        """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
+        tarball read gives for a commit, or raises."""
+        calls = {"minted": [], "revoked": 0, "tags": [], "tarballs": []}
+
+        def fetched(transport, repo, sha):
+            calls["tarballs"].append((transport, repo, sha))
+            return support.tarball(sha) if tarred is None else tarred(sha)
 
         def tags_read(transport, repo):
             calls["tags"].append((transport, repo))
@@ -242,17 +247,22 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
-                unittest.mock.patch.object(read.texts, "issues", read_issues):
+                unittest.mock.patch.object(read.texts, "issues", read_issues), \
+                unittest.mock.patch.object(read.head_, "fetch", fetched):
             code, printed = ran(read.step, argv or [NAME, ITEM, PASS, "task"],
                                 environ if environ is not None else {read.KEY: "the key"}, d)
             folder = pathlib.Path(d, "task")
             files = sorted(p.name for p in folder.iterdir()) if folder.is_dir() else None
-            kept = {n: (folder / n).read_bytes() for n in files or ()}
+            kept = {n: (folder / n).read_bytes() for n in files or () if n != "head"}
+            calls["head"] = sorted(p.name for p in (folder / "head").iterdir()) if (folder / "head").is_dir() else None
         return code, printed, files, kept, calls
 
     def test_the_reader_writes_the_tasks_inputs(self):
         code, printed, files, kept, calls = self.go()
-        self.assertEqual((code, files), (0, sorted(read.FILES)), printed)
+        self.assertEqual((code, files), (0, sorted(read.FILES + ("head",))), printed)
+        # The head's tarball is read of the home repo, at the head the diff was read at, with the reader's token, and
+        # unpacked into `head/` (decision 0138).
+        self.assertEqual((calls["tarballs"], calls["head"]), ([("the reader's transport", HOME, HEAD)], ["README.md"]))
         self.assertEqual(kept["diff"], DIFF)
         self.assertEqual(kept["run"].decode().strip(), RUN)
         self.assertEqual(json.loads(kept["record.json"]), RECORD)
@@ -284,6 +294,17 @@ class Reader(unittest.TestCase):
             pathlib.Path(d, "task", "run").write_text("../../x\n")
             with self.assertRaises(run.task.Refused):
                 run.from_folder("task", "result", d)
+
+    def test_a_head_that_cannot_be_read_or_unpacked_whole_builds_no_task(self):
+        # Decision 0138: the review reads the head, so a head the reader cannot read, or an archive it will not write,
+        # stops the step by its one code, and the token is revoked all the same.
+        def refused(sha):
+            raise read.head_.Refused("the tarball was not answered")
+        for name, tarred in (("not answered", refused), ("another commit's", lambda sha: support.tarball("e" * 40)),
+                             ("a device", lambda sha: support.tarball(sha, [("dev", b"3", b"")]))):
+            with self.subTest(name=name):
+                code, printed, files, _, calls = self.go(tarred=tarred)
+                self.assertEqual((code, printed, calls["revoked"]), (1, "head_unreadable\n", 1))
 
     def test_a_run_on_another_release_than_its_pass_builds_no_task(self):
         # `next` moved between the pass and the Run: the commit the job checked out is another Release's. The Run

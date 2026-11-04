@@ -7,9 +7,11 @@ NAME is the Run's run-name, ITEM its pull request as `owner/repo#number`, PASS t
 Decision: the three inputs the pass dispatched it with. The step mints the reader App's token, from `READER_APP_KEY`,
 for the home repo with the reads its grant allows and no write; finds the pass record by PASS among the poller's runs;
 finds in it the Decision of the Run id the run-name names, which must be of the item and the content the run-name names;
-reads the pull request's facts, its threads held to what its Lenses recorded, and the bytes of its diff, which must be the content the Decision admitted; and writes,
+reads the pull request's facts, its threads held to what its Lenses recorded, and the bytes of its diff, which must be the content the Decision admitted;
+reads the tarball of its head, the commit the diff was read at, through the transport's one redirect to codeload; and writes,
 into the new folder OUT, the record, the Run id, the facts, the diff, the texts, the Role's manifest and the Findings,
-for `python3 -m harness.run OUT RESULT`. The token is revoked before the step ends, whatever happened, and a token
+and the head unpacked by hand into `head/` (decision 0138), which is read as data and never run,
+for `python3 -m harness.run OUT RESULT`. A head that cannot be read or unpacked whole stops the step, `head_unreadable`. The token is revoked before the step ends, whatever happened, and a token
 GitHub did not revoke fails the step, so the model's step never starts beside a live reader token.
 
 Before anything else is read, the Run's own Release is named: the one Release tag, among the `factory/` tags read with
@@ -32,7 +34,7 @@ import time
 from adapters import applied, facts as facts_, identity, passes, pull, records, tags, texts, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
-from harness import approve, shared, steps, task
+from harness import approve, head as head_, shared, steps, task
 from harness.steps import Stop
 from release import current, cut
 
@@ -136,8 +138,14 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     if "sha256:" + hashlib.sha256(change).hexdigest() != admit["content_id"]:
         raise Stop("content_moved")
     role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % admit["role"]))
+    # The head's tree at the commit the diff was read at, for the review to read (decision 0138).
+    try:
+        tarred = head_.fetch(transport, home, head)
+    except head_.Refused:
+        raise Stop("head_unreadable") from None
     return {"record.json": record, "run": (parts["run"] + "\n").encode(), "facts.json": facts, "diff": change,
-            "texts.json": texts.issues(transport, first, who, opener, opened), "role.json": role, "findings.json": []}
+            "texts.json": texts.issues(transport, first, who, opener, opened), "role.json": role, "findings.json": [],
+            "head": (head, tarred)}
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
@@ -172,7 +180,12 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise Stop("token_not_revoked")
     for name_ in FILES:
         steps.write(folder, name_, found[name_])
-    return "read %d files for run %s" % (len(FILES), parts["run"])
+    sha, tarred = found["head"]
+    try:
+        head_.unpack(tarred, sha, os.path.join(folder, "head"))
+    except (head_.Refused, OSError):
+        raise Stop("head_unreadable") from None
+    return "read %d files and the head for run %s" % (len(FILES), parts["run"])
 
 
 if __name__ == "__main__":
