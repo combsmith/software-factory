@@ -8071,6 +8071,9 @@ while True:
 print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error" in flags, "num_turns": len(results) + 1}))
 '''
 
+    TIMEOUT = ('#!/bin/sh\nprintf %s "$1" | grep -Eqx "([0-9]+[.]?[0-9]*|[.][0-9]+)[smhd]?" || exit 125\n'
+               '[ "$#" -ge 2 ] || exit 125\nshift\nexec "$@"\n')
+
     def stand_in(self, flags=(), after=None) -> pathlib.Path:
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (folder / "version").write_text(self.PIN + "\n")
@@ -8078,18 +8081,25 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
             (folder / "version.after").write_text(after + "\n")
         for flag in flags:
             (folder / flag).write_text("")
-        (folder / "claude").write_text('#!/bin/sh\nexec python3 "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
+        # -B: macOS's own python3 caches its bytecode in HOME, which the test holds empty.
+        (folder / "claude").write_text('#!/bin/sh\nexec python3 -B "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
         (folder / "cli.py").write_text(self.CLI)
         (folder / "claude").chmod(0o755)
+        # A stand-in `timeout`, which runs its command after the duration: macOS has none on its own PATH. Like GNU
+        # timeout, it refuses with 125 a duration that is not a number with an optional s, m, h or d, or no command.
+        (folder / "bin").mkdir()
+        (folder / "bin" / "timeout").write_text(self.TIMEOUT)
+        (folder / "bin" / "timeout").chmod(0o755)
         return folder
 
-    def environment(self) -> tuple:
+    def environment(self, folder) -> tuple:
         home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         temp = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        return home, temp, {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "TMPDIR": str(temp)}
+        path = "%s:%s" % (folder / "bin", os.environ["PATH"])
+        return home, temp, {"PATH": path, "HOME": str(home), "LANG": "C", "TMPDIR": str(temp)}
 
     def run_script(self, folder) -> tuple:
-        home, temp, env = self.environment()
+        home, temp, env = self.environment(folder)
         out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
         ran = subprocess.run(["bash", str(self.SCRIPT), str(out), str(folder / "claude"), str(self.STUB)],
                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=180, stdin=subprocess.DEVNULL)
@@ -8217,7 +8227,7 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
                 ("OUT exists", str(taken), folder / "claude", self.STUB, "exists; name a new directory"),
                 ("no CLI", "out", folder / "missing", self.STUB, "no CLI at"),
                 ("no stub", "out", folder / "claude", pathlib.Path("/nonexistent/stub.py"), "no stub at")]:
-            home, temp, env = self.environment()
+            home, temp, env = self.environment(folder)
             ran = subprocess.run(["bash", str(self.SCRIPT), out, str(cli), str(stub)],
                                  cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,
                                  env=env, timeout=60, stdin=subprocess.DEVNULL)
@@ -8225,6 +8235,17 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
             self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
+
+    def test_the_stand_in_timeout_runs_what_gnu_timeout_runs(self):
+        stand_in = self.stand_in() / "bin" / "timeout"
+        real = shutil.which("timeout", path="/usr/bin:/bin")
+        for given, runs in [(["180"], True), (["60"], True), (["1.5"], True), (["90s"], True), (["3m"], True),
+                            ([".5"], True), (["18O"], False), ([""], False), (["5x"], False), (["-1"], False),
+                            (["s"], False), (["."], False)]:
+            for timeout in [str(stand_in)] + ([real] if real else []):
+                ran = subprocess.run([timeout] + given + ["/bin/sh", "-c", "exit 3"], capture_output=True, timeout=30)
+                self.assertEqual(ran.returncode, 3 if runs else 125, (timeout, given))
+        self.assertEqual(subprocess.run([str(stand_in), "60"], capture_output=True, timeout=30).returncode, 125)
 
 
 class PauseReadTrial(unittest.TestCase):
