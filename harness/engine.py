@@ -130,17 +130,21 @@ def _flag(arg: str) -> str:
 
 
 def _given(args: list, flag: str):
-    """What `flag` is given, where it stands once, in any form, with its value after it; None otherwise."""
+    """What `flag` is given, where it stands once, in any form, with its one value after it and then an option or the
+    end, since the CLI reads a list option's values up to the next option; None otherwise."""
     if [_flag(a) for a in args].count(flag) != 1 or flag not in args or args.index(flag) + 1 >= len(args):
+        return None
+    after = args[args.index(flag) + 2:]
+    if after and not after[0].startswith("-"):
         return None
     return args[args.index(flag) + 1]
 
 
 def read_alone(args: list) -> bool:
     """Whether the CLI is asked with the read tools alone, held to its folder: each of `READ` once, as given, and
-    nothing of `WIDER`, an option read by its name in either form, `--flag value` or `--flag=value` (decision 0138,
-    P-59)."""
-    return (_given(args, "--tools") == READ_TOOLS and _given(args, "--allowedTools") == READ_TOOLS
+    nothing of `WIDER`, an option read by its name in either form, `--flag value` or `--flag=value`, and no `--`, after
+    which the CLI reads no option at all (decision 0138, P-59)."""
+    return ("--" not in args and _given(args, "--tools") == READ_TOOLS and _given(args, "--allowedTools") == READ_TOOLS
             and _given(args, "--permission-mode") == "dontAsk" and [_flag(a) for a in args].count("--restricted") == 1
             and "--restricted" in args and _given(args, "--setting-sources") == ""
             and not any(_flag(a) in WIDER for a in args))

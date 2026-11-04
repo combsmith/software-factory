@@ -480,9 +480,22 @@ class Engine(unittest.TestCase):
                       ["--allowed-tools", "Bash"], ["--disallowed-tools", "Read"]):
             self.assertFalse(engine.read_alone(full + given), given)
         self.assertFalse(engine.read_alone([a for a in full if a != "--restricted"] + ["--restricted=true"]))
-        for wider in engine.WIDER:
+        # After `--` the CLI reads no option, so the flags after it hold nothing; and a list option reads every value up
+        # to the next option, so a second value after the read tools is a tool too (Astra's second read).
+        self.assertFalse(engine.read_alone(["claude", "-p", "x", "--"] + engine.READ))
+        self.assertFalse(engine.read_alone(full + ["--"]))
+        for flag in ("--tools", "--allowedTools", "--permission-mode", "--setting-sources"):
+            given = list(full)
+            given.insert(given.index(flag) + 2, "Bash")
+            self.assertFalse(engine.read_alone(given), flag)
+        # What may never stand beside the read tools, named here and not read from WIDER, so that an option dropped from
+        # it is noticed (decision 0138).
+        forbidden = ("--add-dir", "--settings", "--mcp-config", "--plugin-dir", "--plugin-url", "--agents", "--agent",
+                     "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--disallowedTools",
+                     "--bare", "--allowed-tools", "--disallowed-tools")
+        for wider in forbidden:
             self.assertFalse(engine.read_alone(full + [wider, "/"]), wider)
-        self.assertIn("--add-dir", engine.WIDER)
+            self.assertFalse(engine.read_alone(full + [wider + "=/"]), wider)
         original = engine.READ
         for flag in ("--restricted", "--setting-sources"):
             engine.READ = [a for a in original if a != flag] if flag == "--restricted" else original[:-2]
@@ -1079,6 +1092,10 @@ class Head(unittest.TestCase):
             ("bytes after the end", zipper(plain + b"x"), "not two zero blocks and padding alone"),
             ("a device after the end", zipper(plain + support.tar_member(top + "/dev", b"3", b"")),
              "not two zero blocks and padding alone"),
+            # A pax header names the member after it, and the archive ends first (Astra's second read).
+            ("a pax header with no member after it",
+             zipper(plain[:-1024] + support.tar_member("pax", b"x", support.pax({"path": top + "/missing.py"}))
+                    + b"\0" * 1024), "ends before the member its last pax header names"),
             ("a folder named twice", support.tarball(sha, [("x/", b"5", b""), ("x/", b"5", b"")]), "named twice"),
             ("the one folder named twice", support.tarball(sha, [("", b"5", b"")]), "named twice"),
             ("a file and a folder of one name", support.tarball(sha, [("x", b"0", b"1"), ("x/", b"5", b"")]), "named twice"),
