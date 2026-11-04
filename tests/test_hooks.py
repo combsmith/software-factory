@@ -1534,7 +1534,8 @@ class Identity(unittest.TestCase):
         # In which a ' is a character, as in a ${...} it holds, and a $'...' is no quote (Argon on #520).
         for word in ("${x:-it's}", "${x:-${y:-it's}}", "${x:-$'}",
                      # But a quote in a pattern, as the shell reads it (Astra on #520).
-                     "${x#'\")'}", "${x%%'\")'}", "${x/'\")'/y}", "${x[1]##'\")'}", "${x:-${y#'\"}'}}"):
+                     "${x#'\")'}", "${x%%'\")'}", "${x/'\")'/y}", "${x[1]##'\")'}", "${x:-${y#'\"}'}}",
+                     "${!ref#'}$('}"):
             self.assertEqual(shell._balanced('echo "%s") tail' % word, 0, ")"), len('echo "%s")' % word), word)
         self.assertEqual(shell._balanced("echo ${x:-')'}) tail", 0, ")"), 15)     # outside double quotes, a ' is a quote
         for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',

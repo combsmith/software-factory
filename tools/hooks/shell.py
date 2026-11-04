@@ -779,8 +779,9 @@ SPECIAL = {":", ".", "break", "continue", "eval", "exec", "exit", "export", "rea
 COMPOUND = {"if", "then", "else", "elif", "fi", "while", "until", "for", "do", "done", "case", "esac", "select",
             "function", "{", "}", "(", "((", "!", "time", "coproc"}
 _CONNECTOR = re.compile(r"&&|\|\||[;&|\n]")
-# A ${...} whose word is a pattern, ${x#...}, ${x%...}, ${x/...}: in double quotes too, a ' in it is a quote (Astra on #520).
-PATTERN_EXPANSION = re.compile(r"(?:[A-Za-z_]\w*|[0-9]+|[@*?$!#-])(?:\[[^]]*\])?[#%/]")
+# A ${...} whose word is a pattern, ${x#...}, ${x%...}, ${x/...}, ${!x#...} too: in double quotes too, a ' in it is a
+# quote (Astra on #520).
+PATTERN_EXPANSION = re.compile(r"!?(?:[A-Za-z_]\w*|[0-9]+|[@*?$!#-])(?:\[[^]]*\])?[#%/]")
 # A command substitution that names the branch the shell is on: where it runs, it is HEAD.
 CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s+--abbrev-ref\s+HEAD|"
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")

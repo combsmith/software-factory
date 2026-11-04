@@ -11977,6 +11977,8 @@ MUTANTS = ISSUE + [
      'singles=bool(PATTERN_EXPANSION.match(text, i + 2))) - 1', 'singles=False) - 1', (IDENTITY_TESTS + 'test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level',)),
     ("a pattern's ' in a ${...} a ${...} in double quotes holds is a character", 'tools/hooks/shell.py',
      'singles=singles or bool(PATTERN_EXPANSION.match(text, i + 2))) - 1', 'singles=singles) - 1', (IDENTITY_TESTS + 'test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level',)),
+    ("an indirect ${!x#...} is no pattern", 'tools/hooks/shell.py',
+     'PATTERN_EXPANSION = re.compile(r"!?(?:', 'PATTERN_EXPANSION = re.compile(r"(?:', (IDENTITY_TESTS + 'test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level',)),
     ("a ${x%...} is no pattern", 'tools/hooks/shell.py',
      '(?:\\[[^]]*\\])?[#%/]")', '(?:\\[[^]]*\\])?[#/]")', (IDENTITY_TESTS + 'test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level',)),
     ("a ${x/...} is no pattern", 'tools/hooks/shell.py',
