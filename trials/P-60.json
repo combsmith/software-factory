@@ -1,0 +1,213 @@
+{
+  "schema": "trial/1",
+  "trial": "P-60",
+  "question": "Does GitHub serve a commit's tarball as one redirect from api.github.com to codeload.github.com, which answers it with no Authorization header, and does codeload redirect again?",
+  "pass": "pass: an anonymous GET of the tarball of a commit of the canary on api.github.com is answered 302, with a Location on https://codeload.github.com alone, under the repo's own path and the commit, holding no credential; a GET of that Location with no Authorization header is answered 200 with a gzip whose tar holds the commit's tree; and no GET of codeload over HTTPS is answered with a redirect. fail otherwise. Recorded, deciding nothing: what codeload and the API answer for a commit the canary does not hold, and each way codeload was seen to redirect, so that the transport refuses a second hop.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-04T02:05:40Z",
+  "exchanges": [
+    {
+      "request": {
+        "call": "GET /repos/combsmith/software-factory-canary/tarball/7737f8f9e4c4e0d61313e1aed108a44f3ec23929 (curl --max-redirs 0, no credential): the tarball of the canary's main commit, 7737f8f, asked of the API with no credential and no redirect followed",
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential"
+        },
+        "via": "rest",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 302,
+        "headers": {
+          "date": "Wed, 04 Nov 2026 02:05:40 GMT",
+          "content-type": "text/html;charset=utf-8",
+          "content-length": "0",
+          "cache-control": "public, must-revalidate, max-age=0",
+          "location": "https://codeload.github.com/combsmith/software-factory-canary/legacy.tar.gz/7737f8f9e4c4e0d61313e1aed108a44f3ec23929",
+          "x-ratelimit-limit": "60",
+          "x-ratelimit-remaining": "60",
+          "x-ratelimit-reset": "1793761540",
+          "x-ratelimit-used": "0",
+          "x-ratelimit-resource": "core",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "server": "github.com",
+          "x-github-request-id": "E326:28A244:DA94C4:2CDB5C8:6AEA92F4"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "call": "curl --max-redirs 0 https://codeload.github.com/combsmith/software-factory-canary/legacy.tar.gz/7737f8f9e4c4e0d61313e1aed108a44f3ec23929 (no credential): the Location exchange 0 was answered with, asked with no Authorization header and no redirect followed",
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/x-gzip",
+          "etag": "\"0c41911b982b621a017099ca3a80420eb4ddcde6f03d307c4a433cd3a16fd6d0\"",
+          "vary": "Authorization,Accept-Encoding",
+          "date": "Wed, 04 Nov 2026 02:05:41 GMT",
+          "x-github-request-id": "E327:306E67:12839E:186DF4:6AEA92F5"
+        },
+        "body": {
+          "base64": "H4sIAAAAAAAAA+1dbXPbNhLOZ/0KnOKpk4wpiS+SbGXcxpf42sw1tcdJL9fpZRyIhCTGFMkQZFxdmv9+uwBIUW+WqSS8NMG2sSwSBEAs9nl2FyAd0z8ux0E0pMHlhFGPJXc+vXRAer2e+ARZ/oSTzh2za/Utu9vtWg4cNx38HH+GvqxIxlOaQJNJFKU3ldt2fvnm/iLStYgbTacsTI/7fbs/OhwdMcd1WMfrmbZpM5Myz+wcUscZ2cy17CPrqPH/7rOWTyeg/CGf+unE4NEovaYJM0bUTaNkZrg0pPChpkV79zbQHvr97mb7h98X7d/q9Ozene6nu83N8o3b/+3133IjoAc6HPppa0anwe3bkPjvbNR/z7KX9W/3+v07tQziN67/uwR1aQQ0HGd0zAzOkncsGZA97k7YlB5P0jTmg3a7pHzqt/0wZeOEpn4U8rYs2Xpntd7wKGzcJS8mjPxDTqJ9TjzG/XF4QDhzsTxxWtaA0HBGRoymWcLIcEauJ747IZQk7J3PrllCaBwn0TvGSRS6jPgpJ+kkAf+EE5ih0ETCeBS8Yx7xOeHXfgpd8Eg0Gh0QP4SiNC2qgh64UTjyx5nsLxn5AZOlGBSKoxY5D2g6ipIpSROfBuTcsLrQxL3CNNrLpnHX7vXukyQLOYG2J9A/bLtFnqYEZtMMey2qlxbUasi+8EGDEJql0aW8OxqII4SwkA4D5g3ICA6xeum1gv2PoVQ23IEHdsB/y+xr/K9Dquv/8dmT07OXv5xePL9tG9vwv9Nd0b/dxfKf88Zz+cb1/4A8muNclIyNAFG20Y4tp00eeVFoxCxNZtrn/0qluv17LGahR4cRuIG38wK32X/fWo7/rW7HNrX91yDgrSmnx+mSe8tzANwpzjNGrK55f0CeFJon4CNydKay2KMpuGngPpEf/fSnbEhOhJvHDwgNguga3DI4B+4UlYfb4Km5V1GWwukoZOAWRtJfQx8vzoIAfLK3GeOpqBKdqBh8Nfg/droG/BoyD6cdulZkiA4cBb8JrwXHahIlB3gJtBZQqCHO+AR8yWgkCmB6C/xOT3pmUIDL6qMkJWMffU3wbRvqxgbEaqh7Qx/NIDF1r9A/Zm7EZzxl0wGR9mCoGxOenOcnTAzcgLTFAfSNvSxg0tEjBB3nBDy/AfGoH8zEUTFOeQGDSPtioTszQjplg5WREyUjKGTgeBlqvLgR+GDHA2JWwurq9n8dJVcj6DG/tSe4g//nWLat/b8a5GP0z8KxHzJDzMubuGAL/pu9Vfzv2x2N/3WIjNZPhSYxVEZdQkAKKBmJjzWU4DHXF+DfMTs9oIUp9UO4NLpGnIbRBAwHyEVsffzzU4G4APQqHsdgXyI0AxQkb6IhXBnTdHIg8B4LTiOPIb4HQYu8ZOwqgCaxEs/nUFAE+kMGhRlh1J0QN0tb5ES2CXG4z5EsJjQJGYcZCo20VRQeQyAuAbU8bxuA9Y1lnDaImyAHNM0+6ZEH8J/ZhBP5zL/MuzJoxCyZAkUiPuOlbgT4HqZ8IIipAbcnDssGZd2YNTCw8myYhWlmWE6r44gzqT9lAO/G1A8z5B1idiWHpCzmc37IOJ5bJoVHtme7jsW6lLrdIT3sdA+trkf7PcfsuOahCRY1pEedoUnuknf9VqdlqgqJSGEMim9EJEW4L1lscw5k4YKRnAWlYzHyKE8NN2HAZamPyQ6V38hvBEZiQOIZ0HZoE2OaK62FSmtJpeUTqqh4ZYzsStXJSbi5NrNTnGPhu/KgPP755Ncnp5cY/F6enfz64qfLF2f/PP1lQPbev8fUVsJS3tpQiHz4sKamn5+Ck5DxpB1EMNnbQz9sg1eSefUmgD4G/6dgf2hIMCMTI8/YrSGCLfhvdcE3WMR/27Q6Ov6vQ+4uZT85RALmAfzo4w/LEdALvxzemA+1nPsHqmS/BXAAMwKo46551AV+QCZQUwXBa57cBRZAwC97/ZhDBb88umIhCXyZAA5meboWbNIHYMbVSoE3Bp48UNljURCPwo8ZetFBNIMWgMewY7LMNcVIII8snkHhFP7JJHHggxcj2BBgm8QJnFOty0wxIgeU870DTPKmELrgwqmfYmwDDeTxR8gghBCXiLsQSWGRKRZVXU/gxuZMdoCZYuxzTk1rTaoB1+exgDy0GCkhBPlhnAECxQmCjSK1NXwlYxAsmoNbnMxhzmPcTfw4FQEQjkSYTYcyghKhUrlRHFfZmeJyPAUBEARkaZLND6ezGHouq1IH5cjd0LAsUGoEItERCSHyxI6IUO5eaa7dX9OHMtnkneAwx8NxY4G2yXsYsJypVWtqoEZ5kIftkONjsg+fvI3NI/qB27OW0gMMG1OV2i9m7GA+ZdfT/Vq2l2o/yQcBZ5qYmreZmaV5uYnWflzLY0/Ofjk/fXHx2+Xfz14skheUvzg9P5PFi7HJ/YXFsucXg9WpWeLBs2fPnr5YKKK6XSomSP3P0lWcpcQwiDECBxI3LZycn1+c/eu0VOJ3YvyXNPdk9U3yivz5Z35Vc+9REy+V7Vz63nFRrlTBeALTwCfGv8n52fMXpCnur72nbr2NVgBfzy/aalmnqeo13rwl++9XtHCJR6QWBqSFht0KIvAHP+x/CUnVj+H/2OwbsWUZCE8Jc6PEW8f+2/kfwohl/u9YVk/zfw2ylv/7OetbN7K+2QF2h4CLopkCACFWCVMTLCewKcP1YCgCuAImAYaAVisIWFwEJSMuCVfyJioj5RLnJtE14REQJB2l6DUUvIkVqtoBOZDj4UsA0UZOVPkUhT4hNv8guQx759Ik8Zm83JepwKLWmHKOWUDg7Je4qguXgmsA1TdDcFOaojD2lPIrrm4hoEOIVcNIlYWYg4uMJoCYdDWAKzMm047lG3woHQQccKgfDM1lgcg/bvEWJlHgcWxvTmByrOTaOJyQEJ67E2sstORM8JEhV7xLEAyDUtGB8L0beDwLfRgCOdQ+lxqTE0XmhW/lOijWLhgBRnpDkzCbxCwD5aDOlJZQaSLHXFbB7Zp2J5Hvzg9Goh1eZlBDNbpwCBu/wcsQo76UDijpQE0m9Dewon3y3XdkP1eWgToNI4Nn7sSQJfeR4vYXnI/9nERXvAxrs5fxHPxm5VbQtJjuYrhK9ycomcHAkKY61fwSiEzLTvJR/G8ZAt+2rQNuy/86veX43+o5lt7/VYcs8z+y/s2kf5jH9DlwqqSx4l45a4B5pywZM0mALXIGLC6PAN+NkyiL5xw5irKEKHwS7EkFnYklPs7YaugpSVUS34j6wJxAlAkUstrsDXMxCVwQoJqiitCwmktVjUS/YQLkO0Fg/B3Ds1dwUHTzUnTytgleMQKywsV2VZJ5AelXo8RNeci6M7+3SNrK25urUyrzQKhyg+7EQMy1taqsogelgFtEd5fCZ0MeLOlk/4bgMGAsJpbTKR3zRxgRltp7JZyvUFFYqRsE+6XSVfNbkzOs+ZCwP+AOzYdk5H9NdPdR+G8bpfyGoVzPyvlfs7+y/9c2Tbuj8b8GWYP/9s34b+VBn9Q34j4Yezk1K9zHIh0LgD9PyGJGLwsRInDLKxkl0RRqwimlkPiHIgPL5UZaGQalE5VUVY1iEBGFBpvG6ewAWpCePbLJOxog4Zwor5+pekkcBb6LK0CYMOQLocC6qIvKfcJZ6IkQMLbbRGSNoWFxwp3QcIx8BUdXwrR8TwtCfCK3oUh0IV4kkpgiDppHaevsqFFQFlcYjcukJTZoQp8ePGjOv1cw0OZaLvzEDayJHjeHRGIjT6VsKrS9e0K1CHXyuXVuXz759dmz3xZm1qas6bm9mC8tLr4pcymJKCTNvXO7WbBQwngWpMe5RQDNANvmR0UnBOPMq5G0NRjANILIFG46DdhxbA8Ge/KiisHYR+G/Y0n/Zn3ar5Bt+b++ba74/7gnROP/55c1+O/cHABY3Y4KAKTfDy6xG2TCpNGnF9kxOgRDFItbdGnVCGBRLMpl6HQTmEFttUNElOQTJAiEcYnaAkoxkaNWBiaUk/Q6Ui3zzAc7L1C0mI0bnX0JcOT3JrYL0PZqAV9LoUBTjEU7hrGQpdZdu4xlRXYHcMgzYAAWAgIY1fb8VPWIYB2WCYyRTq9podPLr/w4Zt5qw+pEsaw1d+pv6MS61lSOTKYsg3VNFaeq3+NawC7dZK+DNxmLfNtqw3icV25UtrkU5qHIuTQg1wnMss1Mcg6twtwNWZYmYD7iqgMxZ4XvIAKicpys8uQHxcYoVSyEXzCHjeWwxQT6sj8PjW5ct1Mxk1w233m97vlPJwvlRAjWKltRC1c+W3xCMeGoSuG3m2gPU7AijPOB+qSi1Fg1Mfoqh8lwgLoui1OcQRDozgcCM9sYeieAQSLTjwGZF5WaISUcOuYZVMP5QyDc5h423iTHK42/wrRq6SJ1YqHOLUuBoteYhOViWRFbOs4bhO84WpcwPnAMxrZJ/rNQN8EiuFKY8WOAtzhgqHuxOln0qbk3/7Kwwiin0Pzkh/1S3R5mn2+J/x/H/+Ut2Zvb2ML/nb65sv8Titua/2uQKvv/AaPk5n4ita72dQaMgss6pIh7aO2lxwQw2hO76IsQS+z5Ab97OAMyD1USL5QkL0IwtQgGbvgY+BhNAjzdiR+OS6tfKgjES6+AF8Sxec4qdwjUckkxSdEtWA1KNtK4vGhrTHK7HN2R2zkyh0PLHPZd0zU98wi/HnUOvcMj5rAjz/NGzGadPEc3z2BVyNHtov/b239s7foKAGHj1fb/m2a3r/f/1yCV9E9bU2+HNrbhPyh7Rf99U+//qENOSLwQ/w1KOa5riLao5+GG+9l8w4Ih9zLhnjR82iqJMvCS8HGk1teUF/9WpJL9ezXav6Wf/6lDtP1/21LF/p0dHcBd/D/L0c9/1iHV9H9xevLk2WlVFtiK/4618v6Xrqn3/9Qhq7t/nBZ5vfqul9ci5cRLrwQhVG6jja5D+YgIrqjORKiucpo4YzQpfNlSxf6PDFy6x9yH10r/uNEaFmSr/XdX7N/u9/X+jzokz/5ZRyLhLpfZ1ENpah+wWqsLI+kVqn1+Ei/Ki3vzfQ/ymT1cxcPM4FQ8Fqpx4IuUCvZv15r/63W0/1eDVNL/bu7fdvy3lp//ssD91/m/OmR19x/unZO72+SWNbEq87rC3q/XGuv/OlLF/g+PdmOAXfDfdkyN/zVIRf2/bfFJ5Ta24b9lr8b/JhzT+P/55e7fxJtn+KRxl7z0Qy+6Jja5J1f9QeG46i/dflzZV+9wUq9izl+8UTzjgSnh/M3M4PDjFSPc9rN3L+DkAT71fr/YtTNOWExOLy7OLsjeiHz/PWmn07jNkiRKeKPKBhYtHyVV7d/aAQC2+n/9lfe/g+j4vw7ZZv8HYoML6Q7kAx8Rvn9kIeZfhwEsFL/z/HWbIfGYPNJqyP3rby390PAXIRXs3zmsc/2nq/2/OqSa/sMoZdX3AGzD/0535fkPq2vr5z/qkGL35+Hq7s988+dh574O6b9Sub39y80fiAC3f/OzlB3w34YLNP7XILvpPzbMCjSw1f9f3f/ldEy9/78O0fu/vm3Z1f77+HbSW2LALvbf1X//rRb5RPaPT9Fq+/8Lys72/wn5v9Nfif8cCAG1/dcglex//sJsbetfiVS0/50ygDvEf2Zf5/9qkar6jw278j6wHfRvOfrvP9UiO+lfRHufkP97q3//uQ8xgeb/zy95/te2D+RuflAtcSlnLfI4iLh6VbbcHCbSwZr5tWjRokWLFi1atGjRokWLFi1atGjRokWLFi1atGjRouWLlP8BSbmcpgCgAAA="
+        }
+      }
+    },
+    {
+      "request": {
+        "call": "curl --max-redirs 0 http://codeload.github.com/combsmith/software-factory-canary/legacy.tar.gz/7737f8f9e4c4e0d61313e1aed108a44f3ec23929 (no credential): the same address over plain HTTP, the one way codeload was seen to redirect",
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 301,
+        "headers": {
+          "content-length": "0",
+          "location": "https://codeload.github.com/combsmith/software-factory-canary/legacy.tar.gz/7737f8f9e4c4e0d61313e1aed108a44f3ec23929"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "call": "curl --max-redirs 0 https://codeload.github.com/COMBSMITH/SOFTWARE-FACTORY-CANARY/legacy.tar.gz/7737f8f9e4c4e0d61313e1aed108a44f3ec23929 (no credential): the same address with the owner and repo in capitals",
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/x-gzip",
+          "etag": "\"0c41911b982b621a017099ca3a80420eb4ddcde6f03d307c4a433cd3a16fd6d0\"",
+          "vary": "Authorization,Accept-Encoding",
+          "date": "Wed, 04 Nov 2026 02:05:42 GMT",
+          "x-github-request-id": "E329:9C8DD:115742:17431E:6AEA92F5"
+        },
+        "body": {
+          "base64": "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"
+        }
+      }
+    },
+    {
+      "request": {
+        "call": "curl --max-redirs 0 https://codeload.github.com/combsmith/software-factory-canary/legacy.tar.gz/main (no credential): the same archive by the branch's name in place of the commit",
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/x-gzip",
+          "etag": "\"0c41911b982b621a017099ca3a80420eb4ddcde6f03d307c4a433cd3a16fd6d0\"",
+          "vary": "Authorization,Accept-Encoding",
+          "date": "Wed, 04 Nov 2026 02:05:42 GMT",
+          "x-github-request-id": "E32A:2F2A16:12E738:18CEE8:6AEA92F6"
+        },
+        "body": {
+          "base64": "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"
+        }
+      }
+    },
+    {
+      "request": {
+        "call": "curl --max-redirs 0 https://codeload.github.com/combsmith/software-factory-canary/legacy.tar.gz/0000000000000000000000000000000000000001 (no credential): a commit the canary does not hold",
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "vary": "Authorization,Accept-Encoding",
+          "date": "Wed, 04 Nov 2026 02:05:43 GMT",
+          "content-length": "14",
+          "content-type": "text/plain; charset=utf-8",
+          "x-github-request-id": "E32B:473B4:1258C0:184233:6AEA92F6"
+        },
+        "body": "404: Not Found"
+      }
+    },
+    {
+      "request": {
+        "call": "GET /repos/combsmith/software-factory-canary/tarball/0000000000000000000000000000000000000001 (curl --max-redirs 0, no credential): the API asked for the tarball of a commit the canary does not hold",
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential"
+        },
+        "via": "rest",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 302,
+        "headers": {
+          "date": "Wed, 04 Nov 2026 02:05:43 GMT",
+          "content-type": "text/html;charset=utf-8",
+          "content-length": "0",
+          "cache-control": "public, must-revalidate, max-age=0",
+          "location": "https://codeload.github.com/combsmith/software-factory-canary/legacy.tar.gz/0000000000000000000000000000000000000001",
+          "x-ratelimit-limit": "60",
+          "x-ratelimit-remaining": "60",
+          "x-ratelimit-reset": "1793761543",
+          "x-ratelimit-used": "0",
+          "x-ratelimit-resource": "core",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "server": "github.com",
+          "x-github-request-id": "E32C:3F3231:D88542:2C600DE:6AEA92F7"
+        },
+        "body": null
+      }
+    }
+  ],
+  "removed": [],
+  "verdict": "pass"
+}

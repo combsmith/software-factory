@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 import unittest
+import zlib
 from unittest import mock
 
 from kernel import decide as decide_module, derive, issue, terms
@@ -5277,6 +5278,46 @@ class Trials(unittest.TestCase):
         self.assertEqual({k for k, v in unguarded["left_by_the_head"].items() if v}, {"hooked-pre", "hooked-start", "helper"})
         self.assertEqual((engine["holds"]["passes"], unguarded["holds"]["passes"], checked["passes"]), (True, False, True))
         self.assertEqual(p59["verdict"], "pass")
+
+    def test_a_commits_tarball_is_one_redirect_to_codeload_which_never_redirects_over_https(self):
+        # trials/P-60.json: the API's one redirect, to codeload alone and under the repo's own path; codeload's answer to
+        # it with no Authorization header, a gzip whose tar names the commit; and no redirect from codeload over HTTPS.
+        p60 = json.loads((ROOT / "trials" / "P-60.json").read_text())
+        ex = p60["exchanges"]
+        sha = re.search(r"/tarball/([0-9a-f]{40}) ", ex[0]["request"]["call"]).group(1)
+        asked, served = ex[0]["response"], ex[1]
+        self.assertEqual(ex[0]["request"]["call"].split(" ")[1], "/repos/%s/tarball/%s" % (p60["repo"], sha))
+        self.assertEqual((asked["status"], asked["headers"]["location"]),
+                         (302, "https://codeload.github.com/%s/legacy.tar.gz/%s" % (p60["repo"], sha)))
+        self.assertEqual(served["request"]["call"].split(" ")[3], asked["headers"]["location"])
+        self.assertNotIn("authorization", served["request"]["headers"])
+        self.assertEqual((served["response"]["status"], served["response"]["headers"]["content-type"]), (200, "application/x-gzip"))
+        self.assertNotIn("content-length", served["response"]["headers"], "the transport bounds what it reads itself")
+        # The tar, walked header by header: a pax global header naming the commit, then one folder of directories and
+        # regular files alone.
+        data = zlib.decompress(base64.b64decode(served["response"]["body"]["base64"]), 16 + zlib.MAX_WBITS)
+        kinds, names, at, comment = [], [], 0, None
+        while data[at:at + 512].strip(b"\0"):
+            header = data[at:at + 512]
+            size = int(header[124:136].strip(b"\0 ") or b"0", 8)
+            body = data[at + 512:at + 512 + size]
+            kind = chr(header[156] or 48)
+            if kind == "g":
+                comment = re.search(rb"\d+ comment=([0-9a-f]{40})\n", body).group(1).decode()
+            else:
+                kinds.append(kind)
+                names.append(header[:100].rstrip(b"\0").decode())
+            at += 512 + (size + 511) // 512 * 512
+        self.assertEqual(comment, sha)
+        self.assertEqual({n.split("/")[0] for n in names}, {p60["repo"].replace("/", "-") + "-" + sha[:7]})
+        self.assertEqual(set(kinds), {"0", "5"}, "regular files and directories alone")
+        for e in ex:
+            if "https://codeload.github.com/" in e["request"]["call"].split(" (")[0]:
+                self.assertNotIn(e["response"]["status"], (301, 302, 303, 307, 308), e["request"]["call"][:80])
+        self.assertEqual((ex[2]["response"]["status"], ex[2]["response"]["headers"]["location"]),
+                         (301, asked["headers"]["location"]), "plain HTTP is the one way codeload redirected")
+        self.assertEqual([ex[5]["response"]["status"], ex[6]["response"]["status"]], [404, 302], "a commit it does not hold")
+        self.assertEqual(p60["verdict"], "pass")
 
     def test_a_sandboxed_tool_on_a_linux_runner_reads_the_parents_environment(self):
         # trials/P-50.json (issue 287): the analysis is read again here from the job's log, each part of the pass is

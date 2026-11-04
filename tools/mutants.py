@@ -96,6 +96,8 @@ P50_STUB = "tools/trial_p50_stub.py"
 P50_TESTS = "tests.test_tools.LinuxSandboxTrial."
 P51 = "tools/trial_p51_sandbox_writes.sh"
 P51_TESTS = "tests.test_tools.SandboxWritesTrial."
+P59 = "tools/trial_p59_read_confinement.sh"
+P59_TESTS = "tests.test_tools.ReadConfinementTrial."
 P26 = "tools/trial_p26_sandbox.sh"
 P26_TESTS = "tests.test_tools.SandboxTrial."
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
@@ -6300,6 +6302,43 @@ MUTANTS = ISSUE + [
     ("the review Role's App is granted no check run", "config/apps.json",
      '          "needs": [\n            "effect:create_check_run",\n', '          "needs": [\n',
      ("tests.test_apply.RoleWrites.test_the_role_app_is_granted_checks_to_write_its_check_run",)),
+    # P-59: the read tools alone, held to their folder, against a stand-in CLI and P-50's stub given the trial's calls.
+    ("P-59 reads its own environ read as held", P59,
+     'if m in ("OUTSIDE", "HOME", "ENVIRON")})', 'if m in ("OUTSIDE", "HOME")})',
+     (P59_TESTS + "test_the_engine_configuration_is_judged_by_the_condition",)),
+    ("P-59 passes though the head's settings ran", P59,
+     '"no_setting_ran": not (left["hooked-pre"] or left["hooked-start"] or left["helper"]),', '"no_setting_ran": True,',
+     (P59_TESTS + "test_the_engine_configuration_is_judged_by_the_condition",)),
+    ("P-59 passes though the head's CLAUDE.md was sent", P59,
+     '"no_instructions_sent": "INSTRUCTIONS" not in elsewhere,', '"no_instructions_sent": True,',
+     (P59_TESTS + "test_the_engine_configuration_is_judged_by_the_condition",)),
+    ("P-59 passes whatever tools were offered", P59,
+     '"read_tools_alone": [t for t in offered if t not in ("DeferredToolPlaceholder",)] == ["Glob", "Grep", "Read"],',
+     '"read_tools_alone": True,',
+     (P59_TESTS + "test_the_engine_configuration_is_judged_by_the_condition",)),
+    ("P-59 passes though a write landed", P59,
+     '"nothing_written": not left["written"] and not left["written_inside"],', '"nothing_written": True,',
+     (P59_TESTS + "test_the_engine_configuration_is_judged_by_the_condition",)),
+    ("P-59 counts an answer that is an error", P59,
+     '"answered": code == 0 and isinstance(answer, dict) and answer.get("is_error") is False,',
+     '"answered": code == 0 and isinstance(answer, dict),',
+     (P59_TESTS + "test_the_engine_configuration_is_judged_by_the_condition",)),
+    ("P-59 passes at a version that moved", P59,
+     'pinned = before == pin and after == pin', 'pinned = True',
+     (P59_TESTS + "test_the_engine_configuration_is_judged_by_the_condition",)),
+    ("P-59's engine is not restricted", P59,
+     'engine) guard=(--restricted --setting-sources "") ;;', 'engine) guard=(--setting-sources "") ;;',
+     (P59_TESTS + "test_each_configuration_is_given_the_read_tools_and_only_the_engine_both_flags",)),
+    ("P-59's engine reads every setting source", P59,
+     'engine) guard=(--restricted --setting-sources "") ;;', 'engine) guard=(--restricted) ;;',
+     (P59_TESTS + "test_each_configuration_is_given_the_read_tools_and_only_the_engine_both_flags",)),
+    ("P-59's stub logs a marker's text", P50_STUB,
+     'return sorted(k for k, v in marks.items() if v in text)', 'return sorted(v for k, v in marks.items() if v in text)',
+     (P59_TESTS + "test_the_stub_answers_the_trials_calls_and_logs_only_the_markers_names",)),
+    ("P-59's stub calls a tool where none is offered", P50_STUB,
+     'return held["calls"][done] if body.get("tools") and done < len(held["calls"]) else None',
+     'return held["calls"][done] if done < len(held["calls"]) else None',
+     (P59_TESTS + "test_the_stub_answers_the_trials_calls_and_logs_only_the_markers_names",)),
     # Issue 312: P-51, the pinned CLI's sandbox and writes outside the work directory, against a stand-in CLI and P-50's stub.
     ("P-51's write outside may land", P51,
      'held = part["probe_ran"] and len(exits) == len(names) and not any(landed.values())', 'held = part["probe_ran"]',
