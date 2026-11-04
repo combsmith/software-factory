@@ -201,6 +201,15 @@ class Transport(unittest.TestCase):
         with self.assertRaises(github.Unanswered) as refused:
             github.Replay(again).send(github.tarball(asked))
         self.assertIn("no second", str(refused.exception))
+        # An archive kept as base64 is read so where a followed redirect led alone, and one that is not base64 refused;
+        # an answer GitHub's API gave as JSON is the JSON (Muse's read).
+        bad = copy.deepcopy(p60[:2])
+        bad[1]["response"]["body"] = {"base64": "not base64!"}
+        with self.assertRaises(github.Unanswered):
+            github.Replay(bad).send(github.tarball(asked))
+        api = [{"request": {"via": "rest", "call": "GET /repos/o/r", "headers": {}},
+                "response": {"status": 200, "headers": {}, "body": {"base64": "aGVsbG8="}}}]
+        self.assertEqual(github.Replay(api).send(github.request("GET", "/repos/o/r"))["body"], {"base64": "aGVsbG8="})
         # Over its bound, it is refused, never cut short.
         big = copy.deepcopy(p60[:2])
         big[1]["response"]["body"] = "z" * (github.TARRED + 1)

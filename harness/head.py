@@ -4,8 +4,10 @@
 `unpack(data, sha, into)` writes it into the new folder `into` by hand, member by member, with no library's extraction:
 each header is read and checked before anything is written, and the whole archive is refused at the first member that
 fails. A member is written only as a regular file or a directory, each inside `into`, by a name with no `..`, no absolute
-path and no byte that is not UTF-8; a link is never written, a device or a FIFO refuses the archive, and so do more than
-`MEMBERS` members or more than `UNPACKED` bytes unpacked. The archive must name the commit asked for, in the pax global
+path and no byte that is not UTF-8, named once; a link is never written, a device or a FIFO refuses the archive, and so
+do more than `MEMBERS` members, more than `UNPACKED` bytes unpacked, or an end that is not two zero blocks and padding.
+The archive is the commit's as git archives it, so a file the commit's .gitattributes marks export-ignore is not in it,
+and one marked export-subst is not as committed (decision 0138). The archive must name the commit asked for, in the pax global
 header GitHub writes (P-60), and hold one folder, which is `into` once unpacked. Nothing of a file's contents is read
 but its bytes, written as they are, its user's alone; no mode, owner or time of the archive's is kept.
 """
@@ -129,12 +131,16 @@ def unpack(data: bytes, sha: str, into: str) -> dict:
         raise Refused("the tarball is cut short, or has bytes after its end")
     os.mkdir(into, 0o700)
     top, named, written, extended, members = None, None, {"files": 0, "folders": 0, "bytes": 0, "links_left_out": 0}, {}, 0
+    seen = set()
     at = 0
     while True:
         header = tar[at:at + BLOCK]
         if len(header) < BLOCK:
             raise Refused("the archive ends before its end blocks")
         if header == b"\0" * BLOCK:
+            # Two end blocks, and nothing after them but the zeros a tar pads its last record with.
+            if tar[at:at + 2 * BLOCK] != b"\0" * (2 * BLOCK) or tar[at:].strip(b"\0"):
+                raise Refused("the archive's end is not two zero blocks and padding alone")
             break
         _checked(header)
         size, kind = _octal(header[124:136]), header[156:157]
@@ -158,24 +164,30 @@ def unpack(data: bytes, sha: str, into: str) -> dict:
             top = name.rstrip("/")
             if kind != DIRECTORY or "/" in top or not top.endswith("-" + sha[:7]):
                 raise Refused("the archive's first member is not its one folder, named for the commit")
+            seen.add(())
             continue
         parts = _parts(name, top)
+        # Every member is named once, a folder, a link and the one folder among them, whatever kind each is.
+        if tuple(parts) in seen:
+            raise Refused("a member is named twice")
+        seen.add(tuple(parts))
         if kind in LINKS:
             written["links_left_out"] += 1
             continue
         if kind not in REGULAR + (DIRECTORY,):
             raise Refused("a member is a device, a FIFO or a kind this unpacker does not write")
         target = _place(into, parts)
-        if kind == DIRECTORY:
-            os.makedirs(target, 0o700, exist_ok=True)
-            written["folders"] += 1
-            continue
-        written["bytes"] += size        # within UNPACKED, since the whole archive is
-        os.makedirs(os.path.dirname(target), 0o700, exist_ok=True)
         try:
+            if kind == DIRECTORY:
+                os.makedirs(target, 0o700, exist_ok=True)
+                written["folders"] += 1
+                continue
+            os.makedirs(os.path.dirname(target), 0o700, exist_ok=True)
             fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
-        except FileExistsError:
-            raise Refused("a member is named twice") from None
+        except OSError:
+            # A folder where a file stands, or a file under a file: no place its name can be written.
+            raise Refused("a member cannot be written where its name says") from None
+        written["bytes"] += size        # within UNPACKED, since the whole archive is
         with os.fdopen(fd, "wb") as out:
             out.write(body)
         written["files"] += 1

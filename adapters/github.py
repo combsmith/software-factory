@@ -333,8 +333,12 @@ class Replay:
                 if answer["status"] in REDIRECTS:
                     raise Unanswered("the address redirected to answered a redirect; the transport follows no second")
             body = answer.get("body")
-            if isinstance(body, dict) and list(body) == ["base64"] and isinstance(body["base64"], str):
-                body = base64.b64decode(body["base64"], validate=True).decode("utf-8", errors="surrogateescape")
+            # An archive a trial kept as base64, where a followed redirect led: the bytes, as `Live` would hand them.
+            if asked[2] is None and isinstance(body, dict) and list(body) == ["base64"]:
+                try:
+                    body = base64.b64decode(body["base64"], validate=True).decode("utf-8", errors="surrogateescape")
+                except (TypeError, ValueError):
+                    raise Unanswered("the fixture's archive is not base64") from None
             if req.get("follow") and isinstance(body, str) and len(raw(body)) > req["bound"]:
                 raise Unanswered("an answer over %d bytes; it is refused, not cut short" % req["bound"])
             return {"status": answer["status"], "headers": dict(answer.get("headers") or {}), "body": body}

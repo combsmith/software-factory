@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import sys
 import time
 
@@ -178,13 +179,15 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise
     if revoke() is not True:
         raise Stop("token_not_revoked")
-    for name_ in FILES:
-        steps.write(folder, name_, found[name_])
+    # The head first, so that a head not unpacked whole leaves nothing a run could take for a Task.
     sha, tarred = found["head"]
     try:
         head_.unpack(tarred, sha, os.path.join(folder, "head"))
     except (head_.Refused, OSError):
+        shutil.rmtree(os.path.join(folder, "head"), ignore_errors=True)
         raise Stop("head_unreadable") from None
+    for name_ in FILES:
+        steps.write(folder, name_, found[name_])
     return "read %d files and the head for run %s" % (len(FILES), parts["run"])
 
 

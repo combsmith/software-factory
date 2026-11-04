@@ -305,6 +305,11 @@ class Reader(unittest.TestCase):
             with self.subTest(name=name):
                 code, printed, files, _, calls = self.go(tarred=tarred)
                 self.assertEqual((code, printed, calls["revoked"]), (1, "head_unreadable\n", 1))
+                # Nothing is left that a run could take for a Task: no file, and no part of the head (Astra's read).
+                self.assertEqual(files, [], name)
+        partial = lambda sha: support.tarball(sha, [("README.md", b"0", b"# a\n"), ("dev", b"3", b"")])
+        code, printed, files, _, _ = self.go(tarred=partial)
+        self.assertEqual((code, printed, files), (1, "head_unreadable\n", []))
 
     def test_a_run_on_another_release_than_its_pass_builds_no_task(self):
         # `next` moved between the pass and the Run: the commit the job checked out is another Release's. The Run
