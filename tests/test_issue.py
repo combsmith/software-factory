@@ -442,26 +442,6 @@ class Done(unittest.TestCase):
         # facts place it at the merge.
         merges = [pr(is_open=False, merged=5), agents(is_open=False, merged=5),
                   strangers(admitted=True, is_open=False, merged=5)]
-        # Left out by the entry's date, no date or a life begun before it, the issue stays left alone, quietly: only a
-        # change to the entry could answer it. An admitted outsider's merge that alone closed it still asks a person,
-        # naming it: its late keyword is how an issue the Controller does not watch is closed (P-48), and served_from
-        # is null by default.
-        for cfg in (config(served_from=None), config(served_from=at(1))):
-            for merged in merges[:2]:
-                for f in (facts(linked=[merged]), facts(label_events=[labelled(HANDS_OFF, minute=4),
-                                                                      labelled(HOLD, minute=4)], linked=[merged])):
-                    d = derive(f, cfg=cfg)
-                    self.assertEqual((d["state"], d["reason"], d["evidence"]), ("not_served", "left_out", []), f)
-                    d = decide(f, cfg=cfg)
-                    self.assertEqual((what(d), d["attention"]), (("nothing", "left_out", None), "none"), f)
-            f = facts(linked=merges[2:])
-            d = derive(f, cfg=cfg)
-            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("not_served", "closed_by_outsider_merge", ["11"]))
-            d = decide(f, cfg=cfg)
-            self.assertEqual((what(d), d["attention"]), (("nothing", "closed_by_outsider_merge", None), "needs_you"))
-            # The Factory's merge, or a person's, beside the outsider's in its second leaves it quiet.
-            d = derive(facts(linked=[merges[2], agents(number=12, is_open=False, merged=5)]), cfg=cfg)
-            self.assertEqual((d["state"], d["reason"]), ("not_served", "left_out"))
         # A person's hands-off that stood on the issue at the merge, placed in its second too, with a Hold beside it or
         # not, stays until a person removes it; an App's removal ends nothing.
         for merged in merges:
@@ -492,21 +472,30 @@ class Done(unittest.TestCase):
                                       linked=merges[:1]))["reason"], "merged")
         self.assertEqual(derive(facts(label_events=[labelled(HANDS_OFF, minute=4), unlabelled(HANDS_OFF, minute=4)],
                                       linked=merges[:1]))["reason"], "merged_while_held")
-        # Row 3 before row 4, as everywhere: left out before a person's hands-off, before a Hold; a person's close
-        # before the merge is read first of all.
+        # Row 3 before row 4, as everywhere: a person's hands-off before a Hold; a person's close before the merge is
+        # read first of all.
         both = dict(label_events=[labelled(HOLD, minute=3), labelled(HANDS_OFF, minute=4)])
-        self.assertEqual(derive(facts(linked=merges[:1], **both), cfg=config(served_from=None))["reason"], "left_out")
         self.assertEqual(derive(facts(linked=merges[:1], **both))["reason"], "merged_while_hands_off")
-        for cfg in (config(served_from=None), None):
-            d = derive(facts(state="closed", closed_first_at=at(4), linked=merges[:1], **both), cfg=cfg)
-            self.assertEqual(d["reason"], "merged_while_declined")
+        d = derive(facts(state="closed", closed_first_at=at(4), linked=merges[:1], **both))
+        self.assertEqual(d["reason"], "merged_while_declined")
 
     def test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time(self):  # issue 522
         # No terminal State is left by a fact with no time: a link made after the merge, a left-out label or type set
-        # after it, and a draft's flag, are read as they stand now, so row 1 does not read them at the merge (issue
-        # 542). A pull request opened before the merge and linked since, ready or a draft, a person's hands-off on a
-        # draft linked then, which may have been marked ready since, a left-out label or the type: done.
+        # after it, a draft's flag and the Consumer entry, whose configuration has no history, are read as they stand
+        # now, so row 1 does not read them at the merge (issue 542). Issues turned off, or the entry's date moved past
+        # the life's start: done, and an admitted outsider's merge still asks a person, as decision 0132 reads it.
         merged = pr(is_open=False, merged=5)
+        closed = dict(state="closed", closed_first_at=at(5))
+        for cfg in (config(served_from=None), config(served_from=at(1))):
+            for own in (merged, agents(is_open=False, merged=5)):
+                d = derive(facts(linked=[own], **closed), cfg=cfg)
+                self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), cfg)
+            f = facts(linked=[strangers(admitted=True, is_open=False, merged=5)], **closed)
+            d = decide(f, cfg=cfg)
+            self.assertEqual((d["state"], what(d), d["attention"]),
+                             ("declined", ("nothing", "closed_by_outsider_merge", None), "needs_you"))
+        # A pull request opened before the merge and linked since, ready or a draft, a person's hands-off on a draft
+        # linked then, which may have been marked ready since, or on a ready one, a left-out label or the type: done.
         for f in (facts(linked=[merged, pr(12, opened=3)]),
                   facts(linked=[merged, strangers(number=12, admitted=True, opened=3)]),
                   facts(linked=[merged, pr(12, opened=3, draft=True)]),

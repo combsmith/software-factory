@@ -314,16 +314,6 @@ ISSUE = [
      MERGE_UNDER_STOP_TESTS),
     # Issue 522: a platform close keeps the State a person set, not served or held, where the facts place it at the
     # merge; what carries no time leaves no terminal State.
-    ("an issue left out is done by the queue's merge", ISSUE_PY,
-     "        if not served_by_date(facts, config):\n", "        if False:\n", PLATFORM_CLOSE_TESTS),
-    ("a left-out issue an outsider's merge alone closed asks nobody", ISSUE_PY,
-     '            if all(p["class"] == "outside" for p in closers):\n', "            if False:\n", PLATFORM_CLOSE_TESTS),
-    ("a left-out issue closed beside the Factory's merge still asks a person", ISSUE_PY,
-     '            if all(p["class"] == "outside" for p in closers):\n',
-     '            if any(p["class"] == "outside" for p in closers):\n', PLATFORM_CLOSE_TESTS),
-    ("an issue's life begun before the entry's date is served at the merge", ISSUE_PY,
-     '    return is_time(start) and facts["life_started_at"] >= start\n', "    return is_time(start)\n",
-     PLATFORM_CLOSE_TESTS),
     ("a person's hands-off at the merge is passed", ISSUE_PY,
      "        if hands_off_stood(facts, first):\n", "        if False:\n", PLATFORM_CLOSE_TESTS),
     ("a person's removal of hands-off since the merge ends nothing", ISSUE_PY,
@@ -335,8 +325,24 @@ ISSUE = [
     ("a Hold on a ready linked pull request stood at the merge", ISSUE_PY,
      '    return [p for p in links if p["draft"] and p["opened_at"] <= when',
      '    return [p for p in links if p["opened_at"] <= when', PLATFORM_CLOSE_TESTS),
+    ("the Consumer entry is read at the merge as it stands now", ISSUE_PY,
+     "        if hands_off_stood(facts, first):\n",
+     "        if not served(facts, config):\n            return out(t.NOT_SERVED, \"left_out\", [])\n"
+     "        if hands_off_stood(facts, first):\n",
+     ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
+    ("issues turned off, or the entry's date moved, is read at the merge", ISSUE_PY,
+     "        if hands_off_stood(facts, first):\n",
+     "        start = config[\"issues\"][\"served_from\"]\n"
+     "        if not is_time(start) or facts[\"life_started_at\"] < start:\n"
+     "            return out(t.NOT_SERVED, \"left_out\", [])\n"
+     "        if hands_off_stood(facts, first):\n",
+     ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
     ("a left-out label or type is read at the merge as it stands now", ISSUE_PY,
-     "        if not served_by_date(facts, config):\n", "        if not served(facts, config):\n",
+     "        if hands_off_stood(facts, first):\n",
+     "        if facts[\"type\"] in config[\"issues\"][\"left_out_types\"] or any(\n"
+     "                n in config[\"issues\"][\"left_out_labels\"] for n in facts[\"label_names\"]):\n"
+     "            return out(t.NOT_SERVED, \"left_out\", [])\n"
+     "        if hands_off_stood(facts, first):\n",
      ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
     ("a draft's hands-off is read at the merge from its flag now", ISSUE_PY,
      "    return placed_by_a_person(standing_labels(past), past) and not released_since(facts, t.LABEL_HANDS_OFF, when)\n",
@@ -944,7 +950,7 @@ ISSUE = [
     ("an admitted outsider's merge makes the issue done", ISSUE_PY,
      '        if any(p["class"] != "outside" for p in closers):\n', '        if closers:\n', ISSUE_TESTS),
     ("an outsider's merge reads as any other close", ISSUE_PY,
-     '        return out(DECLINED, "closed_by_outsider_merge", outsiders)\n', '        return out(DECLINED, "closed", [])\n', ISSUE_TESTS),
+     '        return out(DECLINED, "closed_by_outsider_merge", [str(p["number"]) for p in merged if p["class"] == "outside"])\n', '        return out(DECLINED, "closed", [])\n', ISSUE_TESTS),
     ("an issue's closed_by_outsider_merge calls nobody", ISSUE_PY, '    "closed_by_outsider_merge",\n', "", ISSUE_TESTS),
     ("an outsider's merge that closed nothing is named", ISSUE_PY,
      'closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]', 'closers = [p for p in merged if p["merged_at"] == first]', ISSUE_TESTS),

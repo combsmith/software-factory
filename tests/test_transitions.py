@@ -1108,10 +1108,6 @@ ISSUE_BASES = {
     # outsider's issue not yet accepted.
     "new, an admitted outsider's pull request ready": issue_item(issue_facts.outsiders(
         linked=[issue_facts.strangers(admitted=True)])),
-    # The Factory's pull request open and ready on an issue the Consumer entry leaves out, its life begun before the
-    # entry's date: the queue's merge of it leaves the issue not served, quietly (issue 522).
-    "left out, the Factory's pull request ready": issue_item(issue_facts.facts(
-        life_started_at="2025-12-31T12:00:00Z", label_events=issue_facts.ACCEPTED, linked=[issue_facts.agents()])),
 }
 
 
@@ -1207,14 +1203,12 @@ def queue_merges_issue(item: dict, kind: str = "agent"):
     issue is in review, since the Controller dequeues on a person's hold or close (issue 227). An admitted outsider's
     may name in its description, after the approval, an issue the Controller does not watch, so it merges while that
     issue is new too (P-48, issue 280). It merges too where row 1 reads the State at the merge, which then stays, since
-    only a person ends it (issue 522): held by a Hold, the race of a pass that has not yet dequeued; not served by a
-    person's hands-off on the issue, under which the Factory leaves a queued item to merge; and left out by the entry's
-    date. From two links, a draft's hands-off or a left-out label, row 1 waits on the facts' times (issue 542)."""
+    only a person ends it (issue 522): held by a Hold, the race of a pass that has not yet dequeued; and not served by
+    a person's hands-off on the issue, under which the Factory leaves a queued item to merge. From two links, a draft's
+    hands-off or an issue the Consumer entry leaves out, row 1 waits on the facts' times (issue 542)."""
     live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == kind and not p["draft"]]
     d = issue_kernel(item)
-    kept = (d["reason"] == "human_hold"
-            or (d["reason"] == "hands_off" and issue_stands(item, t.LABEL_HANDS_OFF))
-            or (d["reason"] == "left_out" and item["facts"]["life_started_at"] < ISSUE_CONFIG["issues"]["served_from"]))
+    kept = d["reason"] == "human_hold" or (d["reason"] == "hands_off" and issue_stands(item, t.LABEL_HANDS_OFF))
     if not live or not (d["state"] in (("in_review", "new") if kind == "outside" else ("in_review",)) or kept):
         return None
     live[0].update(open=False, closed_at=now(item), merged_at=now(item), closed_issue_at=closes_the_issue(item))
@@ -1413,11 +1407,6 @@ class AnyLifecycle(unittest.TestCase):
         self.assertLessEqual({("not_served", "merged_while_hands_off"), ("held", "merged_while_held")}, reached)
         self.assertIn(("merged_while_hands_off", "merged"), made[("not_served", "done", "human")])
         self.assertEqual([m for m in made if m[0] in (t.HELD, t.NOT_SERVED) and m[2] == "platform"], [])
-        moves = {m.name: m for m in ISSUE_MOVES}
-        item = ISSUE_BASES["left out, the Factory's pull request ready"]
-        self.assertEqual(issue_kernel(item)["reason"], "left_out")
-        d = issue_kernel(moves["the queue merges the Factory's pull request"].make(item))
-        self.assertEqual((d["state"], d["reason"], d["attention"]), ("not_served", "left_out", "none"))
 
     def test_a_transition_declared_by_someone_else_is_undeclared(self):
         for name in ("pull_request", "issue"):

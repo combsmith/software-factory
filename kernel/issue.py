@@ -437,13 +437,6 @@ def a_persons_hands_off(labels: dict, facts: dict, drafts: list, links: list = (
                for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
 
 
-def served_by_date(facts: dict, config: dict) -> bool:
-    """Whether the Consumer entry's date serves the issue: its present life began on or after it. Of what leaves an
-    issue out, only this can be placed at a time: a label's or a type's change carries none in the facts."""
-    start = config["issues"]["served_from"]
-    return is_time(start) and facts["life_started_at"] >= start
-
-
 def hands_off_stood(facts: dict, when: str) -> bool:
     """Whether a person's hands-off stood on the issue itself at `when`, by its label events' times, and no person has
     removed it since: only a person ends it, and an App's removal ends nothing. A draft's is not read here: whether a
@@ -525,29 +518,22 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
             return out(DECLINED, "merged_while_declined", merges)
         # A State only a person ends, as it stood at the first merge, stays: the platform's close is no person's
         # (issue 522). Row 3 is read before row 4, as below. Only what the facts place at the merge is read, so that no
-        # terminal State is left by a fact with no time: the entry's date, the issue's own label events and the Hold.
-        # Left out by the date, the issue is left alone, quietly, since only a change to the entry could answer it;
-        # but an admitted outsider's merge that alone closed it still asks a person, as below, its late keyword being
-        # how an issue the Controller does not watch gets closed (P-48). A person's hands-off on the issue stands
-        # until a person removes it, and the merge then reads on; one removed since still lets a Hold beside it pass,
-        # as the Factory leaves a queued item to merge under it. A left-out label or type, two links and a draft's
-        # hands-off carry no time in the facts and read as before: "Facts: the times of a link, a left-out label and
-        # an issue's type, so that row 1 reads them at the merge" (issue 542).
-        closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]
-        outsiders = [str(p["number"]) for p in merged if p["class"] == "outside"]
-        if not served_by_date(facts, config):
-            if all(p["class"] == "outside" for p in closers):
-                return out(t.NOT_SERVED, "closed_by_outsider_merge", outsiders)
-            return out(t.NOT_SERVED, "left_out", [])
+        # terminal State is left by a fact with no time: the issue's own label events, and the Hold. A person's
+        # hands-off on the issue stands until a person removes it, and the merge then reads on; one removed since still
+        # lets a Hold beside it pass, as the Factory leaves a queued item to merge under it. The Consumer entry, whose
+        # configuration has no history, a left-out label or type, two links and a draft's hands-off carry no time in
+        # the facts and read as before: "Facts: the times of a link, a left-out label and an issue's type, so that row
+        # 1 reads them at the merge" (issue 542).
         if hands_off_stood(facts, first):
             return out(t.NOT_SERVED, "merged_while_hands_off", merges)
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
         # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where
         # only an outsider's did, a person decides whether the work is done (issue 280).
+        closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]
         if any(p["class"] != "outside" for p in closers):
             return out(DONE, "merged", [str(p["number"]) for p in merged if p["class"] != "outside"])
-        return out(DECLINED, "closed_by_outsider_merge", outsiders)
+        return out(DECLINED, "closed_by_outsider_merge", [str(p["number"]) for p in merged if p["class"] == "outside"])
     # Any other merge in this life closed nothing and landed while the issue stood open. While the issue is still
     # open and the merge was read within max_close_lag_seconds of it, GitHub may not have closed the issue yet, a
     # second or two after the merge (P-33): the issue waits, quietly, for a read after the close, and admits nothing,
