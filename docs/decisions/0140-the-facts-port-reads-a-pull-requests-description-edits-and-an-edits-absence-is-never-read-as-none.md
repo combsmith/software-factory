@@ -28,7 +28,7 @@ Decision 0135 held an item whose description was edited after its approval, but 
 | A stranger only stops an item, into a Hold a person ends, and the Lifecycle declares it | `tests/test_transitions.py::test_a_stranger_only_stops_an_item_into_a_hold_a_person_ends` |
 | The port reads the edits a trial recorded, by the trial's query, as the latest edit | `tests/test_adapters.py::test_the_edits_a_trial_recorded_are_read_as_the_port_reads_them` |
 | The time is the later of `lastEditedAt` and every `editedAt`, never a `createdAt`; a deleted revision counts; none is null | `tests/test_adapters.py::test_the_last_edit_is_told_by_its_edited_at_never_its_created_at` |
-| A list not read whole is told by `lastEditedAt`, and unread where that names none | `tests/test_adapters.py::test_edits_not_read_whole_are_told_by_last_edited_at` |
+| A list not read whole is told by `lastEditedAt`, or an edit listed if later, and unread where that names none | `tests/test_adapters.py::test_edits_not_read_whole_are_told_by_last_edited_at` |
 | Edits that cannot be read are refused, never read as none, and the snapshot with them | `tests/test_adapters.py::test_edits_that_cannot_be_read_are_refused_never_read_as_no_edit`, `tests/test_adapters.py::test_a_snapshot_whose_description_edits_cannot_be_read_is_refused` |
 | The field is required in `facts/1` | `tools/check_examples.py` |
 | A review set's case made before the field reads it null | `tests/test_evals.py::test_the_facts_the_set_was_made_with_read_as_todays_once_filled` |

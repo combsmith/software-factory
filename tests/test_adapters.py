@@ -3135,6 +3135,9 @@ class DescriptionEdits(unittest.TestCase):
                          "2026-11-03T20:00:00Z")
         self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T20:00:00Z", [], total=150)),
                          "2026-11-03T20:00:00Z")
+        # Or an edit listed, where one is later: the reading that stops work.
+        self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T19:00:00Z", ["2026-11-03T20:30:00Z"], more=True)),
+                         "2026-11-03T20:30:00Z")
         for short in (edits_answer("o/r", 26, None, listed, more=True), edits_answer("o/r", 26, None, listed, total=150),
                       edits_answer("o/r", 26, None, [], more=True)):
             with self.assertRaises(github.Unanswered):
