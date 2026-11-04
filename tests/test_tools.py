@@ -11049,7 +11049,7 @@ class EditsReader(unittest.TestCase):
         for read in (first, second):
             self.assertEqual(read["request"]["body"]["query"], EditsReadTrial.QUERY)
             self.assertEqual(read["request"]["body"]["variables"],
-                             {"owner": "combsmith", "name": "software-factory-canary", "number": 96})
+                             {"owner": check_trials.ORG, "name": check_trials.CANARY, "number": 96})
             self.assertEqual(read["response"]["status"], 200)
             self.assertNotIn("errors", read["response"]["body"])
         self.assertEqual(first["response"]["body"], second["response"]["body"])
