@@ -139,11 +139,14 @@ SHAPES = re.compile("|".join((
     # again to the run's end took time in the square of a run of them with no dot (issue 370).
     r"(?<![a-z0-9_-])(?=[a-z0-9_-]*?eyJ)[a-z0-9_-]*\.",
     r"//[^/\s:@]+:[^/\s@]+@",                       # a user and password in a URL
-    # A signed URL's secret, by its parameter: Azure's sig; AWS's and CloudFront's Signature, and AWS's v4 parameters
-    # and session token; Google's v4 parameters, and the Signature of its older form. After a query's ? or &, as it
-    # is written raw, escaped in JSON or HTML, or percent-encoded inside another URL.
-    r"(?:[?&;]|%3f|%26|\\u0026)(sig|signature|token|access_token|x-amz-signature|x-amz-credential|x-amz-security-token"
-    r"|x-goog-signature|x-goog-credential)(?:=|%3d)",
+    # A signed URL's secret, by its parameter: Azure's sig; any Signature, Credential or security token, bare or under
+    # a provider's prefix (AWS's, Google's, Alibaba's, Tencent's, Huawei's); Backblaze's Authorization; Akamai's edge
+    # token. After a query's ? or &, and before its =, as each is written raw, escaped in JSON, JavaScript or HTML, or
+    # percent-encoded once or more inside another URL (issue 534).
+    r"(?:[?&]|&amp;|&#0*38;|&#x0*26;|&#0*63;|&#x0*3f;|%(?:25)*3f|%(?:25)*26|\\u0026|\\u003f|\\x26|\\x3f)"
+    r"(sig|token|access_token|authorization|hdnts|__token__|(?:[a-z0-9]+-)*(?:signature|credential|security-token))"
+    r"(?:=|%(?:25)*3d|&#0*61;|&#x0*3d;|\\u003d|\\x3d)",
+    r"\.oraclecloud\.com/p/[a-z0-9_+=-]{8,}/",          # an Oracle pre-authenticated request: its secret is the path
     r"\b(set-cookie|cookie|authorization|proxy-authorization)\s*:",
     r"(token|bearer|secret|password)\W{0,3}[0-9a-f]{40}",
     # auth and any letters after it, then a hex secret. Only the first auth of a run of letters is tried, and is not
