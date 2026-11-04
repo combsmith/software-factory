@@ -10,19 +10,17 @@ Status: accepted. The Factory Builder's ruling of 2026-11-03 on eval run 4171811
 | The text | The text's id is still `diff:<content id>`, and the bytes are still held to the content the Decision admitted before they are numbered. The numbers are added by the Harness, from the bytes, never read from the item | What the Run judges is still only the admitted content; the numbers are the Release's rendering of it |
 | One measure | `adapters/pull.py` counts `characters` as `harness/task.py` carries the diff, numbered and escaped, by the same two functions, and the Task's budget counts each file's part the same way. Numbered file by file, a diff is numbered as it is whole, so the Kernel's bound and the Task's cut stay one measure (0065) | Two counts can drift: a port that counted the diff as git wrote it would admit a diff the Task then cuts, and a review would never be asked |
 | The prompt | `roles/pr-review/prompt.md` says what the numbers are: the head's line, and none on a removed line; a Finding's `start_line` and `end_line` are the numbers the diff gives the lines where the problem is | A number the model is not told the meaning of is one more thing to guess |
-| The cost | The numbers lengthen the diff as the Task carries it. On the public examples, `examples/eval-case.json`, `eval-case.met.json` and `eval-case.with-issue.json`, by 5.8%, 5.8% and 8.0%. On the diffs of this repo's last 60 first-parent commits on `main`, the 42 within the bound, by 4.4% in all, 4.0% at the median and 8.0% at most. So a diff within about that much of `limits.max_diff_characters`, 60000, which a review was given before, is now held `too_large`; the bound itself does not move. What this costs the held-out set was checked privately, and no case is affected | The bound is the Kernel's, and a Task that carries more than it counted would fail at the CLI's argument limit instead |
+| The cost | The numbers lengthen the diff as the Task carries it. On the public examples, `examples/eval-case.json`, `examples/eval-case.met.json` and `examples/eval-case.with-issue.json`, by 5.8%, 5.8% and 8.0%. On the diffs of this repo's last 60 first-parent commits on `main`, the 42 within the bound, by 4.4% in all, 4.0% at the median and 8.0% at most. So a diff within about that much of `limits.max_diff_characters`, 60000, which a review was given before, is now held `too_large`; the bound itself does not move. What this costs the held-out set was checked privately, and no case is affected | The bound is the Kernel's, and a Task that carries more than it counted would fail at the CLI's argument limit instead |
 | What does not change | `tools/eval_result.py`, the set, the rubric, and the bound's value | The gate and the set are the Maintainer's; this is the Role's side |
 
 ## Why
 
 The failing codes asked first whether the review is told the place the scorer reads. Path form, citing, category and
-severity agree with `tools/eval_result.score`; the lines did not. With the eval's own Task and argv, the CLI at 2.1.317
+severity agree with the score `tools/eval_result.py` gives; the lines did not. With the eval's own Task and argv, the CLI at 2.1.317
 (the pin is 2.1.306) and model `opus`, on synthetic cases made from this repo's own files, each with one logic error
 planted at a known head line: on diffs of about 30 lines the review cited PR-3 at the exact line 5 times of 5. On diffs
 of 100 to 140 lines, whose earlier hunks shift the head's numbering from the base's, it was at the line 4 times of 6 and
 one line off twice; told how to count in the prompt alone, 5 of 6; given the numbers, 6 of 6. With this record's prompt and Task, 6 of 6 again on the long diffs and 6 of 6 on the short.
-
-## Limits
 
 The samples are small, of synthetic cases and not of the held-out set, and were not made at the pin. Nothing here ties
 any held-out case's code to the numbering: one line off would explain a `location_differs` or a `finding_elsewhere`
