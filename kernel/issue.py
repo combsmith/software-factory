@@ -75,6 +75,7 @@ KEPT = frozenset({NEW, TRIAGE, READY})
 NEEDS_YOU_REASONS = frozenset({
     "human_hold",
     "merged_while_held",
+    "merged_while_hands_off",
     "merged_while_declined",
     "closed_by_outsider_merge",
     "linked_twice",
@@ -436,6 +437,14 @@ def a_persons_hands_off(labels: dict, facts: dict, drafts: list, links: list = (
                for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
 
 
+def hands_off_stood(facts: dict, when: str) -> bool:
+    """Whether a person's hands-off stood on the issue itself at `when`, by its label events' times, and no person has
+    removed it since: only a person ends it, and an App's removal ends nothing. A draft's is not read here: whether a
+    pull request was a draft, or linked, at a time is not in the facts."""
+    past = as_of(facts, when)
+    return placed_by_a_person(standing_labels(past), past) and not released_since(facts, t.LABEL_HANDS_OFF, when)
+
+
 def held_by(labels: dict, drafts: list) -> list:
     """The labels that hold the issue: a Hold, whoever placed it, and hands-off anyone but a person placed, on the issue
     or on its linked draft."""
@@ -486,7 +495,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # merge, by the times the facts carry: the first close of this life before the merge's second is a person's,
     # since the merge's own close comes no earlier than the merge, and no later close or reopening by anyone moves it;
     # a reopening or a Hold in that second stops work, so it wins. A person's hands-off is no Hold: the Factory
-    # leaves a queued item to merge under it, so that merge is done.
+    # leaves a queued item to merge under it, so a Hold beside it is no contradiction; the hands-off itself stays.
     # A merge is read as it stood at the merge, never from the pull request's references as they stand now, which an
     # edit after the merge can change (P-46, issue 267): it closed the issue, as the issue's timeline names it the
     # closer, or it landed while the issue stood closed, when it could close nothing.
@@ -507,6 +516,16 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
             return out(DECLINED, "merged_while_declined", merges)
         if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:
             return out(DECLINED, "merged_while_declined", merges)
+        # A State only a person ends, as it stood at the first merge, stays: the platform's close is no person's
+        # (issue 522). Row 3 is read before row 4, as below. Only what the facts place at the merge is read, so that no
+        # terminal State is left by a fact with no time: the issue's own label events, and the Hold. A person's
+        # hands-off on the issue stands until a person removes it, and the merge then reads on; one removed since still
+        # lets a Hold beside it pass, as the Factory leaves a queued item to merge under it. The Consumer entry, whose
+        # configuration has no history, a left-out label or type, two links and a draft's hands-off carry no time in
+        # the facts and read as before: "Facts: the times of a link, a left-out label and an issue's type, so that row
+        # 1 reads them at the merge" (issue 542).
+        if hands_off_stood(facts, first):
+            return out(t.NOT_SERVED, "merged_while_hands_off", merges)
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
         # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where

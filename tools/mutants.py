@@ -179,6 +179,7 @@ NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_s
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
 MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
+PLATFORM_CLOSE_TESTS = ("tests.test_issue.Done.test_a_platform_close_keeps_the_state_a_person_set",)
 CLOSE_TIME_TESTS = ("tests.test_issue.Done.test_a_close_or_a_reopening_without_its_time_cannot_be_read",)
 # Issue 218: the guard on a count of active Runs, the same on both sides.
 COUNT_GUARD = "    if type(active) is not int or active < 0:\n"
@@ -314,6 +315,57 @@ ISSUE = [
     ("an issue's merged_while_held calls nobody", ISSUE_PY, '    "merged_while_held",\n', "", MERGE_UNDER_STOP_TESTS),
     ("an issue's merged_while_declined calls nobody", ISSUE_PY, '    "merged_while_declined",\n', "",
      MERGE_UNDER_STOP_TESTS),
+    # Issue 522: a platform close keeps the State a person set, not served or held, where the facts place it at the
+    # merge; what carries no time leaves no terminal State.
+    ("a person's hands-off at the merge is passed", ISSUE_PY,
+     "        if hands_off_stood(facts, first):\n", "        if False:\n", PLATFORM_CLOSE_TESTS),
+    ("a person's removal of hands-off since the merge ends nothing", ISSUE_PY,
+     " and not released_since(facts, t.LABEL_HANDS_OFF, when)\n", "\n", PLATFORM_CLOSE_TESTS),
+    ("a person's hands-off placed after the merge keeps it", ISSUE_PY,
+     "    past = as_of(facts, when)\n", "    past = facts\n", PLATFORM_CLOSE_TESTS),
+    ("an issue's merged_while_hands_off calls nobody", ISSUE_PY, '    "merged_while_hands_off",\n', "",
+     PLATFORM_CLOSE_TESTS),
+    ("a Hold on a ready linked pull request stood at the merge", ISSUE_PY,
+     '    return [p for p in links if p["draft"] and p["opened_at"] <= when',
+     '    return [p for p in links if p["opened_at"] <= when', PLATFORM_CLOSE_TESTS),
+    ("the Consumer entry is read at the merge as it stands now", ISSUE_PY,
+     "        if hands_off_stood(facts, first):\n",
+     "        if not served(facts, config):\n            return out(t.NOT_SERVED, \"left_out\", [])\n"
+     "        if hands_off_stood(facts, first):\n",
+     ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
+    ("an issue left out under a person's hands-off at the merge is quiet", ISSUE_PY,
+     '            return out(t.NOT_SERVED, "merged_while_hands_off", merges)\n',
+     '            if not served(facts, config):\n                return out(t.NOT_SERVED, "left_out", [])\n'
+     '            return out(t.NOT_SERVED, "merged_while_hands_off", merges)\n', PLATFORM_CLOSE_TESTS),
+    ("an issue left out under a Hold at the merge is quiet", ISSUE_PY,
+     '            return out(t.HELD, "merged_while_held", merges)\n',
+     '            if not served(facts, config):\n                return out(t.NOT_SERVED, "left_out", [])\n'
+     '            return out(t.HELD, "merged_while_held", merges)\n', PLATFORM_CLOSE_TESTS),
+    ("issues turned off, or the entry's date moved, is read at the merge", ISSUE_PY,
+     "        if hands_off_stood(facts, first):\n",
+     "        start = config[\"issues\"][\"served_from\"]\n"
+     "        if not is_time(start) or facts[\"life_started_at\"] < start:\n"
+     "            return out(t.NOT_SERVED, \"left_out\", [])\n"
+     "        if hands_off_stood(facts, first):\n",
+     ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
+    ("a left-out label or type is read at the merge as it stands now", ISSUE_PY,
+     "        if hands_off_stood(facts, first):\n",
+     "        if facts[\"type\"] in config[\"issues\"][\"left_out_types\"] or any(\n"
+     "                n in config[\"issues\"][\"left_out_labels\"] for n in facts[\"label_names\"]):\n"
+     "            return out(t.NOT_SERVED, \"left_out\", [])\n"
+     "        if hands_off_stood(facts, first):\n",
+     ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
+    ("a draft's hands-off is read at the merge from its flag now", ISSUE_PY,
+     "    return placed_by_a_person(standing_labels(past), past) and not released_since(facts, t.LABEL_HANDS_OFF, when)\n",
+     "    return any(placed_by_a_person(standing_labels(as_of(p, when)), as_of(p, when))\n"
+     "               for p in [facts] + drafts_at([q for q in facts[\"linked\"] if is_linked(q)], when))\n",
+     ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
+    ("two links at the merge are read from the links as they stand now", ISSUE_PY,
+     "            return out(t.HELD, \"merged_while_held\", merges)\n        # Done only where",
+     "            return out(t.HELD, \"merged_while_held\", merges)\n"
+     "        if any(p[\"opened_at\"] <= first and p[\"merged_at\"] != first for p in links):\n"
+     "            return out(t.HELD, \"merged_while_held\", merges)\n        # Done only where",
+     ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
     ("an empty merge is done", ISSUE_PY,
      'if p["merged_at"] is not None and not p["empty"] and', 'if p["merged_at"] is not None and', ISSUE_TESTS),
     ("a merge in an earlier life is done", ISSUE_PY,
@@ -327,7 +379,7 @@ ISSUE = [
      '    if facts["reopened_last_by"] == "other":\n', "    if False:\n", ISSUE_TESTS),
     # Row 3: not served.
     ("an issue the Consumer entry leaves out is served", ISSUE_PY,
-     "    if not served(facts, config):\n", "    if False:\n", ISSUE_TESTS),
+     "    # Row 3.\n    if not served(facts, config):\n", "    # Row 3.\n    if False:\n", ISSUE_TESTS),
     ("an issue whose life began before the date served is served", ISSUE_PY,
      'if not is_time(start) or facts["life_started_at"] < start:', "if not is_time(start):", ISSUE_TESTS),
     ("an issue of a type left out is served", ISSUE_PY,

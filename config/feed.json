@@ -121,6 +121,13 @@
       ]
     },
     {
+      "reason": "merged_while_hands_off",
+      "question": "merged_while_hands_off",
+      "choices": [
+        "end_hold"
+      ]
+    },
+    {
       "reason": "limits_unreadable",
       "question": "fact_unreadable",
       "choices": [

@@ -1,7 +1,6 @@
 # 0028. An issue's State is derived in a module of its own
 
-Status: accepted. Taken as a working ruling for "Kernel: derive an issue's State from its facts"
-(issue 41) on 2026-10-17, which the Maintainer may overturn in review.
+Status: replaced by `docs/decisions/0139-a-platform-close-keeps-the-state-a-person-set-on-an-issue-held-or-not-served.md`, which holds the rule in force.
 
 ## Decision
 

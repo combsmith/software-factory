@@ -1228,13 +1228,17 @@ def app_marks_ready(item: dict):
 
 
 def queue_merges_issue(item: dict, kind: str = "agent"):
-    """The merge queue merges the Factory's ready pull request, after the Factory's approval and enqueue: only while
-    the issue is in review, since the Controller dequeues on a person's hold or close (issue 227). An admitted
-    outsider's may name in its description, after the approval, an issue the Controller does not watch, so it merges
-    while that issue is new too (P-48, issue 280). From a Hold or not served, which only a person ends, the reading is
-    the follow-up issue's, "A platform close keeps the State a person set on an issue held or not served" (issue 522)."""
+    """The merge queue merges the Factory's ready pull request, after the Factory's approval and enqueue: while the
+    issue is in review, since the Controller dequeues on a person's hold or close (issue 227). An admitted outsider's
+    may name in its description, after the approval, an issue the Controller does not watch, so it merges while that
+    issue is new too (P-48, issue 280). It merges too where row 1 reads the State at the merge, which then stays, since
+    only a person ends it (issue 522): held by a Hold, the race of a pass that has not yet dequeued; and not served by
+    a person's hands-off on the issue, under which the Factory leaves a queued item to merge. From two links, a draft's
+    hands-off or an issue the Consumer entry leaves out, row 1 waits on the facts' times (issue 542)."""
     live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == kind and not p["draft"]]
-    if not live or issue_kernel(item)["state"] not in (("in_review", "new") if kind == "outside" else ("in_review",)):
+    d = issue_kernel(item)
+    kept = d["reason"] == "human_hold" or (d["reason"] == "hands_off" and issue_stands(item, t.LABEL_HANDS_OFF))
+    if not live or not (d["state"] in (("in_review", "new") if kind == "outside" else ("in_review",)) or kept):
         return None
     live[0].update(open=False, closed_at=now(item), merged_at=now(item), closed_issue_at=closes_the_issue(item))
     return item
@@ -1424,6 +1428,14 @@ class AnyLifecycle(unittest.TestCase):
                                     ("held", "run_ceiling", "hold", "needs_you"),
                                     ("new", "acceptance_lapsed", "nothing", "working")])
         self.assertIn(("run_ceiling", "acceptance_lapsed"), made[("held", "new", "stranger")])
+
+    def test_the_queues_merge_from_held_or_not_served_keeps_the_state(self):  # issue 522
+        # The queue merges from held and not served too, each case explored: the State a person set stays, and only a
+        # person's removal of hands-off then lets the merge read on to done.
+        made, reached = issue_explored()
+        self.assertLessEqual({("not_served", "merged_while_hands_off"), ("held", "merged_while_held")}, reached)
+        self.assertIn(("merged_while_hands_off", "merged"), made[("not_served", "done", "human")])
+        self.assertEqual([m for m in made if m[0] in (t.HELD, t.NOT_SERVED) and m[2] == "platform"], [])
 
     def test_a_transition_declared_by_someone_else_is_undeclared(self):
         for name in ("pull_request", "issue"):
