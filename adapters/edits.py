@@ -9,7 +9,8 @@ text's entry is made only with the first later edit, and takes that edit's `crea
 writer deleted from the history still happened, and counts. No editor is read: whoever edited, the edit holds the item
 (decision 0140), so no description's text and no account is kept.
 
-The list is whole only when it says there is no next page and its count is every edit it lists. Past the first hundred,
+The list is whole only when it says there is no next page and its count is every edit it lists; a count below the
+edits it lists, or anything not in GraphQL's shape, cannot be read. Past the first hundred,
 or short, `lastEditedAt` alone gives the time, since it moves on every edit and on nothing else; short with no
 `lastEditedAt`, it is unread. The two must agree on whether the description was ever edited: one names an edit the other
 does not, and nothing is read. Anything that cannot be read refuses the snapshot, never reads as no edit.
@@ -37,7 +38,9 @@ def last_edited_at(transport, pull: dict):
     answer = transport.send(request("POST", "/graphql", body={"query": QUERY, "variables": variables}))
     if answer["status"] != 200 or not isinstance(answer["body"], dict) or answer["body"].get("errors"):
         raise Unanswered("the description's edits answered %d" % answer["status"])
-    pr = ((answer["body"].get("data") or {}).get("repository") or {}).get("pullRequest")
+    data = answer["body"].get("data")
+    repo = data.get("repository") if isinstance(data, dict) else None
+    pr = repo.get("pullRequest") if isinstance(repo, dict) else None
     if not isinstance(pr, dict) or "lastEditedAt" not in pr:
         raise Unanswered("the description's edits name no pull request")
     last = pr["lastEditedAt"]
@@ -48,7 +51,7 @@ def last_edited_at(transport, pull: dict):
     nodes = listed.get("nodes") if isinstance(listed, dict) else None
     total = listed.get("totalCount") if isinstance(listed, dict) else None
     if not isinstance(nodes, list) or not isinstance(page, dict) or type(page.get("hasNextPage")) is not bool \
-            or type(total) is not int:
+            or type(total) is not int or total < len(nodes):
         raise Unanswered("the description's edits cannot be read")
     times = []
     for node in nodes:

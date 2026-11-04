@@ -323,7 +323,7 @@ class Simulation(unittest.TestCase):
                 seed, last["reason"], "\n".join(w.trace[-15:])))
             # Or on a description edited after the approval, on the Maintainer's own pull request, where GitHub refuses
             # their approval and no other person comes: a Hold only a person ends (decision 0140).
-            edited = "description_edited_after_approval" if w.cls == "maintainer" else None
+            edited = "description_edited_after_approval" if w.cls == "maintainer" and w.edits is not None else None
             self.assertIn(last["reason"], (reason, "run_ceiling", edited), "seed %d" % seed)
             reasons.append(last["reason"])
         self.assertIn(reason, reasons)

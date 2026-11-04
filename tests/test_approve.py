@@ -7,7 +7,7 @@ import copy
 import json
 import unittest
 
-from adapters import acceptance, checks, effects, threads
+from adapters import acceptance, checks, edits, effects, threads
 from adapters.facts import Moved
 from adapters.github import Unanswered
 from harness import approve
@@ -164,10 +164,10 @@ class TheAct(unittest.TestCase):
             token.send({"method": method, "path": path, "body": body})
         self.assertEqual(len(github.log), len(allowed))
         # The facts port's own reads go through as the ports send them: the first page with no cursor (CodeRabbit on PR
-        # 321), and the closing references' read with none at all.
+        # 321), the closing references' read with none at all, and the description's edits (Codex on PR 548).
         pull = {"number": ITEM["number"], "base": {"repo": {"full_name": repo, "default_branch": "main"}, "ref": "main"}}
         for port in (lambda t: threads.read(t, pull, None), lambda t: checks.read(t, pull),
-                     lambda t: acceptance.closing(t, pull)):
+                     lambda t: acceptance.closing(t, pull), lambda t: edits.last_edited_at(t, pull)):
             seen = GitHub({("POST", "/graphql"): {"status": 500, "body": {}}})
             with self.assertRaises(Unanswered):
                 port(effects.Approving(seen, ITEM))

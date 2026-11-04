@@ -1,6 +1,6 @@
 # 0140. The facts port reads a pull request's description edits, and an edit's absence is never read as none
 
-Status: accepted. Replaces `docs/decisions/0135-a-description-edited-after-the-first-approval-since-a-person-looked-holds-the-item.md`, and keeps all of it but two rows, "The fact" and "It holds nothing yet", which it overturns. The Factory Builder's rulings of 2026-11-04 on "The facts port reads a pull request's description edits, so #519's hold can see them" (issue 526), of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182), on the reader App's leg of P-58 (`trials/P-58.reader.json`).
+Status: accepted. Replaces `docs/decisions/0135-a-description-edited-after-the-first-approval-since-a-person-looked-holds-the-item.md`, and keeps all of it but two rows, "The fact" and "It holds nothing yet", which it overturns. The Factory Builder's rulings of 2026-11-04 on "The facts port reads a pull request's description edits", so that the hold of decision 0135 can see them (issue 526), of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182), on the reader App's leg of P-58 (`trials/P-58.reader.json`).
 
 ## Decision
 
@@ -13,6 +13,7 @@ Status: accepted. Replaces `docs/decisions/0135-a-description-edited-after-the-f
 | The path not taken | Where a Consumer's App edits after every push and that costs a person's approval each time, the configuration may one day name the Apps whose edits hold nothing, none by default. That needs the editor in the facts and a field of the configuration, and nothing here builds it | The risk then sits with whoever names an App, and no Consumer needs it yet |
 | The author Role | A Role's App that edits its pull request's description after the first approval holds its own pull request. The author Role, when it is built, edits its description only as it opens the pull request | It is what the rule is for, and no exception is made for the Factory's own Apps |
 | The grant | The port reads through a token with `pull_requests: read`, the reader App's. That `metadata: read` alone was answered the same on the public canary says nothing of a private repo | P-58.reader. A private Consumer repo waits on slice 3, as P-56's case does |
+| What it does not see | An edit after the approving act's last read and before its approval lands is timed before the approval, and holds nothing. An edit after the last pass and before the queue merges is never read, since no pass starts on an edit or on the merge group. An issue a person links by hand closes at the merge with no edit at all. None of these is this port's to close | The rule measures an edit against the approval's time, as decision 0135 set it, and the port reads only what GitHub records of the description |
 | What stays | Everything else decision 0135 decides, as it words it: the rule, the first approval never the latest, the two anchors, the second, and I-28 as it narrowed it | Only the two rows above are overturned |
 
 ## Why

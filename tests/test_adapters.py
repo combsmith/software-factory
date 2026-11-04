@@ -3132,7 +3132,8 @@ class DescriptionEdits(unittest.TestCase):
                          "2026-11-03T20:00:00Z")
         self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T20:00:00Z", [], total=150)),
                          "2026-11-03T20:00:00Z")
-        for short in (edits_answer("o/r", 26, None, listed, more=True), edits_answer("o/r", 26, None, listed, total=150)):
+        for short in (edits_answer("o/r", 26, None, listed, more=True), edits_answer("o/r", 26, None, listed, total=150),
+                      edits_answer("o/r", 26, None, [], more=True)):
             with self.assertRaises(github.Unanswered):
                 self.read(short)
 
@@ -3148,7 +3149,13 @@ class DescriptionEdits(unittest.TestCase):
                 ("errors", lambda r: r["body"].update(errors=[{"type": "FORBIDDEN"}])),
                 ("no pull request", lambda r: r["body"]["data"]["repository"].update(pullRequest=None)),
                 ("no data", lambda r: r["body"].update(data=None)),
+                ("data that is no object", lambda r: r["body"].update(data=["x"])),
+                ("a repository that is no object", lambda r: r["body"]["data"].update(repository="x")),
+                ("a count below the edits listed", lambda r: listed(r).update(totalCount=1)),
+                ("a count below none", lambda r: listed(r).update(nodes=[], totalCount=-1)),
                 ("no lastEditedAt", lambda r: pr(r).pop("lastEditedAt")),
+                ("no lastEditedAt beside no edits",
+                 lambda r: (pr(r).pop("lastEditedAt"), listed(r).update(nodes=[], totalCount=0))),
                 ("lastEditedAt in words", lambda r: pr(r).update(lastEditedAt="yesterday")),
                 ("lastEditedAt in words beside no edits",
                  lambda r: (pr(r).update(lastEditedAt="yesterday"), listed(r).update(nodes=[], totalCount=0))),

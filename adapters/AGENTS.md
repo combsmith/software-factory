@@ -1,6 +1,6 @@
 # adapters/
 
-All of the Factory's I/O. `github.py` is the one transport; no other reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `edits.py` its description's last edit, `applied.py` Lenses' records,
+All of the Factory's I/O. `github.py` is the one transport; no other reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `applied.py` Lenses' records,
 `facts.py` its snapshot, `records.py` run records, `artifacts.py` a Run's outcome, `seen.py` writes made, `passes.py` past pass records, `acceptance.py` if a contract is asked, `heldout.py` held-out cases, `rules.py` base rules; `effects.py` the Controller's
 and Roles' writes, `pause.py` the Pause, `tags.py` the Factory's tags, `candidate.py` a Release's facts, `deployments.py` its moves, `identity.py` mints a token, and `queue.py` the queue App's acts. A port decides nothing and hands the Kernel no text.
 Not built yet, by the stories that hold their rules: contract.py, binding.py, issues.py, settings.py, usage.py, and of `texts.py`, the port of the issue a change serves, a thread's text.
@@ -27,7 +27,6 @@ Not built yet, by the stories that hold their rules: contract.py, binding.py, is
 | Write access is a person's, read once a login; an App's act with a person's token is the App's, but an approval it dismissed ends | `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration` |
 | Each review thread is read with who opened and resolved it, told by account; a person's is `human`, and no comment's text is read | `tests/test_adapters.py::test_each_thread_is_read_with_who_opened_and_resolved_it_and_a_persons_is_human` |
 | A Lens's thread is one its own App opened; one a Lens recorded must be, and takes its owned Finding's category | `tests/test_adapters.py::test_only_a_required_lenss_own_apps_open_thread_defers`, `tests/test_adapters.py::test_a_recorded_thread_is_its_lenss` |
-| A description's last edit is the later of `lastEditedAt` and every `editedAt`, by the query P-58 recorded; past a hundred, `lastEditedAt`; what cannot be read is refused, never no edit | `tests/test_adapters.py::test_the_edits_a_trial_recorded_are_read_as_the_port_reads_them`, `tests/test_adapters.py::test_edits_that_cannot_be_read_are_refused_never_read_as_no_edit` |
 | Threads are whole only when every one counted was read, once, and no cursor repeats | `tests/test_adapters.py::test_threads_are_read_page_by_page_and_whole_only_when_every_one_was_read_once` |
 | A review's dismissal, its dismisser and its state before are read from the timeline; no text of GitHub's is kept | `tests/test_adapters.py::test_reviews_are_read_with_their_commit_content_and_who_dismissed_them` |
 | Each check run is whole, with no file if not its job's | `tests/test_adapters.py::test_every_check_run_on_the_head_is_read_with_its_name_app_and_workflow`, `tests/test_adapters.py::test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids` |

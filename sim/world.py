@@ -466,8 +466,9 @@ class World:
 
     def objections(self) -> list:
         """What a queued item may not merge over, in the world's own words: no approval of its content by the
-        approver that stands, a writer's request for changes or open thread, a Hold, or a required check that
-        failed or gave no verdict (L-19, FR-23, I-9). A check still pending is a wait, and is no objection."""
+        approver that stands, a writer's request for changes or open thread, a Hold, a required check that
+        failed or gave no verdict (L-19, FR-23, I-9), or a description edited since the approval that no person has read
+        (decision 0140). A check still pending is a wait, and is no objection."""
         out = []
         # The approver's approval stands only while it can write, as the Kernel reads it (decision 0048).
         if not any(rv["by"]["name"] == CONFIG["approver"] and told(rv["by"])["can_write"] is True
@@ -487,6 +488,8 @@ class World:
             out.append("a contract no person approved, or one changed since")
         if not self.accepted(self.acceptance(), self.reviews, self.cid()):
             out.append("a criterion with no passing evidence on this content from its reporter")
+        if self.edited_since_approval():
+            out.append("a description edited since the approval, which no person has read")
         return out
 
     @classmethod
@@ -1363,12 +1366,17 @@ class World:
 
     def edited_since_approval(self) -> bool:
         """Whether the description was edited at or after the machine user's first approval since the Maintainer last
-        approved, in the world's own words."""
-        mine = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"]
-                and "approved" in (rv["state"], rv["dismissed_from"])]
+        looked, or, where none has come since but one came before, the look itself, in the world's own words. A look
+        the Maintainer took back, by dismissing their own approval, is none."""
+        looks = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"]
+                 and "approved" in (rv["state"], rv["dismissed_from"])
+                 and (rv["dismissed_by"] or {}).get("name") != MAINTAINER["name"]]
         machine = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == CONFIG["approver"]
-                   and "approved" in (rv["state"], rv["dismissed_from"]) and (not mine or rv["submitted_at"] >= max(mine))]
-        return bool(machine) and self.edited >= min(machine)
+                   and "approved" in (rv["state"], rv["dismissed_from"])]
+        look = max(looks) if looks else None
+        since = [at for at in machine if look is None or at >= look]
+        anchor = min(since) if since else (look if machine else None)
+        return anchor is not None and self.edited >= anchor
 
     def verdict(self):
         """The Maintainer's latest verdict, dismissed or not, or None. A comment is none, dismissed or not.
