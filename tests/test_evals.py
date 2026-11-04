@@ -1657,6 +1657,10 @@ class EvalJob(unittest.TestCase):
         for words in ("An error, as the model put it", "the_expected_finding_is_in_kernel_decide"):
             worded = run(live.CLI(said=live.answer(is_error=True, subtype=words), returncode=1))
             self.assertEqual([c["cause"] for c in worded], [{"subtype": "other", "exit": 1}] * 2, words)
+        # A case the tier's cost ceiling stopped says so by the CLI's own word (decision 0136).
+        halted = run(live.CLI(said=live.answer(is_error=True, subtype="error_max_budget_usd"), returncode=1))
+        self.assertEqual([(c["reasons"], c["cause"]) for c in halted],
+                         [(["no_answer"], {"subtype": "error_max_budget_usd", "exit": 1})] * 2)
         # A call that could not be made says the class of what it raised.
         refused = run(live.CLI(raises=ValueError("embedded null byte")))
         self.assertEqual([(c["reasons"], c["cause"]) for c in refused], [(["engine_failed"], {"exception": "ValueError"})] * 2)

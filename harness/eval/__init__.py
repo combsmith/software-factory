@@ -52,7 +52,8 @@ AT = re.compile(r"(?:adapters|controller|harness|kernel|release|tools)/[a-z0-9_/
 WORD = re.compile(r"[a-z][a-z_]{0,63}")
 # The subtypes a cause may name, as the CLI gives them at the pin (`trials/P-13.ended.json`, and the vendor's error of a
 # run that failed): any other is `other`, so that whatever a later pin echoes there is never words (the security pass).
-SUBTYPES = ("success", "error_during_execution", "error_max_turns", "error_max_structured_output_retries")
+SUBTYPES = ("success", "error_during_execution", "error_max_turns", "error_max_structured_output_retries",
+            "error_max_budget_usd")
 
 
 class Stop(Exception):
