@@ -1683,7 +1683,9 @@ class Identity(unittest.TestCase):
                                   "command_unreadable"),
                                  # A ${...} in a ${...} in a body's substitution, each read as a script is, is charged (Muse on #497).
                                  (lambda n: "cat <<EOF\n$(echo " + "${x:-" * n + "y" + "}" * n + ")\nEOF\ngit push", 400,
-                                  "command_unreadable")):
+                                  "command_unreadable"),
+                                 # Substitutions in double quotes, each escaping a ", each level read once (Astra on #520).
+                                 (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
 

@@ -793,12 +793,8 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
         c = text[i]
         if quote == '"' and c == "\\":
             i += 1      # in double quotes \" is a quote, which does not end them (issue 376: a script _nested spells)
-        elif quote == '"' and text.startswith("$(", i):
-            # A substitution in double quotes has quotes of its own (#410), unless what it holds escapes a ", as
-            # identity._quoted and _nested write one for shlex: then main's reading (the Claude review of #520).
-            end = _balanced(text, i + 2, ")")
-            if '\\"' not in text[i + 2:end]:
-                i = end - 1
+        elif quote == '"' and text.startswith("$(", i) and not _escapes(text, i + 2):
+            i = _balanced(text, i + 2, ")") - 1     # a substitution in double quotes has quotes of its own (#410)
         elif quote:
             quote = None if c == quote else quote
         elif c == "\\":
@@ -820,6 +816,19 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
             depth += 1 if c == "(" else -1
         i += 1
     return len(text)
+
+
+def _escapes(text: str, i: int) -> bool:
+    """Whether a \\" comes before the " that ends double quotes from i, read as main reads them: a script whose quotes
+    are escaped, as identity._quoted and _nested write one for shlex, which is read as main reads it. One pass, so
+    that no level is read twice (the Claude review and Astra on #520)."""
+    while i < len(text) and text[i] != '"':
+        if text[i] == "\\":
+            if text.startswith('"', i + 1):
+                return True
+            i += 1
+        i += 1
+    return False
 
 
 def segments(text: str) -> list:
