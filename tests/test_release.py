@@ -360,6 +360,22 @@ class Fixture(unittest.TestCase):
             "another commit was asked": lambda i: i["asked"].update(cut_commit=A),
             "another run": lambda i: i.update(run=i["run"] + 1),
             "another conclusion": lambda i: i.update(conclusion="success"),
+            "the run's answer names another run": lambda i: exchange(i, "/actions/runs/")["response"]["body"].update(
+                id=i["run"] + 1),
+            "a second job of the run, its log not read": lambda i: exchange(i, "/jobs")["response"]["body"]["jobs"].append(
+                {"id": 1, "run_id": i["run"]}),
+            "a line of the log beyond the step's": lambda i: exchange(i, "/logs")["response"].update(
+                body=exchange(i, "/logs")["response"]["body"] + "\n2026-10-31T12:29:19.0000000Z x-oauth-scopes: admin:org"),
+            "an input after the last line": lambda i: exchange(i, "/logs")["response"].update(
+                body=exchange(i, "/logs")["response"]["body"] + "\n2026-10-31T12:29:19.0000000Z   RELEASE_TO: "),
+            "the run read again and refused": lambda i: i["exchanges"].append(dict(
+                copy.deepcopy(exchange(i, "/actions/runs/")), response={"status": 404, "headers": {}, "body": None})),
+            "a line of the log with no time": lambda i: exchange(i, "/logs")["response"].update(
+                body=exchange(i, "/logs")["response"]["body"] + "\nHTTP/2.0 302 Found"),
+            "the step's group not first": lambda i: exchange(i, "/logs")["response"].update(body="\n".join(
+                (lambda lines: [lines[1], lines[0]] + lines[2:])(exchange(i, "/logs")["response"]["body"].splitlines()))),
+            "two last lines": lambda i: exchange(i, "/logs")["response"].update(
+                body=exchange(i, "/logs")["response"]["body"] + '\n2026-10-31T12:29:18.3000000Z {"writes": [], "deployments": []}'),
             "the run of another workflow": lambda i: exchange(i, "/actions/runs/")["response"]["body"].update(
                 path=".github/workflows/verify.yml"),
             "the run read twice": lambda i: i["exchanges"].append(copy.deepcopy(exchange(i, "/actions/runs/"))),
@@ -377,6 +393,15 @@ class Fixture(unittest.TestCase):
         for name, change in changes.items():
             with self.subTest(name):
                 self.assertTrue(refused(change))
+        # Every fixture of a Release's runs is held to its schema, whatever its name: nothing kept beside its items.
+        for name, change in {"exchanges beside the items": lambda f: f.update(exchanges=[{"request": {"headers": {}},
+                                                         "response": {"headers": {"x-oauth-scopes": "admin:org"}}}]),
+                             "headers kept under another name": lambda f: f["items"][0]["exchanges"][0]["response"].update(
+                                 raw_headers={"x-oauth-scopes": "admin:org"})}.items():
+            with self.subTest(name):
+                held = copy.deepcopy(fixture)
+                change(held)
+                self.assertTrue(check_release.fixture_problems(held, "gate.v0-2-0.json"))
 
 
 class Plan(unittest.TestCase):

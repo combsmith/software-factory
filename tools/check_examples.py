@@ -17,8 +17,7 @@ LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lif
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller", "config/harness.json": "harness",
         "config/rulesets.json": "rulesets", "config/credential-ages.json": "credential-ages", "config/machine-user.json": "machine-user",
-        "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval", "release/rings.json": "rings",
-        "release/fixtures/gate.v0-1-0.json": "release-fixture"}
+        "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval", "release/rings.json": "rings"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
 # reported on; kernel/coverage.py does.

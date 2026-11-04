@@ -23,7 +23,7 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py, fix
 | The tags are read whole or not at all, and nothing is read at any tag | `tests/test_release.py::test_tags_are_read_whole_or_not_at_all`, `tests/test_release.py::test_a_move_reads_refs_and_nothing_at_any_tag` |
 | Each page GitHub links is read, of this list alone and to a bound | `tests/test_release.py::test_each_page_github_links_is_read_and_only_this_lists` |
 | A fixture holds no credential, and no header a trial's fixture drops | `tests/test_release.py::test_the_refs_github_answered_are_read_as_the_port_reads_them` |
-| A fixture of a Release's runs says nothing its exchanges do not show: the run and its conclusion, the step's inputs and last line | `tests/test_release.py::test_an_item_that_says_other_than_its_own_exchanges_is_refused` |
+| A fixture of a Release's runs keeps its schema, and says nothing its exchanges do not show; its log keeps the step's lines alone | `tests/test_release.py::test_an_item_that_says_other_than_its_own_exchanges_is_refused` |
 | The first cut was refused by the closed gate, and wrote no tag and no Deployment (`fixtures/gate.v0-1-0.json`) | `tests/test_release.py::test_the_first_cut_was_refused_by_the_closed_gate_and_wrote_nothing` |
 | The step sends each write through the token it is given, reads it back, and records each move of `next` | `tests/test_release_step.py::test_a_cut_creates_the_release_moves_next_reads_each_back_and_records_the_deployment` |
 | It stops at the first write GitHub refused, or not read back, read twice, on its commit as the one Release planned | `tests/test_release_step.py::test_a_write_not_read_back_stops_the_step_there` |

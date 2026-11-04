@@ -4,8 +4,9 @@ The ring file, `release/rings.json`, validates as `rings/1` in `tools/check_exam
 held here: no repo and Intent family is served by two Channels (decision 0010, on the Factory's side), and both
 Channels name one major. A fixture in `release/fixtures/` is what GitHub answered a Release's read or step, and holds
 no credential and no header a trial's fixture may not keep, by `tools/check_trials.py`'s own scan; one of a Release's runs,
-`release-fixture/1`, says nothing its own exchanges do not show: the run, of `release.yml` and its conclusion, and the
-step's inputs and last line as that run's job's log shows them (ruling 9′, as amended on 2026-11-03). The rules that cut and move, `release/cut.py`, and that name a commit's Release,
+`release-fixture/1`, is held to its schema here whatever its name, and says nothing its own exchanges do not show: the
+run, of `release.yml` and its conclusion, its one job, and the step's inputs and last line as that job's log shows them,
+a log that keeps the step's lines alone (ruling 9′, as amended on 2026-11-03). The rules that cut and move, `release/cut.py`, and that name a commit's Release,
 `release/current.py`, are pure: they import nothing but each other, and name nothing that reads, writes or runs.
 """
 from __future__ import annotations
@@ -17,14 +18,21 @@ import re
 
 from tools import check_trials
 from tools.check_purity import FORBIDDEN_NAMES
+from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RINGS = "release/rings.json"
 FIXTURES = "release/fixtures"
 API_REPO = "/repos/combsmith/software-factory"
 WORKFLOW = ".github/workflows/release.yml"
-# A step's input as GitHub's log of the job shows it, under the step's group: two spaces, the name, and its value.
+# A line of GitHub's log of a job: its time, then what was said. A fixture's log keeps the release step's lines
+# alone: its group; its inputs, two spaces, the name and its value; its last line; and how its process exited.
+LOG_LINE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z (.*)$")
+GROUP = "##[group]Run python3 -m release.move"
 INPUT = re.compile(r"^  RELEASE_(COMMAND|VERSION|TO|CUT_COMMIT): ?(\S*)$")
+PRINTED = '{"writes": '
+EXIT = re.compile(r"^##\[error\]Process completed with exit code [0-9]+\.$")
+SCHEMAS = ("release-fixture", "trial")
 PURE = ("release/cut.py", "release/current.py")
 # What the rules may import: the future's annotations, and each other, never the CLI that reads files.
 ALLOWED_IMPORTS = {"__future__"} | {"release." + pathlib.PurePath(rel).stem for rel in PURE}
@@ -73,11 +81,12 @@ def _impure(path: pathlib.Path, rel: str) -> list:
 
 
 def _answer(exchanges, call: str):
-    """The body of the one read of `call` GitHub answered 200, or None: the read is missing, refused or made twice."""
-    found = [e["response"].get("body") for e in exchanges if isinstance(e, dict)
+    """The body of the one read of `call`, which GitHub answered 200, or None: the read is missing, refused, or made
+    twice, whatever the other was answered."""
+    found = [e["response"] for e in exchanges if isinstance(e, dict)
              and isinstance(e.get("request"), dict) and isinstance(e.get("response"), dict)
-             and str(e["request"].get("call", "")).split(" ")[:2] == ["GET", call] and e["response"].get("status") == 200]
-    return found[0] if len(found) == 1 else None
+             and str(e["request"].get("call", "")).split(" ")[:2] == ["GET", call]]
+    return found[0].get("body") if len(found) == 1 and found[0].get("status") == 200 else None
 
 
 def _disagrees(item, i: int) -> list:
@@ -94,22 +103,28 @@ def _disagrees(item, i: int) -> list:
                 % (i, run, WORKFLOW, item.get("conclusion"))]
     jobs = _answer(exchanges, "%s/actions/runs/%s/jobs" % (API_REPO, run))
     jobs = jobs.get("jobs") if isinstance(jobs, dict) else None
-    logs = [_answer(exchanges, "%s/actions/jobs/%s/logs" % (API_REPO, job.get("id"))) for job in
-            (jobs if isinstance(jobs, list) else []) if isinstance(job, dict) and job.get("run_id") == run]
-    logs = [log for log in logs if isinstance(log, str)]
-    if len(logs) != 1:
-        return ["items[%d]: the log of run %s's one job is not read once among its exchanges" % (i, run)]
-    asked, printed = {}, None
-    for line in logs[0].splitlines():
-        said = line.partition(" ")[2]
-        given = INPUT.match(said)
-        if given:
-            asked[given.group(1).lower()] = given.group(2)
-        elif said.startswith('{"writes": '):
-            try:
-                printed = json.loads(said)
-            except ValueError:
-                printed = None
+    if not (isinstance(jobs, list) and len(jobs) == 1 and isinstance(jobs[0], dict) and jobs[0].get("run_id") == run):
+        return ["items[%d]: run %s's jobs are not read once, as its one job, the release job" % (i, run)]
+    log = _answer(exchanges, "%s/actions/jobs/%s/logs" % (API_REPO, jobs[0].get("id")))
+    if not isinstance(log, str):
+        return ["items[%d]: the log of run %s's job is not read once among its exchanges" % (i, run)]
+    said = [LOG_LINE.match(line) for line in log.splitlines()]
+    said = [line.group(2) if line else None for line in said]
+    # The log keeps the step's lines alone, its group first: a line the trim left in is refused, not passed over.
+    if said[:1] != [GROUP] or not all(line == GROUP or INPUT.match(line) or EXIT.match(line)
+                                      or line.startswith(PRINTED) for line in said if line is not None) \
+            or None in said or said.count(GROUP) != 1:
+        return ["items[%d]: run %s's log keeps a line beyond the step's group, its inputs, its last line and its exit"
+                % (i, run)]
+    asked = {given.group(1).lower(): given.group(2) for given in map(INPUT.match, said) if given}
+    printed = [n for n, line in enumerate(said) if line.startswith(PRINTED)]
+    # The step's last line is the last it said: nothing follows it but how its process exited.
+    if printed and not all(EXIT.match(line) for line in said[printed[-1] + 1:]):
+        printed = []
+    try:
+        printed = json.loads(said[printed[0]]) if len(printed) == 1 else None
+    except ValueError:
+        printed = None
     problems = []
     if asked != item.get("asked"):
         problems.append("items[%d]: asked is not the step's inputs as run %s's log shows them" % (i, run))
@@ -123,6 +138,10 @@ def fixture_problems(value, rel: str) -> list:
     for `release-fixture/1`, an item that says other than its own exchanges."""
     problems = ["%s: %s %s" % (rel, where, what) for where, what in check_trials._credentials(value, "")]
     value = value if isinstance(value, dict) else {}
+    if value.get("schema") == "release-fixture/1":
+        # Every fixture of a Release's runs is held to its schema here, whatever its name: none is passed over.
+        schemas = {kind: json.loads((ROOT / "schemas" / ("%s.schema.json" % kind)).read_text()) for kind in SCHEMAS}
+        problems += ["%s: %s" % (rel, err) for err in validate(value, schemas["release-fixture"], schemas=schemas)]
     items = value.get("items") if value.get("schema") == "release-fixture/1" else None
     if items is None:
         groups = [("exchanges", value.get("exchanges"))]

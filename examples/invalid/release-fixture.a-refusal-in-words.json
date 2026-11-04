@@ -150,7 +150,7 @@
               "last-modified": "Sat, 31 Oct 2026 12:29:20 GMT",
               "server": "Windows-Azure-Blob/1.0 Microsoft-HTTPAPI/2.0"
             },
-            "body": "2026-10-31T12:29:15.5301109Z ##[group]Run python3 -m release.move\n2026-10-31T12:29:15.5323785Z   RELEASE_COMMAND: cut\n2026-10-31T12:29:15.5324404Z   RELEASE_VERSION: factory/v0.1.0\n2026-10-31T12:29:15.5324917Z   RELEASE_TO: \n2026-10-31T12:29:15.5325433Z   RELEASE_CUT_COMMIT: 743e761c0d678c273d992b6911820f83f48929ef\n2026-10-31T12:29:18.1997586Z {\"writes\": [], \"deployments\": [], \"refused\": \"eval_gate_closed\"}\n2026-10-31T12:29:18.2109217Z ##[error]Process completed with exit code 1."
+            "body": "2026-10-31T12:29:15.5301109Z ##[group]Run python3 -m release.move\n2026-10-31T12:29:15.5323785Z   RELEASE_COMMAND: cut\n2026-10-31T12:29:15.5324404Z   RELEASE_VERSION: factory/v0.1.0\n2026-10-31T12:29:15.5324917Z   RELEASE_TO: \n2026-10-31T12:29:15.5325433Z   RELEASE_CUT_COMMIT: 743e761c0d678c273d992b6911820f83f48929ef\n2026-10-31T12:29:18.1997586Z {\"writes\": [], \"deployments\": [], \"refused\": \"The eval gate was closed.\"}\n2026-10-31T12:29:18.2109217Z ##[error]Process completed with exit code 1."
           }
         },
         {
