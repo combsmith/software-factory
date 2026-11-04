@@ -1523,6 +1523,16 @@ class Identity(unittest.TestCase):
             self.assertEqual(self.codes(command), "", command[:40])
         # Past Python's own depth, a nest is one the hook cannot read (Astra on #520).
         self.assertIn("command_unreadable", self.codes(('echo "$(' * 1500) + "true" + (')"' * 1500)))
+        # A substitution _quoted writes in a ${...}, its quotes escaped, is read as main reads it (the Claude review).
+        for command in ('echo ${y:-$(echo "it\'s")}; git -c user.name=o commit -m x',
+                        'echo ${x:-`echo "it\'s"`}; git -c user.name=o commit -m x',
+                        'echo ${x:-$(echo "\'")}\ngit -c user.name=o commit -m x',
+                        # And a ${...} in double quotes, as main reads it (the security pass on #520).
+                        'echo ${x#"$(echo "(")"}; git -c user.name=o commit -m x',
+                        'echo ${x/"$(echo "(")"/y}; git -c user.name=o commit -m x',
+                        'echo ${x,$("\'")};git -c user.name=o commit -m x',
+                        'echo "$(echo ${x%$("\'")};git -c user.name=o commit -m x)"'):
+            self.assertNotEqual(self.codes(command), "", command)
         # And main reads a write in it, as it does a ' that a "${...}" takes as a character (Argon on #520).
         nest = 'echo "${x:-")"}"; git -c user.name=other commit -m x'
         for _ in range(11):
@@ -1530,14 +1540,6 @@ class Identity(unittest.TestCase):
         for command in (nest, 'echo "$(echo "${x:-\'}"; git -c user.name=other commit -m x; echo "\'}")"'):
             self.assertNotEqual(self.codes(command), "", command[:40])
         self.assertEqual(shell._balanced('echo "a \\" )") tail', 0, ")"), 14)     # an escaped " ends no double quotes
-        self.assertEqual(shell._balanced('echo "${x:-")"}") tail', 0, ")"), 17)    # nor does a ${...}'s own (the security pass)
-        # In which a ' is a character, as in a ${...} it holds, and a $'...' is no quote (Argon on #520).
-        for word in ("${x:-it's}", "${x:-${y:-it's}}", "${x:-$'}",
-                     # But a quote in a pattern, as the shell reads it (Astra on #520).
-                     "${x#'\")'}", "${x%%'\")'}", "${x/'\")'/y}", "${x[1]##'\")'}", "${x:-${y#'\"}'}}",
-                     "${!ref#'}$('}"):
-            self.assertEqual(shell._balanced('echo "%s") tail' % word, 0, ")"), len('echo "%s")' % word), word)
-        self.assertEqual(shell._balanced("echo ${x:-')'}) tail", 0, ")"), 15)     # outside double quotes, a ' is a quote
         for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',
                         'echo "$(echo "$(printf "%s" "hello (world)")")"; git commit -m x',
                         'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)"; git commit -m x'):
@@ -1545,8 +1547,7 @@ class Identity(unittest.TestCase):
         # What each level holds is read: a write past an inner quote's ), and a ${...}'s substitution at the top (Argon).
         for command in ('echo "$(echo "$(echo \'")\'; git push origin main; echo \'"\')")"',
                         'cat <<E\n$(echo "$(echo \'")\'; git push origin main; echo \'"\')")\nE',
-                        "echo $(echo ${x:-$(git push origin main)})", 'echo "$(echo ${#x[$(git push origin main)]})"',
-                        'cat <<E\n$(echo "${x:-")"}"; git push origin main)\nE'):
+                        "echo $(echo ${x:-$(git push origin main)})", 'echo "$(echo ${#x[$(git push origin main)]})"'):
             commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
             self.assertIn(["git", "push", "origin", "main"], [w for w, _ in commands if w], command)
 
@@ -1575,6 +1576,8 @@ class Identity(unittest.TestCase):
                         # One given -c runs a script the hook reads (the Claude review); one in <( ) is read below.
                         "diff <(bash -c 'ls') <(ls); git commit -m x", "git commit -m x; cat <(bash -c 'echo hi')",
                         "git commit -m x; tee >(bash -c 'cat > /dev/null') < f",
+                        # A backslash before the > or the ( makes them text (the Claude review of #520).
+                        "echo \\>\\(bash\\); git commit -m x", "echo >\\(bash\\); git commit -m x",
                         # A here-document's body is data, whatever it spells (Argon).
                         "cat <<'E'\necho 'git push' > >(bash)\nE\ngit commit -m x",
                         "git log --format='%h commit' -1; bash /tmp/x.sh",

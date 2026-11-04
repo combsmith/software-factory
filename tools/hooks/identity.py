@@ -787,8 +787,10 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         if _only_reads(tool, words) and not WRITE_TEXT.search(" ".join(_bare(w) for i, w in enumerate(marked) if i != at)):
             reading.add(index)
         calls += [(tool, where, words, kind) for where in wheres]
-    # Its backslashes out, as the shell takes them out of a name: \bash and b\ash are bash (the security pass).
-    fed = PROCESS_SHELL.search(shell._masked(shell.without_heredocs(text)).replace("\\", ""))
+    # Its backslashes out after the >(, as the shell takes them out of a name: \bash and b\ash are bash (the security
+    # pass); one before the > or the ( makes them text, echo \>\(bash\) (the Claude review of #520).
+    masked = shell._masked(shell.without_heredocs(text))
+    fed = any(PROCESS_SHELL.match(masked[m.start():].replace("\\", "")) for m in re.finditer(r">\(", masked))
     if fed:
         blind.append(UNSEEN_SCRIPT)     # echo 'git push' > >(bash): what is written to it is its script (#410)
     said = " ".join(w for words, _, _ in commands for w in words or [])     # as the shell runs it: g''it push is git push

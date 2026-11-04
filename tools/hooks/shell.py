@@ -779,40 +779,36 @@ SPECIAL = {":", ".", "break", "continue", "eval", "exec", "exit", "export", "rea
 COMPOUND = {"if", "then", "else", "elif", "fi", "while", "until", "for", "do", "done", "case", "esac", "select",
             "function", "{", "}", "(", "((", "!", "time", "coproc"}
 _CONNECTOR = re.compile(r"&&|\|\||[;&|\n]")
-# A ${...} whose word is a pattern, ${x#...}, ${x%...}, ${x/...}, ${!x#...} too: in double quotes too, a ' in it is a
-# quote (Astra on #520).
-PATTERN_EXPANSION = re.compile(r"!?(?:[A-Za-z_]\w*|[0-9]+|[@*?$!#-])(?:\[[^]]*\])?[#%/]")
 # A command substitution that names the branch the shell is on: where it runs, it is HEAD.
 CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s+--abbrev-ref\s+HEAD|"
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 
 
-def _balanced(text: str, i: int, close: str, comments: bool = True, singles: bool = True) -> int:
+def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
     """The index just past where a run opened before `i` closes: a ) that may hold nested $( ), or a ` or }.
     Quotes inside are skipped, and so are a parameter expansion's `${...}` and, in a `( )` and with `comments`, a
-    comment (decision 0032). Without `singles`, as in a ${...} in double quotes, a ' is a character. Runs to the end
-    of the text when it never closes."""
+    comment (decision 0032). Runs to the end of the text when it never closes."""
     depth, quote, start = 0, None, i
     while i < len(text):
         c = text[i]
         if quote == '"' and c == "\\":
             i += 1      # in double quotes \" is a quote, which does not end them (issue 376: a script _nested spells)
         elif quote == '"' and text.startswith("$(", i):
-            i = _balanced(text, i + 2, ")") - 1     # a substitution in double quotes has quotes of its own (#410)
-        elif quote == '"' and text.startswith("${", i):
-            # And so has a ${...}, in which a ' is a character: "${x:-")"}" and "${x:-it's}" are words (the security
-            # pass, Argon on #520), but a quote in a pattern's, "${x#'")'}".
-            i = _balanced(text, i + 2, "}", singles=bool(PATTERN_EXPANSION.match(text, i + 2))) - 1
+            # A substitution in double quotes has quotes of its own (#410), unless what it holds escapes a ", as
+            # identity._quoted and _nested write one for shlex: then main's reading (the Claude review of #520).
+            end = _balanced(text, i + 2, ")")
+            if '\\"' not in text[i + 2:end]:
+                i = end - 1
         elif quote:
             quote = None if c == quote else quote
         elif c == "\\":
             i += 1
-        elif singles and text.startswith("$'", i):
+        elif text.startswith("$'", i):
             i = (ansi_end(text, i + 2) or len(text)) - 1        # $'...', in which a backslash escapes
-        elif c == '"' or c == "'" and singles:
+        elif c in "'\"":
             quote = c
         elif text.startswith("${", i):
-            i = _balanced(text, i + 2, "}", singles=singles or bool(PATTERN_EXPANSION.match(text, i + 2))) - 1
+            i = _balanced(text, i + 2, "}") - 1
         elif comments and close == ")" and c == "#" and (i == start or text[i - 1] in " \t\n;&|()"):
             end = text.find("\n", i)        # a comment runs to the end of its line
             i = (len(text) if end < 0 else end) - 1
