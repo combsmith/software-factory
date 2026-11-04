@@ -76,6 +76,7 @@ NEEDS_YOU_REASONS = frozenset({
     "human_hold",
     "merged_while_held",
     "merged_while_declined",
+    "closed_by_outsider_merge",
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
@@ -489,6 +490,10 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # A merge is read as it stood at the merge, never from the pull request's references as they stand now, which an
     # edit after the merge can change (P-46, issue 267): it closed the issue, as the issue's timeline names it the
     # closer, or it landed while the issue stood closed, when it could close nothing.
+    # An admitted outsider's merge never makes the issue done: its author may edit its description after the
+    # approval, and GitHub then closes every issue the description names, with the pull request the closer (P-48,
+    # issue 280). Only its author and those with write access can edit it, so the Factory's own and a person's stay.
+    # The contradictions are read first, an outsider's merge among the rest, so a person's close or Hold still wins.
     in_life = [p for p in links
                if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
     merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]
@@ -504,7 +509,12 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
             return out(DECLINED, "merged_while_declined", merges)
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
-        return out(DONE, "merged", merges)
+        # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where
+        # only an outsider's did, a person decides whether the work is done (issue 280).
+        closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]
+        if any(p["class"] != "outside" for p in closers):
+            return out(DONE, "merged", [str(p["number"]) for p in merged if p["class"] != "outside"])
+        return out(DECLINED, "closed_by_outsider_merge", [str(p["number"]) for p in merged if p["class"] == "outside"])
     # Any other merge in this life closed nothing and landed while the issue stood open. While the issue is still
     # open and the merge was read within max_close_lag_seconds of it, GitHub may not have closed the issue yet, a
     # second or two after the merge (P-33): the issue waits, quietly, for a read after the close, and admits nothing,

@@ -10,6 +10,7 @@ import json
 import pathlib
 import re
 import shutil
+import subprocess
 import unittest
 from unittest import mock
 
@@ -469,7 +470,9 @@ class TheSet(unittest.TestCase):
         script = (ROOT / "tools" / "context_eval.sh").read_text()
         pin, cap = re.search(r"^PIN=(\S+)$", script, re.M).group(1), int(re.search(r"^CAP=(\d+)$", script, re.M).group(1))
         for r in newest:
-            self.assertEqual(r["passed"], r["verdicts"] == {"held_out_test": "pass", "verify": "pass", "mutant": "killed"})
+            # A run passes on its three verdicts and having looked nowhere outside its export (issue 511).
+            self.assertEqual(r["passed"], r["verdicts"] == {"held_out_test": "pass", "verify": "pass", "mutant": "killed"}
+                             and r["outside_reads"] == 0 and r["unread_commands"] == 0)
             self.assertEqual((r["cli_version"], r["cap_turns"]), (pin, cap))
             self.assertEqual(r["task_sha256"], record["task_sha256"], "a run on another sentence")
             self.assertEqual(r["added"], {"test": True, "mutant": True, "reason": True})
@@ -1561,6 +1564,114 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(step.step), "scored 2 of 2 cases, 0 passed")
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({tuple(c["reasons"]) for c in written["cases"]}, {("diff_not_content",)})
+
+    def test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code(self):  # decision 0131
+        # The first cut's eval closed on three cases unanswered, and nothing said why. A case that raised says its
+        # exception's class and the last line of the repo's code it passed, never the message, which here quotes the
+        # case; a step's code the report has no word for says that code; a read of the home that raised says the same.
+        from harness import eval as job
+        plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
+        self.step(plan)
+        self.step(fetch, self.home(self.cases))
+        first, second = list(self.cases)
+        raised = {first: ValueError("the case's diff: %s" % "--- a/kernel/x.py"), second: job.Stop("path_outside")}
+
+        def review(case):
+            raise raised[case["id"]]
+        self.step(job.score, review)
+        text = (self.work / job.REPORT).read_text()
+        written = json.loads(text)
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        one, two = sorted(written["cases"], key=lambda c: [first, second].index(c["id"]))
+        self.assertEqual((one["reasons"], one["cause"]["exception"]), (["unanswered"], "ValueError"))
+        self.assertRegex(one["cause"]["at"], r"^harness/eval/__init__\.py:[1-9][0-9]*$")
+        self.assertEqual((two["reasons"], two["cause"]), (["unanswered"], {"stop": "path_outside"}))
+        self.assertNotIn("kernel/x.py", text)
+        self.assertEqual(self.step(judge), "run_fault")
+        self.assertIn("at=%s exception=ValueError 1" % one["cause"]["at"], job.tally(written))
+        self.assertIn("stop=path_outside 1", job.tally(written))
+        # A case passed or failed by the reviewer, or stopped by a code of the report's own, has no cause.
+        self.step(job.score, lambda case: (_ for _ in ()).throw(job.Stop("not_this_set")))
+        self.assertEqual([c.get("cause") for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [None, None])
+        # An interrupt says its own; every case after it is unanswered, and has none.
+        self.step(job.score, lambda case: (_ for _ in ()).throw(KeyboardInterrupt))
+        first, after = json.loads((self.work / job.REPORT).read_text())["cases"]
+        self.assertEqual((first["cause"]["exception"], after.get("cause")), ("KeyboardInterrupt", None))
+        # The home's read that raised.
+        from adapters import heldout
+        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.set(self.cases)
+        self.step(plan)
+        with mock.patch.object(heldout, "case", side_effect=OSError("the home's name")):
+            self.step(fetch, self.home(self.cases))
+        self.step(job.score, lambda case: load("examples/result.json"))
+        text = (self.work / job.REPORT).read_text()
+        self.assertEqual({(c["reasons"][0], c["cause"]["exception"]) for c in json.loads(text)["cases"]}, {("unanswered", "OSError")})
+        self.assertNotIn("home's name", text)
+        # The causes of the home's read that cannot be read are none: the report is written all the same.
+        (self.temp / "heldout" / "fetch-causes.json").unlink()
+        self.step(job.score, lambda case: load("examples/result.json"))
+        self.assertEqual([c.get("cause") for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [None, None])
+        # A class, a code, an exit or a timeout not of its shape is left out, so the report holds to its schema.
+        class timeout(Exception):
+            pass
+        self.step(fetch, self.home(self.cases))
+        one_id, two_id = list(self.cases)
+        held = {one_id: timeout(), two_id: job.Stop("A step's words")}
+        self.step(job.score, lambda case: (_ for _ in ()).throw(held[case["id"]]))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        causes = {c["id"]: c.get("cause") for c in written["cases"]}
+        self.assertEqual((set(causes[one_id]), causes[two_id]), ({"at"}, None))
+
+        def asked():
+            pass
+        for seen, said in (({"exit": 300}, {}), ({"exit": True}, {}), ({"exit": -1}, {"exit": -1}),
+                           ({"timed_out": "yes"}, {}), ({"raised": "socket.timeout"}, {}), ({"raised": "OSError"}, {"exception": "OSError"})):
+            asked.seen = seen
+            self.assertEqual(job.seen_of(asked), said, seen)
+
+    def test_a_case_the_engine_stopped_says_what_the_cli_said_of_it(self):  # decision 0131
+        # Through the step as the workflow runs it: a case whose CLI erred says its subtype and exit, one whose call timed
+        # out says so, one that raised after the call says where and what the CLI had said, and nothing carries over to
+        # the next case.
+        from harness import engine
+        from harness import eval as job
+        from harness.eval import run as step
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        case, live = self.reviewed()
+        cases = {i: (json.dumps(dict(case, id=i), indent=2) + "\n").encode() for i in ("poc-one", "poc-two")}
+
+        def run(cli):
+            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+            self.set(cases)
+            with mock.patch.object(job, "now", lambda: 1000):
+                self.step(plan)
+            self.step(fetch, self.home(cases))
+            self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
+            return json.loads((self.work / job.REPORT).read_text())["cases"]
+        erred = run(live.CLI(said=live.answer(is_error=True, subtype="error_during_execution"), returncode=1))
+        self.assertEqual([(c["reasons"], c["cause"]) for c in erred],
+                         [(["engine_failed"], {"subtype": "error_during_execution", "exit": 1})] * 2)
+        # A subtype the pin does not give is `other`, whatever its words, as is one in snake case.
+        for words in ("An error, as the model put it", "the_expected_finding_is_in_kernel_decide"):
+            worded = run(live.CLI(said=live.answer(is_error=True, subtype=words), returncode=1))
+            self.assertEqual([c["cause"] for c in worded], [{"subtype": "other", "exit": 1}] * 2, words)
+        # A call that could not be made says the class of what it raised.
+        refused = run(live.CLI(raises=ValueError("embedded null byte")))
+        self.assertEqual([(c["reasons"], c["cause"]) for c in refused], [(["engine_failed"], {"exception": "ValueError"})] * 2)
+        late = run(live.CLI(raises=subprocess.TimeoutExpired(["claude"], 600)))
+        self.assertEqual([(c["reasons"], c["cause"]) for c in late], [(["engine_timeout"], {"timed_out": True})] * 2)
+        with mock.patch.object(engine, "validate", side_effect=TypeError("what the model wrote")):
+            after = run(live.CLI(said=live.answer(live.judged(findings=[], effects={}))))
+        self.assertEqual({(c["cause"]["exception"], c["cause"]["subtype"], c["cause"]["exit"]) for c in after},
+                         {("TypeError", "success", 0)})
+        self.assertTrue(all(c["cause"]["at"].startswith("harness/engine.py:") for c in after), after)
+        # The second case's engine changed before its call: it says nothing of the first case's CLI.
+        once = run(live.CLI(said=live.answer(is_error=True, subtype="error_during_execution"), returncode=1,
+                            versions=(live.PIN, live.PIN, "9.9.9", "9.9.9")))
+        self.assertEqual([(c["reasons"], c.get("cause")) for c in once],
+                         [(["engine_failed"], {"subtype": "error_during_execution", "exit": 1}), (["engine_version"], None)])
 
     def test_an_interrupt_asks_nothing_more_and_the_report_is_written(self):  # issue 309, ruling 4
         # A cancel that lands during a case's call ends the asking: that case and every one after it are unanswered,

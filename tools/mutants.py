@@ -853,7 +853,7 @@ ISSUE = [
     # Issue 267: a merge is read as it stood at the merge, by the close of the issue the timeline names it the closer of.
     ("a merge is read from the references as they stand now", ISSUE_PY,
      '    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]\n',
-     "    merged = in_life\n", ISSUE_TESTS),
+     '    merged = in_life\n', ISSUE_TESTS),
     ("a merge that closed nothing while the issue stood open counts", ISSUE_PY,
      '    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]\n',
      '    merged = [p for p in in_life if p["closed_issue_at"] is not None or facts["closed_first_at"] is not None]\n',
@@ -902,6 +902,14 @@ ISSUE = [
     ("a read time that cannot be read is taken", ISSUE_PY,
      '        if not is_time(facts.get("read_at")):\n            return out(None, "linked_unreadable", [])\n', "",
      ISSUE_TESTS),
+    # Issue 280: an outsider's merge never makes an issue done.
+    ("an admitted outsider's merge makes the issue done", ISSUE_PY,
+     '        if any(p["class"] != "outside" for p in closers):\n', '        if closers:\n', ISSUE_TESTS),
+    ("an outsider's merge reads as any other close", ISSUE_PY,
+     '        return out(DECLINED, "closed_by_outsider_merge", [str(p["number"]) for p in merged if p["class"] == "outside"])\n', '        return out(DECLINED, "closed", [])\n', ISSUE_TESTS),
+    ("an issue's closed_by_outsider_merge calls nobody", ISSUE_PY, '    "closed_by_outsider_merge",\n', "", ISSUE_TESTS),
+    ("an outsider's merge that closed nothing is named", ISSUE_PY,
+     'closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]', 'closers = [p for p in merged if p["merged_at"] == first]', ISSUE_TESTS),
 ]
 
 MUTANTS = ISSUE + [
@@ -6952,10 +6960,10 @@ MUTANTS = ISSUE + [
      '    if max(len(a.encode()) for a in args) > LONGEST:\n',
      '    if False:\n', ('tests.test_harness.Engine.test_a_task_too_long_for_one_argument_is_refused_before_the_cli_starts',)),
     ('a CLI that cannot be started at the call ends the job', 'harness/engine.py',
-     '    except OSError:\n        reason = "engine_failed"\n',
+     '    except (OSError, ValueError):       # a call that cannot be made, as an argument Python refuses, is the Engine\'s fault\n        reason = "engine_failed"\n',
      '', ('tests.test_harness.Engine.test_a_cli_that_fails_or_runs_past_its_time_is_a_failed_result',)),
     ('a CLI that cannot be started for its version ends the job', 'harness/engine.py',
-     '    except (OSError, subprocess.SubprocessError):',
+     '    except (OSError, ValueError, subprocess.SubprocessError):',
      '    except subprocess.SubprocessError:', ('tests.test_harness.Engine.test_a_cli_that_fails_or_runs_past_its_time_is_a_failed_result',)),
     ('a cost of true is kept', 'harness/engine.py',
      'isinstance(cost, (int, float)) and not isinstance(cost, bool) and',
@@ -7257,8 +7265,8 @@ MUTANTS = ISSUE + [
     # Decision 0120: the gate's bar, of the set and of each kind, and what closes it whatever the bar.
     ("a missed blocking case is left to the bar", 'harness/eval/__init__.py', ' \\\n            or blocking is False:', ':', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("a report that can't say of its blocking cases passes", 'harness/eval/__init__.py', ' or kinds is None or blocking is None:', ' or kinds is None:', ("tests.test_evals.EvalJob.test_the_gate_holds_its_bar_of_the_set_and_of_each_kind",)),
-    ("the report leaves the blocking word out", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed))', '\n                     None)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
-    ("the job always says the blocking cases passed", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed))', '\n                     True)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
+    ("the report leaves the blocking word out", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes)', '\n                     None, causes)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
+    ("the job always says the blocking cases passed", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes)', '\n                     True, causes)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("every severity must pass", 'harness/eval/__init__.py',
      'if isinstance(said.get("finding"), dict)\n            and (said["finding"].get("severity") == BLOCKING or said.get("criterion") in criteria)]',
      'if isinstance(said.get("finding"), dict)]', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
@@ -7303,12 +7311,12 @@ MUTANTS = ISSUE + [
     ("a case's own fault reads as passing the kind", 'harness/eval/__init__.py', 'if assessed[case] == (PASS, [])]', 'if assessed[case][0] == PASS]', ("tests.test_evals.EvalJob.test_each_kind_is_held_to_its_bar_where_the_cases_are",)),
     ("the kinds are held to the set's bar", 'harness/eval/__init__.py', '_clears(len(passed), len(cases), BAR_OF_A_KIND)', '_clears(len(passed), len(cases), BAR_OF_THE_SET)', ("tests.test_evals.EvalJob.test_each_kind_is_held_to_its_bar_where_the_cases_are",)),
     ("the report leaves the kinds out", 'harness/eval/__init__.py',
-     'split_ok(found, place), kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed))',
-     'split_ok(found, place), None,\n                     blocking_pass(found, place, assessed))', ("tests.test_evals.EvalJob.test_the_job_writes_each_kinds_word_and_the_judge_holds_it",)),
+     'split_ok(found, place), kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed), causes)',
+     'split_ok(found, place), None,\n                     blocking_pass(found, place, assessed), causes)', ("tests.test_evals.EvalJob.test_the_job_writes_each_kinds_word_and_the_judge_holds_it",)),
     ("a case not passed may name nothing", 'harness/eval/__init__.py', 'any((c["verdict"] == PASS) == bool(c["reasons"]) for c in document["cases"])', 'any(c["verdict"] == PASS and c["reasons"] for c in document["cases"])', ("tests.test_evals.EvalJob.test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release",)),
     ("the job always says each kind cleared", 'harness/eval/__init__.py',
-     'split_ok(found, place), kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed))',
-     'split_ok(found, place), {"finding": True, "met": True},\n                     blocking_pass(found, place, assessed))', ("tests.test_evals.EvalJob.test_the_job_writes_each_kinds_word_and_the_judge_holds_it",)),
+     'split_ok(found, place), kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed), causes)',
+     'split_ok(found, place), {"finding": True, "met": True},\n                     blocking_pass(found, place, assessed), causes)', ("tests.test_evals.EvalJob.test_the_job_writes_each_kinds_word_and_the_judge_holds_it",)),
     ("a report need not say of its kinds", 'schemas/eval-report.schema.json',
      '    "split_ok",\n    "kinds_pass",\n',
      '    "split_ok",\n', ("tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed",)),
@@ -7408,7 +7416,7 @@ MUTANTS = ISSUE + [
      """said = done.stderr[-TAIL:].replace(env[engine.CREDENTIAL_NAME], "***")\n            print("the CLI exited %d: %s" % (done.returncode, said))""",
      ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ("an Engine fault reads as the reviewer's", 'harness/eval/__init__.py',
-     '        if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:\n            assessed[entry["id"]] = ("unreadable", [result["reason"]])\n            continue\n',
+     '        if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:\n            assessed[entry["id"]] = ("unreadable", [result["reason"]])\n            causes[entry["id"]] = seen_of(review)\n            continue\n',
      '', ("tests.test_evals.EvalJob.test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers",)),
     ("the reviewer's own failure reads as the Engine's", 'harness/eval/__init__.py',
      'result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:',
@@ -7492,8 +7500,8 @@ MUTANTS = ISSUE + [
      ' or under not in given_of[kind]):',
      '):', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
     ('a case GitHub did not answer stops the fetch', 'harness/eval/__init__.py',
-     '        except Exception:\n            data, code = None, "unanswered"\n',
-     "        except KeyError:\n            data, code = None, 'unanswered'\n", ('tests.test_evals.EvalJob.test_a_case_the_home_does_not_answer_is_unanswered_and_the_rest_are_fetched',)),
+     '        except Exception as err:\n            data, code = None, "unanswered"\n',
+     "        except KeyError as err:\n            data, code = None, 'unanswered'\n", ('tests.test_evals.EvalJob.test_a_case_the_home_does_not_answer_is_unanswered_and_the_rest_are_fetched',)),
     ('a case that is no eval-case is reviewed', 'harness/eval/__init__.py',
      '        if _errors(case, "eval-case") or case["id"]',
      '        if case["id"]', ('tests.test_evals.EvalJob.test_a_case_that_is_no_case_of_this_set_is_unreadable',)),
@@ -9920,7 +9928,7 @@ MUTANTS = ISSUE + [
      '    config = dict(live.configuration(), release=release)\n',
      '    config = dict(live.configuration(), release="factory/v0.0.1")\n', ('tests.test_evals.EvalJob.test_a_case_is_reviewed_by_the_task_and_the_engine_a_live_run_is',)),
     ('a case the review raises on ends the step', 'harness/eval/__init__.py',
-     '        except Exception:\n            assessed[entry["id"]] = ("unreadable", ["unanswered"])\n            continue\n',
+     '        except Exception as err:\n            assessed[entry["id"]] = ("unreadable", ["unanswered"])\n            causes[entry["id"]] = dict(cause_of(err), **seen_of(review))\n            continue\n',
      '', ('tests.test_evals.EvalJob.test_the_run_step_writes_the_report_whatever_a_case_raised',)),
     ('a stopped case loses its code', 'harness/eval/__init__.py',
      '[stop.code if stop.code in eval_result_codes() else "unanswered"]',
@@ -9968,7 +9976,7 @@ MUTANTS = ISSUE + [
      'assessed[entry["id"]] = (said["verdict"], said["reasons"])',
      'assessed[entry["id"]] = (said["verdict"], [])', ('tests.test_evals.EvalJob.test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded',)),
     ('an interrupt during a case leaves no report', 'harness/eval/__init__.py',
-     '        except BaseException:\n            interrupted = True\n            assessed[entry["id"]] = ("unreadable", ["unanswered"])\n            continue\n',
+     '        except BaseException as err:\n            interrupted = True\n            assessed[entry["id"]] = ("unreadable", ["unanswered"])\n            causes[entry["id"]] = cause_of(err)\n            continue\n',
      '', ('tests.test_evals.EvalJob.test_an_interrupt_asks_nothing_more_and_the_report_is_written',)),
     ('an interrupt goes on asking the model', 'harness/eval/__init__.py',
      '            interrupted = True\n',
@@ -10015,8 +10023,8 @@ MUTANTS = ISSUE + [
      'return min(list(kinds.values()).count(kind) for kind in KINDS) >= KIND_LEAST \\\n        and len(',
      'return max(list(kinds.values()).count(kind) for kind in KINDS) >= KIND_LEAST \\\n        and len(', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
     ('the report is not told the split', 'harness/eval/__init__.py',
-     'split_ok(found, place), kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed))',
-     'None, kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed))', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
+     'split_ok(found, place), kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed), causes)',
+     'None, kinds_pass(found, place, assessed),\n                     blocking_pass(found, place, assessed), causes)', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
     ('a case not read counts as no kind', 'harness/eval/__init__.py', '        except Stop:\n            return None\n        said = case.get', '        except Stop:\n            continue\n        said = case.get', ('tests.test_evals.EvalJob.test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count',)),
     ('a case of no kind is counted as nothing', 'harness/eval/__init__.py',
      '        if not isinstance(kind, str) or kind not in KINDS:\n            return None\n',
@@ -10149,6 +10157,59 @@ MUTANTS = ISSUE + [
      'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
     ('an eval dispatch of id True is read', 'adapters/candidate.py',
      'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    # Decision 0131: an unanswered case says why, by its class, its place and its code, never in words.
+    ("an unanswered case's class is not kept", 'harness/eval/__init__.py',
+     '        said["exception"] = type(err).__name__\n', '        pass\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ("an unanswered case's place is not read", 'harness/eval/__init__.py',
+     '        at = place if AT.fullmatch(place) else at\n', '        at = at\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ("an unanswered case's place is the first line it passed", 'harness/eval/__init__.py',
+     '        at = place if AT.fullmatch(place) else at\n', '        at = at or (place if AT.fullmatch(place) else None)\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ("a step's code the report lacks is not kept", 'harness/eval/__init__.py',
+     '                causes[entry["id"]] = {"stop": stop.code}\n', '                pass\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ('what a case raised is not kept', 'harness/eval/__init__.py',
+     '            causes[entry["id"]] = dict(cause_of(err), **seen_of(review))\n', '            pass\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ('what an interrupt raised is not kept', 'harness/eval/__init__.py',
+     '            interrupted = True\n            assessed[entry["id"]] = ("unreadable", ["unanswered"])\n            causes[entry["id"]] = cause_of(err)\n', '            interrupted = True\n            assessed[entry["id"]] = ("unreadable", ["unanswered"])\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ('a case the Engine stopped says nothing of the CLI', 'harness/eval/__init__.py',
+     '            causes[entry["id"]] = seen_of(review)\n', '            pass\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ("what the home's read raised is not kept", 'harness/eval/__init__.py',
+     '            data, code = None, "unanswered"\n            causes[entry["id"]] = cause_of(err)\n', '            data, code = None, "unanswered"\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ('the report carries no cause', 'harness/eval/__init__.py',
+     '**({"cause": causes[e["id"]]} if causes.get(e["id"]) else {})', '**{}', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ("the judge's line names no cause", 'harness/eval/__init__.py',
+     '                     + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))])', '                     )', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ("a CLI's subtype is kept whatever it says", 'harness/eval/__init__.py',
+     'seen["subtype"] if seen["subtype"] in SUBTYPES else "other"', 'seen["subtype"]', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ("a call's exception is not kept", 'harness/eval/__init__.py',
+     '        said["exception"] = seen["raised"]\n', '        pass\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ('what the call raised is not watched', 'harness/eval/run.py',
+     '            seen["raised"] = type(err).__name__\n', '            pass\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ('a class of any shape is kept', 'harness/eval/__init__.py',
+     '    if CLASS.fullmatch(type(err).__name__):\n', '    if True:\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ("a step's code in words is kept", 'harness/eval/__init__.py',
+     ' and isinstance(stop.code, str) and WORD.fullmatch(stop.code):', ':', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ('an exit of any value is kept', 'harness/eval/__init__.py',
+     'if type(seen.get("exit")) is int and -255 <= seen["exit"] <= 255:', 'if seen.get("exit") is not None:', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ('a timeout of any word is kept', 'harness/eval/__init__.py',
+     '    if seen.get("timed_out") is True:\n', '    if seen.get("timed_out"):\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ("a call's exception of any shape is kept", 'harness/eval/__init__.py',
+     'if isinstance(seen.get("raised"), str) and CLASS.fullmatch(seen["raised"]):', 'if isinstance(seen.get("raised"), str):', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ("causes of the home's read that cannot be read stop the run", 'harness/eval/__init__.py',
+     '    except Stop:\n        causes = {}\n', '    except Stop:\n        raise\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
+    ('a version call Python refuses raises past the Engine', 'harness/engine.py',
+     '    except (OSError, ValueError, subprocess.SubprocessError):', '    except (OSError, subprocess.SubprocessError):', ('tests.test_harness.Engine.test_an_answer_python_cannot_parse_or_a_call_it_refuses_is_the_engines',)),
+    ("the CLI's subtype is not watched", 'harness/eval/run.py',
+     '        seen["subtype"] = said.get("subtype") if isinstance(said, dict) else None\n', '        seen["subtype"] = None\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ("the CLI's exit is not watched", 'harness/eval/run.py',
+     '        seen["exit"] = done.returncode\n', '        seen["exit"] = None\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ('a call that timed out is not watched', 'harness/eval/run.py',
+     '            seen["timed_out"] = True\n', '            pass\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ("what the CLI said of one case is another's", 'harness/eval/run.py',
+     '        seen.clear()\n', '        pass\n', ('tests.test_evals.EvalJob.test_a_case_the_engine_stopped_says_what_the_cli_said_of_it',)),
+    ("an answer nested past Python's parse raises", 'harness/engine.py',
+     '    except (ValueError, RecursionError):', '    except ValueError:', ('tests.test_harness.Engine.test_an_answer_python_cannot_parse_or_a_call_it_refuses_is_the_engines',)),
+    ('a call Python refuses raises past the Engine', 'harness/engine.py',
+     '    except (OSError, ValueError):', '    except OSError:', ('tests.test_harness.Engine.test_an_answer_python_cannot_parse_or_a_call_it_refuses_is_the_engines',)),
     # Issue 424: the check on OUT's parent in the three that lacked it, an ACL in all, and the rest of what the reads left.
     ("P-13's trial makes OUT under a directory its group can write to", 'tools/trial_p13_cli.sh',
      '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
@@ -10686,6 +10747,51 @@ MUTANTS = ISSUE + [
     ("P-56's first token is narrowed to metadata, not pull_requests", "tools/trial_p56_comments.sh", 'with_token pull_requests\n', 'with_token metadata\n', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56's token is not narrowed", "tools/trial_p56_comments.sh", '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56's token reaches every repo", "tools/trial_p56_comments.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    # Issue 519: P-58's reader leg, the same script with the reader's installation and the port's GraphQL read.
+    ("P-58's first token is narrowed to metadata, not pull_requests", "tools/trial_p58_edits.sh", 'with_token pull_requests\n', 'with_token metadata\n', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58's token is not narrowed", "tools/trial_p58_edits.sh", '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58's token reaches every repo", "tools/trial_p58_edits.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 mints for another App's installation", "tools/trial_p58_edits.sh", '["apps"]["reader"]', '["apps"]["controller"]', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 asks no description edits", "tools/trial_p58_edits.sh", 'userContentEdits(first:100)', 'commits(first:1)', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 sends a variable its query does not declare", "tools/trial_p58_edits.sh", '"variables": {"owner": owner, "name": name, "number": int(sys.argv[2])}', '"variables": {"owner": owner, "name": name, "number": int(sys.argv[2]), "text": sys.argv[2]}', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 sends no query", "tools/trial_p58_edits.sh", '-d @"$out/query.json" "$API/graphql"', '"$API/graphql"', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 keeps a read without its redaction", "tools/trial_p58_edits.sh",
+     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 asks no edit's editor", "tools/trial_p58_edits.sh", 'deletedAt editor{__typename login ... on User', 'deletedAt editor{... on User', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 asks the repo by its name as its owner", "tools/trial_p58_edits.sh", 'repository(owner:$owner,name:$name)', 'repository(owner:$name,name:$owner)', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    # P-56's own safeguards, held on P-58's copy of its script (the Claude security read).
+    ('P-58 loses a token still in the answer it holds when stopped', "tools/trial_p58_edits.sh", 'if [ -z "$token" ] && [ -n "${minted:-}" ]; then', 'if false; then', ('tests.test_tools.ReachScript.test_a_stop_while_the_token_is_read_revokes_it_from_the_answer_still_held',)),
+    ('P-58 takes an ACL that lets another write', "tools/trial_p58_edits.sh", 'then found="an ACL"; fi', 'then :; fi', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ('P-58 takes an ACL it cannot read', "tools/trial_p58_edits.sh", '??????????+*) found="an ACL" ;; esac', '??????????+*) ;; esac', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ('P-58 takes an ls that fails both ways', "tools/trial_p58_edits.sh", 'found="ls failed"', 'found=""', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-58 reads OUT's parent's ACL alone", "tools/trial_p58_edits.sh", 'listed=$(ls -lde "$above" 2>/dev/null)', 'listed=$(ls -lde "$(dirname -- "$1")" 2>/dev/null)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-58 reads OUT's parent's + alone", "tools/trial_p58_edits.sh", 'elif listed=$(ls -ld "$above"); then', 'elif listed=$(ls -ld "$(dirname -- "$1")"); then', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ('P-58 reads a head in the body', "tools/trial_p58_edits.sh", 'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    ('P-58 takes the first of several heads', "tools/trial_p58_edits.sh", '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    ("P-58 may ask the Factory's own repo", "tools/trial_p58_edits.sh", ' or sys.argv[1] == "combsmith/software-factory":', ':', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 takes a number of any shape', "tools/trial_p58_edits.sh", '    ""|0*|*[!0-9]*) echo', '    "") echo', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 takes any count of words', "tools/trial_p58_edits.sh", 'if [ "$#" -ne 4 ]; then', 'if [ "$#" -lt 3 ]; then', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 takes an OUT another made after the check', "tools/trial_p58_edits.sh", 'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it',)),
+    ('P-58 makes OUT under a directory its group can write to', "tools/trial_p58_edits.sh", '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 makes OUT under a directory others can write to', "tools/trial_p58_edits.sh", '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 makes OUT under a directory another user owns', "tools/trial_p58_edits.sh", '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 takes a find that fails for a directory none can write to', "tools/trial_p58_edits.sh", '        found="find failed"\n', '        found=""\n', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ("P-58 reads OUT's parent alone, not the directories above it", "tools/trial_p58_edits.sh", '    above=$(dirname -- "$above")\n', '    break\n', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 reads a mint cut short as none', "tools/trial_p58_edits.sh", '    if [ "$minted_status" = 201 ] && { [ -z "$token" ] || [ "$minted_exit" != 0 ]; }; then\n', '    if false; then\n', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ("P-58 loses a token a refused mint's cut answer held", "tools/trial_p58_edits.sh", '        token=$(token_in "$minted")    # a refusal cut short', '        token=""    # a refusal cut short', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ('P-58 drops a token a refused mint held', "tools/trial_p58_edits.sh", '        minted=""\n        echo "trial_p58_edits: $slug: the mint answered', '        token=""\n        minted=""\n        echo "trial_p58_edits: $slug: the mint answered', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ("P-58 writes a refused mint's answer to scratch", "tools/trial_p58_edits.sh", '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ('P-58 leaves its token live on a signal', "tools/trial_p58_edits.sh", "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.EditsReadTrial.test_a_signal_mid_read_revokes_the_live_token',)),
+    ('P-58 goes on past a revocation that fails', "tools/trial_p58_edits.sh", '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n', ('tests.test_tools.EditsReadTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so',)),
+    ('P-58 keeps a read curl failed', "tools/trial_p58_edits.sh", '    if [ "$read_ok" = 0 ] || [ -z "$status" ]; then\n', '    if false; then\n', ('tests.test_tools.EditsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked',)),
+    ('P-58 goes on past a capture the redaction refused', "tools/trial_p58_edits.sh", '> "$out/clean-$n") 2> "$out/redacted-$n"\n', '> "$out/clean-$n") 2> "$out/redacted-$n" || true\n', ('tests.test_tools.EditsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked',)),
+    ('P-58 takes a key file it cannot read', "tools/trial_p58_edits.sh", 'if [ ! -r "$key" ]; then', 'if false; then', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 trusts a mint whose transfer failed', "tools/trial_p58_edits.sh", ' || [ "$minted_exit" != 0 ]', '', ('tests.test_tools.EditsReadTrial.test_a_mint_answered_whole_by_a_transfer_that_failed_is_revoked_and_told',)),
+    ('P-58 may write OUT inside the repo', "tools/trial_p58_edits.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ("P-58's OUT is read without its links", "tools/trial_p58_edits.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ('tests.test_tools.EditsReadTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused',)),
+    ("P-58's raw answers may be kept inside the repo", "tools/trial_p58_edits.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted',)),
+    ("P-58 keeps the first head's status", "tools/trial_p58_edits.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ('tests.test_tools.EditsReadTrial.test_the_status_kept_is_the_last_heads',)),
     ("P-56 mints for another App's installation", "tools/trial_p56_comments.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56 keeps a read without its redaction", "tools/trial_p56_comments.sh",
      '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
@@ -10903,6 +11009,34 @@ MUTANTS = ISSUE + [
     ('a context run counts one new file of a folder alone', 'tools/context_eval.py', '            at[where]["added"] += change["added"]\n', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
     ('the context eval hashes the sentence with its newline', 'tools/context_eval.sh', 'task_sha256=$(printf \'%s\' "$sentence" |', 'task_sha256=$(printf \'%s\\n\' "$sentence" |', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
     ("the context eval names the agent's mutants in what it checked", 'tools/context_eval.sh', '"added": len(json.loads(a[10])["names"])},', '"added": json.loads(a[10])["names"]},', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
+    # Issue 511: a run passes only having looked nowhere else, and the judge runs in a tree of its own with the export's
+    # mutation runner, which reads the tests it names in a process of their own.
+    ('a context run that looked outside its export passes', 'tools/context_eval.py', ' and outside == 0 and UNREADABLE not in ran)', ' and UNREADABLE not in ran)', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a context run with a command it could not read passes', 'tools/context_eval.py', ' and outside == 0 and UNREADABLE not in ran)', ' and outside == 0)', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a path a command names outside the export is not counted', 'tools/context_eval.py', '                outside += _outside_named(given[COMMAND_INPUT], work)\n', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a glob outside the export is not counted', 'tools/context_eval.py', '                outside += _outside_named(given.get("pattern"), work)\n', '                pass\n', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('an absolute path inside the export counts as outside', 'tools/context_eval.py', ' or word.startswith("/") and _relative(word.split("*")[0] or "/", work) is not None:', ':', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('the home named by a variable is not outside', 'tools/context_eval.py', '|\\$\\{?HOME\\b\\}?', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('the judge reads no list written after another', 'tools/context_eval.py', '        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add):\n            gather(value.left)\n            gather(value.right)\n', '        if False:\n            pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge reads no list through its name', 'tools/context_eval.py', '            seen.add(value.id)\n            gather(named[value.id][0])\n', '            seen.add(value.id)\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps an entry that is code', 'tools/context_eval.py', '        return (own or replace) and all(_data(arg, bound) for arg in node.args)\n', '        return True\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ("the judge refuses an entry in the file's own style", 'tools/context_eval.py', '    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):\n        return _data(node.left, bound) and _data(node.right, bound)\n', '', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps what the agent changed outside the lists', 'tools/context_eval.py', '    other = other or ast.dump(made_module) != ast.dump(left_module)\n', '', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps an entry the agent changed beside the one it replaced', 'tools/context_eval.py', '            if same is not None and ast.dump(same) not in found and id(same) not in replaced:', '            if False:', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge records no entry the agent took out', 'tools/context_eval.py', '            other = True        # an entry the agent took out', '            pass        # an entry the agent took out', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge adds an entry after one with no comma', 'tools/context_eval.py', '                    edits.append((end, end, ","))\n', '                    pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge reads no name a tuple binds', 'tools/context_eval.py', '                names.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))', '                names.update([target.id] if isinstance(target, ast.Name) else [])', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps a name the export does not bind', 'tools/context_eval.py', '        return node.id in bound\n', '        return True\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps a target outside the tree', 'tools/context_eval.py', ' and ".." not in target.split("/")\n', '\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ("the judge's tree keeps a file the agent added outside kernel and tests", 'tools/context_eval.py', '        mine = rel.startswith(("kernel/", "tests/")) and PATH.match(rel)\n', '        mine = PATH.match(rel)\n', ('tests.test_tools.ContextEval.test_the_judge_runs_in_a_tree_of_its_own',)),
+    ("the judge's tree keeps a file the agent removed", 'tools/context_eval.py', '            (judge / rel).unlink()\n', '            pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_in_a_tree_of_its_own',)),
+    ("the context eval judges in the agent's tree", 'tools/context_eval.sh', '    (cd "$scratch/judge" && env -i', '    (cd "$work" && env -i', ('tests.test_tools.ContextEvalScript.test_a_verdict_that_fails_is_recorded_and_fails_the_run',)),
+    ('the context eval starts with the held-out test already there', 'tools/context_eval.sh', '[ ! -e "$6" ] && [ ! -L "$6" ] || refuse "HELD_OUT is already there; it is placed only once the agent has stopped"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval judges a held-out test never placed', 'tools/context_eval.sh', '[ -f "$held_out" ] && [ ! -L "$held_out" ] || refuse "HELD_OUT is not a file at the place named; nothing was judged"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval starts with a clone of the private home in reach', 'tools/context_eval.sh', '    [ ! -e "$place" ] && [ ! -L "$place" ] || refuse "a clone of the private home is still within reach; move it out first"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval starts naming no place a clone was', 'tools/context_eval.sh', '[ -n "${CONTEXT_EVAL_AWAY:-}" ] ||\n    refuse', 'true ||\n    refuse', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the mutation runner imports the tests it names in its own process', 'tools/mutants.py', "    missing_of = _missing_apart([test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())], root)\n", "    missing_of = {test: _missing(test) for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}\n", ('tests.test_tools.Mutants.test_a_test_module_is_read_in_a_process_of_its_own',)),
+    ("the mutation runner reads a test's name in its own process", 'tools/mutants.py', '            said = subprocess.run([sys.executable, "-c", NAMING], cwd=str(root), input=json.dumps(names),\n                                  capture_output=True, text=True, timeout=TIMEOUT)\n            found = json.loads(said.stdout.strip().splitlines()[-1]) if said.stdout.strip() else {}\n', '            found = {name: _missing(name) for name in names}\n', ('tests.test_tools.Mutants.test_a_test_module_is_read_in_a_process_of_its_own',)),
     # Issue 414: eval is read only where the shell may run it, never the word in a quoted title or message.
     ("eval in a quoted title is read as code", "tools/hooks/shell.py",
      'PROSE = re.compile(r"\'[^\']*\'|\\"(?:[^\\"\\\\$`]|\\\\.)*\\"")', 'PROSE = re.compile(r"\'[^\']*\'")', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
@@ -12255,12 +12389,13 @@ def modules(cwd: pathlib.Path) -> list:
     return [name for name in names if name not in slow] + [name for name in names if name in slow]
 
 
-def unnamed(mutants: list) -> list:
+def unnamed(mutants: list, root: pathlib.Path = ROOT) -> list:
     """Why each mutant in `mutants` cannot be run: it names no test, or a test it names does not exist. Every mutant
     names the tests that kill it, as its fifth part, each the dotted name of a test module, class or method that
     exists, so that a kill is confirmed in seconds and a misspelt name is never an ERROR in CI (issue 217), and none of
     them a class in WHOLE_TOO_LONG or the module that holds it."""
     problems = []
+    missing_of = _missing_apart([test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())], root)
     for mutant in mutants:
         name, tests = mutant[0], mutant[4] if len(mutant) > 4 else ()
         if not tests:
@@ -12269,10 +12404,32 @@ def unnamed(mutants: list) -> list:
             if any(whole == test or whole.startswith(test + ".") for whole in WHOLE_TOO_LONG):
                 problems.append("%r names %s, which holds a class too slow to name whole beside the other workers; name "
                                 "the method that kills it" % (name, test))
-            missing = _missing(test)
+            missing = missing_of[test]
             if missing:
                 problems.append("%r names %s, %s" % (name, test, missing))
     return problems
+
+
+NAMING = """import json, sys
+from tools.mutants import _missing
+print(json.dumps({name: _missing(name) for name in json.loads(sys.stdin.read())}))
+"""
+
+
+def _missing_apart(tests: list, root: pathlib.Path = ROOT) -> dict:
+    """`_missing` of each dotted name in `tests`, read in a process of its own in `root`: a test module's import runs
+    there and never in the runner's, where a module that patched the runner could say a mutant it survived was killed
+    (issue 511). A name the other process does not answer for is one that cannot be read."""
+    names = sorted({test for test in tests if isinstance(test, str)})
+    found = {}
+    if names:
+        try:
+            said = subprocess.run([sys.executable, "-c", NAMING], cwd=str(root), input=json.dumps(names),
+                                  capture_output=True, text=True, timeout=TIMEOUT)
+            found = json.loads(said.stdout.strip().splitlines()[-1]) if said.stdout.strip() else {}
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            found = {}
+    return {test: found[test] if isinstance(found.get(test), str) else "which could not be read" for test in names}
 
 
 def _case(found) -> bool:

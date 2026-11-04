@@ -514,6 +514,18 @@
       "bound": null
     },
     {
+      "from": "in_review",
+      "to": "declined",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "declined",
+      "by": "platform",
+      "bound": null
+    },
+    {
       "from": "new",
       "to": "held",
       "by": "factory",

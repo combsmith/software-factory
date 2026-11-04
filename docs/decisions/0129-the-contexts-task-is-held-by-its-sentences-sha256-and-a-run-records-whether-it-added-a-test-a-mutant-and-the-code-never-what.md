@@ -1,6 +1,6 @@
 # 0129. The context's task is held by its sentence's sha256, and a run records whether it added a test, a mutant and the code, never what
 
-Status: accepted. Replaces `docs/decisions/0042-the-context-is-tested-by-a-task-run-outside-ci-and-held-as-a-fixture.md`. The Maintainer's choice of 2026-11-03, through the Factory Builder, for "The context's test: a fresh agent adds a rule to the Kernel without being told how" (issue 8): hash only, so that the task's rule is named nowhere in this repo, even once the runs are recorded. It keeps 0042's rows, restated below, but for what the record holds of the task and of what the agent added, and it says what trial P-26 found.
+Status: replaced by `docs/decisions/0133-a-context-run-passes-only-having-looked-nowhere-outside-its-export-and-is-judged-in-a-tree-of-its-own.md`.
 
 ## Decision
 
