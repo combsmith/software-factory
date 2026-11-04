@@ -1,0 +1,279 @@
+{
+  "schema": "trial/1",
+  "trial": "P-58",
+  "question": "Does a pull request's `lastEditedAt` move when its description is edited, and not when only its title is, or when its head is pushed; and does an edit by a bot or an App move it?",
+  "pass": "Written 2026-11-03, before the run, at the top of tools/trial_p58_edits.sh: pass if a token for the reader's installation narrowed to pull_requests: read, on the canary alone, is answered 200 to the query the facts port will send, word for word (issue 526), with no errors, and with the pull request's lastEditedAt, its editor, and its userContentEdits, each edit with its editedAt and its editor's login and type, the same as the Maintainer's login read them for that pull request in trials/P-58.json; fail otherwise, and a rule that reads them through the reader waits on what the answer says. Recorded, deciding nothing: what a token, narrowed to metadata: read alone is answered for the same read. This is the reader App's leg of P-58, owed by trials/P-58.json, run by the Maintainer at his terminal on 2026-11-04 from a main checkout: each token was minted from the reader's key, used once and revoked, GitHub answering 204 to each revocation (each revocation recorded here, as the script wrote its status; the mints not). Passed. The pull_requests: read token was answered 200 with no errors: lastEditedAt 2026-11-03T19:24:25Z, editor github-actions, a Bot, and five edits, totalCount 5 with no next page, the same as the Maintainer's last read in trials/P-58.json by editedAt, login and type. Each edit names its editor's type, login and databaseId: github-actions, coderabbitai and cubic-dev-ai each a Bot, don-petry a User twice, so bots and Apps edit a description as a person does. The entry for the opening text has an editedAt, 19:19:03, earlier than its createdAt, 19:19:26, which is cubic's edit's time: an edit is told by its editedAt, not its createdAt. The metadata: read token was answered the same, word for word; but the canary is public, and a public repo's pull requests are readable with no grant at all, so this says nothing of what metadata: read alone is answered on a private repo, nor that pull_requests: read is the grant that reads these there: the private-repo case for both grants stays open until a private Consumer repo exists (slice 3), as P-56's does.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-04T17:47:41Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (tools/trial_p58_edits.sh): pull request 96's lastEditedAt, editor and userContentEdits, with an installation token, narrowed to pull_requests: read, used once and revoked",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28",
+          "content-type": "application/json"
+        },
+        "body": {
+          "query": "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 96
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 04 Nov 2026 17:47:42 GMT",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1793818062",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "1",
+          "x-github-request-id": "E8BA:227ADE:15B93F4:46E4C3C:6AEB6FBE",
+          "server": "github.com"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "lastEditedAt": "2026-11-03T19:24:25Z",
+                "editor": {
+                  "__typename": "Bot",
+                  "login": "github-actions"
+                },
+                "userContentEdits": {
+                  "totalCount": 5,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpHPAAAAAR2dqow="
+                  },
+                  "nodes": [
+                    {
+                      "editedAt": "2026-11-03T19:24:25Z",
+                      "createdAt": "2026-11-03T19:24:25Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "github-actions",
+                        "databaseId": 41898282
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:22:44Z",
+                      "createdAt": "2026-11-03T19:22:44Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "coderabbitai",
+                        "databaseId": 136622811
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:20:23Z",
+                      "createdAt": "2026-11-03T19:20:23Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:19:26Z",
+                      "createdAt": "2026-11-03T19:19:26Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "cubic-dev-ai",
+                        "databaseId": 191113872
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:19:03Z",
+                      "createdAt": "2026-11-03T19:19:26Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (tools/trial_p58_edits.sh): pull request 96's lastEditedAt, editor and userContentEdits, with an installation token, narrowed to metadata: read, used once and revoked",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28",
+          "content-type": "application/json"
+        },
+        "body": {
+          "query": "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 96
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 04 Nov 2026 17:47:43 GMT",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1793818062",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "2",
+          "x-github-request-id": "E8BE:304CBB:14125B8:41B158C:6AEB6FBF",
+          "server": "github.com"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "lastEditedAt": "2026-11-03T19:24:25Z",
+                "editor": {
+                  "__typename": "Bot",
+                  "login": "github-actions"
+                },
+                "userContentEdits": {
+                  "totalCount": 5,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpHPAAAAAR2dqow="
+                  },
+                  "nodes": [
+                    {
+                      "editedAt": "2026-11-03T19:24:25Z",
+                      "createdAt": "2026-11-03T19:24:25Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "github-actions",
+                        "databaseId": 41898282
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:22:44Z",
+                      "createdAt": "2026-11-03T19:22:44Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "coderabbitai",
+                        "databaseId": 136622811
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:20:23Z",
+                      "createdAt": "2026-11-03T19:20:23Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:19:26Z",
+                      "createdAt": "2026-11-03T19:19:26Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "cubic-dev-ai",
+                        "databaseId": 191113872
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-03T19:19:03Z",
+                      "createdAt": "2026-11-03T19:19:26Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

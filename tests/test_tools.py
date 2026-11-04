@@ -11052,6 +11052,52 @@ elif "/issues/" in url:''', 1)
 
 
 
+class EditsReader(unittest.TestCase):
+    def test_the_reader_reads_a_pull_requests_description_edits_as_the_maintainers_login_did(self):
+        # trials/P-58.reader.json: the reader's token, narrowed to pull_requests: read, sends the query the facts port will
+        # (issue 526) and is answered with the edits trials/P-58.json read through the Maintainer's login, each editor
+        # with its kind, login and databaseId; then one narrowed to metadata: read alone, on the public canary, the same.
+        fixture = json.loads((ROOT / "trials" / "P-58.reader.json").read_text())
+        maintainers = json.loads((ROOT / "trials" / "P-58.json").read_text())["exchanges"][-1]
+        self.assertEqual(fixture["verdict"], "pass")
+        first, revoked, second, revoked_again = fixture["exchanges"]
+        self.assertIn("narrowed to pull_requests: read", first["request"]["call"])
+        self.assertIn("narrowed to metadata: read", second["request"]["call"])
+        for exchange in fixture["exchanges"]:
+            self.assertEqual(exchange["request"]["as"], {"kind": "app", "name": "combsmith-sf-reader"})
+        for revoke in (revoked, revoked_again):
+            self.assertEqual((revoke["request"]["call"], revoke["response"]["status"]), ("DELETE /installation/token", 204))
+        for read in (first, second):
+            self.assertEqual(read["request"]["body"]["query"], EditsReadTrial.QUERY)
+            self.assertEqual(read["request"]["body"]["variables"],
+                             {"owner": check_trials.ORG, "name": check_trials.CANARY, "number": 96})
+            self.assertEqual(read["response"]["status"], 200)
+            self.assertNotIn("errors", read["response"]["body"])
+        self.assertEqual(first["response"]["body"], second["response"]["body"])
+
+        def edits(read):
+            pr = read["response"]["body"]["data"]["repository"]["pullRequest"]
+            return pr["lastEditedAt"], pr["editor"], sorted(
+                (n["editedAt"], n["editor"]["login"], n["editor"]["__typename"]) for n in pr["userContentEdits"]["nodes"])
+
+        self.assertEqual(edits(first), edits(maintainers))
+        pr = first["response"]["body"]["data"]["repository"]["pullRequest"]
+        nodes = pr["userContentEdits"]["nodes"]
+        # Read whole, as the port reads them: as many as the count, and no next page.
+        self.assertEqual((pr["userContentEdits"]["totalCount"], pr["userContentEdits"]["pageInfo"]["hasNextPage"]),
+                         (len(nodes), False))
+        self.assertTrue(nodes)
+        for node in nodes:
+            self.assertIn(node["editor"]["__typename"], ("User", "Bot"))
+            self.assertIsInstance(node["editor"]["login"], str)
+            self.assertIsInstance(node["editor"]["databaseId"], int)
+        # Bots and Apps edit a description as a person does, and an edit is told by its editedAt: the opening text's
+        # entry was created with the first later edit, after the time it was edited.
+        self.assertIn("Bot", {node["editor"]["__typename"] for node in nodes})
+        self.assertTrue([node for node in nodes if node["editedAt"] < node["createdAt"]])
+        self.assertEqual(pr["lastEditedAt"], max(node["editedAt"] for node in nodes))
+
+
 class Rulesets(unittest.TestCase):
     """`config/rulesets.json` against `config/defaults.json` (issues 62 and 95): a value held in both agrees."""
 
