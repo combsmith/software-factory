@@ -485,9 +485,17 @@ class Engine(unittest.TestCase):
         self.assertFalse(engine.read_alone(["claude", "-p", "x", "--"] + engine.READ))
         self.assertFalse(engine.read_alone(full + ["--"]))
         for flag in ("--tools", "--allowedTools", "--permission-mode", "--setting-sources"):
+            for value in ("Bash", "-"):
+                given = list(full)
+                given.insert(given.index(flag) + 2, value)
+                self.assertFalse(engine.read_alone(given), (flag, value))
+        # An option that takes a value takes the argument after it, a read flag too, which then holds nothing; one that
+        # takes none does not (the Claude review of the follow-on).
+        for flag in ("--tools", "--allowedTools", "--permission-mode", "--restricted", "--setting-sources"):
             given = list(full)
-            given.insert(given.index(flag) + 2, "Bash")
+            given.insert(given.index(flag), "--append-system-prompt")
             self.assertFalse(engine.read_alone(given), flag)
+        self.assertTrue(engine.read_alone(["claude", "-p", "x", "--strict-mcp-config"] + engine.READ))
         # What may never stand beside the read tools, named here and not read from WIDER, so that an option dropped from
         # it is noticed (decision 0138).
         forbidden = ("--add-dir", "--settings", "--mcp-config", "--plugin-dir", "--plugin-url", "--agents", "--agent",
@@ -559,8 +567,16 @@ class Engine(unittest.TestCase):
         # 312). A call that would set it and could run a tool is never made.
         self.assertTrue(engine.no_tool(["claude", "-p", "x", "--tools", ""]))
         for given in (["claude", "-p", "x"], ["claude", "--tools", "Bash"], ["claude", "--tools", "", "--tools", "Bash"],
-                      ["claude", "--tools"]):
+                      ["claude", "--tools"],
+                      # As the CLI reads them (the security pass on Astra's second read of 0138): after `--` no option is
+                      # read, a list option reads every value up to the next option, and either form names an option.
+                      ["claude", "-p", "x", "--", "--tools", ""], ["claude", "-p", "x", "--tools", "", "Bash"],
+                      ["claude", "-p", "x", "--tools=Bash", "--tools", ""], ["claude", "-p", "x", "--tools", "", "--"],
+                      ["claude", "-p", "x", "--tools", "", "--mcp-config", "/m.json"],
+                      ["claude", "-p", "x", "--tools", "", "--add-dir=/"], ["claude", "-p", "x", "--tools", "", "-"],
+                      ["claude", "-p", "x", "--append-system-prompt", "--tools", ""]):
             self.assertFalse(engine.no_tool(given), msg=given)
+        self.assertTrue(engine.no_tool(["claude", "-p", "x", "--tools", "", "--model", "m"]))
         original = engine.argv
         engine.argv = lambda *a: original(*a)[:-2] + ["--tools", "Write"]
         try:
@@ -1096,6 +1112,9 @@ class Head(unittest.TestCase):
             ("a pax header with no member after it",
              zipper(plain[:-1024] + support.tar_member("pax", b"x", support.pax({"path": top + "/missing.py"}))
                     + b"\0" * 1024), "ends before the member its last pax header names"),
+            ("an empty pax header with no member after it",
+             zipper(plain[:-1024] + support.tar_member("pax", b"x", support.pax({})) + b"\0" * 1024),
+             "ends before the member its last pax header names"),
             ("a folder named twice", support.tarball(sha, [("x/", b"5", b""), ("x/", b"5", b"")]), "named twice"),
             ("the one folder named twice", support.tarball(sha, [("", b"5", b"")]), "named twice"),
             ("a file and a folder of one name", support.tarball(sha, [("x", b"0", b"1"), ("x/", b"5", b"")]), "named twice"),

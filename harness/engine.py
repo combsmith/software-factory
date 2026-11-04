@@ -72,6 +72,9 @@ READ = ["--tools", READ_TOOLS, "--allowedTools", READ_TOOLS, "--permission-mode"
 WIDER = ("--add-dir", "--settings", "--mcp-config", "--plugin-dir", "--plugin-url", "--agents", "--agent",
          "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--disallowedTools", "--bare",
          "--allowed-tools", "--disallowed-tools")
+# The CLI's options in these calls that take no value: any other option takes the argument after it, even one that
+# starts with "-".
+ALONE = ("--restricted", "--disable-slash-commands", "--strict-mcp-config", "--no-session-persistence")
 
 
 def resolved(schema, schemas: dict, here: dict):
@@ -129,15 +132,25 @@ def _flag(arg: str) -> str:
     return arg.split("=", 1)[0] if arg.startswith("-") else arg
 
 
+def _an_option(args: list, at: int) -> bool:
+    """Whether the argument at `at` is read as an option: one before it that takes a value would take it instead."""
+    before = args[at - 1] if at > 0 else ""
+    return not before.startswith("-") or "=" in before or before in ALONE
+
+
 def _given(args: list, flag: str):
-    """What `flag` is given, where it stands once, in any form, with its one value after it and then an option or the
-    end, since the CLI reads a list option's values up to the next option; None otherwise."""
+    """What `flag` is given, where it stands once, in any form, read as an option, with its one value after it and then
+    an option or the end, since the CLI reads a list option's values up to the next option, and a lone `-` is a value;
+    None otherwise."""
     if [_flag(a) for a in args].count(flag) != 1 or flag not in args or args.index(flag) + 1 >= len(args):
         return None
-    after = args[args.index(flag) + 2:]
-    if after and not after[0].startswith("-"):
+    at = args.index(flag)
+    if not _an_option(args, at):
         return None
-    return args[args.index(flag) + 1]
+    after = args[at + 2:]
+    if after and (not after[0].startswith("-") or after[0] == "-"):
+        return None
+    return args[at + 1]
 
 
 def read_alone(args: list) -> bool:
@@ -146,13 +159,15 @@ def read_alone(args: list) -> bool:
     which the CLI reads no option at all (decision 0138, P-59)."""
     return ("--" not in args and _given(args, "--tools") == READ_TOOLS and _given(args, "--allowedTools") == READ_TOOLS
             and _given(args, "--permission-mode") == "dontAsk" and [_flag(a) for a in args].count("--restricted") == 1
-            and "--restricted" in args and _given(args, "--setting-sources") == ""
+            and "--restricted" in args and _an_option(args, args.index("--restricted"))
+            and _given(args, "--setting-sources") == ""
             and not any(_flag(a) in WIDER for a in args))
 
 
 def no_tool(args: list) -> bool:
-    """Whether the CLI is asked with no tool at all: `--tools` once, and given nothing (P-50, issue 312)."""
-    return args.count("--tools") == 1 and args.index("--tools") + 1 < len(args) and args[args.index("--tools") + 1] == ""
+    """Whether the CLI is asked with no tool at all: `--tools` once, in any form, given nothing, then an option or the
+    end; no `--`, and nothing of `WIDER` (P-50, issue 312; the security pass on Astra's second read of 0138)."""
+    return "--" not in args and _given(args, "--tools") == "" and not any(_flag(a) in WIDER for a in args)
 
 
 def _usage(config: dict, session: str, seconds: float, said=None) -> dict:
