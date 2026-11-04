@@ -178,11 +178,15 @@ class Budgets(unittest.TestCase):
     def test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time(self):  # issue 484
         # The measures are scripted, so no clock is read, and this runs when mutating, as a test through `linear` would not.
         def run_with(cpus, budget=10.0):
-            """What `linear` would judge of measures spending each of `cpus`, and how many it took."""
+            """What `linear` would judge of measures spending each of `cpus`, and how many it took. The machine is made
+            as loaded as it can be, so a judgement read outside the scripted slack fails every time (issue 536)."""
             ran = []
-            with mock.patch("tests.support.Spent", support.scripted_spends(cpus)), mock.patch("tests.support.slack", return_value=2.0):
-                spent, _ = support.measured(ran.append, 8, lambda each: support.linear_problem(each, budget))
-            return support.linear_problem(spent, budget), len(ran)
+            with mock.patch("os.getloadavg", return_value=(1000.0, 1000.0, 1000.0)):
+                self.assertGreater(slack(), 5.0, "the load is forced past the scripted stall's")
+                with mock.patch("tests.support.Spent", support.scripted_spends(cpus)), \
+                        mock.patch("tests.support.slack", return_value=2.0):
+                    spent, _ = support.measured(ran.append, 8, lambda each: support.linear_problem(each, budget))
+                    return support.linear_problem(spent, budget), len(ran)
 
         # Good at once: the three sizes once.
         self.assertEqual(run_with([1.0, 2.0, 4.0]), ("", 3))
