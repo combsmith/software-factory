@@ -480,18 +480,21 @@ class Simulation(unittest.TestCase):
         # On every seed a reviewer App edits the description as the pull request opens, which holds nothing; on one seed
         # in seven an App or the Maintainer edits it again, and an edit after the first approval holds the item until a
         # person approves after it. The Kernel approves and queues nothing on that reading, and every invariant holds.
-        edited, held = 0, 0
+        edited, held, current = 0, 0, None
 
         def recording(f, r, c, cfg, now):
             nonlocal held
             d = decide(f, r, c, cfg, now)
             if d.get("reason") == "description_edited_after_approval":
+                # Only a seed that edits after opening holds on it: the App's summary as it opens holds nothing.
+                self.assertEqual(current % world.EDITS_EVERY, world.EDITS, current)
                 held += 1
                 self.assertNotIn(d.get("action"), ("issue_approval", "enqueue"))
             return d
 
         with mock.patch.object(world, "decide", recording):
             for seed in sorted(SEEDS):
+                current = seed
                 w = World(seed)
                 self.assertLess(w.facts()["description_edited_at"], w.now(), seed)
                 for _ in range(250):

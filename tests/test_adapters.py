@@ -3114,6 +3114,9 @@ class DescriptionEdits(unittest.TestCase):
                                                 ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"])), "2026-11-03T19:25:00Z")
         self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T19:19:26Z",
                                                 ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"])), "2026-11-03T19:24:25Z")
+        # In whatever order GitHub lists them.
+        self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T19:19:26Z",
+                                                ["2026-11-03T19:19:03Z", "2026-11-03T19:24:25Z"])), "2026-11-03T19:24:25Z")
         # An edit whose revision was deleted from the history still happened.
         deleted = edits_answer("o/r", 26, "2026-11-03T19:19:26Z", ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"])
         deleted["response"]["body"]["data"]["repository"]["pullRequest"]["userContentEdits"]["nodes"][0]["deletedAt"] = \
@@ -3166,6 +3169,12 @@ class DescriptionEdits(unittest.TestCase):
                 ("a next page in words", lambda r: listed(r)["pageInfo"].update(hasNextPage="false")),
                 ("an edit with no time", lambda r: listed(r)["nodes"][1].pop("editedAt")),
                 ("an edit's time in words", lambda r: listed(r)["nodes"][0].update(editedAt="2026-11-03")),
+                ("an edit on no day the calendar has", lambda r: listed(r)["nodes"][1].update(editedAt="2026-02-31T12:00:00Z")),
+                ("an edit that is null", lambda r: listed(r)["nodes"].__setitem__(1, None)),
+                ("no repository", lambda r: r["body"]["data"].update(repository=None)),
+                ("a page that is null", lambda r: listed(r).update(pageInfo=None)),
+                ("a next page of no edits beside a last edit",
+                 lambda r: listed(r).update(nodes=[], totalCount=0, pageInfo={"hasNextPage": True, "endCursor": "c"})),
                 ("edits with no lastEditedAt", lambda r: pr(r).update(lastEditedAt=None)),
                 ("lastEditedAt with no edits", lambda r: listed(r).update(nodes=[], totalCount=0))):
             with self.assertRaises(github.Unanswered, msg=why):

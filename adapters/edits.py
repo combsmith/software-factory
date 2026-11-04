@@ -10,13 +10,15 @@ writer deleted from the history still happened, and counts. No editor is read: w
 (decision 0140), so no description's text and no account is kept.
 
 The list is whole only when it says there is no next page and its count is every edit it lists; a count below the
-edits it lists, or anything not in GraphQL's shape, cannot be read. Past the first hundred,
-or short, `lastEditedAt` alone gives the time, since it moves on every edit and on nothing else; short with no
-`lastEditedAt`, it is unread. The two must agree on whether the description was ever edited: one names an edit the other
-does not, and nothing is read. Anything that cannot be read refuses the snapshot, never reads as no edit.
+edits it lists, or anything not in GraphQL's shape, cannot be read. Past the first hundred, or short, `lastEditedAt`
+gives the time, or an edit listed if one is later, since `lastEditedAt` moves on every edit and on nothing else; short
+with no `lastEditedAt`, it is unread. `lastEditedAt` and the count must agree on whether the description was ever
+edited: one names an edit the other does not, and nothing is read. A time is read only if the calendar has its day.
+Anything that cannot be read refuses the snapshot, never reads as no edit.
 """
 from __future__ import annotations
 
+import datetime
 import re
 
 from adapters.github import Unanswered, request
@@ -28,7 +30,14 @@ QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$own
 
 
 def _time(value) -> bool:
-    return isinstance(value, str) and TIME.fullmatch(value) is not None
+    """Whether `value` is a UTC time to the second on a day the calendar has."""
+    if not (isinstance(value, str) and TIME.fullmatch(value)):
+        return False
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
 
 
 def last_edited_at(transport, pull: dict):
@@ -58,10 +67,10 @@ def last_edited_at(transport, pull: dict):
         if not isinstance(node, dict) or not _time(node.get("editedAt")):
             raise Unanswered("an edit of the description has no time that can be read")
         times.append(node["editedAt"])
+    if (last is None) != (total == 0):
+        raise Unanswered("the description's last edit and its edits disagree on whether it was edited")
     if page["hasNextPage"] or total != len(nodes):
         if last is None:
             raise Unanswered("the description's edits were not read whole, and name no last edit")
         return max([last] + times)
-    if (last is None) != (not times):
-        raise Unanswered("the description's last edit and its edits disagree on whether it was edited")
     return max([last] + times) if times else None
