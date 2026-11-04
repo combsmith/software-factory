@@ -26,6 +26,8 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.parse
+import zlib
 from unittest import mock
 
 from kernel import decide as decide_module, derive, issue, terms
@@ -5249,6 +5251,104 @@ class Trials(unittest.TestCase):
             self.assertEqual(checked["every_configuration_passes"], False, order)
         self.assertEqual(p51["verdict"], "fail")
 
+    def test_the_read_tools_on_a_linux_runner_are_held_to_their_folder_only_with_both_flags(self):
+        # trials/P-59.json: the analysis is read again from the job's log, the files the canary ran are the ones in
+        # tools/, and the pass follows. With --restricted and --setting-sources "", every call outside the folder was
+        # refused, no marker reached the model, no setting of the head's ran and its CLAUDE.md was not sent; with
+        # --restricted alone the same; with --setting-sources "" alone the reads reached outside; with neither, each of
+        # those happened.
+        p59 = json.loads((ROOT / "trials" / "P-59.json").read_text())
+        log, analysis = p59["exchanges"][-2]["response"]["body"], p59["exchanges"][-1]["response"]["body"]
+        said = [m.group(1) if m else "" for m in (re.match(r"^[^\t]*\t[^\t]*\t\S+Z (.*)$", line) for line in log.splitlines())]
+        start, end = said.index("{"), len(said) - 1 - said[::-1].index("}")
+        self.assertEqual(json.loads("\n".join(said[start:end + 1])), analysis["checked"], "the analysis is what the log printed")
+        for name, tools_file in (("p59/run.sh", "tools/trial_p59_read_confinement.sh"), ("p59/stub.py", "tools/trial_p50_stub.py")):
+            copied = analysis["copied_whole"][name]
+            self.assertEqual(sorted(copied), ["canary", tools_file], name)
+            blob = subprocess.run(["git", "hash-object", str(ROOT / tools_file)], capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual((copied["canary"], copied[tools_file]), (blob, blob), name + " ran as it is in tools/")
+        checked = analysis["checked"]
+        self.assertEqual(checked["version"], {"pinned": "2.1.306", "before": "2.1.306", "after": "2.1.306"})
+        parts = checked["configurations"]
+        self.assertEqual(sorted(parts), ["engine", "restricted", "sources", "unguarded"])
+        for name, part in parts.items():
+            calls = part["calls"]
+            self.assertEqual((part["exit"], part["answer"]["is_error"], len(calls)), (0, False, 24), name)
+            self.assertEqual(calls[0], {"tool": "Read", "at": "HEAD/inside.txt", "outside": False, "error": False, "markers": ["INSIDE"]}, name)
+            writes = [c for c in calls if c["tool"] in ("Bash", "Write")]
+            self.assertEqual((len(writes), all(c["error"] is True for c in writes)), (3, True), name)
+            self.assertEqual(part["offered"], ["DeferredToolPlaceholder", "Glob", "Grep", "Read"], name)
+        for name in ("engine", "restricted"):
+            outside = [c for c in parts[name]["calls"] if c["outside"]]
+            self.assertEqual(len(outside), 18, name)
+            self.assertEqual([c["at"] for c in outside if c["error"] is not True or c["markers"]], [], name + ": every read outside refused")
+            self.assertEqual((parts[name]["escaped"], parts[name]["markers_elsewhere_in_requests"]), ([], []), name)
+            self.assertFalse(any(parts[name]["left_by_the_head"].values()), name)
+            self.assertTrue(parts[name]["holds"]["passes"], name)
+        self.assertEqual([k for k, v in parts["sources"]["holds"].items() if v is False and k != "passes"],
+                         ["every_outside_call_refused", "nothing_outside_read"], "--setting-sources alone confines nothing")
+        self.assertFalse(any(parts["sources"]["left_by_the_head"].values()), "but keeps the head's settings out")
+        self.assertEqual(parts["sources"]["markers_elsewhere_in_requests"], [])
+        self.assertEqual({k for k, v in parts["unguarded"]["left_by_the_head"].items() if v}, {"hooked-pre", "hooked-start", "helper"})
+        self.assertIn("INSTRUCTIONS", parts["unguarded"]["markers_elsewhere_in_requests"])
+        self.assertEqual(sorted(parts["unguarded"]["escaped"]), ["ENVIRON", "HOME", "OUTSIDE"])
+        self.assertEqual((parts["unguarded"]["holds"]["passes"], checked["passes"]), (False, True))
+        self.assertEqual(p59["verdict"], "pass")
+
+    def test_a_commits_tarball_is_one_redirect_to_codeload_which_never_redirects_over_https(self):
+        # trials/P-60.json: the API's one redirect, to codeload alone and under the repo's own path; codeload's answer to
+        # it with no Authorization header, a gzip whose tar names the commit; and no redirect from codeload over HTTPS.
+        p60 = json.loads((ROOT / "trials" / "P-60.json").read_text())
+        ex = p60["exchanges"]
+        sha = re.search(r"/tarball/([0-9a-f]{40}) ", ex[0]["request"]["call"]).group(1)
+        asked, served = ex[0]["response"], ex[1]
+        self.assertEqual(ex[0]["request"]["call"].split(" ")[1], "/repos/%s/tarball/%s" % (p60["repo"], sha))
+        self.assertEqual((asked["status"], asked["headers"]["location"]),
+                         (302, "https://codeload.github.com/%s/legacy.tar.gz/%s" % (p60["repo"], sha)))
+        self.assertEqual(served["request"]["call"].split(" ")[3], asked["headers"]["location"])
+        # Every header a fixture keeps is held in lower case, so a name in any case is caught by its lower-case form.
+        for e in ex:
+            self.assertEqual([h for h in list(e["request"]["headers"]) + list(e["response"]["headers"]) if h != h.lower()], [])
+        self.assertNotIn("authorization", served["request"]["headers"])
+        self.assertEqual((served["response"]["status"], served["response"]["headers"]["content-type"]), (200, "application/x-gzip"))
+        self.assertNotIn("content-length", served["response"]["headers"], "the transport bounds what it reads itself")
+        # The tar, walked header by header: a pax global header naming the commit, then one folder of directories and
+        # regular files alone.
+        data = zlib.decompress(base64.b64decode(served["response"]["body"]["base64"]), 16 + zlib.MAX_WBITS)
+        kinds, names, at, comment = [], [], 0, None
+        while data[at:at + 512].strip(b"\0"):
+            header = data[at:at + 512]
+            size = int(header[124:136].strip(b"\0 ") or b"0", 8)
+            body = data[at + 512:at + 512 + size]
+            kind = chr(header[156] or 48)
+            if kind == "g":
+                comment = re.search(rb"\d+ comment=([0-9a-f]{40})\n", body).group(1).decode()
+            else:
+                kinds.append(kind)
+                names.append(header[:100].rstrip(b"\0").decode())
+            at += 512 + (size + 511) // 512 * 512
+        self.assertEqual(comment, sha)
+        self.assertEqual({n.split("/")[0] for n in names}, {p60["repo"].replace("/", "-") + "-" + sha[:7]})
+        self.assertEqual(set(kinds), {"0", "5"}, "regular files and directories alone")
+        # Each codeload exchange by its address, parsed: none over HTTPS redirected, and plain HTTP redirected to HTTPS.
+        codeload = {}
+        for i, e in enumerate(ex[1:6], 1):
+            address = urllib.parse.urlsplit(e["request"]["call"].split(" ")[3])
+            self.assertEqual(address.hostname, "codeload.github.com", i)
+            codeload[i] = (address.scheme, address.path, e["response"]["status"])
+        self.assertEqual([i for i, (scheme, _, status) in codeload.items() if scheme == "https" and 300 <= status < 400], [])
+        archive = "/%s/legacy.tar.gz/" % p60["repo"]
+        self.assertEqual(codeload[2], ("http", archive + sha, 301))
+        self.assertEqual(ex[2]["response"]["headers"]["location"], asked["headers"]["location"], "to the same address over HTTPS")
+        self.assertEqual(codeload[3], ("https", "/%s/legacy.tar.gz/%s" % (p60["repo"].upper(), sha), 200), "in capitals")
+        self.assertEqual(codeload[4], ("https", archive + "main", 200), "the branch by its name")
+        self.assertEqual(served["response"]["body"], ex[3]["response"]["body"])
+        self.assertEqual(served["response"]["body"], ex[4]["response"]["body"])
+        self.assertEqual(codeload[5], ("https", archive + "0" * 39 + "1", 404), "a commit it does not hold")
+        self.assertEqual(ex[6]["request"]["call"].split(" ")[1], "/repos/%s/tarball/%s" % (p60["repo"], "0" * 39 + "1"))
+        self.assertEqual(ex[6]["response"]["status"], 302, "the API does not read the commit")
+        self.assertEqual(p60["verdict"], "pass")
+
     def test_a_sandboxed_tool_on_a_linux_runner_reads_the_parents_environment(self):
         # trials/P-50.json (issue 287): the analysis is read again here from the job's log, each part of the pass is
         # computed from what the probe left, as the script computes it, and must equal the job's record; the fail follows.
@@ -5631,7 +5731,8 @@ class OutputMadeAlone(unittest.TestCase):
                "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
                "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
                "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
-               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42")}
+               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42"),
+               "trial_p58_edits.sh": ("KEY", READER, "96")}
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
@@ -5854,7 +5955,7 @@ fi
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
                        "trial_p12_status.sh",
-                       "trial_p56_comments.sh",
+                       "trial_p56_comments.sh", "trial_p58_edits.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -6085,7 +6186,7 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
         # Issue 424: each trial keeps the last head's status, since a proxy's block, or an interim answer, comes first.
         # A blank line in a body opens no head, and an HTTP line after it is the body's (Argon).
         for name in ("trial_reader_reads.sh", "trial_p39_reach.sh", "trial_p8_cost.sh", "trial_p52_pause.sh", "trial_p4_narrow.sh",
-                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh"):
+                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh"):
             text = (ROOT / "tools" / name).read_text()
             self.assertNotIn("sed -n '1s/^HTTP", text, name)
             programs = re.findall(r"awk '(BEGIN \{ head = 1 \}[^']+)'", text)
@@ -7799,6 +7900,251 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
             self.assertEqual(ran.returncode, 2, name)
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
+
+
+class ReadConfinementTrial(unittest.TestCase):
+    """`tools/trial_p59_read_confinement.sh` (the review Role reading a pull request's head), run against a stand-in CLI
+    that asks P-50's real stub, given P-59's calls, for each call in turn, as the pinned CLI would. It holds the read tools
+    to its working folder when given `--restricted`, and keeps the head's settings out given either flag, as the pinned
+    CLI was seen to, and each flag
+    beside it lets one part of the condition fail: the verdict each earns, what each configuration is given, and that
+    nothing it made is left."""
+
+    SCRIPT = ROOT / "tools" / "trial_p59_read_confinement.sh"
+    STUB = ROOT / "tools" / "trial_p50_stub.py"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    # The stand-in CLI. `leak-N` lets the Nth call reach outside the folder though the CLI is held; `context-leak` sends
+    # the outside file's text beside the task; `hooks-run` runs the head's hook commands, `md` sends its CLAUDE.md;
+    # `extra-tool` offers Bash and `late-tool` WebFetch from the second request on; `refuse-inside` refuses every read;
+    # `stop-early` ends after the first call; `bash-runs` answers Bash; `write-lands` makes each Write and says so,
+    # `write-lands-quietly` makes it and says it failed; `is-error` says the Task failed. Unheld, as with neither flag, it
+    # reaches outside, runs the hooks and sends the CLAUDE.md, as the pin did.
+    CLI = r'''#!/usr/bin/env python3
+import json, os, pathlib, re, sys, urllib.request
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+if args[:1] == ["--version"]:
+    name = "version.after" if (here / "asked").exists() and (here / "version.after").exists() else "version"
+    print((here / name).read_text().strip() + " (Claude Code)")
+    sys.exit(0)
+(here / "asked").write_text("")
+which = {(True, True): "engine", (True, False): "restricted", (False, True): "sources", (False, False): "unguarded"}[
+    ("--restricted" in args, "--setting-sources" in args)]
+# As the pin was seen to: --restricted alone holds the reads to the folder, and either flag keeps the head's settings
+# and instructions out.
+held, settled = "--restricted" in args, which != "unguarded"
+(here / ("argv-" + which)).write_text(json.dumps(args))
+(here / ("env-" + which)).write_text(json.dumps(dict(os.environ)))
+flags = {p.name for p in here.iterdir()}
+cwd = os.path.realpath(".")
+settings = json.load(open(".claude/settings.json"))
+outside = settings["permissions"]["additionalDirectories"][0]
+if not settled or "hooks-run" in flags:
+    for command in [h["command"] for e in settings["hooks"].values() for g in e for h in g["hooks"]] + [settings["apiKeyHelper"]]:
+        pathlib.Path(re.match(r"touch (\S+)", command).group(1)).touch()
+def post(body):
+    request = urllib.request.Request(os.environ["ANTHROPIC_BASE_URL"] + "/v1/messages", data=json.dumps(body).encode(),
+                                     headers={"content-type": "application/json"})
+    with urllib.request.urlopen(request, timeout=20) as answer:
+        return answer.read().decode()
+def inside(path):
+    real = os.path.realpath(path)
+    return real == cwd or real.startswith(cwd + os.sep)
+def answer(tool, given, i):
+    reach = not held or ("leak-%d" % i) in flags
+    if tool == "Write" and ("write-lands" in flags or "write-lands-quietly" in flags):
+        pathlib.Path(given["file_path"]).write_text(given["content"])
+        return "written", "write-lands-quietly" in flags
+    if tool == "Bash" and "bash-runs" in flags:
+        return "ran", False
+    if tool not in ("Read", "Grep", "Glob"):
+        return "No such tool available: " + tool, True
+    path = given.get("file_path") or given.get("path")
+    if "refuse-inside" in flags or (not inside(path) and not reach):
+        return "denied: outside the working directories", True
+    if path == "/proc/self/environ":
+        return "\0".join("%s=%s" % kv for kv in os.environ.items()), False
+    if tool == "Glob":
+        return "\n".join(sorted(os.listdir(path))) if os.path.isdir(path) else "", not os.path.isdir(path)
+    files = [path] if os.path.isfile(path) else [os.path.join(d, f) for d, _, fs in os.walk(path) for f in fs]
+    try:
+        text = "".join(open(f).read() for f in files if not os.path.islink(f) or tool == "Read")
+    except OSError:
+        return "no such file", True
+    return text if tool == "Read" else "\n".join(l for l in text.splitlines() if given["pattern"] in l) or "No matches found", False
+told = open("CLAUDE.md").read() if not settled or "md" in flags else ""
+told += open(os.path.join(outside, "secret.txt")).read() if "context-leak" in flags else ""
+results = []
+while True:
+    tools = [{"name": n} for n in ("DeferredToolPlaceholder", "Glob", "Grep", "Read")]
+    tools += [{"name": "Bash"}] if "extra-tool" in flags else []
+    tools += [{"name": "WebFetch"}] if "late-tool" in flags and results else []
+    content = [{"type": "text", "text": "the task " + told}] + results
+    said = post({"model": "m", "stream": True, "tools": tools, "messages": [{"role": "user", "content": content}]})
+    events = [json.loads(line[6:]) for line in said.splitlines() if line.startswith("data: ")]
+    start = next(e for e in events if e["type"] == "content_block_start")["content_block"]
+    if start["type"] != "tool_use" or ("stop-early" in flags and results):
+        break
+    given = json.loads(next(e for e in events if e["type"] == "content_block_delta")["delta"]["partial_json"])
+    text, error = answer(start["name"], given, len(results))
+    results.append({"type": "tool_result", "tool_use_id": start["id"], "content": text, "is_error": error})
+print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error" in flags, "num_turns": len(results) + 1}))
+'''
+
+    def stand_in(self, flags=(), after=None) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text(self.PIN + "\n")
+        if after:
+            (folder / "version.after").write_text(after + "\n")
+        for flag in flags:
+            (folder / flag).write_text("")
+        (folder / "claude").write_text('#!/bin/sh\nexec python3 "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
+        (folder / "cli.py").write_text(self.CLI)
+        (folder / "claude").chmod(0o755)
+        return folder
+
+    def environment(self) -> tuple:
+        home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        temp = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        return home, temp, {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "TMPDIR": str(temp)}
+
+    def run_script(self, folder) -> tuple:
+        home, temp, env = self.environment()
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+        ran = subprocess.run(["bash", str(self.SCRIPT), str(out), str(folder / "claude"), str(self.STUB)],
+                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=180, stdin=subprocess.DEVNULL)
+        return home, temp, out, ran
+
+    def test_the_engine_configuration_is_judged_by_the_condition(self):
+        outside = ["every_outside_call_refused", "nothing_outside_read"]
+        # (name, flags, after, passes, the engine's holds that fail, the markers that escaped)
+        cases = [
+            ("held to its folder", (), None, True, [], []),
+            ("a read by an absolute path reaches outside", ("leak-1",), None, False, outside, ["OUTSIDE"]),
+            ("a read through a link reaches outside", ("leak-4",), None, False, outside, ["OUTSIDE"]),
+            ("its own environ is read", ("leak-6",), None, False, outside, ["ENVIRON"]),
+            ("the home directory is read", ("leak-11",), None, False, outside, ["HOME"]),
+            ("a grep outside finds the marker", ("leak-12",), None, False, outside, ["OUTSIDE"]),
+            ("a glob lists the outside folder", ("leak-18",), None, False, outside, ["OUTSIDE"]),
+            ("the outside file's text is sent beside the task", ("context-leak",), None, False, ["nothing_outside_read"], ["OUTSIDE"]),
+            ("the head's hooks run", ("hooks-run",), None, False, ["no_setting_ran"], []),
+            ("the head's CLAUDE.md is sent", ("md",), None, False, ["no_instructions_sent"], []),
+            ("a tool that runs is offered", ("extra-tool",), None, False, ["read_tools_alone"], []),
+            ("a tool that runs is offered later", ("late-tool",), None, False, ["read_tools_alone"], []),
+            ("every read is refused, the inside one too", ("refuse-inside",), None, False, ["inside_read"], []),
+            ("the Task ends after its first call", ("stop-early",), None, False,
+             ["every_call_answered", "every_outside_call_refused", "no_write_tool"], []),
+            ("Bash runs", ("bash-runs",), None, False, ["no_write_tool"], []),
+            ("a write lands and says so", ("write-lands",), None, False, ["no_write_tool", "nothing_written"], []),
+            ("a write lands and says it failed", ("write-lands-quietly",), None, False, ["nothing_written"], []),
+            ("the Task said it failed", ("is-error",), None, False, ["answered"], []),
+            ("the version moved under the run", (), "9.9.9", False, [], []),
+        ]
+
+        def one(case):
+            folder = self.stand_in(case[1], case[2])
+            return case, (folder,) + self.run_script(folder)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(one, cases))
+        for (name, flags, after, passes, failing, escaped), (folder, home, temp, out, ran) in results:
+            self.assertEqual(ran.returncode, 0, (name, ran.stderr))
+            checked = json.loads((out / "checked.json").read_text())
+            self.assertEqual(checked["passes"], passes, name)
+            self.assertEqual(sorted(checked["configurations"]), ["engine", "restricted", "sources", "unguarded"], name)
+            engine, unguarded = checked["configurations"]["engine"], checked["configurations"]["unguarded"]
+            self.assertEqual([k for k, v in engine["holds"].items() if v is False and k != "passes"], failing, name)
+            self.assertEqual(engine["escaped"], escaped, name)
+            if "refuse-inside" not in flags:
+                self.assertEqual(engine["calls"][0], {"tool": "Read", "at": "HEAD/inside.txt", "outside": False, "error": False,
+                                                      "markers": ["INSIDE"]}, name)
+            # The configuration with neither flag, recorded and deciding nothing, shows each escape the probe can see,
+            # where the stand-in reads at all.
+            self.assertFalse(unguarded["holds"]["passes"], name)
+            if not set(flags) & {"refuse-inside", "stop-early"}:
+                self.assertEqual(sorted(unguarded["escaped"]), ["ENVIRON", "HOME", "OUTSIDE"], name)
+            self.assertFalse(unguarded["holds"]["no_setting_ran"] or unguarded["holds"]["no_instructions_sent"], name)
+            if not flags and not after:
+                # Each flag alone: --restricted holds the reads; --setting-sources "" keeps the settings out alone.
+                restricted, sources = checked["configurations"]["restricted"], checked["configurations"]["sources"]
+                self.assertTrue(restricted["holds"]["passes"], name)
+                self.assertEqual([k for k, v in sources["holds"].items() if v is False and k != "passes"],
+                                 ["every_outside_call_refused", "nothing_outside_read"], name)
+            # Nothing it made is left, in OUT, the home directory or the temporary one, and no marker reached its output.
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ["checked.json"], name)
+            self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
+            self.assertNotRegex(ran.stdout + ran.stderr + (out / "checked.json").read_text(), r"P59[A-Z]+[0-9a-f]{16}", name)
+
+    def test_each_configuration_is_given_the_read_tools_and_its_own_flags(self):
+        folder = self.stand_in()
+        home, temp, out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        names = ("engine", "restricted", "sources", "unguarded")
+        argv = {n: json.loads((folder / ("argv-" + n)).read_text()) for n in names}
+        env = {n: json.loads((folder / ("env-" + n)).read_text()) for n in names}
+        for n in names:
+            a = argv[n]
+            self.assertEqual((a[a.index("--tools") + 1], a[a.index("--allowedTools") + 1], a[a.index("--permission-mode") + 1]),
+                             ("Read,Grep,Glob", "Read,Grep,Glob", "dontAsk"), n)
+            for option in ("--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"):
+                self.assertIn(option, a, n)
+            self.assertEqual(env[n]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "1", n)
+            self.assertEqual(env[n]["ANTHROPIC_API_KEY"], "dummy-p59-not-a-key", n)
+            self.assertRegex(env[n]["ANTHROPIC_BASE_URL"], r"^http://127\.0\.0\.1:[0-9]{1,5}$")
+        engine = argv["engine"]
+        self.assertEqual((engine[engine.index("--setting-sources") + 1], "--restricted" in engine), ("", True))
+        self.assertEqual(("--restricted" in argv["restricted"], "--setting-sources" in argv["restricted"]), (True, False))
+        self.assertEqual(("--restricted" in argv["sources"], argv["sources"][argv["sources"].index("--setting-sources") + 1]),
+                         (False, ""))
+        self.assertFalse({"--restricted", "--setting-sources"} & set(argv["unguarded"]))
+        self.assertEqual(len({env[n]["CLAUDE_CONFIG_DIR"] for n in names}), 4, "a configuration directory each")
+
+    def test_the_stub_answers_the_trials_calls_and_logs_only_the_markers_names(self):
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        calls = [["Read", {"file_path": "/a"}, False], ["Grep", {"pattern": "p", "path": "/b"}, True]]
+        (folder / "calls.json").write_text(json.dumps({"calls": calls, "markers": {"IN": "NEVER-LOGGED-IN", "OUT": "NEVER-LOGGED-OUT"}}))
+        with subprocess.Popen([sys.executable, "-I", str(self.STUB)], cwd=folder,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as stub:
+            try:
+                port = stub.stdout.readline().strip()
+                tools = [{"name": "Read"}, {"name": "Grep"}]
+                # A result as a string, and one as a list of blocks, as the CLI may send either.
+                said = [{"type": "tool_result", "content": "has NEVER-LOGGED-IN", "is_error": False},
+                        {"type": "tool_result", "content": [{"type": "text", "text": "has NEVER-LOGGED-OUT"}], "is_error": True}]
+                asks = [("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": "NEVER-LOGGED-OUT"}]}),
+                        ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": said[:1]}]}),
+                        ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": said}]}),
+                        ("/v1/messages", {"messages": []})]
+                ran = subprocess.run([sys.executable, "-I", "-c", LinuxSandboxTrial.CLIENT, "http://127.0.0.1:" + port],
+                                     input=json.dumps(asks), capture_output=True, text=True, timeout=60)
+                answers = json.loads(ran.stdout)
+            finally:
+                stub.kill()
+        self.assertEqual([(a[1]["content"][0].get("name"), a[1]["content"][0].get("input")) for a in answers[:2]],
+                         [("Read", {"file_path": "/a"}), ("Grep", {"pattern": "p", "path": "/b"})])
+        self.assertEqual([a[1]["content"] for a in answers[2:]], [[{"type": "text", "text": "done"}]] * 2)
+        log = (folder / "stub.log").read_text()
+        self.assertNotIn("NEVER-LOGGED", log)
+        lines = [json.loads(line) for line in log.splitlines()]
+        self.assertEqual([(l["offered"], l["found"], l["elsewhere"]) for l in lines],
+                         [(["Grep", "Read"], [], ["OUT"]), (["Grep", "Read"], [["IN"]], []),
+                          (["Grep", "Read"], [["IN"], ["OUT"]], []), ([], [], [])])
+        self.assertEqual(lines[2]["result_error"], [False, True])
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        taken = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, out, cli, stub, said in [
+                ("OUT exists", str(taken), folder / "claude", self.STUB, "exists; name a new directory"),
+                ("no CLI", "out", folder / "missing", self.STUB, "no CLI at"),
+                ("no stub", "out", folder / "claude", pathlib.Path("/nonexistent/stub.py"), "no stub at")]:
+            home, temp, env = self.environment()
+            ran = subprocess.run(["bash", str(self.SCRIPT), out, str(cli), str(stub)],
+                                 cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,
+                                 env=env, timeout=60, stdin=subprocess.DEVNULL)
+            self.assertEqual(ran.returncode, 2, name)
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
+            self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
 
 
 class PauseReadTrial(unittest.TestCase):
@@ -10237,6 +10583,142 @@ class CommentsReadTrial(IssueLookupTrial):
     CURL = IssueLookupTrial.CURL.replace('if grant == "issues" or', 'if grant == "pull_requests" or', 1).replace(
         '''status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}''',
         '''status, answer = 200, [{"id": 7, "user": {"id": 9, "type": "User"}, "leak": "gh" + "s_" + "L" * 36}]''', 1)
+
+
+class EditsReadTrial(IssueLookupTrial):
+    """`tools/trial_p58_edits.sh`, run against the same stand-ins and never GitHub (issue 519). It is P-54's script held to
+    the reader's installation and one GraphQL read, so every test of that one that is not about what is asked runs over it
+    too, by inheritance."""
+
+    SCRIPT = ROOT / "tools" / "trial_p58_edits.sh"
+    CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    GIVEN = (CANARY, "96")
+    FIRST = "pull_requests"
+    KEPT = ('"lastEditedAt": "2026-11-03T19:24:25Z"', '"login": "don-petry"', '"editedAt"')
+    # The port's query, word for word (issue 519): the reader leg reads exactly what the port will send.
+    QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
+             "lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} "
+             "nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}")
+    NOT_A_NUMBER = "is not a pull request's number"
+    # The stand-in answers the GraphQL read: to a token narrowed to pull_requests, and to any token where the repo is
+    # public, as a file beside it says; and it keeps what was sent, for the test to read.
+    CURL = IssueLookupTrial.CURL.replace('elif "/issues/" in url:', '''elif url.endswith("/graphql"):
+    if body and body.startswith("@"):
+        with open(os.path.join(here, "sent"), "a") as kept:
+            kept.write(open(body[1:]).read() + "\\n")
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    if grant == "pull_requests" or os.path.exists(os.path.join(here, "public")):
+        status, answer = 200, {"data": {"repository": {"pullRequest": {
+            "lastEditedAt": "2026-11-03T19:24:25Z", "editor": {"__typename": "Bot", "login": "github-actions"},
+            "userContentEdits": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": "Y3Vy"}, "nodes": [
+                {"editedAt": "2026-11-03T19:20:23Z", "createdAt": "2026-11-03T19:20:23Z", "deletedAt": None,
+                 "editor": {"__typename": "User", "login": "don-petry", "databaseId": 36422719}}]}}}}}
+    else:
+        # GraphQL refuses an integration with 200, a null in place of what it may not read, and an error.
+        status, answer = 200, {"data": {"repository": {"pullRequest": None}},
+                               "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+elif "/issues/" in url:''', 1)
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        for public in (False, True):
+            with self.subTest(public=public):
+                self.setUp()
+                if public:
+                    (self.stand_in / "public").write_text("")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+                calls = self.calls()
+                # Each token is minted, read with once and revoked before the next is minted.
+                self.assertEqual([(c["method"], c["url"].rsplit("/", 1)[1]) for c in calls],
+                                 [("POST", "access_tokens"), ("POST", "graphql"), ("DELETE", "token")] * 2)
+                mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+                self.assertEqual([m["url"].split("/app/")[1] for m in mints],
+                                 ["installations/%d/access_tokens" % installation] * 2)
+                self.assertEqual([json.loads(m["body"]) for m in mints],
+                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {self.FIRST: "read"}},
+                                  {"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}}])
+                reads = [c for c in calls if c["url"].endswith("/graphql")]
+                self.assertEqual([(c["method"], c["url"]) for c in reads], [("POST", "https://api.github.com/graphql")] * 2)
+                self.assertEqual(len([c for c in calls if c["method"] == "DELETE"]), 2)
+                self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+                # What was sent is the port's query, the pull request named by variables alone.
+                sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
+                owner, name = self.CANARY.split("/")
+                self.assertEqual(sent, [{"query": self.QUERY, "variables": {"owner": owner, "name": name, "number": 96}}] * 2)
+                texts = {p.name: p.read_text() for p in self.out.iterdir()}
+                self.assertEqual(sorted(texts), ["clean-1", "clean-2", "query.json", "ran_at", "redacted-1", "redacted-2",
+                                                 "requests.json"])
+                self.assertEqual(json.loads(texts["query.json"]), sent[0])
+                asked = json.loads(texts["requests.json"])
+                self.assertEqual([(a.get("narrowed_to") or a.get("revoked"), a.get("call"), a["status"]) for a in asked],
+                                 [(self.FIRST + ": read", "POST /graphql", 200), (self.FIRST + ": read", None, 204),
+                                  ("metadata: read", "POST /graphql", 200), ("metadata: read", None, 204)])
+                for kept in self.KEPT:
+                    self.assertIn(kept, texts["clean-1"])
+                # The second token's answer: the edits where the repo is public, else GraphQL's refusal, kept as it came.
+                for kept in (self.KEPT if public else ('"FORBIDDEN"', '"pullRequest": null')):
+                    self.assertIn(kept, texts["clean-2"])
+                # Every answer carried a token-shaped string, and the redaction took each out and said so.
+                self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+                self.assertTrue(texts["redacted-1"].strip() and texts["redacted-2"].strip())
+
+    def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
+        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
+                self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        elsewhere = "is not the canary the reader is installed on"
+        for given, out, said in (((self.CANARY, "96"), self.out.parent, "exists"),
+                                 ((self.CANARY, "96"), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", "96"), None, elsewhere),
+                                 (("combsmith/elsewhere", "96"), None, elsewhere),
+                                 (("combsmith", "96"), None, "is not owner/name"),
+                                 ((self.CANARY, "0"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "12a"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "-1"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "1/../2"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, ""), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY,), None, "usage:"), ((self.CANARY, "96", "97"), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the read's, 200 with an error where refused.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 200])
+        self.assertIn('"FORBIDDEN"', (self.out / "clean-2").read_text())
+
 
 
 class Rulesets(unittest.TestCase):

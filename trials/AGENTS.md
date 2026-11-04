@@ -1,13 +1,11 @@
 # trials/
 
-What GitHub was seen to do. Each file is the fixture of one platform trial from section 6 of the
-design: what was sent to GitHub in the canary repo, combsmith/software-factory-canary, of the
-org itself for a trial about the org and its Apps (decision 0035), in the Factory's repo for P-30 (decision 0113), or, for a trial of a vendor's
-CLI, in no repo (decision 0033), and what came back, with every credential removed. The fake
-GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is the skill
+What GitHub was seen to do. Each file is the fixture of one platform trial from section 6 of the design: what was sent to GitHub in the canary repo, combsmith/software-factory-canary, of the
+org itself for a trial about the org and its Apps (decision 0035), in the Factory's repo for P-30 (decision 0113), or, for a trial of a vendor's CLI, in no repo (decision 0033), and what came back,
+with every credential removed. The fake GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is the skill
 `.claude/skills/run-a-platform-trial/SKILL.md`; P-13's script, `tools/trial_p13_cli.sh`, has its runbook beside it, `tools/trial_p13_runbook.md`; `tools/trial_p13_ended.sh` asks how a run ends.
 P-26's script, `tools/trial_p26_sandbox.sh`, holds its runbook and its pass condition at its top; so do P-50's and P-51's, `tools/trial_p50_linux_sandbox.sh` and `tools/trial_p51_sandbox_writes.sh`,
-which with P-50's stub, `tools/trial_p50_stub.py`, a trial runs only in the canary's workflow; this repo's tests run them against a stand-in CLI, the stub on 127.0.0.1.
+which with P-50's stub, `tools/trial_p50_stub.py`, a trial runs only in the canary's workflow; this repo's tests run them against a stand-in CLI, the stub on 127.0.0.1. So does P-59's, `tools/trial_p59_read_confinement.sh`, giving the stub its calls.
 `python3 -m tools.check_trials` checks this folder alone, before a fixture is added to git.
 
 | Rule | Held by |
@@ -38,3 +36,5 @@ which with P-50's stub, `tools/trial_p50_stub.py`, a trial runs only in the cana
 | A Task that fails says why in the log, its markers taken out | `tests/test_tools.py::test_a_task_that_fails_says_why_in_the_log_without_its_markers` |
 | P-51's script gives each configuration its scrub alone and a configuration directory of its own | `tests/test_tools.py::test_each_configuration_is_given_its_scrub_alone_and_a_directory_of_its_own` |
 | Each configuration and order is judged by the condition written first, and nothing written outside is left | `tests/test_tools.py::test_each_configuration_and_order_is_judged_by_the_condition` |
+| P-59's script judges its engine configuration by the condition written first, leaves nothing it made, and prints no marker | `tests/test_tools.py::test_the_engine_configuration_is_judged_by_the_condition` |
+| Given calls, P-50's stub answers each in turn and logs a marker by its name alone | `tests/test_tools.py::test_the_stub_answers_the_trials_calls_and_logs_only_the_markers_names` |
