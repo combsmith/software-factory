@@ -4192,6 +4192,45 @@ SHAPED = {
     "signed url": "https://productionresultssa0.blob.core.windows.net/x?sv=2019&s" + "ig=AbCdEf%2Bxyz%3D&se=2026",
     "amazon signature": "https://objects.githubusercontent.com/x?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Sign" + "ature=abcd1234",
     "amazon credential": "https://x/y?X-Amz-Cred" + "ential=AKIDEXAMPLE%2F2026",
+    # Each other signed URL a provider gives (issue 534): its secret is a parameter of the query, however it is written.
+    "amazon session token": "https://b.s3.amazonaws.com/o?X-Amz-Security-Tok" + "en=FwoGZXIvYXdzEJr",
+    "amazon's older signature": "https://b.s3.amazonaws.com/o?AWSAccessKeyId=AKIDEXAMPLE&Expires=1793836800&Sign" + "ature=a%2Bb",
+    "cloudfront signature": "https://d111.cloudfront.net/o?Expires=1793836800&Sign" + "ature=a~b&Key-Pair-Id=K2JCJMDEHXQW5F",
+    "google signature": "https://storage.googleapis.com/b/o?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Sign" + "ature=abcdef0123",
+    "google credential": "https://storage.googleapis.com/b/o?X-Goog-Cred" + "ential=sa%40p.iam.gserviceaccount.com%2F20261104",
+    "google's older pair": "https://storage.googleapis.com/b/o?GoogleAccessId=sa%40p.iam.gserviceaccount.com&Expires=1793836800"
+                           "&Sign" + "ature=a%2Bb",
+    "google signature first": "https://storage.googleapis.com/b/o?X-Goog-Sign" + "ature=abcdef0123",
+    "signed url escaped in json": "https://storage.googleapis.com/b/o?a=1\\u0026X-Goog-Sign" + "ature=abcdef0123",
+    "signed url escaped in html": "https://x.blob.core.windows.net/c/o?sv=2019&amp;s" + "ig=AbCdEf",
+    "signed url inside another url": "https://example.com/r?next=https%3A%2F%2Fstorage.googleapis.com%2Fb%2Fo%3FX-Goog-Sign"
+                                     "ature%3Dabcdef0123",
+    "signed url inside another, after its first parameter": "https://example.com/r?next=https%3A%2F%2Fx%2Fo%3Fa%3D1%26s"
+                                                            "ig%3DAbCdEf",
+    "signed url inside another twice": "https://example.com/r?next=https%253A%252F%252Fx%252Fo%253Fs" + "ig%253DAbCdEf",
+    "signed url inside another twice, after its first parameter": "https://e.com/r?n=https%253A%252F%252Fx%252Fo%253Fa%253D1"
+                                                                   "%2526s" + "ig%253DAbCdEf",
+    "signed url escaped in json, its = too": "https://x.blob.core.windows.net/c/o?sv\\u003d2019\\u0026s" + "ig\\u003dAbCdEf",
+    "signed url escaped in json, its ? too": "https://storage.googleapis.com/b/o\\u003fX-Goog-Sign" + "ature\\u003dabcdef0123",
+    "signed url escaped in javascript": "https://x.blob.core.windows.net/c/o?sv=2019\\x26s" + "ig\\x3dAbCdEf",
+    "signed url escaped in javascript, its ?": "https://storage.googleapis.com/b/o\\x3fX-Goog-Sign" + "ature=abcdef0123",
+    "signed url escaped in html by number": "https://x.blob.core.windows.net/c/o?sv=2019&#38;s" + "ig&#61;AbCdEf",
+    "signed url escaped in html by hex": "https://storage.googleapis.com/b/o&#x3f;X-Goog-Sign" + "ature&#x3D;abcdef0123",
+    "signed url escaped in html, its & by hex": "https://x.blob.core.windows.net/c/o?sv=2019&#x26;s" + "ig=AbCdEf",
+    "signed url escaped in html, its ? by number": "https://storage.googleapis.com/b/o&#63;X-Goog-Sign" + "ature=abcdef0123",
+    "alibaba signature": "https://b.oss-cn-hangzhou.aliyuncs.com/o?x-oss-signature-version=OSS4-HMAC-SHA256&x-oss-sign"
+                         "ature=2a1b3c4d5e6f",
+    "alibaba credential": "https://b.oss-cn-hangzhou.aliyuncs.com/o?x-oss-cred" + "ential=LTAI5tExample%2F20261104",
+    "alibaba's older session token": "https://b.oss-cn-hangzhou.aliyuncs.com/o?OSSAccessKeyId=STS.NExample&security-tok"
+                                     "en=CAIS8gF1q6Ft5B2y",
+    "tencent signature": "https://b.cos.ap-guangzhou.myqcloud.com/o?q-sign-algorithm=sha1&q-ak=AKIDExample&q-sign"
+                         "ature=0a1b2c3d4e",
+    "tencent session token": "https://b.cos.ap-guangzhou.myqcloud.com/o?x-cos-security-tok" + "en=AbCdEfGh",
+    "huawei session token": "https://b.obs.cn-north-4.myhuaweicloud.com/o?AccessKeyId=AK&x-obs-security-tok" + "en=gQpjbi1u",
+    "backblaze authorization": "https://f002.backblazeb2.com/file/bucket/o?Authoriz" + "ation=4_0022623512fc8f8_01a2b3c4",
+    "akamai edge token": "https://cdn.example.com/o.mp4?hdn" + "ts=exp=1793836800~acl=/*~hmac=0a1b2c3d4e5f",
+    "akamai's other edge token": "https://cdn.example.com/o.mp4?__tok" + "en__=exp=1793836800~hmac=0a1b2c3d4e5f",
+    "oracle pre-authenticated request": "https://objectstorage.us-ashburn-1.oraclecloud.com/p/AbCdEfGhIjKl" + "MnOpQr/n/ns/b/x/o/y",
     "hex beside a keyword": "access_tok" + "en=" + "a1" * 20, "runner registration": "AABF3JGZDX3P5PMEXLND6TS6FCWO6",
     "jit config": "encoded_jit" + "_config", "private key": "-----BEGIN OPENSSH PRIV" + "ATE KEY-----\nb3Blbn",
     "private key body": "MIIEowIBAAKCAQEA" + "x" * 60, "openssh key body": "b3BlbnNzaC1rZXktdjE" + "AAAAB",
@@ -4211,7 +4250,11 @@ PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.
          "https://api.github.com/repos/combsmith/x/check-runs/4", "2026-10-15T14:02:11Z", "Requires authentication",
          "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration",
          # Words that hold gh, a letter and an underscore, after a letter: no prefix of a credential.
-         "right_now", "height_px", "thought_x", "straight_line", "weight_kg", "light_mode", "might_be"]
+         "right_now", "height_px", "thought_x", "straight_line", "weight_kg", "light_mode", "might_be",
+         # A signed URL's parameter named where no query has it: in a path, in words, or as part of a longer name.
+         "https://storage.googleapis.com/b/X-Goog-Signature.txt", "a signature=1 in words",
+         "https://api.github.com/repos/o/r/commits?per_page=100&signatures=true",
+         "https://storage.googleapis.com/b/report;sig=public.txt", "https://objectstorage.us-ashburn-1.oraclecloud.com/n/ns/b/x/o/y"]
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
