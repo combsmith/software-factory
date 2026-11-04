@@ -663,8 +663,8 @@ settings and instructions out (P-59). Its files are data, as every text in the T
 Trust classes are `maintainer`, `role`, `advisory` and `outside`. Text of any class is data: it
 cannot change the Task's permissions, limits or result schema.
 
-`cost_ceiling_usd` limits this one Run. The Harness enforces it, because it knows what its own Run
-has spent. It is not an input to Admission.
+`cost_ceiling_usd` limits this one Run. The Harness gives it to the CLI, which stops the Run at its
+own estimate of what the Run has spent (decision 0136). It is not an input to Admission.
 
 ```json
 {
@@ -949,8 +949,9 @@ window can raise the automatic pause, which stops no act. No Run has a tool that
 its head with Read, Grep and Glob alone, confined to it by `--restricted` and kept from the head's own settings
 by `--setting-sources ""` (decision 0138, P-59), each read a turn of the tier's, so an item can slow its Run
 only by what the model reads, within the tier's turns and its cost ceiling. One the CLI ends because the model could not finish,
-`error_max_structured_output_retries` or `error_max_turns`, is `no_answer`, an attempt on its item, because words in the
-item can lead the model there; any other way the CLI says it erred stays `environment` (decision 0122). A Run `cancelled`
+`error_max_structured_output_retries` or `error_max_turns`, or that its tier's cost ceiling stopped,
+`error_max_budget_usd`, is `no_answer`, an attempt on its item, because words in the item can lead the model there; any
+other way the CLI says it erred stays `environment` (decisions 0122 and 0136). A Run `cancelled`
 with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, and a
 first attempt an `if:` skipped, `skipped`, each of which the records port reads as `cancelled`. A row `skipped` on a later
 attempt reads `failure`, an attempt, since the shim's `if:` skips any re-run and the list shows only the latest
@@ -1770,7 +1771,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-25 | An `outside` item gets no Run until the Maintainer has admitted it | FR-63 |
 | I-26 | No approval is attempted where the approver is the author or the last pusher; the item is held instead | C-6 |
 | I-27 | No model Lens runs on content that has not passed the deterministic required Lenses | §4.2 |
-| I-28 | Attempts are reset only by an action on the item from a person with write access. A stranger's comment, an App's and the machine user's do not count. A person is an actor of kind `human` with write access, told from GitHub's account type and the configuration, never a name's spelling; what a person placed, only a person ends | FR-17 |
+| I-28 | Attempts are reset only by an action on the item from a person with write access. A stranger's comment, an App's and the machine user's do not count. A person is an actor of kind `human` with write access, told from GitHub's account type and the configuration, never a name's spelling; what a person placed, only a person ends. A stranger's act moves no item on: it may only stop one, into a Hold only a person ends, as an outsider's edit of their own description after the approval does (decision 0135) | FR-17 |
 | I-29 | Once acceptance contracts are in force, no implementing Run is admitted for an item without an approved one | FR-59 |
 | I-30 | No change by an implementing Role touches an acceptance contract or a test it names | FR-59 |
 | I-31 | An item with an acceptance contract never converges with a criterion lacking passing evidence on that content | §4.2 |
@@ -1889,7 +1890,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | A merge state GitHub has not worked out yet | `mergeable` is null. It is unreadable, like anything but true or false: the Kernel defers, and approves, enqueues and admits nothing until it is known (I-13). A queued item stays in the queue: GitHub reports it each time the base moves (§4.1). It is as GitHub last worked it out: a move of the base alone does not make GitHub work it out again (P-29) |
 | A pull request that targets another feature branch, as stacked pull requests do | The Factory serves pull requests that target a protected branch. Others are shown as not served |
 | The poller was down for hours | A wait counts only while passes ran: from the item's last movement, and no earlier than `passes_since`, the start of the current unbroken chain of passes. If that cannot be read it is passed over, which shows more, never less. A missing pass is one health alert, not one alert per item, and so is a Pause or a capacity deferral: no item it defers goes stale (§4.1) |
-| Comments that keep a stalled item from showing | Only what a writer, a Lens or the Factory does moves an item: a stranger's comment, a check that is not required, and a time later than now or with a field no calendar has move nothing (§4.1, I-28) |
+| Comments that keep a stalled item from showing | Only what a writer, a Lens or the Factory does moves an item on; a stranger's act may only stop one, into a Hold only a person ends (decision 0135): a stranger's comment, a check that is not required, and a time later than now or with a field no calendar has move nothing (§4.1, I-28) |
 | A third-party thread the reviewer does not adopt | No Role resolves it (decision 0086); who does, so that the ruleset does not block the merge on it, is issue 366's (§4.2) |
 | A review thread from someone without write access | On a public repo anyone can open one. It is treated as a third-party reviewer's: `pr-review` adopts it, or it waits on issue 366 as one not adopted does. Only a person with write access can hold a pull request with a thread |
 | A request for changes, from a person with write access or from anyone else | A writer's gates, as that person's thread does, and stands until that person approves or a person with write access dismisses it; new content and an App's dismissal do not clear it. A stranger's or a Lens's gates nothing. An approval answers that person's request even once dismissed, so an App's push that dismisses a stale approval revives nothing; it approves no content (§3.3) |
