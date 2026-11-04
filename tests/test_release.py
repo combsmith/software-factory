@@ -364,8 +364,9 @@ class Fixture(unittest.TestCase):
                 id=i["run"] + 1),
             "a second job of the run, its log not read": lambda i: exchange(i, "/jobs")["response"]["body"]["jobs"].append(
                 {"id": 1, "run_id": i["run"]}),
-            "a line of the log beyond the step's": lambda i: exchange(i, "/logs")["response"].update(
-                body=exchange(i, "/logs")["response"]["body"] + "\n2026-10-31T12:29:19.0000000Z x-oauth-scopes: admin:org"),
+            "a line of the log beyond the step's": lambda i: exchange(i, "/logs")["response"].update(body="\n".join(
+                (lambda lines: lines[:1] + ["2026-10-31T12:29:15.6000000Z x-oauth-scopes: admin:org"] + lines[1:])(
+                    exchange(i, "/logs")["response"]["body"].splitlines()))),
             "an input after the last line": lambda i: exchange(i, "/logs")["response"].update(
                 body=exchange(i, "/logs")["response"]["body"] + "\n2026-10-31T12:29:19.0000000Z   RELEASE_TO: "),
             "the run read again and refused": lambda i: i["exchanges"].append(dict(
