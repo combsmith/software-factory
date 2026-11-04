@@ -126,8 +126,12 @@ class Effects(unittest.TestCase):
 
     def test_a_queue_act_is_dispatched_to_the_queue_workflow_once_it_is_named(self):  # issue 381
         cfg = controller()
-        self.assertIsNone(cfg["workflows"]["queue"])
+        # The committed configuration names the queue workflow and no queue App's account, so nothing is permitted.
+        self.assertEqual((cfg["workflows"]["queue"], cfg["accounts"]["queue"]), ("queue.yml", None))
         self.assertNotIn("queue.yml", json.dumps(sorted(effects.workflow_permits(cfg))))
+        unnamed = dict(cfg, workflows=dict(cfg["workflows"], queue=None),
+                       accounts=dict(cfg["accounts"], queue={"id": 349593770, "type": "Bot", "login": "combsmith-sf-queue[bot]"}))
+        self.assertNotIn("queue.yml", json.dumps(sorted(effects.workflow_permits(unnamed))))
         account = {"id": 349593770, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
         named = dict(cfg, workflows=dict(cfg["workflows"], queue="queue.yml"))
         path = effects.dispatch_path(named, "queue")

@@ -38,7 +38,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
             "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data", "credential-ages": "data", "machine-user": "data",
-            "rings": "data"}
+            "rings": "data", "release-fixture": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
@@ -304,6 +304,10 @@ def run(root: pathlib.Path = ROOT) -> list:
             # What no schema can say of a ring file is tools/check_release.py's: a counter-example of it is refused there.
             from tools import check_release
             errors = check_release.ring_problems(value)
+        if kind == "release-fixture" and not errors:
+            # An item that says other than its own exchanges is tools/check_release.py's to refuse.
+            from tools import check_release
+            errors = check_release.fixture_problems(value, "invalid/" + path.name)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:

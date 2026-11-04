@@ -455,9 +455,33 @@ class Engine(unittest.TestCase):
         self.assertEqual(args[args.index("--model") + 1], HARNESS["engine"]["model"])
         self.assertEqual(args[args.index("--max-turns") + 1], str(HARNESS["limits"]["standard"]["turns"]))
         self.assertEqual(cli.asked()[0]["timeout"], HARNESS["limits"]["standard"]["seconds"])
+        # The tier's cost ceiling, once, as the CLI reads a number (issue 517).
+        self.assertEqual(args.count("--max-budget-usd"), 1)
+        self.assertEqual(args[args.index("--max-budget-usd") + 1], "1.0")
         # The Task is the prompt's data, after the fixed instruction.
         prompt = args[args.index("-p") + 1]
         self.assertEqual(prompt, engine.PROMPT + engine.TASK + json.dumps(built(), sort_keys=True))
+
+    def test_the_cli_holds_the_run_to_its_tiers_cost_ceiling(self):  # decision 0136
+        # The Task's own ceiling, as its tier gives it, and nothing else: the pin accepts the flag and refuses 0 or a word.
+        for the_task, said in ((built(), "1.0"), (built(role=manifest(tier="deep")), "1.5")):
+            cli = CLI()
+            engined(cli, the_task)
+            args = cli.asked()[0]["args"]
+            self.assertEqual(args[args.index("--max-budget-usd") + 1], said, the_task["tier"])
+        the_task = built()
+        the_task["limits"]["cost_ceiling_usd"] = 0.25
+        cli = CLI()
+        engined(cli, the_task)
+        args = cli.asked()[0]["args"]
+        self.assertEqual(args[args.index("--max-budget-usd") + 1], "0.25")
+        self.assertEqual(args[args.index("--max-turns") + 1], str(HARNESS["limits"]["standard"]["turns"]))
+        # A Run the ceiling stopped is the item's, as one out of turns is, at any exit; not without is_error exactly true.
+        for code in (0, 1):
+            r = engined(CLI(said=answer(is_error=True, subtype="error_max_budget_usd", structured_output=None), returncode=code))
+            self.assertEqual((r["status"], r["reason"], r["usage"]["cost_usd"]), ("failed", "no_answer", 0.167688), code)
+        r = engined(CLI(said=answer(is_error="true", subtype="error_max_budget_usd"), returncode=1))
+        self.assertEqual(r["reason"], "engine_failed")
 
     def test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task(self):  # 0059
         # Word for word: the fixed instruction, the Role's instructions and its Intent's rubric, as the Release holds
@@ -630,7 +654,8 @@ class Engine(unittest.TestCase):
             for code in (0, 1, 2):
                 r = engined(CLI(said=answer(is_error=True, subtype=subtype), returncode=code))
                 self.assertEqual((r["status"], r["reason"]), ("failed", "no_answer"), (subtype, code))
-        self.assertEqual(sorted(engine.MODEL_ENDED), ["error_max_structured_output_retries", "error_max_turns"])
+        self.assertEqual(sorted(engine.MODEL_ENDED), ["error_max_budget_usd", "error_max_structured_output_retries",
+                                                      "error_max_turns"])
         # An engine that changed under the Run is still that, first.
         r = engined(CLI(said=answer(is_error=True, subtype="error_max_turns"), versions=(PIN, "9.9.9")))
         self.assertEqual(r["reason"], "engine_version")
@@ -649,7 +674,7 @@ class Engine(unittest.TestCase):
             r = engined(CLI(said=said))
             self.assertEqual((r["status"], r["reason"]), ("failed", "engine_failed"), said[:80])
         # An unknown word for how it ended, or the word without is_error exactly true, is still the Factory's (decision 0122).
-        for said in (answer(is_error=True, subtype="error_max_budget_usd"), answer(is_error=True, subtype="ERROR_MAX_TURNS"),
+        for said in (answer(is_error=True, subtype="error_max_tokens"), answer(is_error=True, subtype="ERROR_MAX_TURNS"),
                      answer(is_error=True, subtype=None), answer(is_error=True, subtype=["error_max_turns"]),
                      answer(is_error="true", subtype="error_max_turns"), answer(is_error=None, subtype="error_max_turns"),
                      answer(is_error=1, subtype="error_max_turns")):

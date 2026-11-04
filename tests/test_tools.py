@@ -26,6 +26,8 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.parse
+import zlib
 from unittest import mock
 
 from kernel import decide as decide_module, derive, issue, terms
@@ -3414,9 +3416,46 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.lint(other), "job verify is granted actions: write"))
         self.assertEqual(check_workflows.lint(check_workflows.RUN_SHIM % 41898282), [])
         self.assertEqual([p for p in check_workflows.lint(good) if p[0] == "permissions"], [])
-        for job, homes in (("wake", "run-jobs.yml and approve-job.yml"), ("lane", "run.yml and approve.yml")):
+        for job, homes in (("wake", "run-jobs.yml and approve-job.yml and queue-job.yml"),
+                           ("lane", "run.yml and approve.yml and queue.yml")):
             text = "name: x\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  %s:\n    runs-on: ubuntu-24.04\n" % job
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "the job %s is reserved for %s" % (job, homes)), job)
+
+    def test_the_queue_acts_job_holds_its_key_the_jobs_reads_and_the_pause_word_for_word(self):  # issue 381
+        act = (self.LIVE / "queue-job.yml").read_text()
+        self.assertEqual(check_workflows.queue_job_problems(act), [])
+        self.assertEqual(check_workflows.shim_problems("queue-job.yml", act), [])
+        # Its wake is the approving act's, but for the job it waits on, and holds nothing.
+        approving = (self.LIVE / "approve-job.yml").read_text()
+        self.assertEqual(act[act.index("  wake:\n"):].replace("      - queue\n", ""),
+                         approving[approving.index("  wake:\n"):].replace("      - approve\n", ""))
+        self.assertEqual(check_workflows.wake_problems(check_workflows.read(act)[0]), [])
+        broken = {
+            "the job's token writes": act.replace("      actions: read\n      contents: read\n", "      actions: write\n      contents: read\n"),
+            "no read of the record": act.replace("      actions: read\n      contents: read\n", "      contents: read\n"),
+            "no Pause read": act.replace("          FACTORY_PAUSED: ${{ vars.FACTORY_PAUSED }}\n", ""),
+            "another key beside": act.replace("          QUEUE_APP_KEY: ${{ secrets.QUEUE_APP_KEY }}\n",
+                                              "          QUEUE_APP_KEY: ${{ secrets.QUEUE_APP_KEY }}\n          K: ${{ secrets.APPROVER_TOKEN }}\n"),
+            "another environment": act.replace("environment: factory-queue", "environment: factory-approve"),
+            "the item's code checked out": act.replace("          ref: ${{ job.workflow_sha }}\n", "          ref: ${{ inputs.item }}\n"),
+            "an outcome a failure skips": act.replace("      - name: Leave the Run's outcome\n        if: always()\n",
+                                                      "      - name: Leave the Run's outcome\n"),
+            "no wake": act[:act.index("  wake:\n")],
+        }
+        for why, text in broken.items():
+            self.assertNotEqual(text, act, why)
+            self.assertTrue(caught(check_workflows.shim_problems("queue-job.yml", text), "the queue act's one job"), why)
+        # The shim that calls it, which may hold the lane's write, runs on a dispatch alone and only once its hash is
+        # recorded: on a pull request it would run a branch's code with that write, as approve.yml would.
+        lane = ("name: x\non:\n  %s:\npermissions: {}\njobs:\n  lane:\n    permissions:\n      actions: write\n"
+                "    uses: combsmith/software-factory/.github/workflows/queue-job.yml@factory/v0-next\n")
+        for shim in ("queue.yml", "approve.yml"):
+            self.assertTrue(caught(check_workflows.shim_problems(shim, lane % "pull_request"), "a shim on workflow_dispatch alone"), shim)
+            self.assertTrue(caught(check_workflows.shim_problems(shim, lane % "workflow_dispatch"), "a shim is held word for word"), shim)
+        # Its key and environment are its alone: another file that names either is refused, and it names no other.
+        for text in ("  K: ${{ secrets.QUEUE_APP_KEY }}\n", "    environment: factory-queue\n"):
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
+                                   "which only queue-job.yml names"), text)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
         good = (self.LIVE / "run-jobs.yml").read_text()
@@ -4192,6 +4231,45 @@ SHAPED = {
     "signed url": "https://productionresultssa0.blob.core.windows.net/x?sv=2019&s" + "ig=AbCdEf%2Bxyz%3D&se=2026",
     "amazon signature": "https://objects.githubusercontent.com/x?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Sign" + "ature=abcd1234",
     "amazon credential": "https://x/y?X-Amz-Cred" + "ential=AKIDEXAMPLE%2F2026",
+    # Each other signed URL a provider gives (issue 534): its secret is a parameter of the query, however it is written.
+    "amazon session token": "https://b.s3.amazonaws.com/o?X-Amz-Security-Tok" + "en=FwoGZXIvYXdzEJr",
+    "amazon's older signature": "https://b.s3.amazonaws.com/o?AWSAccessKeyId=AKIDEXAMPLE&Expires=1793836800&Sign" + "ature=a%2Bb",
+    "cloudfront signature": "https://d111.cloudfront.net/o?Expires=1793836800&Sign" + "ature=a~b&Key-Pair-Id=K2JCJMDEHXQW5F",
+    "google signature": "https://storage.googleapis.com/b/o?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Sign" + "ature=abcdef0123",
+    "google credential": "https://storage.googleapis.com/b/o?X-Goog-Cred" + "ential=sa%40p.iam.gserviceaccount.com%2F20261104",
+    "google's older pair": "https://storage.googleapis.com/b/o?GoogleAccessId=sa%40p.iam.gserviceaccount.com&Expires=1793836800"
+                           "&Sign" + "ature=a%2Bb",
+    "google signature first": "https://storage.googleapis.com/b/o?X-Goog-Sign" + "ature=abcdef0123",
+    "signed url escaped in json": "https://storage.googleapis.com/b/o?a=1\\u0026X-Goog-Sign" + "ature=abcdef0123",
+    "signed url escaped in html": "https://x.blob.core.windows.net/c/o?sv=2019&amp;s" + "ig=AbCdEf",
+    "signed url inside another url": "https://example.com/r?next=https%3A%2F%2Fstorage.googleapis.com%2Fb%2Fo%3FX-Goog-Sign"
+                                     "ature%3Dabcdef0123",
+    "signed url inside another, after its first parameter": "https://example.com/r?next=https%3A%2F%2Fx%2Fo%3Fa%3D1%26s"
+                                                            "ig%3DAbCdEf",
+    "signed url inside another twice": "https://example.com/r?next=https%253A%252F%252Fx%252Fo%253Fs" + "ig%253DAbCdEf",
+    "signed url inside another twice, after its first parameter": "https://e.com/r?n=https%253A%252F%252Fx%252Fo%253Fa%253D1"
+                                                                   "%2526s" + "ig%253DAbCdEf",
+    "signed url escaped in json, its = too": "https://x.blob.core.windows.net/c/o?sv\\u003d2019\\u0026s" + "ig\\u003dAbCdEf",
+    "signed url escaped in json, its ? too": "https://storage.googleapis.com/b/o\\u003fX-Goog-Sign" + "ature\\u003dabcdef0123",
+    "signed url escaped in javascript": "https://x.blob.core.windows.net/c/o?sv=2019\\x26s" + "ig\\x3dAbCdEf",
+    "signed url escaped in javascript, its ?": "https://storage.googleapis.com/b/o\\x3fX-Goog-Sign" + "ature=abcdef0123",
+    "signed url escaped in html by number": "https://x.blob.core.windows.net/c/o?sv=2019&#38;s" + "ig&#61;AbCdEf",
+    "signed url escaped in html by hex": "https://storage.googleapis.com/b/o&#x3f;X-Goog-Sign" + "ature&#x3D;abcdef0123",
+    "signed url escaped in html, its & by hex": "https://x.blob.core.windows.net/c/o?sv=2019&#x26;s" + "ig=AbCdEf",
+    "signed url escaped in html, its ? by number": "https://storage.googleapis.com/b/o&#63;X-Goog-Sign" + "ature=abcdef0123",
+    "alibaba signature": "https://b.oss-cn-hangzhou.aliyuncs.com/o?x-oss-signature-version=OSS4-HMAC-SHA256&x-oss-sign"
+                         "ature=2a1b3c4d5e6f",
+    "alibaba credential": "https://b.oss-cn-hangzhou.aliyuncs.com/o?x-oss-cred" + "ential=LTAI5tExample%2F20261104",
+    "alibaba's older session token": "https://b.oss-cn-hangzhou.aliyuncs.com/o?OSSAccessKeyId=STS.NExample&security-tok"
+                                     "en=CAIS8gF1q6Ft5B2y",
+    "tencent signature": "https://b.cos.ap-guangzhou.myqcloud.com/o?q-sign-algorithm=sha1&q-ak=AKIDExample&q-sign"
+                         "ature=0a1b2c3d4e",
+    "tencent session token": "https://b.cos.ap-guangzhou.myqcloud.com/o?x-cos-security-tok" + "en=AbCdEfGh",
+    "huawei session token": "https://b.obs.cn-north-4.myhuaweicloud.com/o?AccessKeyId=AK&x-obs-security-tok" + "en=gQpjbi1u",
+    "backblaze authorization": "https://f002.backblazeb2.com/file/bucket/o?Authoriz" + "ation=4_0022623512fc8f8_01a2b3c4",
+    "akamai edge token": "https://cdn.example.com/o.mp4?hdn" + "ts=exp=1793836800~acl=/*~hmac=0a1b2c3d4e5f",
+    "akamai's other edge token": "https://cdn.example.com/o.mp4?__tok" + "en__=exp=1793836800~hmac=0a1b2c3d4e5f",
+    "oracle pre-authenticated request": "https://objectstorage.us-ashburn-1.oraclecloud.com/p/AbCdEfGhIjKl" + "MnOpQr/n/ns/b/x/o/y",
     "hex beside a keyword": "access_tok" + "en=" + "a1" * 20, "runner registration": "AABF3JGZDX3P5PMEXLND6TS6FCWO6",
     "jit config": "encoded_jit" + "_config", "private key": "-----BEGIN OPENSSH PRIV" + "ATE KEY-----\nb3Blbn",
     "private key body": "MIIEowIBAAKCAQEA" + "x" * 60, "openssh key body": "b3BlbnNzaC1rZXktdjE" + "AAAAB",
@@ -4211,7 +4289,11 @@ PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.
          "https://api.github.com/repos/combsmith/x/check-runs/4", "2026-10-15T14:02:11Z", "Requires authentication",
          "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration",
          # Words that hold gh, a letter and an underscore, after a letter: no prefix of a credential.
-         "right_now", "height_px", "thought_x", "straight_line", "weight_kg", "light_mode", "might_be"]
+         "right_now", "height_px", "thought_x", "straight_line", "weight_kg", "light_mode", "might_be",
+         # A signed URL's parameter named where no query has it: in a path, in words, or as part of a longer name.
+         "https://storage.googleapis.com/b/X-Goog-Signature.txt", "a signature=1 in words",
+         "https://api.github.com/repos/o/r/commits?per_page=100&signatures=true",
+         "https://storage.googleapis.com/b/report;sig=public.txt", "https://objectstorage.us-ashburn-1.oraclecloud.com/n/ns/b/x/o/y"]
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
@@ -5249,6 +5331,104 @@ class Trials(unittest.TestCase):
             self.assertEqual(checked["every_configuration_passes"], False, order)
         self.assertEqual(p51["verdict"], "fail")
 
+    def test_the_read_tools_on_a_linux_runner_are_held_to_their_folder_only_with_both_flags(self):
+        # trials/P-59.json: the analysis is read again from the job's log, the files the canary ran are the ones in
+        # tools/, and the pass follows. With --restricted and --setting-sources "", every call outside the folder was
+        # refused, no marker reached the model, no setting of the head's ran and its CLAUDE.md was not sent; with
+        # --restricted alone the same; with --setting-sources "" alone the reads reached outside; with neither, each of
+        # those happened.
+        p59 = json.loads((ROOT / "trials" / "P-59.json").read_text())
+        log, analysis = p59["exchanges"][-2]["response"]["body"], p59["exchanges"][-1]["response"]["body"]
+        said = [m.group(1) if m else "" for m in (re.match(r"^[^\t]*\t[^\t]*\t\S+Z (.*)$", line) for line in log.splitlines())]
+        start, end = said.index("{"), len(said) - 1 - said[::-1].index("}")
+        self.assertEqual(json.loads("\n".join(said[start:end + 1])), analysis["checked"], "the analysis is what the log printed")
+        for name, tools_file in (("p59/run.sh", "tools/trial_p59_read_confinement.sh"), ("p59/stub.py", "tools/trial_p50_stub.py")):
+            copied = analysis["copied_whole"][name]
+            self.assertEqual(sorted(copied), ["canary", tools_file], name)
+            blob = subprocess.run(["git", "hash-object", str(ROOT / tools_file)], capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual((copied["canary"], copied[tools_file]), (blob, blob), name + " ran as it is in tools/")
+        checked = analysis["checked"]
+        self.assertEqual(checked["version"], {"pinned": "2.1.306", "before": "2.1.306", "after": "2.1.306"})
+        parts = checked["configurations"]
+        self.assertEqual(sorted(parts), ["engine", "restricted", "sources", "unguarded"])
+        for name, part in parts.items():
+            calls = part["calls"]
+            self.assertEqual((part["exit"], part["answer"]["is_error"], len(calls)), (0, False, 24), name)
+            self.assertEqual(calls[0], {"tool": "Read", "at": "HEAD/inside.txt", "outside": False, "error": False, "markers": ["INSIDE"]}, name)
+            writes = [c for c in calls if c["tool"] in ("Bash", "Write")]
+            self.assertEqual((len(writes), all(c["error"] is True for c in writes)), (3, True), name)
+            self.assertEqual(part["offered"], ["DeferredToolPlaceholder", "Glob", "Grep", "Read"], name)
+        for name in ("engine", "restricted"):
+            outside = [c for c in parts[name]["calls"] if c["outside"]]
+            self.assertEqual(len(outside), 18, name)
+            self.assertEqual([c["at"] for c in outside if c["error"] is not True or c["markers"]], [], name + ": every read outside refused")
+            self.assertEqual((parts[name]["escaped"], parts[name]["markers_elsewhere_in_requests"]), ([], []), name)
+            self.assertFalse(any(parts[name]["left_by_the_head"].values()), name)
+            self.assertTrue(parts[name]["holds"]["passes"], name)
+        self.assertEqual([k for k, v in parts["sources"]["holds"].items() if v is False and k != "passes"],
+                         ["every_outside_call_refused", "nothing_outside_read"], "--setting-sources alone confines nothing")
+        self.assertFalse(any(parts["sources"]["left_by_the_head"].values()), "but keeps the head's settings out")
+        self.assertEqual(parts["sources"]["markers_elsewhere_in_requests"], [])
+        self.assertEqual({k for k, v in parts["unguarded"]["left_by_the_head"].items() if v}, {"hooked-pre", "hooked-start", "helper"})
+        self.assertIn("INSTRUCTIONS", parts["unguarded"]["markers_elsewhere_in_requests"])
+        self.assertEqual(sorted(parts["unguarded"]["escaped"]), ["ENVIRON", "HOME", "OUTSIDE"])
+        self.assertEqual((parts["unguarded"]["holds"]["passes"], checked["passes"]), (False, True))
+        self.assertEqual(p59["verdict"], "pass")
+
+    def test_a_commits_tarball_is_one_redirect_to_codeload_which_never_redirects_over_https(self):
+        # trials/P-60.json: the API's one redirect, to codeload alone and under the repo's own path; codeload's answer to
+        # it with no Authorization header, a gzip whose tar names the commit; and no redirect from codeload over HTTPS.
+        p60 = json.loads((ROOT / "trials" / "P-60.json").read_text())
+        ex = p60["exchanges"]
+        sha = re.search(r"/tarball/([0-9a-f]{40}) ", ex[0]["request"]["call"]).group(1)
+        asked, served = ex[0]["response"], ex[1]
+        self.assertEqual(ex[0]["request"]["call"].split(" ")[1], "/repos/%s/tarball/%s" % (p60["repo"], sha))
+        self.assertEqual((asked["status"], asked["headers"]["location"]),
+                         (302, "https://codeload.github.com/%s/legacy.tar.gz/%s" % (p60["repo"], sha)))
+        self.assertEqual(served["request"]["call"].split(" ")[3], asked["headers"]["location"])
+        # Every header a fixture keeps is held in lower case, so a name in any case is caught by its lower-case form.
+        for e in ex:
+            self.assertEqual([h for h in list(e["request"]["headers"]) + list(e["response"]["headers"]) if h != h.lower()], [])
+        self.assertNotIn("authorization", served["request"]["headers"])
+        self.assertEqual((served["response"]["status"], served["response"]["headers"]["content-type"]), (200, "application/x-gzip"))
+        self.assertNotIn("content-length", served["response"]["headers"], "the transport bounds what it reads itself")
+        # The tar, walked header by header: a pax global header naming the commit, then one folder of directories and
+        # regular files alone.
+        data = zlib.decompress(base64.b64decode(served["response"]["body"]["base64"]), 16 + zlib.MAX_WBITS)
+        kinds, names, at, comment = [], [], 0, None
+        while data[at:at + 512].strip(b"\0"):
+            header = data[at:at + 512]
+            size = int(header[124:136].strip(b"\0 ") or b"0", 8)
+            body = data[at + 512:at + 512 + size]
+            kind = chr(header[156] or 48)
+            if kind == "g":
+                comment = re.search(rb"\d+ comment=([0-9a-f]{40})\n", body).group(1).decode()
+            else:
+                kinds.append(kind)
+                names.append(header[:100].rstrip(b"\0").decode())
+            at += 512 + (size + 511) // 512 * 512
+        self.assertEqual(comment, sha)
+        self.assertEqual({n.split("/")[0] for n in names}, {p60["repo"].replace("/", "-") + "-" + sha[:7]})
+        self.assertEqual(set(kinds), {"0", "5"}, "regular files and directories alone")
+        # Each codeload exchange by its address, parsed: none over HTTPS redirected, and plain HTTP redirected to HTTPS.
+        codeload = {}
+        for i, e in enumerate(ex[1:6], 1):
+            address = urllib.parse.urlsplit(e["request"]["call"].split(" ")[3])
+            self.assertEqual(address.hostname, "codeload.github.com", i)
+            codeload[i] = (address.scheme, address.path, e["response"]["status"])
+        self.assertEqual([i for i, (scheme, _, status) in codeload.items() if scheme == "https" and 300 <= status < 400], [])
+        archive = "/%s/legacy.tar.gz/" % p60["repo"]
+        self.assertEqual(codeload[2], ("http", archive + sha, 301))
+        self.assertEqual(ex[2]["response"]["headers"]["location"], asked["headers"]["location"], "to the same address over HTTPS")
+        self.assertEqual(codeload[3], ("https", "/%s/legacy.tar.gz/%s" % (p60["repo"].upper(), sha), 200), "in capitals")
+        self.assertEqual(codeload[4], ("https", archive + "main", 200), "the branch by its name")
+        self.assertEqual(served["response"]["body"], ex[3]["response"]["body"])
+        self.assertEqual(served["response"]["body"], ex[4]["response"]["body"])
+        self.assertEqual(codeload[5], ("https", archive + "0" * 39 + "1", 404), "a commit it does not hold")
+        self.assertEqual(ex[6]["request"]["call"].split(" ")[1], "/repos/%s/tarball/%s" % (p60["repo"], "0" * 39 + "1"))
+        self.assertEqual(ex[6]["response"]["status"], 302, "the API does not read the commit")
+        self.assertEqual(p60["verdict"], "pass")
+
     def test_a_sandboxed_tool_on_a_linux_runner_reads_the_parents_environment(self):
         # trials/P-50.json (issue 287): the analysis is read again here from the job's log, each part of the pass is
         # computed from what the probe left, as the script computes it, and must equal the job's record; the fail follows.
@@ -5631,7 +5811,8 @@ class OutputMadeAlone(unittest.TestCase):
                "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
                "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
                "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
-               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42")}
+               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42"),
+               "trial_p58_edits.sh": ("KEY", READER, "96")}
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
@@ -5854,7 +6035,7 @@ fi
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
                        "trial_p12_status.sh",
-                       "trial_p56_comments.sh",
+                       "trial_p56_comments.sh", "trial_p58_edits.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -6085,7 +6266,7 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
         # Issue 424: each trial keeps the last head's status, since a proxy's block, or an interim answer, comes first.
         # A blank line in a body opens no head, and an HTTP line after it is the body's (Argon).
         for name in ("trial_reader_reads.sh", "trial_p39_reach.sh", "trial_p8_cost.sh", "trial_p52_pause.sh", "trial_p4_narrow.sh",
-                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh"):
+                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh"):
             text = (ROOT / "tools" / name).read_text()
             self.assertNotIn("sed -n '1s/^HTTP", text, name)
             programs = re.findall(r"awk '(BEGIN \{ head = 1 \}[^']+)'", text)
@@ -7801,6 +7982,251 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
             self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
 
 
+class ReadConfinementTrial(unittest.TestCase):
+    """`tools/trial_p59_read_confinement.sh` (the review Role reading a pull request's head), run against a stand-in CLI
+    that asks P-50's real stub, given P-59's calls, for each call in turn, as the pinned CLI would. It holds the read tools
+    to its working folder when given `--restricted`, and keeps the head's settings out given either flag, as the pinned
+    CLI was seen to, and each flag
+    beside it lets one part of the condition fail: the verdict each earns, what each configuration is given, and that
+    nothing it made is left."""
+
+    SCRIPT = ROOT / "tools" / "trial_p59_read_confinement.sh"
+    STUB = ROOT / "tools" / "trial_p50_stub.py"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    # The stand-in CLI. `leak-N` lets the Nth call reach outside the folder though the CLI is held; `context-leak` sends
+    # the outside file's text beside the task; `hooks-run` runs the head's hook commands, `md` sends its CLAUDE.md;
+    # `extra-tool` offers Bash and `late-tool` WebFetch from the second request on; `refuse-inside` refuses every read;
+    # `stop-early` ends after the first call; `bash-runs` answers Bash; `write-lands` makes each Write and says so,
+    # `write-lands-quietly` makes it and says it failed; `is-error` says the Task failed. Unheld, as with neither flag, it
+    # reaches outside, runs the hooks and sends the CLAUDE.md, as the pin did.
+    CLI = r'''#!/usr/bin/env python3
+import json, os, pathlib, re, sys, urllib.request
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+if args[:1] == ["--version"]:
+    name = "version.after" if (here / "asked").exists() and (here / "version.after").exists() else "version"
+    print((here / name).read_text().strip() + " (Claude Code)")
+    sys.exit(0)
+(here / "asked").write_text("")
+which = {(True, True): "engine", (True, False): "restricted", (False, True): "sources", (False, False): "unguarded"}[
+    ("--restricted" in args, "--setting-sources" in args)]
+# As the pin was seen to: --restricted alone holds the reads to the folder, and either flag keeps the head's settings
+# and instructions out.
+held, settled = "--restricted" in args, which != "unguarded"
+(here / ("argv-" + which)).write_text(json.dumps(args))
+(here / ("env-" + which)).write_text(json.dumps(dict(os.environ)))
+flags = {p.name for p in here.iterdir()}
+cwd = os.path.realpath(".")
+settings = json.load(open(".claude/settings.json"))
+outside = settings["permissions"]["additionalDirectories"][0]
+if not settled or "hooks-run" in flags:
+    for command in [h["command"] for e in settings["hooks"].values() for g in e for h in g["hooks"]] + [settings["apiKeyHelper"]]:
+        pathlib.Path(re.match(r"touch (\S+)", command).group(1)).touch()
+def post(body):
+    request = urllib.request.Request(os.environ["ANTHROPIC_BASE_URL"] + "/v1/messages", data=json.dumps(body).encode(),
+                                     headers={"content-type": "application/json"})
+    with urllib.request.urlopen(request, timeout=20) as answer:
+        return answer.read().decode()
+def inside(path):
+    real = os.path.realpath(path)
+    return real == cwd or real.startswith(cwd + os.sep)
+def answer(tool, given, i):
+    reach = not held or ("leak-%d" % i) in flags
+    if tool == "Write" and ("write-lands" in flags or "write-lands-quietly" in flags):
+        pathlib.Path(given["file_path"]).write_text(given["content"])
+        return "written", "write-lands-quietly" in flags
+    if tool == "Bash" and "bash-runs" in flags:
+        return "ran", False
+    if tool not in ("Read", "Grep", "Glob"):
+        return "No such tool available: " + tool, True
+    path = given.get("file_path") or given.get("path")
+    if "refuse-inside" in flags or (not inside(path) and not reach):
+        return "denied: outside the working directories", True
+    if path == "/proc/self/environ":
+        return "\0".join("%s=%s" % kv for kv in os.environ.items()), False
+    if tool == "Glob":
+        return "\n".join(sorted(os.listdir(path))) if os.path.isdir(path) else "", not os.path.isdir(path)
+    files = [path] if os.path.isfile(path) else [os.path.join(d, f) for d, _, fs in os.walk(path) for f in fs]
+    try:
+        text = "".join(open(f).read() for f in files if not os.path.islink(f) or tool == "Read")
+    except OSError:
+        return "no such file", True
+    return text if tool == "Read" else "\n".join(l for l in text.splitlines() if given["pattern"] in l) or "No matches found", False
+told = open("CLAUDE.md").read() if not settled or "md" in flags else ""
+told += open(os.path.join(outside, "secret.txt")).read() if "context-leak" in flags else ""
+results = []
+while True:
+    tools = [{"name": n} for n in ("DeferredToolPlaceholder", "Glob", "Grep", "Read")]
+    tools += [{"name": "Bash"}] if "extra-tool" in flags else []
+    tools += [{"name": "WebFetch"}] if "late-tool" in flags and results else []
+    content = [{"type": "text", "text": "the task " + told}] + results
+    said = post({"model": "m", "stream": True, "tools": tools, "messages": [{"role": "user", "content": content}]})
+    events = [json.loads(line[6:]) for line in said.splitlines() if line.startswith("data: ")]
+    start = next(e for e in events if e["type"] == "content_block_start")["content_block"]
+    if start["type"] != "tool_use" or ("stop-early" in flags and results):
+        break
+    given = json.loads(next(e for e in events if e["type"] == "content_block_delta")["delta"]["partial_json"])
+    text, error = answer(start["name"], given, len(results))
+    results.append({"type": "tool_result", "tool_use_id": start["id"], "content": text, "is_error": error})
+print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error" in flags, "num_turns": len(results) + 1}))
+'''
+
+    def stand_in(self, flags=(), after=None) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text(self.PIN + "\n")
+        if after:
+            (folder / "version.after").write_text(after + "\n")
+        for flag in flags:
+            (folder / flag).write_text("")
+        (folder / "claude").write_text('#!/bin/sh\nexec python3 "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
+        (folder / "cli.py").write_text(self.CLI)
+        (folder / "claude").chmod(0o755)
+        return folder
+
+    def environment(self) -> tuple:
+        home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        temp = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        return home, temp, {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "TMPDIR": str(temp)}
+
+    def run_script(self, folder) -> tuple:
+        home, temp, env = self.environment()
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+        ran = subprocess.run(["bash", str(self.SCRIPT), str(out), str(folder / "claude"), str(self.STUB)],
+                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=180, stdin=subprocess.DEVNULL)
+        return home, temp, out, ran
+
+    def test_the_engine_configuration_is_judged_by_the_condition(self):
+        outside = ["every_outside_call_refused", "nothing_outside_read"]
+        # (name, flags, after, passes, the engine's holds that fail, the markers that escaped)
+        cases = [
+            ("held to its folder", (), None, True, [], []),
+            ("a read by an absolute path reaches outside", ("leak-1",), None, False, outside, ["OUTSIDE"]),
+            ("a read through a link reaches outside", ("leak-4",), None, False, outside, ["OUTSIDE"]),
+            ("its own environ is read", ("leak-6",), None, False, outside, ["ENVIRON"]),
+            ("the home directory is read", ("leak-11",), None, False, outside, ["HOME"]),
+            ("a grep outside finds the marker", ("leak-12",), None, False, outside, ["OUTSIDE"]),
+            ("a glob lists the outside folder", ("leak-18",), None, False, outside, ["OUTSIDE"]),
+            ("the outside file's text is sent beside the task", ("context-leak",), None, False, ["nothing_outside_read"], ["OUTSIDE"]),
+            ("the head's hooks run", ("hooks-run",), None, False, ["no_setting_ran"], []),
+            ("the head's CLAUDE.md is sent", ("md",), None, False, ["no_instructions_sent"], []),
+            ("a tool that runs is offered", ("extra-tool",), None, False, ["read_tools_alone"], []),
+            ("a tool that runs is offered later", ("late-tool",), None, False, ["read_tools_alone"], []),
+            ("every read is refused, the inside one too", ("refuse-inside",), None, False, ["inside_read"], []),
+            ("the Task ends after its first call", ("stop-early",), None, False,
+             ["every_call_answered", "every_outside_call_refused", "no_write_tool"], []),
+            ("Bash runs", ("bash-runs",), None, False, ["no_write_tool"], []),
+            ("a write lands and says so", ("write-lands",), None, False, ["no_write_tool", "nothing_written"], []),
+            ("a write lands and says it failed", ("write-lands-quietly",), None, False, ["nothing_written"], []),
+            ("the Task said it failed", ("is-error",), None, False, ["answered"], []),
+            ("the version moved under the run", (), "9.9.9", False, [], []),
+        ]
+
+        def one(case):
+            folder = self.stand_in(case[1], case[2])
+            return case, (folder,) + self.run_script(folder)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(one, cases))
+        for (name, flags, after, passes, failing, escaped), (folder, home, temp, out, ran) in results:
+            self.assertEqual(ran.returncode, 0, (name, ran.stderr))
+            checked = json.loads((out / "checked.json").read_text())
+            self.assertEqual(checked["passes"], passes, name)
+            self.assertEqual(sorted(checked["configurations"]), ["engine", "restricted", "sources", "unguarded"], name)
+            engine, unguarded = checked["configurations"]["engine"], checked["configurations"]["unguarded"]
+            self.assertEqual([k for k, v in engine["holds"].items() if v is False and k != "passes"], failing, name)
+            self.assertEqual(engine["escaped"], escaped, name)
+            if "refuse-inside" not in flags:
+                self.assertEqual(engine["calls"][0], {"tool": "Read", "at": "HEAD/inside.txt", "outside": False, "error": False,
+                                                      "markers": ["INSIDE"]}, name)
+            # The configuration with neither flag, recorded and deciding nothing, shows each escape the probe can see,
+            # where the stand-in reads at all.
+            self.assertFalse(unguarded["holds"]["passes"], name)
+            if not set(flags) & {"refuse-inside", "stop-early"}:
+                self.assertEqual(sorted(unguarded["escaped"]), ["ENVIRON", "HOME", "OUTSIDE"], name)
+            self.assertFalse(unguarded["holds"]["no_setting_ran"] or unguarded["holds"]["no_instructions_sent"], name)
+            if not flags and not after:
+                # Each flag alone: --restricted holds the reads; --setting-sources "" keeps the settings out alone.
+                restricted, sources = checked["configurations"]["restricted"], checked["configurations"]["sources"]
+                self.assertTrue(restricted["holds"]["passes"], name)
+                self.assertEqual([k for k, v in sources["holds"].items() if v is False and k != "passes"],
+                                 ["every_outside_call_refused", "nothing_outside_read"], name)
+            # Nothing it made is left, in OUT, the home directory or the temporary one, and no marker reached its output.
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ["checked.json"], name)
+            self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
+            self.assertNotRegex(ran.stdout + ran.stderr + (out / "checked.json").read_text(), r"P59[A-Z]+[0-9a-f]{16}", name)
+
+    def test_each_configuration_is_given_the_read_tools_and_its_own_flags(self):
+        folder = self.stand_in()
+        home, temp, out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        names = ("engine", "restricted", "sources", "unguarded")
+        argv = {n: json.loads((folder / ("argv-" + n)).read_text()) for n in names}
+        env = {n: json.loads((folder / ("env-" + n)).read_text()) for n in names}
+        for n in names:
+            a = argv[n]
+            self.assertEqual((a[a.index("--tools") + 1], a[a.index("--allowedTools") + 1], a[a.index("--permission-mode") + 1]),
+                             ("Read,Grep,Glob", "Read,Grep,Glob", "dontAsk"), n)
+            for option in ("--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"):
+                self.assertIn(option, a, n)
+            self.assertEqual(env[n]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "1", n)
+            self.assertEqual(env[n]["ANTHROPIC_API_KEY"], "dummy-p59-not-a-key", n)
+            self.assertRegex(env[n]["ANTHROPIC_BASE_URL"], r"^http://127\.0\.0\.1:[0-9]{1,5}$")
+        engine = argv["engine"]
+        self.assertEqual((engine[engine.index("--setting-sources") + 1], "--restricted" in engine), ("", True))
+        self.assertEqual(("--restricted" in argv["restricted"], "--setting-sources" in argv["restricted"]), (True, False))
+        self.assertEqual(("--restricted" in argv["sources"], argv["sources"][argv["sources"].index("--setting-sources") + 1]),
+                         (False, ""))
+        self.assertFalse({"--restricted", "--setting-sources"} & set(argv["unguarded"]))
+        self.assertEqual(len({env[n]["CLAUDE_CONFIG_DIR"] for n in names}), 4, "a configuration directory each")
+
+    def test_the_stub_answers_the_trials_calls_and_logs_only_the_markers_names(self):
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        calls = [["Read", {"file_path": "/a"}, False], ["Grep", {"pattern": "p", "path": "/b"}, True]]
+        (folder / "calls.json").write_text(json.dumps({"calls": calls, "markers": {"IN": "NEVER-LOGGED-IN", "OUT": "NEVER-LOGGED-OUT"}}))
+        with subprocess.Popen([sys.executable, "-I", str(self.STUB)], cwd=folder,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as stub:
+            try:
+                port = stub.stdout.readline().strip()
+                tools = [{"name": "Read"}, {"name": "Grep"}]
+                # A result as a string, and one as a list of blocks, as the CLI may send either.
+                said = [{"type": "tool_result", "content": "has NEVER-LOGGED-IN", "is_error": False},
+                        {"type": "tool_result", "content": [{"type": "text", "text": "has NEVER-LOGGED-OUT"}], "is_error": True}]
+                asks = [("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": "NEVER-LOGGED-OUT"}]}),
+                        ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": said[:1]}]}),
+                        ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": said}]}),
+                        ("/v1/messages", {"messages": []})]
+                ran = subprocess.run([sys.executable, "-I", "-c", LinuxSandboxTrial.CLIENT, "http://127.0.0.1:" + port],
+                                     input=json.dumps(asks), capture_output=True, text=True, timeout=60)
+                answers = json.loads(ran.stdout)
+            finally:
+                stub.kill()
+        self.assertEqual([(a[1]["content"][0].get("name"), a[1]["content"][0].get("input")) for a in answers[:2]],
+                         [("Read", {"file_path": "/a"}), ("Grep", {"pattern": "p", "path": "/b"})])
+        self.assertEqual([a[1]["content"] for a in answers[2:]], [[{"type": "text", "text": "done"}]] * 2)
+        log = (folder / "stub.log").read_text()
+        self.assertNotIn("NEVER-LOGGED", log)
+        lines = [json.loads(line) for line in log.splitlines()]
+        self.assertEqual([(l["offered"], l["found"], l["elsewhere"]) for l in lines],
+                         [(["Grep", "Read"], [], ["OUT"]), (["Grep", "Read"], [["IN"]], []),
+                          (["Grep", "Read"], [["IN"], ["OUT"]], []), ([], [], [])])
+        self.assertEqual(lines[2]["result_error"], [False, True])
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        taken = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, out, cli, stub, said in [
+                ("OUT exists", str(taken), folder / "claude", self.STUB, "exists; name a new directory"),
+                ("no CLI", "out", folder / "missing", self.STUB, "no CLI at"),
+                ("no stub", "out", folder / "claude", pathlib.Path("/nonexistent/stub.py"), "no stub at")]:
+            home, temp, env = self.environment()
+            ran = subprocess.run(["bash", str(self.SCRIPT), out, str(cli), str(stub)],
+                                 cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,
+                                 env=env, timeout=60, stdin=subprocess.DEVNULL)
+            self.assertEqual(ran.returncode, 2, name)
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
+            self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
+
+
 class PauseReadTrial(unittest.TestCase):
     """`tools/trial_p52_pause.sh` (the #193 PR 2 ruling, read:pass.pause), run against a stand-in curl and openssl that
     act out GitHub's answers: one token minted for the controller's installation, three reads made with it, the token
@@ -8678,6 +9104,30 @@ class Mutants(unittest.TestCase):
             mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
         self.assertIn("1 mutant(s) name no test", str(raised.exception))
 
+    def test_a_test_module_is_read_in_a_process_of_its_own(self):  # issue 511
+        # The runner learns whether a named test exists in another process, so a test module whose import patches the
+        # runner, as an agent's test could, never runs in the runner's own: its patch and its pid are another's.
+        root = clone({"tests/test_patches_the_runner.py":
+                      "import os, sys, unittest\n"
+                      "sys.modules['tools.mutants'].PATCHED = True\n"
+                      "open(os.environ.get('MARK', 'mark'), 'w').write(str(os.getpid()))\n"
+                      "class T(unittest.TestCase):\n    def test_it(self):\n        pass\n"})
+        mark = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "pid"
+        with mock.patch.dict(os.environ, {"MARK": str(mark)}):
+            said = mutants._missing_apart(["tests.test_patches_the_runner.T.test_it", "tests.test_nowhere"], root)
+        self.assertEqual(said, {"tests.test_patches_the_runner.T.test_it": "",
+                                "tests.test_nowhere": "whose module does not exist"})
+        self.assertFalse(hasattr(mutants, "PATCHED"))
+        self.assertNotEqual(mark.read_text(), str(os.getpid()))
+        # The runner's check of every mutant's tests reads them so: the name is found in the tree given, and nothing
+        # of the module ran here.
+        with mock.patch.dict(os.environ, {"MARK": str(mark)}):
+            self.assertEqual(mutants.unnamed([("m", "k.py", "a", "b", ("tests.test_patches_the_runner.T.test_it",))], root), [])
+        self.assertFalse(hasattr(mutants, "PATCHED"))
+        # A process that answers nothing leaves each name unread, never found.
+        with mock.patch.object(mutants, "NAMING", "print('no answer')"):
+            self.assertEqual(mutants._missing_apart(["tests.test_tools"], root), {"tests.test_tools": "which could not be read"})
+
     def test_slow_modules_run_last(self):
         # Issue 217: the fallback after the tests a mutant names ran the modules alphabetically, so a mutant in tools/
         # ran test_hooks and test_simulator before test_tools killed it. The slow modules, SLOW's and test_hooks, run
@@ -9191,7 +9641,9 @@ class ContextEval(unittest.TestCase):
                                                    '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n')
         return pristine, work
 
-    def transcript(self, work) -> str:
+    def transcript(self, work, clean=False) -> str:
+        """The CLI's stream for a run: with a path named outside the export and a command that cannot be read, or, when
+        `clean`, with neither, as a run that may pass is (issue 511)."""
         def assistant(*blocks):
             return json.dumps({"type": "assistant", "message": {"role": "assistant", "content": list(blocks)}})
         lines = [
@@ -9211,6 +9663,10 @@ class ContextEval(unittest.TestCase):
             json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 7, "duration_ms": 1234,
                         "total_cost_usd": 0.25, "usage": {"input_tokens": 100, "output_tokens": 20}, "result": self.PROSE["answer"]}),
         ]
+        if clean:
+            lines = [json.dumps(dict(json.loads(line), message=dict(json.loads(line)["message"], content=[
+                block for block in json.loads(line)["message"]["content"] if block.get("id") not in ("t3", "t8", "t10")])))
+                     if json.loads(line).get("type") == "assistant" else line for line in lines]
         return "\n".join(lines) + "\n"
 
     META = {"commit": "9bfc81383b36f8613d9f4a25e9377046aff27a92", "ran_at": "2026-10-21T09:00:00Z", "cli_version": "2.1.302",
@@ -9236,7 +9692,27 @@ class ContextEval(unittest.TestCase):
                                           {"path": "tools/mutants.py", "added": 1, "removed": 0}])
         # Of what the agent added, and of the rule, only whether: no name it chose and not the code (issue 8).
         self.assertEqual((run["added"], run["task_sha256"]), ({"test": True, "mutant": True, "reason": True}, "b" * 64))
-        self.assertEqual((run["verdicts"], run["passed"]), (self.PASSED, True))
+        # It named two paths outside its export and ran a command that cannot be read, so it does not pass, though its
+        # three verdicts do (issue 511); the same run with neither passes, and with either one alone does not.
+        self.assertEqual((run["verdicts"], run["passed"]), (self.PASSED, False))
+        self.assertIs(context_eval.record(self.transcript(work, clean=True), pristine, work, self.PASSED, self.META)["passed"], True)
+        clean = self.transcript(work, clean=True).splitlines()
+        # A path named outside the export by a command or a glob counts as one read there (issue 511): an absolute path
+        # that is not the export's, the home, or the parent; /dev/null and an absolute path inside the export do not.
+        def bash(command):
+            return {"type": "tool_use", "id": "x", "name": "Bash", "input": {"command": command}}
+        for extra in ({"type": "tool_use", "id": "x1", "name": "Read", "input": {"file_path": "/etc/hosts"}},
+                      {"type": "tool_use", "id": "x2", "name": "Bash", "input": {"command": "PYTHONPATH=. python3 -m unittest"}},
+                      bash("cat /Users/someone/held/test_held_out.py"), bash("cd .. && grep -r rule ."), bash("find / -name t"),
+                      bash("cat ~/held.py"), bash("cat $HOME/held.py"), bash("ls ${HOME}"), bash("echo `cat /etc/x`"),
+                      bash("python3 -m unittest tests.test_decide 2>&1 | tee /tmp/out"),
+                      {"type": "tool_use", "id": "x3", "name": "Glob", "input": {"pattern": "/Users/**/test_held_out.py"}}):
+            more = clean[:-1] + [json.dumps({"type": "assistant", "message": {"content": [extra]}})] + clean[-1:]
+            self.assertIs(context_eval.record("\n".join(more), pristine, work, self.PASSED, self.META)["passed"], False, extra)
+        for fine in (bash("python3 -m unittest tests.test_decide 2>/dev/null"), bash("cat %s" % (work / "kernel" / "derive.py")),
+                     bash("ls kernel/../tests"), {"type": "tool_use", "id": "x4", "name": "Glob", "input": {"pattern": "kernel/**/*.py"}}):
+            more = clean[:-1] + [json.dumps({"type": "assistant", "message": {"content": [fine]}})] + clean[-1:]
+            self.assertIs(context_eval.record("\n".join(more), pristine, work, self.PASSED, self.META)["passed"], True, fine)
         for word in list(self.PROSE.values()) + ["test_empty_diff_never_converges", "an empty diff converges", "empty_diff"]:
             self.assertNotIn(word, json.dumps(run))
         # The rule is named nowhere (issue 8). A command keeps its program, its flags and the paths and modules the
@@ -9370,6 +9846,107 @@ class ContextEval(unittest.TestCase):
             (work / "tests" / "test_soft.py").symlink_to(outside / "test_alone.py")
             self.assertEqual(context_eval._read(work, work / "tests" / "test_soft.py"), "")
 
+    def test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries(self):  # issue 511
+        pristine, work = self.export()
+        # The export's file defines one of its helpers, as this repo's does.
+        made = ("def moved_after(rel, block, anchor):\n    return ()\n\n\nPAIR_PY, PAIR_TESTS = \"kernel/derive.py\", (\"t\",)\n"
+                + (pristine / "tools" / "mutants.py").read_text())
+        (pristine / "tools" / "mutants.py").write_text(made)
+        (work / "tools" / "mutants.py").write_text(made.replace("]\n", '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n'))
+        entry = '("an empty diff converges", DERIVE, "c", "d", ("t",))'
+        with_entry = made.replace("]\n", "    %s,\n]\n" % entry)
+        # The agent's entry alone, wherever it stands in the list: kept, and nothing put back.
+        text, other = context_eval.judged_mutants(pristine, work)
+        self.assertEqual((text, other), (with_entry, False))
+        (work / "tools" / "mutants.py").write_text(made.replace("MUTANTS = [\n", "MUTANTS = [\n    %s,\n" % entry))
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (with_entry, False))
+        # A runner the agent edited is the export's again, its entry kept, and the edit recorded as put back.
+        (work / "tools" / "mutants.py").write_text(with_entry + "import sys\nsys.exit(0)\n")
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (with_entry, True))
+        # An entry in the file's own style is data: strings joined, a helper of the file's own, a string's replace.
+        for styled in ('("joined", DERIVE, "a" + "b", "c", ("t",))', '*moved_after(DERIVE, "a", "b")',
+                       '("replaced", DERIVE, DERIVE.replace("k", "j"), "c", ("t",))', '("paired", PAIR_PY, "a", "b", PAIR_TESTS)'):
+            (work / "tools" / "mutants.py").write_text(made.replace("]\n", "    %s,\n]\n" % styled))
+            self.assertEqual(context_eval.judged_mutants(pristine, work), (made.replace("]\n", "    %s,\n]\n" % styled), False),
+                             styled)
+        # An entry that runs code is put back; so is one with keywords; so is a file that is no module, a link or none.
+        for code in ('("x", DERIVE, __import__("os").getcwd(), "c", ("t",))', '("x", DERIVE, sorted("ab", key=len), "c", ("t",))',
+                     '("x", DERIVE, [c for c in "ab"], "c", ("t",))',
+                     # A name the export's file does not bind, and a target outside the tree, absolute or through `..`.
+                     '("x", ELSEWHERE, "a", "b", ("t",))', '("x", "../outside.py", "a", "b", ("t",))',
+                     '("x", "/etc/hosts", "a", "b", ("t",))', '("x", "kernel/../../outside.py", "a", "b", ("t",))'):
+            (work / "tools" / "mutants.py").write_text(made.replace("]\n", "    %s,\n]\n" % code))
+            self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True), code)
+        (work / "tools" / "mutants.py").write_text("MUTANTS = [\n")
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        (work / "tools" / "mutants.py").unlink()
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        elsewhere = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "mutants.py"
+        elsewhere.write_text(with_entry)
+        (work / "tools" / "mutants.py").symlink_to(elsewhere)
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        (work / "tools" / "mutants.py").unlink()
+        # An existing entry the agent changed, its target moved by the change, replaces the one of its name; one it took
+        # out stays, and the file is recorded as put back.
+        (work / "tools" / "mutants.py").write_text(made.replace('("a rule", DERIVE, "a", "b", ("t",))', '("a rule", DERIVE, "a2", "b", ("t",))'))
+        self.assertEqual(context_eval.judged_mutants(pristine, work),
+                         (made.replace('("a rule", DERIVE, "a", "b", ("t",))', '("a rule", DERIVE, "a2", "b", ("t",))'), False))
+        (work / "tools" / "mutants.py").write_text(made.replace('    ("a rule", DERIVE, "a", "b", ("t",)),\n', ""))
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        # A list whose last entry has no comma gains one right after it, before a comment on its line.
+        (pristine / "tools" / "mutants.py").write_text(made.replace('("t",)),\n]', '("t",))  # the last, a, b\n]'))
+        (work / "tools" / "mutants.py").write_text(with_entry)
+        text, other = context_eval.judged_mutants(pristine, work)
+        self.assertIsNotNone(context_eval._lists_of(text), "the judge's file is a module")
+        self.assertEqual((len(context_eval._lists_of(text)[1][0].elts), other), (2, False))
+        self.assertIn('("t",)),  # the last, a, b', text)
+        # The lists as this repo writes them, `MUTANTS = ISSUE + [...]`: an entry the agent put in either is kept there.
+        joined = ('DERIVE = "kernel/derive.py"\nISSUE = [\n    ("an issue rule", DERIVE, "a", "b", ("t",)),\n]\n'
+                  'MUTANTS = ISSUE + [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n]\n')
+        (pristine / "tools" / "mutants.py").write_text(joined)
+        for into in ("ISSUE = [\n", "MUTANTS = ISSUE + [\n"):
+            (work / "tools" / "mutants.py").write_text(joined.replace(into, into + "    %s,\n" % entry))
+            text, other = context_eval.judged_mutants(pristine, work)
+            self.assertIs(other, False, into)
+            self.assertIn(entry, text.split(into)[1].split("]")[0] + "]", into)
+            self.assertEqual([len(found.elts) for found in (context_eval._lists_of(text) or (None, []))[1]],
+                             [2, 1] if into.startswith("ISSUE") else [1, 2], into)
+
+    def test_the_judge_runs_in_a_tree_of_its_own(self):  # issue 511
+        # The judge's tree is the export as made with the agent's own kernel/ and tests/ files and the judged mutants'
+        # file: a package of the agent's that would shadow the runner, a root module that would shadow the standard
+        # library, and a link are left out and recorded by where; nothing is written through a link the agent left.
+        pristine, work = self.export()
+        (work / "tools" / "mutants").mkdir()
+        (work / "tools" / "mutants" / "__main__.py").write_text("print('killed')\n")
+        (work / "subprocess.py").write_text("x = 1\n")
+        (work / "Makefile").write_text("verify:\n\t@true\n")
+        (pristine / "Makefile").write_text("verify:\n\t@false\n")
+        outside = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (outside / "held.py").write_text("held = 1\n")
+        (work / "tests" / "test_link.py").symlink_to(outside / "held.py")
+        (work / "tests" / "test_decide.py").unlink()
+        scratch = pathlib.Path(SCRATCH.name).resolve()
+        judge = pathlib.Path(tempfile.mkdtemp(dir=scratch)) / "judge"
+        with mock.patch("sys.stdout", io.StringIO()) as said:
+            self.assertEqual(context_eval.main(["judge", str(pristine), str(work), str(judge)], base=scratch), 0)
+        self.assertEqual(json.loads(said.getvalue()), {"restored": ["./", "Makefile", "tests/", "tools/mutants/"]})
+        self.assertEqual((judge / "kernel" / "derive.py").read_text(), (work / "kernel" / "derive.py").read_text())
+        self.assertEqual((judge / "Makefile").read_text(), "verify:\n\t@false\n")
+        self.assertFalse((judge / "tools" / "mutants").exists())
+        self.assertFalse((judge / "subprocess.py").exists())
+        self.assertFalse((judge / "tests" / "test_link.py").exists())
+        self.assertFalse((judge / "tests" / "test_decide.py").exists(), "a file the agent removed is gone")
+        self.assertIn("an empty diff converges", (judge / "tools" / "mutants.py").read_text())
+        self.assertEqual((outside / "held.py").read_text(), "held = 1\n")
+        # A JUDGE that is already there, a link among them, is refused, and nothing is written through it.
+        with mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(context_eval.main(["judge", str(pristine), str(work), str(judge)], base=scratch), 2)
+            linked = judge.parent / "linked"
+            linked.symlink_to(outside, target_is_directory=True)
+            self.assertEqual(context_eval.main(["judge", str(pristine), str(work), str(linked)], base=scratch), 2)
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["held.py"])
+
     def test_what_cannot_be_read_makes_no_record(self):
         pristine, work = self.export()
         text = self.transcript(work)
@@ -9387,7 +9964,7 @@ class ContextEval(unittest.TestCase):
     def test_the_front_door_refuses_a_transcript_inside_the_repo_and_writes_the_record(self):
         pristine, work = self.export()
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        (folder / "raw").write_text(self.transcript(work))
+        (folder / "raw").write_text(self.transcript(work, clean=True))
         (folder / "verdicts.json").write_text(json.dumps(self.PASSED))
         (folder / "meta.json").write_text(json.dumps(self.META))
         out = folder / "record.json"
@@ -9429,8 +10006,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
   --version) env > "$here/env-version"; cat "$here/version"; exit 0 ;;
   -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; pwd > "$here/cwd"
+      if [ -e "$(cat "$here/held")" ]; then echo there > "$here/held-seen"; else echo absent > "$here/held-seen"; fi
       [ -f "$here/tamper" ] && printf 'verify:\\n\\t@echo tampered\\n' > Makefile
-      [ -f "$here/survive" ] && cp "$here/survive" tools/survive
+      [ -f "$here/rig" ] && python3 -c 'p = "tools/mutants.py"; s = open(p).read(); open(p, "w").write(s.replace("if name in survive", "if False"))'
       printf 'def rule(f):\\n    return "empty_diff"\\n' >> kernel/derive.py
       printf '\\n    def test_empty_diff_never_converges(self):\\n        pass\\n' >> tests/test_decide.py
       python3 - <<'PY'
@@ -9441,8 +10019,8 @@ PY
 esac
 exit 9
 """
-    # The stand-in repo's mutation check: it kills every mutant its list holds, but one named in tools/survive, and
-    # says so as the real one does, with the real one's exit.
+    # The stand-in repo's mutation check: it kills every mutant its list holds, but one named in the repo's own
+    # tools/survive, and says so as the real one does, with the real one's exit.
     MUTANTS_PY = '''import os, sys
 DERIVE = "kernel/derive.py"
 MUTANTS = [
@@ -9467,16 +10045,22 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.aside = self.home.parent / (self.home.name + "-aside")
         self.aside.mkdir()
         (self.aside / "sentence").write_text(self.SENTENCE + "\n")
-        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
-                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+        # The held-out test, which the Maintainer places only once the agent has stopped (issue 511).
+        self.held = ("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
+                     "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+        # Where a clone of the private home was before it was moved out of reach: gone.
+        self.away = str(self.home.parent / (self.home.name + "-clone-moved"))
 
     # The stand-in repo's verify passes only once the held-out test has been taken out again.
-    def repo(self, verify="verify:\n\t@test ! -f tests/test_held_out.py\n") -> tuple:
-        """A stand-in repo with one commit: an AGENTS.md, a Kernel, a test, a mutation check and a Makefile."""
+    def repo(self, verify="verify:\n\t@test ! -f tests/test_held_out.py\n", survive=None) -> tuple:
+        """A stand-in repo with one commit: an AGENTS.md, a Kernel, a test, a mutation check and a Makefile, and, where
+        `survive` names a mutant, a tools/survive that has the check let it survive."""
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         files = {"AGENTS.md": "# a repo\n", "Makefile": verify, "kernel/__init__.py": "", "kernel/derive.py": "def derive(f):\n    return f\n",
                  "tests/__init__.py": "", "tests/test_decide.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        pass\n",
                  "tools/__init__.py": "", "tools/mutants.py": self.MUTANTS_PY + "]\n" + self.MUTANTS_MAIN}
+        if survive:
+            files["tools/survive"] = survive + "\n"
         for rel, text in files.items():
             (folder / rel).parent.mkdir(parents=True, exist_ok=True)
             (folder / rel).write_text(text)
@@ -9487,25 +10071,42 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         commit = subprocess.run(["git", "-C", str(folder), "rev-parse", "HEAD"], env=env, check=True, capture_output=True, text=True).stdout.strip()
         return folder, commit
 
-    def stand_in(self, version=None, tamper=False, survive=None) -> pathlib.Path:
+    def stand_in(self, version=None, tamper=False, rig=False, clean=True) -> pathlib.Path:
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
         if tamper:
             (folder / "tamper").write_text("")
-        if survive:
-            (folder / "survive").write_text(survive + "\n")
+        if rig:
+            (folder / "rig").write_text("")
         (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
-        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere")).replace("/nowhere/", ""))
+        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere"), clean=clean).replace("/nowhere/", ""))
         cli = folder / "claude"
         cli.write_text(self.STAND_IN)
         cli.chmod(0o755)
         return folder
 
-    def run_script(self, out, cfg, repo, commit, sentence, held_out, cli) -> subprocess.CompletedProcess:
-        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C",
+    def run_script(self, out, cfg, repo, commit, sentence, held_out, cli, place=True) -> subprocess.CompletedProcess:
+        """Run the script as the Maintainer does: once it says the agent has stopped, the held-out test is placed at
+        HELD_OUT, unless `place` is False, and Enter is pressed. Whether HELD_OUT was there while the agent ran is
+        written beside the stand-in CLI by the CLI itself."""
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C", "CONTEXT_EVAL_AWAY": self.away,
                "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
-        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(repo), commit, str(sentence), str(held_out), str(cli)],
-                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=300)
+        pathlib.Path(cli).parent.joinpath("held").write_text(str(held_out))
+        run = subprocess.Popen(["bash", str(self.SCRIPT), str(out), str(cfg), str(repo), commit, str(sentence), str(held_out), str(cli)],
+                               cwd=SCRATCH.name, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, env=env)
+        said = []
+        for line in run.stderr:
+            said.append(line)
+            if line.startswith("and press Enter"):
+                if place:
+                    pathlib.Path(held_out).write_text(self.held)
+                run.stdin.write("\n")
+                run.stdin.flush()
+        stdout, _ = run.communicate(timeout=300)
+        if place and pathlib.Path(held_out).exists():
+            pathlib.Path(held_out).unlink()
+        return subprocess.CompletedProcess(run.args, run.returncode, stdout, "".join(said))
 
     def texts(self, out) -> dict:
         return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
@@ -9515,6 +10116,8 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         cli = self.stand_in()
         ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude")
         self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        # No copy of the answer was where the agent's shell could reach it while it ran (issue 511).
+        self.assertEqual((cli / "held-seen").read_text().strip(), "absent")
         named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
         for call in ("version", "task"):
             given = dict(line.split("=", 1) for line in (cli / ("env-" + call)).read_text().splitlines() if "=" in line)
@@ -9542,7 +10145,7 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual([c["path"] for c in record["changed"]], ["kernel/derive.py", "tests/test_decide.py", "tools/mutants.py"])
         # The stand-in reads a kernel/AGENTS.md this export does not hold, so it is recorded by its folder.
         self.assertEqual(record["read"], ["AGENTS.md", "kernel/", "kernel/derive.py"])
-        self.assertEqual((record["outside_reads"], record["restored"]), (2, []))
+        self.assertEqual((record["outside_reads"], record["unread_commands"], record["restored"]), (0, 0, []))
         checked = json.loads(texts["checked.json"])
         self.assertEqual((checked["agent"]["exit"], checked["agent"]["stderr"]["lines"], checked["mutants"]["added"]),
                          (0, 1, 1))
@@ -9565,8 +10168,8 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         record = json.loads((self.out / "record.json").read_text())
         self.assertEqual((record["verdicts"]["verify"], record["passed"]), ("fail", False))
         # The held-out test that fails: the rule the agent wrote is not the one the answer expects.
-        (self.aside / "test_held_out.py").write_text("import unittest\n\n\nclass HeldOut(unittest.TestCase):\n"
-                                                    "    def test_the_rule_holds(self):\n        self.fail('not the rule')\n")
+        self.held = ("import unittest\n\n\nclass HeldOut(unittest.TestCase):\n"
+                     "    def test_the_rule_holds(self):\n        self.fail('not the rule')\n")
         folder, commit = self.repo()
         out = self.home.parent / (self.home.name + "-held-out-fails")
         ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", self.stand_in() / "claude")
@@ -9575,15 +10178,42 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual((record["verdicts"]["held_out_test"], record["verdicts"]["verify"], record["passed"]), ("fail", "pass", False))
         self.assertNotIn("not the rule", "".join(self.texts(out).values()) + ran.stdout + ran.stderr)
         # The agent's mutant that survives, by the whole check's exit and its line, fails the run.
-        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
-                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
-        folder, commit = self.repo()
+        self.setUp()
+        folder, commit = self.repo(survive="an empty diff converges")
         out = self.home.parent / (self.home.name + "-survives")
         ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
-                              self.stand_in(survive="an empty diff converges") / "claude")
+                              self.stand_in() / "claude")
         self.assertEqual(ran.returncode, 1, ran.stderr)
         record = json.loads((out / "record.json").read_text())
         self.assertEqual((record["verdicts"]["mutant"], record["passed"]), ("survived", False))
+        # The agent that rigs the mutation runner in tools/mutants.py so its surviving mutant reads killed: the judge runs
+        # the export's runner with the agent's entry, the mutant survives, and the file is recorded as put back (issue 511).
+        folder, commit = self.repo(survive="an empty diff converges")
+        out = self.home.parent / (self.home.name + "-rigged")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(rig=True) / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["mutant"], record["passed"], record["restored"]),
+                         ("survived", False, ["tools/mutants.py"]))
+        self.assertTrue(record["added"]["mutant"], "the agent's entry was kept")
+        # A rigged runner with nothing to survive: the judge's runner, the export's, runs and kills the agent's mutant.
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-rigged-killed")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(rig=True) / "claude")
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["mutant"], record["restored"]), ("killed", ["tools/mutants.py"]), ran.stderr)
+        # A run whose agent named paths outside its export, and a command that cannot be read, fails though every
+        # verdict passes (issue 511).
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-looked-out")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(clean=False) / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"], record["outside_reads"], record["unread_commands"], record["passed"]),
+                         ({"held_out_test": "pass", "verify": "pass", "mutant": "killed"}, 2, 1, False))
         # The agent that rewrites the judge's Makefile: it is put back as made, recorded, and the judge is the export's own.
         folder, commit = self.repo()
         out = self.home.parent / (self.home.name + "-tampered")
@@ -9592,7 +10222,7 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual(ran.returncode, 0, ran.stderr)
         record = json.loads((out / "record.json").read_text())
         self.assertEqual((record["restored"], record["verdicts"]["verify"], record["passed"]), (["Makefile"], "pass", True))
-        self.assertNotIn("Makefile", [c["path"] for c in record["changed"]], "put back before the changes are counted")
+        self.assertIn("Makefile", [c["path"] for c in record["changed"]], "the agent's change is counted, and not judged")
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder, commit = self.repo()
@@ -9604,9 +10234,12 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         no_code = self.aside / "no-code"
         no_code.write_text("An empty diff never converges, with no code named.\n")
         inside = folder / "test_inside.py"
-        inside.write_text("")
+        placed = self.aside / "test_placed.py"
+        placed.write_text("")
         linked = self.aside / "test_linked.py"
-        linked.symlink_to(inside)
+        linked.symlink_to(self.aside / "never-there.py")
+        into = self.aside / "into"
+        into.symlink_to(folder, target_is_directory=True)
         good = [self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude"]
         cases = [("OUT exists", [existing] + good, "exists; name a new directory"),
                  ("OUT inside the repo", [ROOT / "never-made"] + good, "OUT is inside the repo"),
@@ -9617,17 +10250,40 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
                  ("COMMIT unknown", [self.out, self.cfg, folder, "0" * 40] + good[3:], "COMMIT is not a commit in REPO"),
                  ("two sentences", good[:3] and [self.out] + good[:3] + [two] + good[4:], "not one sentence"),
                  ("no code", [self.out] + good[:3] + [no_code] + good[4:], "names no reason code"),
-                 ("HELD_OUT inside REPO", [self.out] + good[:4] + [inside, cli / "claude"], "stay outside the repo"),
-                 ("HELD_OUT linked into REPO", [self.out] + good[:4] + [linked, cli / "claude"], "stay outside the repo"),
+                 ("HELD_OUT inside REPO", [self.out] + good[:4] + [inside, cli / "claude"], "HELD_OUT stays outside the repo"),
+                 ("HELD_OUT in a folder linked into REPO", [self.out] + good[:4] + [into / "test_x.py", cli / "claude"],
+                  "HELD_OUT stays outside the repo"),
+                 # The held-out test is placed only once the agent has stopped: one already there, or a link, is refused.
+                 ("HELD_OUT already there", [self.out] + good[:4] + [placed, cli / "claude"], "placed only once the agent has stopped"),
+                 ("HELD_OUT a link", [self.out] + good[:4] + [linked, cli / "claude"], "placed only once the agent has stopped"),
+                 ("HELD_OUT's folder missing", [self.out] + good[:4] + [self.aside / "none" / "test_x.py", cli / "claude"],
+                  "HELD_OUT's folder must exist"),
                  ("CONFIG_DIR inside REPO", [self.out, folder / "kernel"] + good[1:], "CONFIG_DIR is inside REPO"),
-                 ("HELD_OUT not a test", [self.out] + good[:4] + [self.aside / "sentence", cli / "claude"], "is named test_")]
+                 ("HELD_OUT not a test", [self.out] + good[:4] + [self.aside / "not_a_test.py", cli / "claude"], "is named test_")]
         (self.home / ".claude" / "x").mkdir(parents=True)
-        for name, args, said in cases:
+        # No clone of the private home within reach: CONTEXT_EVAL_AWAY names none, or a place that is still there.
+        there = self.home.parent / (self.home.name + "-clone-still-here")
+        there.mkdir()
+        cases += [("CONTEXT_EVAL_AWAY unset", [self.out] + good, "CONTEXT_EVAL_AWAY names no place", None),
+                  ("CONTEXT_EVAL_AWAY empty", [self.out] + good, "CONTEXT_EVAL_AWAY names no place", ":"[:0]),
+                  ("a clone still within reach", [self.out] + good, "still within reach", self.away + ":" + str(there))]
+        for name, args, said, *away in cases:
+            away = away[0] if away else self.away
+            env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C"}
+            if away is not None:
+                env["CONTEXT_EVAL_AWAY"] = away
             ran = subprocess.run(["bash", str(self.SCRIPT), *map(str, args)], cwd=SCRATCH.name, capture_output=True, text=True,
-                                 env={"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C"}, timeout=120)
+                                 env=env, timeout=120)
             self.assertEqual(ran.returncode, 2, (name, ran.stderr))
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((cli / "env-version").exists(), name + ": nothing was asked")
+        # Once the agent has stopped, a HELD_OUT the Maintainer did not place judges nothing and records nothing.
+        out = self.home.parent / (self.home.name + "-unplaced")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in() / "claude", place=False)
+        self.assertEqual(ran.returncode, 2, ran.stderr)
+        self.assertIn("HELD_OUT is not a file at the place named; nothing was judged", ran.stderr)
+        self.assertFalse((out / "record.json").exists())
         self.assertFalse((ROOT / "never-made").exists())
         # The wrong version, after asking it and before the agent.
         wrong = self.stand_in(version="0.0.1")
@@ -10237,6 +10893,142 @@ class CommentsReadTrial(IssueLookupTrial):
     CURL = IssueLookupTrial.CURL.replace('if grant == "issues" or', 'if grant == "pull_requests" or', 1).replace(
         '''status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}''',
         '''status, answer = 200, [{"id": 7, "user": {"id": 9, "type": "User"}, "leak": "gh" + "s_" + "L" * 36}]''', 1)
+
+
+class EditsReadTrial(IssueLookupTrial):
+    """`tools/trial_p58_edits.sh`, run against the same stand-ins and never GitHub (issue 519). It is P-54's script held to
+    the reader's installation and one GraphQL read, so every test of that one that is not about what is asked runs over it
+    too, by inheritance."""
+
+    SCRIPT = ROOT / "tools" / "trial_p58_edits.sh"
+    CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    GIVEN = (CANARY, "96")
+    FIRST = "pull_requests"
+    KEPT = ('"lastEditedAt": "2026-11-03T19:24:25Z"', '"login": "don-petry"', '"editedAt"')
+    # The port's query, word for word (issue 519): the reader leg reads exactly what the port will send.
+    QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
+             "lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} "
+             "nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}")
+    NOT_A_NUMBER = "is not a pull request's number"
+    # The stand-in answers the GraphQL read: to a token narrowed to pull_requests, and to any token where the repo is
+    # public, as a file beside it says; and it keeps what was sent, for the test to read.
+    CURL = IssueLookupTrial.CURL.replace('elif "/issues/" in url:', '''elif url.endswith("/graphql"):
+    if body and body.startswith("@"):
+        with open(os.path.join(here, "sent"), "a") as kept:
+            kept.write(open(body[1:]).read() + "\\n")
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    if grant == "pull_requests" or os.path.exists(os.path.join(here, "public")):
+        status, answer = 200, {"data": {"repository": {"pullRequest": {
+            "lastEditedAt": "2026-11-03T19:24:25Z", "editor": {"__typename": "Bot", "login": "github-actions"},
+            "userContentEdits": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": "Y3Vy"}, "nodes": [
+                {"editedAt": "2026-11-03T19:20:23Z", "createdAt": "2026-11-03T19:20:23Z", "deletedAt": None,
+                 "editor": {"__typename": "User", "login": "don-petry", "databaseId": 36422719}}]}}}}}
+    else:
+        # GraphQL refuses an integration with 200, a null in place of what it may not read, and an error.
+        status, answer = 200, {"data": {"repository": {"pullRequest": None}},
+                               "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+elif "/issues/" in url:''', 1)
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        for public in (False, True):
+            with self.subTest(public=public):
+                self.setUp()
+                if public:
+                    (self.stand_in / "public").write_text("")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+                calls = self.calls()
+                # Each token is minted, read with once and revoked before the next is minted.
+                self.assertEqual([(c["method"], c["url"].rsplit("/", 1)[1]) for c in calls],
+                                 [("POST", "access_tokens"), ("POST", "graphql"), ("DELETE", "token")] * 2)
+                mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+                self.assertEqual([m["url"].split("/app/")[1] for m in mints],
+                                 ["installations/%d/access_tokens" % installation] * 2)
+                self.assertEqual([json.loads(m["body"]) for m in mints],
+                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {self.FIRST: "read"}},
+                                  {"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}}])
+                reads = [c for c in calls if c["url"].endswith("/graphql")]
+                self.assertEqual([(c["method"], c["url"]) for c in reads], [("POST", "https://api.github.com/graphql")] * 2)
+                self.assertEqual(len([c for c in calls if c["method"] == "DELETE"]), 2)
+                self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+                # What was sent is the port's query, the pull request named by variables alone.
+                sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
+                owner, name = self.CANARY.split("/")
+                self.assertEqual(sent, [{"query": self.QUERY, "variables": {"owner": owner, "name": name, "number": 96}}] * 2)
+                texts = {p.name: p.read_text() for p in self.out.iterdir()}
+                self.assertEqual(sorted(texts), ["clean-1", "clean-2", "query.json", "ran_at", "redacted-1", "redacted-2",
+                                                 "requests.json"])
+                self.assertEqual(json.loads(texts["query.json"]), sent[0])
+                asked = json.loads(texts["requests.json"])
+                self.assertEqual([(a.get("narrowed_to") or a.get("revoked"), a.get("call"), a["status"]) for a in asked],
+                                 [(self.FIRST + ": read", "POST /graphql", 200), (self.FIRST + ": read", None, 204),
+                                  ("metadata: read", "POST /graphql", 200), ("metadata: read", None, 204)])
+                for kept in self.KEPT:
+                    self.assertIn(kept, texts["clean-1"])
+                # The second token's answer: the edits where the repo is public, else GraphQL's refusal, kept as it came.
+                for kept in (self.KEPT if public else ('"FORBIDDEN"', '"pullRequest": null')):
+                    self.assertIn(kept, texts["clean-2"])
+                # Every answer carried a token-shaped string, and the redaction took each out and said so.
+                self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+                self.assertTrue(texts["redacted-1"].strip() and texts["redacted-2"].strip())
+
+    def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
+        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
+                self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        elsewhere = "is not the canary the reader is installed on"
+        for given, out, said in (((self.CANARY, "96"), self.out.parent, "exists"),
+                                 ((self.CANARY, "96"), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", "96"), None, elsewhere),
+                                 (("combsmith/elsewhere", "96"), None, elsewhere),
+                                 (("combsmith", "96"), None, "is not owner/name"),
+                                 ((self.CANARY, "0"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "12a"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "-1"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "1/../2"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, ""), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY,), None, "usage:"), ((self.CANARY, "96", "97"), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the read's, 200 with an error where refused.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 200])
+        self.assertIn('"FORBIDDEN"', (self.out / "clean-2").read_text())
+
 
 
 class Rulesets(unittest.TestCase):

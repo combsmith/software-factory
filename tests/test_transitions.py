@@ -155,6 +155,15 @@ BASES = {
                               label_events=[labelled(t.LABEL_HANDS_OFF)]),
     "outside_not_admitted": base(**OUTSIDE),
     "outside, admitted": base(label_events=[labelled(t.LABEL_ADMIT, at=at(5))], **OUTSIDE),
+    # An admitted outsider's pull request, reviewed and approved, and queued: the author's own edit of the description
+    # holds it until a person approves after the edit (P-58, issue 519).
+    "outside, admitted and approved": base([reviewed()], reviews=APPROVED,
+                                           label_events=[labelled(t.LABEL_ADMIT, at=at(5))], **OUTSIDE),
+    "outside, admitted and approved, its description edited since": base(
+        [reviewed()], reviews=APPROVED, description_edited_at=at(30),
+        label_events=[labelled(t.LABEL_ADMIT, at=at(5))], **OUTSIDE),
+    "outside, admitted and queued": base([reviewed()], reviews=APPROVED, queue=True,
+                                         label_events=[labelled(t.LABEL_ADMIT, at=at(5))], **OUTSIDE),
     "empty_diff": base(diff={"files": 0, "lines": 0, "truncated": False}),
     "too_large": base(diff={"files": 2, "lines": 40, "truncated": True}),
     "approver_is_author_or_last_pusher": base([reviewed()], last_pusher=CONFIG["approver"]),
@@ -578,6 +587,14 @@ def pins(pr: dict) -> dict:
     return out
 
 
+def edits_description(pr: dict):
+    """An edit of the description now, by whoever the move names: P-58 saw every such edit move its last editedAt."""
+    if pr["facts"].get("description_edited_at") == now(pr):
+        return None
+    pr["facts"]["description_edited_at"] = now(pr)
+    return pr
+
+
 def set_fact(**values):
     def change(pr):
         f = pr["facts"]
@@ -668,6 +685,9 @@ MOVES = [
     Move("a stranger comments", "stranger", lambda pr: (pr["facts"]["reviews"].append(
         review("commented", content=pr["facts"]["content_id"], at=now(pr), **STRANGER)) or pr)),
     Move("a stranger opens a thread", "stranger", lambda pr: new_thread(pr, STRANGER, severity=None)),
+    # The author's own edit of the description, which may add a closing keyword after the approval (P-58, issue 519).
+    Move("the stranger who opened it edits its description", "stranger",
+         lambda pr: edits_description(pr) if pr["facts"]["class"] == "outside" else None),
     # A Lens: its check reports, its review Run gives a verdict, its App dismisses a review.
     *[Move("the check %s %s" % (c["name"], said), "lens", (lambda i, said: lambda pr: check(pr, i, said))(i, said),
            when=checking(i, False)) for i, c in enumerate(GREEN) for said in ("success", "failure", "neutral")],
@@ -688,6 +708,7 @@ MOVES = [
     Move("a Lens's App dismisses the approver's approval", "lens",
          lambda pr: dismiss(pr, REVIEWER_APP, CONFIG["approver"])),
     Move("a Lens's App adds a Hold", "lens", lambda pr: label(pr, t.LABEL_HOLD, REVIEWER_APP)),
+    Move("a Lens's App edits the description", "lens", edits_description),
     Move("a Lens's App adds hands-off", "lens", lambda pr: label(pr, t.LABEL_HANDS_OFF, REVIEWER_APP)),
     Move("a Lens's App removes a Hold", "lens", lambda pr: label(pr, t.LABEL_HOLD, REVIEWER_APP, "unlabeled")),
     # The Factory: the Runs and acts the Kernel asks for, a Run that fails, and its Apps acting out of turn. A Role's
@@ -893,7 +914,8 @@ def explored():
 HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
                "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
                "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item",
-               "contract_not_approved": check_lifecycle.PERSON, "contract_changed": check_lifecycle.PERSON}
+               "contract_not_approved": check_lifecycle.PERSON, "contract_changed": check_lifecycle.PERSON,
+               "description_edited_after_approval": check_lifecycle.PERSON}
 # What a label holds.
 LABEL_HOLDS = ("human_hold", "hands_off")
 # Transitions the Lifecycle declares that nothing here makes, each with why it is kept.
@@ -1026,9 +1048,16 @@ class Transitions(unittest.TestCase):
         for reason in ("attempts_exhausted", "run_ceiling", "max_rounds"):
             self.assertEqual({flight for r, flight in holds if r == reason}, {True, False}, reason)
 
-    def test_a_stranger_changes_no_state(self):  # I-28
+    def test_a_stranger_only_stops_an_item_into_a_hold_a_person_ends(self):  # I-28, issue 519
+        # Only the author or a writer can edit a description, so a stranger here is an outsider editing their own pull
+        # request: the edit may hold it until a person looks, and nothing a stranger does moves an item on.
         made, _ = explored()
-        self.assertEqual([m for m in made if m[2] == "stranger"], [])
+        moved = sorted(m for m in made if m[2] == "stranger")
+        self.assertEqual(moved, [("converged", "held", "stranger"), ("queued", "held", "stranger")])
+        holds = holds_made_by_no_person(made)
+        self.assertEqual(sorted(h for h in holds if h[2] == "stranger"),
+                         [("converged", "held", "stranger", check_lifecycle.PERSON),
+                          ("queued", "held", "stranger", check_lifecycle.PERSON)])
 
     def test_the_states_that_admit_nothing_include_every_end_and_not_only_the_ends(self):
         self.assertLessEqual(set(LIFECYCLE["terminal"]), t.ADMITS_NOTHING)
@@ -1038,9 +1067,9 @@ class Transitions(unittest.TestCase):
             self.assertIn(state, LIFECYCLE["states"])
 
     def test_a_person_a_lens_the_factory_and_the_platform_each_change_some_state(self):
-        # The exploration is not empty: each who may change a State is seen to.
+        # The exploration is not empty: each who may change a State is seen to, a stranger only by stopping an item.
         made, _ = explored()
-        self.assertEqual({by for _, _, by in made}, {"human", "lens", "factory", "platform"})
+        self.assertEqual({by for _, _, by in made}, {"human", "lens", "factory", "platform", "stranger"})
 
 
 # ---- an issue (design §4.1), explored as a pull request is: real facts, built with tests/test_issue.py's builders, and

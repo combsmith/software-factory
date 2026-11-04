@@ -1,6 +1,6 @@
 # 0122. A run the model could not finish is an attempt on its item, as the CLI names it
 
-Status: accepted. The Factory Builder's ruling of 2026-11-02 on "A model steered into not answering can raise the Factory's automatic pause, through is_error true" (issue 483). It answers the separate question decision 0121's row "Its limits" left open.
+Status: replaced by `docs/decisions/0136-the-cli-holds-a-run-to-its-tiers-cost-ceiling-and-a-run-it-stops-is-the-items.md`.
 
 ## Decision
 

@@ -178,11 +178,16 @@ class Budgets(unittest.TestCase):
     def test_one_noisy_measure_is_not_growth_and_real_growth_fails_every_time(self):  # issue 484
         # The measures are scripted, so no clock is read, and this runs when mutating, as a test through `linear` would not.
         def run_with(cpus, budget=10.0):
-            """What `linear` would judge of measures spending each of `cpus`, and how many it took."""
+            """What `linear` would judge of measures spending each of `cpus`, and how many it took. The machine is made
+            as loaded as it can be, so a judgement read outside the scripted slack fails every time (issue 536)."""
             ran = []
-            with mock.patch("tests.support.Spent", support.scripted_spends(cpus)), mock.patch("tests.support.slack", return_value=2.0):
-                spent, _ = support.measured(ran.append, 8, lambda each: support.linear_problem(each, budget))
-            return support.linear_problem(spent, budget), len(ran)
+            with mock.patch("os.getloadavg", return_value=(1000.0, 1000.0, 1000.0)), \
+                    mock.patch("tests.support.cores", return_value=10):
+                self.assertGreater(slack(), 5.0, "the load is forced past the scripted stall's")
+                with mock.patch("tests.support.Spent", support.scripted_spends(cpus)), \
+                        mock.patch("tests.support.slack", return_value=2.0):
+                    spent, _ = support.measured(ran.append, 8, lambda each: support.linear_problem(each, budget))
+                    return support.linear_problem(spent, budget), len(ran)
 
         # Good at once: the three sizes once.
         self.assertEqual(run_with([1.0, 2.0, 4.0]), ("", 3))
@@ -1323,6 +1328,9 @@ class Identity(unittest.TestCase):
         # Arithmetic nested deeper than the hook reads is one it cannot read, said so at once, not past its budget.
         self.assertIn("nested deeper than the hook reads", self.refused(
             'echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"; git push', folder(), programs()))
+        # Read by the splitter alone, as the protected hook reads it, the limit is arithmetic's own (#410).
+        with self.assertRaisesRegex(ValueError, "arithmetic expansions are nested deeper"):
+            shell.commands('echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"', marked=True)
         # The shell's own forms of ( pass.
         for command in ("f() { :; }; git commit -m x", "arr=(a b); git commit -m x", "arr+=(c); git commit -m x",
                         "diff <(ls) <(ls sub); git commit -m x", "echo $((1+2)); git push", 'git commit -m "fix(hooks): x"',
@@ -1507,6 +1515,48 @@ class Identity(unittest.TestCase):
             self.assertIn(["git", "push", "origin", "main"],
                           [w for w, _ in shell.commands(shell.without_heredocs("cat <<E\n%s\nE" % body), scopes=True) if w], body)
 
+    def test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level(self):  # issue 410
+        # Codex on #395: a "$(...)" in a substitution's double quotes, whose own quotes hold a ( or a ), in a body, in a
+        # word, and a here-document inside "$( )". Each passes, as each would without the nesting.
+        script = 'printf "%s" "$(printf "%s" "hello )")")'
+        self.assertEqual(shell._balanced(script + " tail", 0, ")"), len(script))
+        # A nest deeper than the budget spells is read as main reads it, not refused (the Claude review of #520).
+        nest = "x"
+        for _ in range(11):
+            nest = 'echo "$(%s)"' % nest
+        for command in (nest + "; git commit -m x", nest.replace('"', "") + "; git commit -m x"):
+            self.assertEqual(self.codes(command), "", command[:40])
+        # Past Python's own depth, a nest is one the hook cannot read (Astra on #520).
+        self.assertIn("command_unreadable", self.codes(('echo "$(' * 1500) + "true" + (')"' * 1500)))
+        # A substitution _quoted writes in a ${...}, its quotes escaped, is read as main reads it (the Claude review).
+        for command in ('echo ${y:-$(echo "it\'s")}; git -c user.name=o commit -m x',
+                        'echo ${x:-`echo "it\'s"`}; git -c user.name=o commit -m x',
+                        'echo ${x:-$(echo "\'")}\ngit -c user.name=o commit -m x',
+                        # And a ${...} in double quotes, as main reads it (the security pass on #520).
+                        'echo ${x#"$(echo "(")"}; git -c user.name=o commit -m x',
+                        'echo ${x/"$(echo "(")"/y}; git -c user.name=o commit -m x',
+                        'echo ${x,$("\'")};git -c user.name=o commit -m x',
+                        'echo "$(echo ${x%$("\'")};git -c user.name=o commit -m x)"'):
+            self.assertNotEqual(self.codes(command), "", command)
+        # And main reads a write in it, as it does a ' that a "${...}" takes as a character (Argon on #520).
+        nest = 'echo "${x:-")"}"; git -c user.name=other commit -m x'
+        for _ in range(11):
+            nest = 'echo "$(%s)"' % nest
+        for command in (nest, 'echo "$(echo "${x:-\'}"; git -c user.name=other commit -m x; echo "\'}")"'):
+            self.assertNotEqual(self.codes(command), "", command[:40])
+        self.assertEqual(shell._balanced('echo "a \\" )") tail', 0, ")"), 14)     # an escaped " ends no double quotes
+        for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',
+                        'echo "$(echo "$(printf "%s" "hello (world)")")"; git commit -m x',
+                        'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)"; git commit -m x'):
+            self.assertEqual(self.codes(command), "", command)
+        # What each level holds is read: a write past an inner quote's ), and a ${...}'s substitution at the top (Argon).
+        for command in ('echo "$(echo "$(echo \'")\'; git push origin main; echo \'"\')")"',
+                        'cat <<E\n$(echo "$(echo \'")\'; git push origin main; echo \'"\')")\nE',
+                        "echo $(echo ${x:-$(git push origin main)})", 'echo "$(echo ${#x[$(git push origin main)]})"'):
+            commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
+            self.assertIn(["git", "push", "origin", "main"], [w for w, _ in commands if w], command)
+
+
     def test_a_read_beside_a_script_names_no_commit_or_push(self):  # issue 488
         script = "a shell reads a script the hook cannot see"
 
@@ -1526,6 +1576,15 @@ class Identity(unittest.TestCase):
                 self.assertEqual(unseen(command), [], command)
         for command in ("bash /tmp/x.sh; gh pr view 80 --repo o/r --json reviews --jq '.reviews[].commit.oid'",
                         "bash /tmp/x.sh; gh --repo o/r pr view 1",
+                        # A process substitution that a quote holds runs no shell (#410).
+                        "git log -1 --grep '> >(bash)'; git commit -m 'echo > >(bash)'",
+                        # One given -c runs a script the hook reads (the Claude review); one in <( ) is read below.
+                        "diff <(bash -c 'ls') <(ls); git commit -m x", "git commit -m x; cat <(bash -c 'echo hi')",
+                        "git commit -m x; tee >(bash -c 'cat > /dev/null') < f",
+                        # A backslash before the > or the ( makes them text (the Claude review of #520).
+                        "echo \\>\\(bash\\); git commit -m x", "echo >\\(bash\\); git commit -m x",
+                        # A here-document's body is data, whatever it spells (Argon).
+                        "cat <<'E'\necho 'git push' > >(bash)\nE\ngit commit -m x",
                         "git log --format='%h commit' -1; bash /tmp/x.sh",
                         "state=$(gh pr view 1 --json state --jq .state); bash /tmp/x.sh \"$state\"",
                         "for n in $(gh pr list --json number --jq '.[].number'); do bash /tmp/x.sh $n; done",
@@ -1578,6 +1637,18 @@ class Identity(unittest.TestCase):
                         # printf -v prints nothing: it keeps its text for the shell (Muse). So may any other option.
                         "printf -v x 'git push origin main'; bash -s <<< \"$x\"", "builtin printf -v x 'git push'; bash -s <<< \"$x\"",
                         "printf -vx 'git push'; bash -s <<< \"$x\"", "printf -v x 'git push origin main'; bash /tmp/x.sh \"$x\"",
+                        # A shell a process substitution runs reads what is written to it (#410).
+                        "echo 'git push' > >(bash)", "echo 'git push origin main' | tee >(/bin/sh -s) >/dev/null",
+                        # The shell's other spellings of that shell, and zsh's >>( ) (the security pass).
+                        "echo 'git push' > >(\\bash)", "echo 'git push' > >( (bash) )", "echo 'git push' > >(b\\ash)",
+                        "echo 'git push' > >(\\\nbash)", "echo 'git push' >>(bash)", "echo 'git push' > >( bash)",
+                        "echo 'git push' > >(bash>/dev/null)", "echo 'git push' > >(/bin/bash 2>&1)",  # glued (Muse)
+                        "echo 'git push' >>(( bash))",     # and a subshell's ( spaced (Argon on #520)
+                        # A -c in a later command is not the shell's (Astra on #520).
+                        "echo 'git push origin main' >>(bash; echo -c)", "echo 'git push origin main' > >(bash; echo -c)",
+                        "echo 'git push origin main' > >(bash; true -c)",
+                        # One in <( ) reads what its command is given, as any shell does, as main reads it (Argon on #520).
+                        "cat <(bash); git commit -m x", "echo 'git push' | cat <(bash)", "{ cat <(bash); } <<< 'git push'",
                         # A body's line that also stands outside it is still the body's (Argon on #489).
                         "git \\\nlog -1\nbash <<'E'\ngit \\\npush origin main\nE",
                         "true '\ngit \\\n' && bash <<'E'\ngit \\\ncommit -m x\nE",
@@ -1617,7 +1688,9 @@ class Identity(unittest.TestCase):
                                   "command_unreadable"),
                                  # A ${...} in a ${...} in a body's substitution, each read as a script is, is charged (Muse on #497).
                                  (lambda n: "cat <<EOF\n$(echo " + "${x:-" * n + "y" + "}" * n + ")\nEOF\ngit push", 400,
-                                  "command_unreadable")):
+                                  "command_unreadable"),
+                                 # Substitutions in double quotes, each escaping a ", each level read once (Astra on #520).
+                                 (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
 
@@ -2783,6 +2856,22 @@ class MergesAndSettings(Asks):
         for command in (DEEP, "echo %s\ncat <<EOF\n%s\nEOF" % ("a" * 20000, "$(" * 70 + "x" + ")" * 70)):
             self.asked(self.run_(command, seconds=2), "command_unreadable", command[:40])
 
+    def test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level(self):  # issue 410
+        # Codex on #395: a nested "$(...)" whose own quotes hold a ( or a ), in a body and in a here-document inside
+        # "$( )", passes; a write past such a quote is asked about (Argon on #395).
+        for command in ('cat <<EOF > /tmp/o\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF',
+                        'echo "$(cat <<EOF\n$(printf "%s" "hello (world)")\nEOF\n)" > /tmp/o',
+                        # Two levels in, main's reading, which passes (the Claude review of #520).
+                        'echo "$(echo "$(cat <<EOF\n$(printf "%s" "x (y)")\nEOF\n)")" > /tmp/o'):
+            self.assertEqual(self.run_(command), "", command)
+        for command in ('cat <<E\n$(echo "$(echo \'")\'; rm kernel/gate.py; echo \'"\')")\nE',
+                        'echo "$(cat <<EOF\n$(printf "%s" "x (y)"; rm kernel/gate.py)\nEOF\n)" > /tmp/o',
+                        'echo "$(echo "$(cat <<EOF\n$(printf "%s" "x (y)"; rm kernel/gate.py)\nEOF\n)")" > /tmp/o'):
+            self.asked(self.run_(command), "protected_path", command)
+        # Past Python's own depth, a nest is one the hook cannot read (Astra on #520).
+        self.asked(self.run_(('echo "$(' * 1500) + "true" + (')"' * 1500)), "command_unreadable", "a nest 1500 deep")
+
+
     def test_what_does_not_merge_is_not_asked_about(self):
         for command in ("gh pr view 5", "gh pr create --fill", "gh pr checks 5", "gh pr view 5 --json mergeable",
                         "gh api graphql -f query='query { viewer { login } }'", "gh api repos/o/r/pulls/5/merge",
@@ -3511,7 +3600,7 @@ class ShellReading(unittest.TestCase):
 
     def test_a_here_documents_nesting_past_its_room_is_unreadable(self):  # the review of pull request 395
         # The room the reader spells a body's substitutions in is bounded, whatever the clock: past it, ValueError.
-        with self.assertRaisesRegex(ValueError, "nest deeper than the hook reads"):
+        with self.assertRaisesRegex(ValueError, "nested deeper than the hook reads"):
             shell.without_heredocs(DEEP)
 
     def test_a_body_script_the_reader_cannot_split_stays_data(self):  # the review of pull request 395
