@@ -8071,6 +8071,9 @@ while True:
 print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error" in flags, "num_turns": len(results) + 1}))
 '''
 
+    TIMEOUT = ('#!/bin/sh\nprintf %s "$1" | grep -Eqx "([0-9]+[.]?[0-9]*|[.][0-9]+)[smhd]?" || exit 125\n'
+               '[ "$#" -ge 2 ] || exit 125\nshift\nexec "$@"\n')
+
     def stand_in(self, flags=(), after=None) -> pathlib.Path:
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (folder / "version").write_text(self.PIN + "\n")
@@ -8082,11 +8085,10 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
         (folder / "claude").write_text('#!/bin/sh\nexec python3 -B "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
         (folder / "cli.py").write_text(self.CLI)
         (folder / "claude").chmod(0o755)
-        # A stand-in `timeout`, which runs its command after the duration: macOS has none on its own PATH. It refuses a
-        # duration that is not whole seconds, or no command, as GNU timeout does, with 125.
+        # A stand-in `timeout`, which runs its command after the duration: macOS has none on its own PATH. Like GNU
+        # timeout, it refuses with 125 a duration that is not a number with an optional s, m, h or d, or no command.
         (folder / "bin").mkdir()
-        (folder / "bin" / "timeout").write_text(
-            '#!/bin/sh\ncase "$1" in ""|*[!0-9]*) exit 125 ;; esac\n[ "$#" -ge 2 ] || exit 125\nshift\nexec "$@"\n')
+        (folder / "bin" / "timeout").write_text(self.TIMEOUT)
         (folder / "bin" / "timeout").chmod(0o755)
         return folder
 
@@ -8233,6 +8235,17 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
             self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
+
+    def test_the_stand_in_timeout_runs_what_gnu_timeout_runs(self):
+        stand_in = self.stand_in() / "bin" / "timeout"
+        real = shutil.which("timeout", path="/usr/bin:/bin")
+        for given, runs in [(["180"], True), (["60"], True), (["1.5"], True), (["90s"], True), (["3m"], True),
+                            ([".5"], True), (["18O"], False), ([""], False), (["5x"], False), (["-1"], False),
+                            (["s"], False), (["."], False)]:
+            for timeout in [str(stand_in)] + ([real] if real else []):
+                ran = subprocess.run([timeout] + given + ["/bin/sh", "-c", "exit 3"], capture_output=True, timeout=30)
+                self.assertEqual(ran.returncode, 3 if runs else 125, (timeout, given))
+        self.assertEqual(subprocess.run([str(stand_in), "60"], capture_output=True, timeout=30).returncode, 125)
 
 
 class PauseReadTrial(unittest.TestCase):
