@@ -1739,15 +1739,11 @@ class Convergence(unittest.TestCase):
         d = go(facts(reviews=rv, description_edited_at="2026-10-11T12:20:00Z"), REVIEWED)
         self.assertEqual((d["outcome"], d["reason"], d["attention"], d["evidence"]),
                          ("hold", "description_edited_after_approval", "needs_you", ["2026-10-11T12:20:00Z"]))
-        # An edit in the approval's second may have followed it: held. One before the approval, or none read, which is
-        # what the port gives until it reads the edits (decision 0135), holds nothing.
+        # An edit in the approval's second may have followed it: held. One before the approval, or none, holds nothing.
         d = go(facts(reviews=rv, description_edited_at="2026-10-11T12:15:00Z"), REVIEWED)
         self.assertEqual(d["reason"], "description_edited_after_approval")
-        for edited in ("2026-10-11T12:10:00Z", None, "missing"):
-            f = facts(reviews=rv, description_edited_at=edited)
-            if edited == "missing":
-                del f["description_edited_at"]
-            self.assertEqual(go(f, REVIEWED)["action"], "enqueue", edited)
+        for edited in ("2026-10-11T12:10:00Z", None):
+            self.assertEqual(go(facts(reviews=rv, description_edited_at=edited), REVIEWED)["action"], "enqueue", edited)
         # A person with write access who approves after the edit has read it: the approver's approval stands again.
         # One in the edit's second, or by someone without write access, is not that.
         for person, enqueued in ((review(kind="human", name="don-petry", at="2026-10-11T12:25:00Z"), True),
@@ -1824,9 +1820,13 @@ class Convergence(unittest.TestCase):
         # A queued item leaves the queue on it.
         d = derive.derive(facts(reviews=rv, queue=True, description_edited_at="2026-10-11T12:20:00Z"), REVIEWED, CONFIG)
         self.assertEqual((d["state"], d["reason"], d.get("dequeue")), ("held", "description_edited_after_approval", True))
-        # An edit time that cannot be read lets nothing through.
-        for unreadable in ("", "yesterday", 12345, True):
-            d = go(facts(reviews=rv, description_edited_at=unreadable), REVIEWED)
+        # An edit time that cannot be read lets nothing through, and nor does none given: the port reads the edits, so a
+        # snapshot that leaves the field out is short, never one with no edit (decision 0140).
+        for unreadable in ("", "yesterday", 12345, True, "missing"):
+            f = facts(reviews=rv, description_edited_at=unreadable)
+            if unreadable == "missing":
+                del f["description_edited_at"]
+            d = go(f, REVIEWED)
             self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("defer", "description_unreadable", "needs_you"), unreadable)
 
     def test_approver_is_never_the_author_or_last_pusher(self):  # I-26

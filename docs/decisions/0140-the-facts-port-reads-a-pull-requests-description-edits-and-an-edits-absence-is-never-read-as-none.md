@@ -1,0 +1,35 @@
+# 0140. The facts port reads a pull request's description edits, and an edit's absence is never read as none
+
+Status: accepted. Replaces `docs/decisions/0135-a-description-edited-after-the-first-approval-since-a-person-looked-holds-the-item.md`, and keeps all of it but two rows, "The fact" and "It holds nothing yet", which it overturns. The Factory Builder's rulings of 2026-11-04 on "The facts port reads a pull request's description edits, so #519's hold can see them" (issue 526), of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182), on the reader App's leg of P-58 (`trials/P-58.reader.json`).
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| The port | `adapters/edits.py` sends the query `trials/P-58.reader.json` recorded, word for word, and the snapshot gives `description_edited_at`: the later of `lastEditedAt` and every `editedAt` among `userContentEdits`, or null where the description was never edited. Never a `createdAt`. An edit whose revision was deleted from the history still counts | P-58: the opening text's entry is made only with the first later edit, and takes that edit's `createdAt`, 23 seconds after its own `editedAt`. `lastEditedAt` equalled the latest `editedAt` in every read. The later of the two is the reading that stops work |
+| Past a hundred | Where the list is not whole, a next page or a count past the edits listed, `lastEditedAt` alone gives the time. Where it then names none, the edits are unread | `lastEditedAt` moves on every edit of the description, whoever made it, and on nothing else: not a push, not a title's edit (P-58). The rule needs the time alone, and no second page was recorded |
+| Unread, never none | An answer the port cannot read, a refusal, `errors`, no pull request, a time it cannot read, or `lastEditedAt` and the edits that disagree on whether the description was ever edited, refuses the snapshot, which is read again at the next pass. `description_edited_at` is required in `facts/1`: absent, or any value that is neither a time nor null, the Kernel defers, `description_unreadable`, as it does on `last_reopened_at`. A review Intent's held-out case made before the field reads it null, as `harness/eval` fills each field its set predates | An unreadable fact never yields an action (I-13). Absent read as no edit, a later port or snapshot that left the field out would turn the rule off in silence |
+| Whoever edited | An edit after the anchor holds the item whoever made it, a bot's or an App's among them, as decision 0135 ruled. No editor is read: the facts carry the time alone | An App with write access can add a closing keyword after the approval, and GitHub closes that issue at the queue's merge (P-48). An App's summary is written from the pull request's own text. On this repo the cost is nothing today: on the last 60 pull requests read on 2026-11-04, cubic edited each once, 6 to 20 seconds after it opened, and never after a push, and no machine approval has yet been given here |
+| The path not taken | Where a Consumer's App edits after every push and that costs a person's approval each time, the configuration may one day name the Apps whose edits hold nothing, none by default. That needs the editor in the facts and a field of the configuration, and nothing here builds it | The risk then sits with whoever names an App, and no Consumer needs it yet |
+| The author Role | A Role's App that edits its pull request's description after the first approval holds its own pull request. The author Role, when it is built, edits its description only as it opens the pull request | It is what the rule is for, and no exception is made for the Factory's own Apps |
+| The grant | The port reads through a token with `pull_requests: read`, the reader App's. That `metadata: read` alone was answered the same on the public canary says nothing of a private repo | P-58.reader. A private Consumer repo waits on slice 3, as P-56's case does |
+| What stays | Everything else decision 0135 decides, as it words it: the rule, the first approval never the latest, the two anchors, the second, and I-28 as it narrowed it | Only the two rows above are overturned |
+
+## Why
+
+Decision 0135 held an item whose description was edited after its approval, but read the edit from a field no port gave, and read its absence as no edit, so the rule held nothing. The reader App's leg of P-58 recorded the query a `pull_requests: read` token is answered, and this port sends it. Once the port gives the field, its absence can only mean a snapshot read short.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| An edit after the first approval since a person looked holds the item, needing a person; one before it or none holds nothing, but on an outsider's pull request one after the admission holds, and its twin on the Factory's does not; a push's or a dismissal's fresh approval clears nothing; a person's approval after the edit clears it, one in its second does not; a person's look starts the anchor again; an outsider's own edit of an admitted, approved pull request holds it; a queued item leaves the queue; an unreadable time, or none given, defers | `tests/test_decide.py::test_a_description_edited_after_the_approval_holds_until_a_person_approves` |
+| A stranger only stops an item, into a Hold a person ends, and the Lifecycle declares it | `tests/test_transitions.py::test_a_stranger_only_stops_an_item_into_a_hold_a_person_ends` |
+| The port reads the edits a trial recorded, by the trial's query, as the latest edit | `tests/test_adapters.py::test_the_edits_a_trial_recorded_are_read_as_the_port_reads_them` |
+| The time is the later of `lastEditedAt` and every `editedAt`, never a `createdAt`; a deleted revision counts; none is null | `tests/test_adapters.py::test_the_last_edit_is_told_by_its_edited_at_never_its_created_at` |
+| A list not read whole is told by `lastEditedAt`, and unread where that names none | `tests/test_adapters.py::test_edits_not_read_whole_are_told_by_last_edited_at` |
+| Edits that cannot be read are refused, never read as none, and the snapshot with them | `tests/test_adapters.py::test_edits_that_cannot_be_read_are_refused_never_read_as_no_edit`, `tests/test_adapters.py::test_a_snapshot_whose_description_edits_cannot_be_read_is_refused` |
+| The field is required in `facts/1` | `tools/check_examples.py` |
+| The simulator's worlds edit the description, an App as it opens and, on some seeds, an App or a person later, and the invariants hold | `tests/test_simulator.py::test_the_seeds_edit_the_description_after_the_approval` |
+| The feed asks a person to approve, or to close | `tools/check_examples.py` |
+| Each of these rules has a mutant that a test kills | `tools/mutants.py` |

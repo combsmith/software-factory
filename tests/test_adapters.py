@@ -18,7 +18,7 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, \
+from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, items, passes, pull, records, \
     pause, rules, texts, threads, timeline
 from harness import task
 from kernel import brakes
@@ -3069,6 +3069,102 @@ def p26_checks_nodes(exchange: dict) -> list:
     return [n for n in contexts if n["__typename"] == "CheckRun"]
 
 
+def edits_answer(repo: str, number: int, last, times: list, total=None, more: bool = False) -> dict:
+    """An exchange of the port's edits query, in the shape trials/P-58.reader.json recorded: `lastEditedAt`, and each
+    edit's `editedAt`, newest first, its `createdAt` the newest edit's, as GitHub gave the opening text's."""
+    owner, name = repo.split("/")
+    asked = {"query": edits.QUERY, "variables": {"owner": owner, "name": name, "number": number}}
+    made = max(times) if times else None
+    nodes = [{"editedAt": at, "createdAt": made, "deletedAt": None,
+              "editor": {"__typename": "Bot", "login": "cubic-dev-ai", "databaseId": 191113872}} for at in times]
+    listed = {"totalCount": len(nodes) if total is None else total,
+              "pageInfo": {"hasNextPage": more, "endCursor": "Y3Vyc29y" if nodes else None}, "nodes": nodes}
+    editor = nodes[0]["editor"] if nodes else None
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+            "response": {"status": 200, "headers": {},
+                         "body": {"data": {"repository": {"pullRequest": {"lastEditedAt": last, "editor": editor,
+                                                                          "userContentEdits": listed}}}}}}
+
+
+class DescriptionEdits(unittest.TestCase):
+    PULL = {"number": 26, "base": {"repo": {"full_name": "o/r"}}}
+
+    def read(self, answer: dict):
+        return edits.last_edited_at(github.Replay([answer]), self.PULL)
+
+    def test_the_edits_a_trial_recorded_are_read_as_the_port_reads_them(self):  # trials/P-58.reader.json, issue 526
+        # The reader App's own read, with a token narrowed to pull_requests: read: the query is the trial's word for
+        # word, or the replay answers nothing. The last edit is the workflow's bot's, after a person's, cubic's and
+        # CodeRabbit's: whoever edited, the time is the latest.
+        canary96 = {"number": 96, "base": {"repo": {"full_name": canary()}}}
+        for ex in (0, 2):
+            found = exchanges("P-58.reader")[ex]
+            self.assertEqual(found["request"]["body"]["query"], edits.QUERY)
+            self.assertEqual(edits.last_edited_at(github.Replay([found]), canary96), "2026-11-03T19:24:25Z")
+
+    def test_the_last_edit_is_told_by_its_edited_at_never_its_created_at(self):  # trials/P-58.json
+        # P-58: the opening text's entry was made with the first later edit, so its createdAt is that edit's, 23 seconds
+        # after its editedAt. The time read is the later of lastEditedAt and every editedAt, never a createdAt.
+        opening = edits_answer("o/r", 26, "2026-11-03T19:19:03Z", ["2026-11-03T19:19:03Z"])
+        node = opening["response"]["body"]["data"]["repository"]["pullRequest"]["userContentEdits"]["nodes"][0]
+        node["createdAt"] = "2026-11-03T19:19:26Z"
+        self.assertEqual(self.read(opening), "2026-11-03T19:19:03Z")
+        # Whichever of the two is later is the time, the reading that stops work.
+        self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T19:25:00Z",
+                                                ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"])), "2026-11-03T19:25:00Z")
+        self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T19:19:26Z",
+                                                ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"])), "2026-11-03T19:24:25Z")
+        # An edit whose revision was deleted from the history still happened.
+        deleted = edits_answer("o/r", 26, "2026-11-03T19:19:26Z", ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"])
+        deleted["response"]["body"]["data"]["repository"]["pullRequest"]["userContentEdits"]["nodes"][0]["deletedAt"] = \
+            "2026-11-03T19:30:00Z"
+        self.assertEqual(self.read(deleted), "2026-11-03T19:24:25Z")
+        # A description never edited has no edits and no lastEditedAt: no edit, which is null.
+        self.assertIsNone(self.read(edits_answer("o/r", 26, None, [])))
+
+    def test_edits_not_read_whole_are_told_by_last_edited_at(self):  # decision 0140
+        # Past the first hundred, or a count past what was listed, the list is short; lastEditedAt moves on every edit of
+        # the description, whoever made it, and on nothing else (P-58), so it is the time. Short with none, it is unread.
+        listed = ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"]
+        self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T20:00:00Z", listed, more=True)),
+                         "2026-11-03T20:00:00Z")
+        self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T20:00:00Z", listed, total=150)),
+                         "2026-11-03T20:00:00Z")
+        self.assertEqual(self.read(edits_answer("o/r", 26, "2026-11-03T20:00:00Z", [], total=150)),
+                         "2026-11-03T20:00:00Z")
+        for short in (edits_answer("o/r", 26, None, listed, more=True), edits_answer("o/r", 26, None, listed, total=150)):
+            with self.assertRaises(github.Unanswered):
+                self.read(short)
+
+    def test_edits_that_cannot_be_read_are_refused_never_read_as_no_edit(self):  # decision 0140
+        def answer(change):
+            found = edits_answer("o/r", 26, "2026-11-03T19:24:25Z", ["2026-11-03T19:24:25Z", "2026-11-03T19:19:03Z"])
+            change(found["response"])
+            return found
+        pr = lambda r: r["body"]["data"]["repository"]["pullRequest"]
+        listed = lambda r: pr(r)["userContentEdits"]
+        for why, change in (
+                ("refused", lambda r: r.update(status=403)),
+                ("errors", lambda r: r["body"].update(errors=[{"type": "FORBIDDEN"}])),
+                ("no pull request", lambda r: r["body"]["data"]["repository"].update(pullRequest=None)),
+                ("no data", lambda r: r["body"].update(data=None)),
+                ("no lastEditedAt", lambda r: pr(r).pop("lastEditedAt")),
+                ("lastEditedAt in words", lambda r: pr(r).update(lastEditedAt="yesterday")),
+                ("lastEditedAt in words beside no edits",
+                 lambda r: (pr(r).update(lastEditedAt="yesterday"), listed(r).update(nodes=[], totalCount=0))),
+                ("no edits", lambda r: pr(r).update(userContentEdits=None)),
+                ("no nodes", lambda r: listed(r).update(nodes=None)),
+                ("no page", lambda r: listed(r).pop("pageInfo")),
+                ("a count in words", lambda r: listed(r).update(totalCount="2")),
+                ("a next page in words", lambda r: listed(r)["pageInfo"].update(hasNextPage="false")),
+                ("an edit with no time", lambda r: listed(r)["nodes"][1].pop("editedAt")),
+                ("an edit's time in words", lambda r: listed(r)["nodes"][0].update(editedAt="2026-11-03")),
+                ("edits with no lastEditedAt", lambda r: pr(r).update(lastEditedAt=None)),
+                ("lastEditedAt with no edits", lambda r: listed(r).update(nodes=[], totalCount=0))):
+            with self.assertRaises(github.Unanswered, msg=why):
+                self.read(answer(change))
+
+
 class Snapshot(unittest.TestCase):
     NOW = "2026-10-18T03:00:00Z"
 
@@ -3082,7 +3178,9 @@ class Snapshot(unittest.TestCase):
         data = found[1]["response"]["body"]
         return [found[1], found[9], exchanges("P-28")[3], as_compare(found[2], data, branch),
                 as_compare(p26_files(), data, branch), exchanges("P-28")[4], p26_reviews(), p26_checks(head),
-                closing_answer(canary(), 26, []), threads_answer(canary(), 26, []), found[reread]]
+                closing_answer(canary(), 26, []), threads_answer(canary(), 26, []),
+                edits_answer(canary(), 26, "2026-10-18T02:10:00Z", ["2026-10-18T02:10:00Z", "2026-10-18T02:00:05Z"]),
+                found[reread]]
 
     def read(self, reread: int):
         router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
@@ -3116,7 +3214,19 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(got["complete"], {"acceptance": True, "reviews": True, "threads": True, "checks": True,
                                            "diff": True, "changed_paths": True, "runs": True, "timeline": True})
         self.assertIsNone(got["acceptance"])
+        self.assertEqual(got["description_edited_at"], "2026-10-18T02:10:00Z")
         self.assertNotIn(title, json.dumps(got))
+
+    def test_a_snapshot_whose_description_edits_cannot_be_read_is_refused(self):  # decision 0140
+        # The Kernel reads the field's absence as unread, and the snapshot never gives it absent: an answer it cannot
+        # read refuses the whole, as any part does, and the pull request is read again at the next pass.
+        seq = self.sequence(1)
+        seq[10] = copy.deepcopy(seq[10])
+        seq[10]["response"]["body"]["data"]["repository"]["pullRequest"]["lastEditedAt"] = None
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        with self.assertRaises(github.Unanswered):
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
 
     def test_a_snapshot_hands_back_its_head(self):  # #193's ruling 10
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
@@ -3173,7 +3283,7 @@ class Snapshot(unittest.TestCase):
 
     def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
         seq = self.sequence(1)
-        at = len(seq) - 3
+        at = len(seq) - 4
         seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [label_event("labeled")])]
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
@@ -3510,6 +3620,32 @@ class Contract(unittest.TestCase):
         return ({c["app_id"] for c in named} == {15368}
                 and {c["workflow"] for c in named} == {".github/workflows/p2-queue.yml", ".github/workflows/p35-lens-name.yml"})
 
+    @staticmethod
+    def p58_last_edits() -> list:
+        """P-58's last edit, read after each step in turn: opened, a minute on, the title edited, the description
+        edited, the head pushed, a workflow's bot's edit, a minute on."""
+        return [e["response"]["body"]["data"]["repository"]["pullRequest"]["lastEditedAt"] for e in exchanges("P-58")]
+
+    def description_edit_read(self) -> bool:
+        # A title's edit and a push move nothing; a person's and a bot's edit each move it; and the port reads the reader
+        # App's answer, a day on, as the last of them.
+        opened, later, titled, edited, pushed, bot, after = self.p58_last_edits()
+        canary96 = {"number": 96, "base": {"repo": {"full_name": canary()}}}
+        port = edits.last_edited_at(github.Replay([exchanges("P-58.reader")[0]]), canary96)
+        return titled == later and edited > titled and pushed == edited and bot > pushed and after == bot == port
+
+    def app_edit_read(self) -> bool:
+        # cubic's edit, the App's, is the first: 23 seconds after the opening text, and before anything was asked of it.
+        # Of the edits the reader App read, bots made three, each counted in the time the port gives.
+        opened, later = self.p58_last_edits()[:2]
+        first = exchanges("P-58")[1]["response"]["body"]["data"]["repository"]["pullRequest"]
+        nodes = exchanges("P-58.reader")[0]["response"]["body"]["data"]["repository"]["pullRequest"]["userContentEdits"]["nodes"]
+        bots = [n["editedAt"] for n in nodes if n["editor"]["__typename"] == "Bot"]
+        canary96 = {"number": 96, "base": {"repo": {"full_name": canary()}}}
+        port = edits.last_edited_at(github.Replay([exchanges("P-58.reader")[0]]), canary96)
+        return opened is None and first["editor"]["__typename"] == "Bot" and later is not None and len(bots) == 3 \
+            and max(bots) == port
+
     def reads(self) -> dict:
         """Each grounded rule the port reads, from the fixture that grounds it, as the rule states it: the fixtures it
         replays, and whether the port's reading holds the rule."""
@@ -3591,6 +3727,8 @@ class Contract(unittest.TestCase):
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
+            "a_description_edit_moves_its_time": ({"P-58", "P-58.reader"}, self.description_edit_read()),
+            "an_app_edits_a_description": ({"P-58", "P-58.reader"}, self.app_edit_read()),
             "the_pusher_is_the_last_pusher": ({"P-28", "P-28.app"},
                 pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
                 and pull.last_pusher(replay("P-28.app", 1), body("P-28.app", 0)) == "combsmith-sf-trial-author[bot]"),
@@ -3946,7 +4084,8 @@ class Contract(unittest.TestCase):
                 ("checks", checks_answer(node), lambda t: checks.read(t, as_pull(node))),
                 ("threads", threads_answer("o/r", 26, []),
                  lambda t: threads.read(t, Threads.PULL, timeline.Accounts(t, "o/r", MACHINE, {}))),
-                ("acceptance", closing_answer("o/r", 26, []), lambda t: acceptance.closing(t, Acceptance.PULL))):
+                ("acceptance", closing_answer("o/r", 26, []), lambda t: acceptance.closing(t, Acceptance.PULL)),
+                ("edits", edits_answer("o/r", 26, None, []), lambda t: edits.last_edited_at(t, DescriptionEdits.PULL))):
             read(github.Replay([copy.deepcopy(answer)]))
             answer["response"]["body"]["errors"] = copy.deepcopy(refused)
             with self.assertRaises(github.Unanswered, msg=port):

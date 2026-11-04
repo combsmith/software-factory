@@ -1,6 +1,6 @@
 # 0135. A description edited after the first approval since a person looked holds the item
 
-Status: accepted. The Factory Builder's rulings of 2026-11-03 on "A description edited after the approval holds the enqueue and asks a person again" (issue 519), part of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182). It holds what decision 0132 only reads afterwards, and narrows I-28.
+Status: replaced by `docs/decisions/0140-the-facts-port-reads-a-pull-requests-description-edits-and-an-edits-absence-is-never-read-as-none.md`, which holds the rule in force.
 
 ## Decision
 
