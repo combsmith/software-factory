@@ -583,10 +583,11 @@ class Examples(unittest.TestCase):
         # A fact the Factory cannot read, or a Pause, is mended at its source, and a merge that landed while a person
         # had stopped the issue is answered only by undoing the stop, since a close would not move the State the person
         # put the issue in (issue 237), as is an issue an outsider's merge closed, which a person reopens to decide
-        # (issue 280); every other question can be closed.
+        # (issue 280), and one a merge closed under a person's hands-off, which a person ends (issue 522); every other
+        # question can be closed.
         for row in feed["decision_required"]:
             mended = row["question"] in ("fact_unreadable", "paused", "configuration_needs_you", "merged_while_held",
-                                         "merged_while_declined", "closed_by_outsider_merge")
+                                         "merged_while_declined", "closed_by_outsider_merge", "merged_while_hands_off")
             self.assertEqual("close" in row["choices"], not mended, row["reason"])
 
     def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038

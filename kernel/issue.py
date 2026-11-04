@@ -76,7 +76,6 @@ NEEDS_YOU_REASONS = frozenset({
     "human_hold",
     "merged_while_held",
     "merged_while_hands_off",
-    "merged_while_linked_twice",
     "merged_while_declined",
     "closed_by_outsider_merge",
     "linked_twice",
@@ -397,16 +396,11 @@ def as_of(item: dict, when: str) -> dict:
                                     if ev["label"] in t.CONTROL_LABELS and ev["at"] <= when])
 
 
-def open_at(links: list, when: str) -> list:
-    """The linked pull requests that were open at `when`: opened by then and not closed before it, one closed in that
-    second among them, a merge's own included, since the reading that stops work wins a tie."""
-    return [p for p in links if p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]
-
-
 def drafts_at(links: list, when: str) -> list:
-    """The linked pull requests that were open drafts at `when`. Whether one was a draft then is read from its flag
-    now, the one the facts carry."""
-    return [p for p in open_at(links, when) if p["draft"]]
+    """The linked pull requests that were open drafts at `when`: opened by then and not closed before it, one closed
+    in that second among them, since the reading that stops work wins a tie. Whether one was a draft then is read
+    from its flag now, the one the facts carry."""
+    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]
 
 
 def released_since(item: dict, name: str, when: str) -> bool:
@@ -443,12 +437,19 @@ def a_persons_hands_off(labels: dict, facts: dict, drafts: list, links: list = (
                for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
 
 
-def hands_off_stood(facts: dict, links: list, when: str) -> bool:
-    """Whether a person's hands-off stood at `when` on the issue or on a draft linked then, and no person has removed it
-    since: only a person ends it, and an App's removal ends nothing."""
-    return any(placed_by_a_person(standing_labels(as_of(item, when)), as_of(item, when))
-               and not released_since(item, t.LABEL_HANDS_OFF, when)
-               for item in [facts] + drafts_at(links, when))
+def served_by_date(facts: dict, config: dict) -> bool:
+    """Whether the Consumer entry's date serves the issue: its present life began on or after it. Of what leaves an
+    issue out, only this can be placed at a time: a label's or a type's change carries none in the facts."""
+    start = config["issues"]["served_from"]
+    return is_time(start) and facts["life_started_at"] >= start
+
+
+def hands_off_stood(facts: dict, when: str) -> bool:
+    """Whether a person's hands-off stood on the issue itself at `when`, by its label events' times, and no person has
+    removed it since: only a person ends it, and an App's removal ends nothing. A draft's is not read here: whether a
+    pull request was a draft, or linked, at a time is not in the facts."""
+    past = as_of(facts, when)
+    return placed_by_a_person(standing_labels(past), past) and not released_since(facts, t.LABEL_HANDS_OFF, when)
 
 
 def held_by(labels: dict, drafts: list) -> list:
@@ -523,27 +524,30 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:
             return out(DECLINED, "merged_while_declined", merges)
         # A State only a person ends, as it stood at the first merge, stays: the platform's close is no person's
-        # (issue 522). Row 3 is read before row 4, as below. An issue the Consumer entry leaves out is left alone,
-        # quietly, since only a change to the entry could answer it. A person's hands-off stands until a person removes
-        # it, and the merge then reads on; one removed since still lets a Hold beside it pass, as the Factory leaves a
-        # queued item to merge under it. Another linked pull request open at the merge, which did not merge in its
-        # second, held the issue as two links: that holds until a person reopens the issue, a new life, since no
-        # label of it is there for a person to release. One merged in that second is part of the merge, no rival.
-        if not served(facts, config):
+        # (issue 522). Row 3 is read before row 4, as below. Only what the facts place at the merge is read, so that no
+        # terminal State is left by a fact with no time: the entry's date, the issue's own label events and the Hold.
+        # Left out by the date, the issue is left alone, quietly, since only a change to the entry could answer it;
+        # but an admitted outsider's merge that alone closed it still asks a person, as below, its late keyword being
+        # how an issue the Controller does not watch gets closed (P-48). A person's hands-off on the issue stands
+        # until a person removes it, and the merge then reads on; one removed since still lets a Hold beside it pass,
+        # as the Factory leaves a queued item to merge under it. A left-out label or type, two links and a draft's
+        # hands-off carry no time in the facts and read as before: "Facts: the times of a link, a left-out label and
+        # an issue's type, so that row 1 reads them at the merge" (issue 542).
+        closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]
+        outsiders = [str(p["number"]) for p in merged if p["class"] == "outside"]
+        if not served_by_date(facts, config):
+            if all(p["class"] == "outside" for p in closers):
+                return out(t.NOT_SERVED, "closed_by_outsider_merge", outsiders)
             return out(t.NOT_SERVED, "left_out", [])
-        if hands_off_stood(facts, links, first):
+        if hands_off_stood(facts, first):
             return out(t.NOT_SERVED, "merged_while_hands_off", merges)
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
-        rivals = [p for p in open_at(links, first) if p["merged_at"] != first]
-        if rivals:
-            return out(t.HELD, "merged_while_linked_twice", [str(p["number"]) for p in open_at(links, first)])
         # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where
         # only an outsider's did, a person decides whether the work is done (issue 280).
-        closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]
         if any(p["class"] != "outside" for p in closers):
             return out(DONE, "merged", [str(p["number"]) for p in merged if p["class"] != "outside"])
-        return out(DECLINED, "closed_by_outsider_merge", [str(p["number"]) for p in merged if p["class"] == "outside"])
+        return out(DECLINED, "closed_by_outsider_merge", outsiders)
     # Any other merge in this life closed nothing and landed while the issue stood open. While the issue is still
     # open and the merge was read within max_close_lag_seconds of it, GitHub may not have closed the issue yet, a
     # second or two after the merge (P-33): the issue waits, quietly, for a read after the close, and admits nothing,
