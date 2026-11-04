@@ -312,6 +312,73 @@ class Tags(unittest.TestCase):
                 self.assertEqual(asked, [], "a repo that is none, or climbs out, is never asked")
 
 
+class Fixture(unittest.TestCase):
+    """`release/fixtures/gate.v0-1-0.json`: each release.yml run's outcome and what can be read from outside it (#197's
+    ruling 9′, as amended on 2026-11-03), read through the Maintainer's login."""
+    PATH = ROOT / "release" / "fixtures" / "gate.v0-1-0.json"
+
+    def item(self, fixture, name):
+        found = [item for item in fixture["items"] if item["item"] == name]
+        self.assertEqual(len(found), 1, name)
+        return found[0]
+
+    def answered(self, item, path):
+        found = [e["response"] for e in item["exchanges"] if e["request"]["call"].split(" ")[:2] == ["GET", path]]
+        self.assertEqual(len(found), 1, path)
+        return found[0]
+
+    def test_the_first_cut_was_refused_by_the_closed_gate_and_wrote_nothing(self):
+        # Run 41201305939 dispatched the cut of factory/v0.1.0 on 2026-10-31, before any eval: the gate refused it,
+        # and two days later neither the Release nor `next` existed, and `next` had no Deployment.
+        fixture = json.loads(self.PATH.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, "gate.v0-1-0.json"), [])
+        first = self.item(fixture, "cut_refused_by_the_closed_gate")
+        self.assertEqual((first["asked"]["command"], first["asked"]["version"]), ("cut", fixture["version"]))
+        self.assertEqual(first["printed"], {"writes": [], "deployments": [], "refused": cut.EVAL_GATE_CLOSED})
+        self.assertEqual(first["conclusion"], "failure")
+        for tag in (fixture["version"], move.next_channel(json.loads(move.RINGS.read_text()))):
+            with self.subTest(tag=tag):
+                self.assertEqual(self.answered(first, "/repos/%s/git/ref/tags/%s" % (REPO, tag))["status"], 404)
+        deployed = self.answered(first, "/repos/%s/deployments?environment=factory-next" % REPO)
+        self.assertEqual((deployed["status"], deployed["body"]), (200, []))
+
+    def test_an_item_that_says_other_than_its_own_exchanges_is_refused(self):
+        fixture = json.loads(self.PATH.read_text())
+
+        def refused(change):
+            held = copy.deepcopy(fixture)
+            change(held["items"][0])
+            return check_release.fixture_problems(held, "gate.v0-1-0.json")
+
+        def exchange(item, part):
+            return next(e for e in item["exchanges"] if part in e["request"]["call"])
+
+        changes = {
+            "the step printed another code": lambda i: i["printed"].update(refused="not_verified"),
+            "the step printed a write": lambda i: i["printed"]["writes"].append(["create", "factory/v0.1.0", A]),
+            "another version was asked": lambda i: i["asked"].update(version="factory/v0.2.0"),
+            "another commit was asked": lambda i: i["asked"].update(cut_commit=A),
+            "another run": lambda i: i.update(run=i["run"] + 1),
+            "another conclusion": lambda i: i.update(conclusion="success"),
+            "the run of another workflow": lambda i: exchange(i, "/actions/runs/")["response"]["body"].update(
+                path=".github/workflows/verify.yml"),
+            "the run read twice": lambda i: i["exchanges"].append(copy.deepcopy(exchange(i, "/actions/runs/"))),
+            "the run refused": lambda i: exchange(i, "/actions/runs/")["response"].update(status=404),
+            "the log of another run's job": lambda i: exchange(i, "/jobs")["response"]["body"]["jobs"][0].update(
+                run_id=i["run"] + 1),
+            "the log not read": lambda i: i["exchanges"].remove(exchange(i, "/logs")),
+            "the log's last line in other words": lambda i: exchange(i, "/logs")["response"].update(
+                body=exchange(i, "/logs")["response"]["body"].replace('"eval_gate_closed"', '"not_verified"')),
+            "a header a fixture drops": lambda i: i["exchanges"][0]["response"]["headers"].update(
+                {"x-github-edge-region": "iad"}),
+            "a credential in an answer": lambda i: i["exchanges"][3]["response"]["body"].update(
+                note="ghp_" + "x" * 36),
+        }
+        for name, change in changes.items():
+            with self.subTest(name):
+                self.assertTrue(refused(change))
+
+
 class Plan(unittest.TestCase):
     def planned(self, reads, rings=move.RINGS):
         out = io.StringIO()
