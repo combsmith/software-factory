@@ -29,8 +29,9 @@ FILE_START = re.compile(r"(?=^diff --git )", re.M)
 # number is of nine digits at most, so no header is a number Python will not read; a longer one is no header.
 HUNK = re.compile(r"@@ -\d{1,9}(?:,(\d{1,9}))? \+(\d{1,9})(?:,(\d{1,9}))? @@")
 # One row of a diff as git ends it, at a newline alone: a form feed, a lone carriage return or a Unicode line separator
-# inside a line is the line's own text, never the start of another row.
-ROW = re.compile(r"[^\n]*\n|[^\n]+")
+# inside a line is the line's own text, never the start of another row. A row is a line's text with its newline, the
+# last line's without one, or a bare newline; the two alternatives never match at one place, so nothing backtracks.
+ROW = re.compile(r"[^\n]+\n?|\n")
 # What leads a line the head's file holds, after its number there (decision 0137).
 SEPARATOR = "|"
 

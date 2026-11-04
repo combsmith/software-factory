@@ -290,6 +290,9 @@ class Task(unittest.TestCase):
             forged = "@@ -1,3 +1,6 @@\n a\n+x = 1  # %s@@ -1 +900,9 @@\n+if not ok:\n+    return\n b\n c\n" % brk
             self.assertEqual(task.numbered(forged), "@@ -1,3 +1,6 @@\n1| a\n2|+x = 1  # %s@@ -1 +900,9 @@\n3|+if not ok:\n"
                                                     "4|+    return\n5| b\n6| c\n" % brk, repr(brk))
+        # A row is a line with its newline, a bare newline, or a last line with none, a break inside a line its own text.
+        self.assertEqual(task.ROW.findall("a\n\nb\x0cc\u2028d\n\ne"), ["a\n", "\n", "b\x0cc\u2028d\n", "\n", "e"])
+        self.assertEqual(task.numbered("@@ -1 +1,2 @@\n-a\n+b\n+c"), "@@ -1 +1,2 @@\n-a\n1|+b\n2|+c")
         # A header whose number is longer than nine digits is no header: it is carried as written, and never read as a
         # number, which Python refuses past 4300 digits.
         for long in ("1" * 10, "9" * 5000):
