@@ -25,6 +25,15 @@ TEXT_ID = re.compile(r"[a-z]+:[A-Za-z0-9_-]+")
 SOURCE = re.compile(r"[A-Za-z0-9-]+(\[bot\])?")
 # Where one file's part of a diff begins, as git writes it: the diff is cut only there, never inside a file.
 FILE_START = re.compile(r"(?=^diff --git )", re.M)
+# A hunk's header, as git writes it: the base's lines it holds, and the head's first line and how many it holds. Each
+# number is of nine digits at most, so no header is a number Python will not read; a longer one is no header.
+HUNK = re.compile(r"@@ -\d{1,9}(?:,(\d{1,9}))? \+(\d{1,9})(?:,(\d{1,9}))? @@")
+# One row of a diff as git ends it, at a newline alone: a form feed, a lone carriage return or a Unicode line separator
+# inside a line is the line's own text, never the start of another row. A row is a line's text with its newline, the
+# last line's without one, or a bare newline; the two alternatives never match at one place, so nothing backtracks.
+ROW = re.compile(r"[^\n]+\n?|\n")
+# What leads a line the head's file holds, after its number there (decision 0137).
+SEPARATOR = "|"
 
 
 class Refused(ValueError):
@@ -78,6 +87,37 @@ def carried(body: str) -> int:
     return len(json.dumps(body)) - 2
 
 
+def numbered(diff: str) -> str:
+    """The diff as a Task carries it: each line of a hunk that the head's file holds, a context line or an added one, led
+    by its number in that file and SEPARATOR; a removed line, git's note that a file has no last newline, and every line
+    outside a hunk as git wrote them (decision 0137). A row ends at a newline alone, as git ends one, so no text of a
+    line can start a row of its own. Each side of a hunk is counted on its own: a removed line is one while the base's
+    count lasts, an added line while the head's does, and a context line while both do; any other line ends the hunk, so
+    a file's next header is never read as a removed line. The model is given the head's numbers, not left to count them
+    from the header: on a long diff it counted one off."""
+    out, old, new, line = [], 0, 0, 0
+    for row in ROW.findall(diff):
+        mark = row[:1]
+        # Git's note that a file has no last newline is no line of either side, and ends nothing.
+        if mark == "\\":
+            out.append(row)
+            continue
+        if mark == "-" and old > 0:
+            old -= 1
+            out.append(row)
+            continue
+        context = mark in (" ", "\r", "\n")
+        if (mark == "+" and new > 0) or (context and old > 0 and new > 0):
+            out.append("%d%s%s" % (line, SEPARATOR, row))
+            line, new, old = line + 1, new - 1, old - context
+            continue
+        header = HUNK.match(row)
+        old, new = (int(header.group(1) or 1), int(header.group(3) or 1)) if header else (0, 0)
+        line = int(header.group(2)) if header else 0
+        out.append(row)
+    return "".join(out)
+
+
 def texts_of(texts: list, config: dict) -> tuple:
     """`(kept, omitted)`: the texts, the Maintainer's first and then each trust class in turn (RANK), each with its
     class, up to the configuration's characters as the Task carries them; and for each kind of text left out, how many
@@ -103,8 +143,8 @@ def diff_of(diff, facts: dict, admit: dict, config: dict) -> tuple:
     was left out, or `(None, None)` for an issue, which has none; a pull request with no diff has no Task. The diff is the bytes whose sha256 is the content id
     the Decision admitted, as the facts port takes it (decision 0044), so a Run is given only the content it was admitted
     for. It is `outside` text, whoever pushed it: what a review judges is where an injection arrives. It has its own
-    budget, counted as the Task carries it; over it, it is cut at a file's boundary, never inside a file, and what is
-    cut is said, as kind `diff`, by files and characters (L-56)."""
+    budget, counted as the Task carries it, numbered (decision 0137) and escaped; over it, it is cut at a file's
+    boundary, never inside a file, and what is cut is said, as kind `diff`, by files and characters (L-56)."""
     if facts["item"]["type"] != "pull_request":
         if diff:
             raise Refused("an issue's Run is given no diff")
@@ -119,7 +159,7 @@ def diff_of(diff, facts: dict, admit: dict, config: dict) -> tuple:
         raise Refused("the diff is not text") from None
     room = config["max_diff_characters"]
     kept, cut, characters = [], 0, 0
-    for part in [p for p in FILE_START.split(body) if p]:
+    for part in [numbered(p) for p in FILE_START.split(body) if p]:
         if not cut and carried(part) <= room:
             kept.append(part)
             room -= carried(part)

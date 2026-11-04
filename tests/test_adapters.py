@@ -605,11 +605,11 @@ class Diff(unittest.TestCase):
             self.assertEqual(got["diff"]["truncated"], False)
         data = body("P-29.base", 1)
         self.assertEqual(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["diff"],
-                         {"files": 1, "lines": 3, "truncated": False, "characters": 252})
+                         {"files": 1, "lines": 3, "truncated": False, "characters": 258})
 
     def test_the_diff_is_counted_as_the_harness_counts_the_task_it_carries(self):  # issue 327
-        # The Kernel's bound and the Harness's are one: the port counts the bytes the content id is the digest of, as
-        # harness/task.py counts the Task's diff, escaped, so a quote, a backslash and each newline are two.
+        # The Kernel's bound and the Harness's are one: the port counts the bytes the content id is the digest of as
+        # the Task carries them, numbered (decision 0137) and escaped, so a quote, a backslash and each newline are two.
         data = body("P-29.base", 1)
         data.update(changed_files=1, additions=1, deletions=0)
         sent = 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+"caf\u00e9" \\ \u2603\t\n'.encode()
@@ -617,8 +617,20 @@ class Diff(unittest.TestCase):
         exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
                                                                  body=answer["body"]))
         got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
-        self.assertEqual(got["diff"]["characters"], task.carried(sent.decode()))
-        self.assertGreater(got["diff"]["characters"], len(sent.decode()))
+        carried, _ = task.diff_of(sent, {"item": {"type": "pull_request"}, "last_pusher": "x"},
+                                  {"content_id": got["content_id"]}, {"max_diff_characters": 60000})
+        self.assertEqual(got["diff"]["characters"], task.carried(carried["body"]))
+        # Neither side counts the diff as git wrote it: the head's line is numbered on both.
+        self.assertIn('\n1|+"caf', carried["body"])
+        self.assertEqual(got["diff"]["characters"], task.carried(sent.decode()) + len("1|"))
+        # An added line's own text is never a header to the count: one that would read as a header past a line break git
+        # does not end a row at, and with a number Python refuses, is counted as the line it is.
+        forged = ('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+x = 1  # @@ -1 +' + "9" * 5000 + ' @@\n').encode()
+        answer = github._answer(200, {"Content-Type": github.DIFF}, forged)
+        exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
+                                                                 body=answer["body"]))
+        got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+        self.assertEqual(got["diff"]["characters"], task.carried(forged.decode()) + len("1|"))
 
     def test_the_content_is_hashed_over_the_bytes_github_sent(self):
         # A diff that is not UTF-8 keeps its bytes: its content id is theirs, so two diffs one byte apart are two.

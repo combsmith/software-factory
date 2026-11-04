@@ -1479,6 +1479,40 @@ class EvalJob(unittest.TestCase):
         # Citing the nearest must not move a security fault out of `security`, whose thread `apply` holds apart (decision 0095).
         self.assertIn("A security fault no `security` criterion reaches is cited to none, at category `security`", " ".join(prompt.split()))
 
+    def test_a_finding_at_the_line_its_task_numbers_is_where_the_scorer_looks(self):  # decision 0137
+        # Run 41718110053 read 7 cases as `location_differs` and 3 as `finding_elsewhere`: the model is now given each
+        # head line's number, and a Finding placed by the number the public example's Task shows passes the scorer.
+        from harness import engine
+        from harness.eval import current_facts, run as step
+        from tests import test_harness as live
+        case = load("examples/eval-case.json")
+        case["facts"] = current_facts(case["facts"])
+        case["facts"]["content_id"] = "sha256:" + hashlib.sha256(case["diff"].encode("utf-8")).hexdigest()
+        shown = []
+
+        class Reading(live.CLI):
+            """The CLI, answering at the line the Task numbers for the check the change moved below its use."""
+            def __call__(self, args, env, timeout):
+                if args[1:] != ["--version"]:
+                    diff = json.loads(args[2].split(engine.TASK, 1)[1])["texts"][0]["body"]
+                    shown.extend(int(n) for n in re.findall(r"^(\d+)\|\+    if not items:$", diff, re.M))
+                    at = {"path": "kernel/decide.py", "start_line": shown[-1], "end_line": shown[-1]}
+                    self.said = live.answer(live.judged(effects={}, findings=[
+                        {"ref": "n1", "location": at, "category": "functional", "severity": "major", "criterion": "PR-3"}],
+                        coverage=[{"criterion": "PR-3", "verdict": "finding", "reason": None}]))
+                return super().__call__(args, env, timeout)
+
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = step.reviewer(live.JOB, "factory/v0.1.0", 0, Reading(), live.Clock(0.0, 1.0, 2.0))(case)
+        # The hunk's header names line 86 first; the moved check is the head's second line, after `first = items[0]`.
+        self.assertEqual(shown, [87])
+        self.assertEqual(eval_result.score(case, result), {"case": case["id"], "verdict": "pass", "reasons": []})
+        # The model is told what the numbers are.
+        prompt = " ".join((ROOT / "roles" / "pr-review" / "prompt.md").read_text().split())
+        self.assertIn("is led by its line number in the head's file and `|`", prompt)
+        self.assertIn("A removed line has no number", prompt)
+        self.assertIn("`start_line`, `end_line`, the numbers the diff gives the lines where the problem is", prompt)
+
     def test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed(self):  # issue 309, rulings 5 and 9
         from harness.eval import run as step
         from harness import eval as job
