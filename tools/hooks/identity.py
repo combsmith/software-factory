@@ -110,8 +110,9 @@ TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "t
 SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
 UNSEEN_SCRIPT = "a shell reads a script the hook cannot see"
 # A shell that a process substitution >( ) runs, zsh's >>( ) among them, given no -c: it reads what is written to it
-# (#410). One given -c runs a script the hook reads (the Claude review of #520); one in <( ) is read as any command is.
-PROCESS_SHELL = re.compile(r">\(\s*(?:\(\s*)*(?:[^\s()<>;&|]*/)?(?:%s)(?=[\s);&|<>]|$)(?![^)]*\s-[A-Za-z]*c)"
+# (#410). One given -c, in its own command, runs a script the hook reads (the Claude review and Astra on #520); one in
+# <( ) is read as any command is.
+PROCESS_SHELL = re.compile(r">\(\s*(?:\(\s*)*(?:[^\s()<>;&|]*/)?(?:%s)(?=[\s);&|<>]|$)(?![^);&|\n]*\s-[A-Za-z]*c)"
                            % "|".join(re.escape(name) for name in sorted(SHELLS_AND_SOURCE)))
 # gh's commands that only read, as READS are git's: beside a script the hook cannot see, what they are given names no write
 # (issue 488). A `gh api` reads too, given only these options, and no word the shell would change: flags cluster, as -iX does.
@@ -1882,9 +1883,9 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     try:
         commands = shell.commands(_quoted(shell.without_heredocs(read, raw=True)), spend, scopes=True, marked=True)
         calls, problems, inline = _calls(commands, payload.get("cwd"), read, env, spend)
-    except ValueError as err:
+    except (ValueError, RecursionError) as err:
         # The command cannot be split into words, so whatever it names, git may be among it under a spelling the hook
-        # cannot see (issue 174).
+        # cannot see (issue 174), nor one nested past Python's own depth, "$( "$( ... )" )" (Astra on #520).
         return [("command_unreadable", "the command cannot be split into words (%s); split it, or put its text in a "
                                        "file" % err)]
     except Spent:

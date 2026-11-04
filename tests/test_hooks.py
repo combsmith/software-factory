@@ -1521,6 +1521,8 @@ class Identity(unittest.TestCase):
             nest = 'echo "$(%s)"' % nest
         for command in (nest + "; git commit -m x", nest.replace('"', "") + "; git commit -m x"):
             self.assertEqual(self.codes(command), "", command[:40])
+        # Past Python's own depth, a nest is one the hook cannot read (Astra on #520).
+        self.assertIn("command_unreadable", self.codes(('echo "$(' * 1500) + "true" + (')"' * 1500)))
         # And main reads a write in it, as it does a ' that a "${...}" takes as a character (Argon on #520).
         nest = 'echo "${x:-")"}"; git -c user.name=other commit -m x'
         for _ in range(11):
@@ -1530,7 +1532,9 @@ class Identity(unittest.TestCase):
         self.assertEqual(shell._balanced('echo "a \\" )") tail', 0, ")"), 14)     # an escaped " ends no double quotes
         self.assertEqual(shell._balanced('echo "${x:-")"}") tail', 0, ")"), 17)    # nor does a ${...}'s own (the security pass)
         # In which a ' is a character, as in a ${...} it holds, and a $'...' is no quote (Argon on #520).
-        for word in ("${x:-it's}", "${x:-${y:-it's}}", "${x:-$'}"):
+        for word in ("${x:-it's}", "${x:-${y:-it's}}", "${x:-$'}",
+                     # But a quote in a pattern, as the shell reads it (Astra on #520).
+                     "${x#'\")'}", "${x%%'\")'}", "${x/'\")'/y}", "${x[1]##'\")'}", "${x:-${y#'\"}'}}"):
             self.assertEqual(shell._balanced('echo "%s") tail' % word, 0, ")"), len('echo "%s")' % word), word)
         self.assertEqual(shell._balanced("echo ${x:-')'}) tail", 0, ")"), 15)     # outside double quotes, a ' is a quote
         for command in ('cat <<EOF\n$(printf "%s" "$(printf "%s" "hello )")")\nEOF\ngit commit -m x',
@@ -1631,6 +1635,9 @@ class Identity(unittest.TestCase):
                         "echo 'git push' > >(\\\nbash)", "echo 'git push' >>(bash)", "echo 'git push' > >( bash)",
                         "echo 'git push' > >(bash>/dev/null)", "echo 'git push' > >(/bin/bash 2>&1)",  # glued (Muse)
                         "echo 'git push' >>(( bash))",     # and a subshell's ( spaced (Argon on #520)
+                        # A -c in a later command is not the shell's (Astra on #520).
+                        "echo 'git push origin main' >>(bash; echo -c)", "echo 'git push origin main' > >(bash; echo -c)",
+                        "echo 'git push origin main' > >(bash; true -c)",
                         # One in <( ) reads what its command is given, as any shell does, as main reads it (Argon on #520).
                         "cat <(bash); git commit -m x", "echo 'git push' | cat <(bash)", "{ cat <(bash); } <<< 'git push'",
                         # A body's line that also stands outside it is still the body's (Argon on #489).
@@ -2850,6 +2857,8 @@ class MergesAndSettings(Asks):
                         'echo "$(cat <<EOF\n$(printf "%s" "x (y)"; rm kernel/gate.py)\nEOF\n)" > /tmp/o',
                         'echo "$(echo "$(cat <<EOF\n$(printf "%s" "x (y)"; rm kernel/gate.py)\nEOF\n)")" > /tmp/o'):
             self.asked(self.run_(command), "protected_path", command)
+        # Past Python's own depth, a nest is one the hook cannot read (Astra on #520).
+        self.asked(self.run_(('echo "$(' * 1500) + "true" + (')"' * 1500)), "command_unreadable", "a nest 1500 deep")
 
 
     def test_what_does_not_merge_is_not_asked_about(self):
