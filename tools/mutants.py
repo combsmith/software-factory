@@ -176,6 +176,7 @@ NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_s
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
 MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
+PLATFORM_CLOSE_TESTS = ("tests.test_issue.Done.test_a_platform_close_keeps_the_state_a_person_set",)
 CLOSE_TIME_TESTS = ("tests.test_issue.Done.test_a_close_or_a_reopening_without_its_time_cannot_be_read",)
 # Issue 218: the guard on a count of active Runs, the same on both sides.
 COUNT_GUARD = "    if type(active) is not int or active < 0:\n"
@@ -281,8 +282,8 @@ ISSUE = [
     ("a label the Kernel does not read is read for its time", ISSUE_PY,
      'if ev["label"] in t.CONTROL_LABELS and ev["at"] <= when', 'if ev["at"] <= when', MERGE_UNDER_STOP_TESTS),
     ("a Hold on a draft closed since the merge is dropped", ISSUE_PY,
-     '    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]\n',
-     '    return [p for p in links if p["draft"] and p["opened_at"] <= when and p["open"]]\n', MERGE_UNDER_STOP_TESTS),
+     '    return [p for p in links if p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]\n',
+     '    return [p for p in links if p["opened_at"] <= when and p["open"]]\n', MERGE_UNDER_STOP_TESTS),
     ("a Hold on a draft closed in the merge's second is dropped", ISSUE_PY,
      'p["closed_at"] >= when)]', 'p["closed_at"] > when)]', MERGE_UNDER_STOP_TESTS),
     ("a person's removal in the merge's second released the Hold that stood", ISSUE_PY,
@@ -311,6 +312,31 @@ ISSUE = [
     ("an issue's merged_while_held calls nobody", ISSUE_PY, '    "merged_while_held",\n', "", MERGE_UNDER_STOP_TESTS),
     ("an issue's merged_while_declined calls nobody", ISSUE_PY, '    "merged_while_declined",\n', "",
      MERGE_UNDER_STOP_TESTS),
+    # Issue 522: a platform close keeps the State a person set, not served or held.
+    ("an issue left out is done by the queue's merge", ISSUE_PY,
+     '        if not served(facts, config):\n            return out(t.NOT_SERVED, "left_out", [])\n', "",
+     PLATFORM_CLOSE_TESTS),
+    ("a person's hands-off at the merge is passed", ISSUE_PY,
+     "        if hands_off_stood(facts, links, first):\n", "        if False:\n", PLATFORM_CLOSE_TESTS),
+    ("a person's removal of hands-off since the merge ends nothing", ISSUE_PY,
+     "               and not released_since(item, t.LABEL_HANDS_OFF, when)\n", "", PLATFORM_CLOSE_TESTS),
+    ("a person's hands-off placed after the merge keeps it", ISSUE_PY,
+     "placed_by_a_person(standing_labels(as_of(item, when)), as_of(item, when))",
+     "placed_by_a_person(standing_labels(item), item)", PLATFORM_CLOSE_TESTS),
+    ("a person's hands-off on a draft linked at the merge is not read", ISSUE_PY,
+     "               for item in [facts] + drafts_at(links, when))\n", "               for item in [facts])\n",
+     PLATFORM_CLOSE_TESTS),
+    ("an issue's merged_while_hands_off calls nobody", ISSUE_PY, '    "merged_while_hands_off",\n', "",
+     PLATFORM_CLOSE_TESTS),
+    ("two links open at the merge are passed", ISSUE_PY, "        if rivals:\n", "        if False:\n",
+     PLATFORM_CLOSE_TESTS),
+    ("a pull request merged in the merge's second is a rival", ISSUE_PY,
+     ' if p["merged_at"] != first]', "]", PLATFORM_CLOSE_TESTS),
+    ("two links at the merge name the merge alone", ISSUE_PY,
+     '"merged_while_linked_twice", [str(p["number"]) for p in open_at(links, first)])',
+     '"merged_while_linked_twice", merges)', PLATFORM_CLOSE_TESTS),
+    ("an issue's merged_while_linked_twice calls nobody", ISSUE_PY, '    "merged_while_linked_twice",\n', "",
+     PLATFORM_CLOSE_TESTS),
     ("an empty merge is done", ISSUE_PY,
      'if p["merged_at"] is not None and not p["empty"] and', 'if p["merged_at"] is not None and', ISSUE_TESTS),
     ("a merge in an earlier life is done", ISSUE_PY,
@@ -324,7 +350,7 @@ ISSUE = [
      '    if facts["reopened_last_by"] == "other":\n', "    if False:\n", ISSUE_TESTS),
     # Row 3: not served.
     ("an issue the Consumer entry leaves out is served", ISSUE_PY,
-     "    if not served(facts, config):\n", "    if False:\n", ISSUE_TESTS),
+     "    # Row 3.\n    if not served(facts, config):\n", "    # Row 3.\n    if False:\n", ISSUE_TESTS),
     ("an issue whose life began before the date served is served", ISSUE_PY,
      'if not is_time(start) or facts["life_started_at"] < start:', "if not is_time(start):", ISSUE_TESTS),
     ("an issue of a type left out is served", ISSUE_PY,

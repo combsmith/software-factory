@@ -38,6 +38,9 @@ UNMADE = {
     # The queue's merge of an admitted outsider's pull request (issue 280): the world's outsiders' pull requests are
     # never admitted and only a person merges them, so only the exploration makes it.
     ("in_review", "declined", "platform"), ("new", "declined", "platform"),
+    # A person's removal of hands-off after a merge made under it, which ends the State it kept (issue 522): on the
+    # seeds no person removes a hands-off after such a merge.
+    ("not_served", "done", "human"),
 }
 
 
