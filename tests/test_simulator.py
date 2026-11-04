@@ -527,8 +527,15 @@ class Simulation(unittest.TestCase):
                 ([review(machine, 15), review(person, 25, dismissed_by=world.REVIEWER_APP)], 20, False),
                 ([review(machine, 5), review(person, 10)], 12, True),
                 ([review(machine, 5), review(person, 10), review(machine, 15)], 10, True),
+                # A look before the edit moves the anchor to the first machine approval after it, the last such look.
+                ([review(machine, 5), review(person, 10), review(machine, 15)], 12, False),
+                ([review(machine, 5), review(person, 8), review(machine, 9), review(person, 10), review(machine, 15)], 12,
+                 False),
                 ([review(person, 10)], 12, False),
-                ([review(machine, 15)], 10, False)):
+                ([review(machine, 15)], 10, False),
+                # In one second no order can be told: an edit in the anchor's second, and an approval in the look's.
+                ([review(machine, 15)], 15, True),
+                ([review(person, 10), review(machine, 10), review(machine, 15)], 12, True)):
             w = World(1, faults=False, people=False)
             w.reviews, w.edited = reviews, world.World.at(edited)
             anchor = derive.description_anchor(w.facts(), w.edited)
