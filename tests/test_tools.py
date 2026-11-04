@@ -8078,18 +8078,24 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
             (folder / "version.after").write_text(after + "\n")
         for flag in flags:
             (folder / flag).write_text("")
-        (folder / "claude").write_text('#!/bin/sh\nexec python3 "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
+        # -B: macOS's own python3 caches its bytecode in HOME, which the test holds empty.
+        (folder / "claude").write_text('#!/bin/sh\nexec python3 -B "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
         (folder / "cli.py").write_text(self.CLI)
         (folder / "claude").chmod(0o755)
+        # A stand-in `timeout`, which runs its command after the duration: macOS has none on its own PATH.
+        (folder / "bin").mkdir()
+        (folder / "bin" / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+        (folder / "bin" / "timeout").chmod(0o755)
         return folder
 
-    def environment(self) -> tuple:
+    def environment(self, folder) -> tuple:
         home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         temp = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        return home, temp, {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "TMPDIR": str(temp)}
+        path = "%s:%s" % (folder / "bin", os.environ["PATH"])
+        return home, temp, {"PATH": path, "HOME": str(home), "LANG": "C", "TMPDIR": str(temp)}
 
     def run_script(self, folder) -> tuple:
-        home, temp, env = self.environment()
+        home, temp, env = self.environment(folder)
         out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
         ran = subprocess.run(["bash", str(self.SCRIPT), str(out), str(folder / "claude"), str(self.STUB)],
                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=180, stdin=subprocess.DEVNULL)
@@ -8217,7 +8223,7 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
                 ("OUT exists", str(taken), folder / "claude", self.STUB, "exists; name a new directory"),
                 ("no CLI", "out", folder / "missing", self.STUB, "no CLI at"),
                 ("no stub", "out", folder / "claude", pathlib.Path("/nonexistent/stub.py"), "no stub at")]:
-            home, temp, env = self.environment()
+            home, temp, env = self.environment(folder)
             ran = subprocess.run(["bash", str(self.SCRIPT), out, str(cli), str(stub)],
                                  cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,
                                  env=env, timeout=60, stdin=subprocess.DEVNULL)
