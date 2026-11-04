@@ -10732,6 +10732,51 @@ MUTANTS = ISSUE + [
     ("P-56's first token is narrowed to metadata, not pull_requests", "tools/trial_p56_comments.sh", 'with_token pull_requests\n', 'with_token metadata\n', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56's token is not narrowed", "tools/trial_p56_comments.sh", '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56's token reaches every repo", "tools/trial_p56_comments.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    # Issue 519: P-58's reader leg, the same script with the reader's installation and the port's GraphQL read.
+    ("P-58's first token is narrowed to metadata, not pull_requests", "tools/trial_p58_edits.sh", 'with_token pull_requests\n', 'with_token metadata\n', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58's token is not narrowed", "tools/trial_p58_edits.sh", '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58's token reaches every repo", "tools/trial_p58_edits.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 mints for another App's installation", "tools/trial_p58_edits.sh", '["apps"]["reader"]', '["apps"]["controller"]', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 asks no description edits", "tools/trial_p58_edits.sh", 'userContentEdits(first:100)', 'commits(first:1)', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 sends a variable its query does not declare", "tools/trial_p58_edits.sh", '"variables": {"owner": owner, "name": name, "number": int(sys.argv[2])}', '"variables": {"owner": owner, "name": name, "number": int(sys.argv[2]), "text": sys.argv[2]}', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 sends no query", "tools/trial_p58_edits.sh", '-d @"$out/query.json" "$API/graphql"', '"$API/graphql"', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 keeps a read without its redaction", "tools/trial_p58_edits.sh",
+     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 asks no edit's editor", "tools/trial_p58_edits.sh", 'deletedAt editor{__typename login ... on User', 'deletedAt editor{... on User', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    ("P-58 asks the repo by its name as its owner", "tools/trial_p58_edits.sh", 'repository(owner:$owner,name:$name)', 'repository(owner:$name,name:$owner)', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
+    # P-56's own safeguards, held on P-58's copy of its script (the Claude security read).
+    ('P-58 loses a token still in the answer it holds when stopped', "tools/trial_p58_edits.sh", 'if [ -z "$token" ] && [ -n "${minted:-}" ]; then', 'if false; then', ('tests.test_tools.ReachScript.test_a_stop_while_the_token_is_read_revokes_it_from_the_answer_still_held',)),
+    ('P-58 takes an ACL that lets another write', "tools/trial_p58_edits.sh", 'then found="an ACL"; fi', 'then :; fi', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ('P-58 takes an ACL it cannot read', "tools/trial_p58_edits.sh", '??????????+*) found="an ACL" ;; esac', '??????????+*) ;; esac', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ('P-58 takes an ls that fails both ways', "tools/trial_p58_edits.sh", 'found="ls failed"', 'found=""', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-58 reads OUT's parent's ACL alone", "tools/trial_p58_edits.sh", 'listed=$(ls -lde "$above" 2>/dev/null)', 'listed=$(ls -lde "$(dirname -- "$1")" 2>/dev/null)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-58 reads OUT's parent's + alone", "tools/trial_p58_edits.sh", 'elif listed=$(ls -ld "$above"); then', 'elif listed=$(ls -ld "$(dirname -- "$1")"); then', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ('P-58 reads a head in the body', "tools/trial_p58_edits.sh", 'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    ('P-58 takes the first of several heads', "tools/trial_p58_edits.sh", '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    ("P-58 may ask the Factory's own repo", "tools/trial_p58_edits.sh", ' or sys.argv[1] == "combsmith/software-factory":', ':', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 takes a number of any shape', "tools/trial_p58_edits.sh", '    ""|0*|*[!0-9]*) echo', '    "") echo', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 takes any count of words', "tools/trial_p58_edits.sh", 'if [ "$#" -ne 4 ]; then', 'if [ "$#" -lt 3 ]; then', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 takes an OUT another made after the check', "tools/trial_p58_edits.sh", 'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it',)),
+    ('P-58 makes OUT under a directory its group can write to', "tools/trial_p58_edits.sh", '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 makes OUT under a directory others can write to', "tools/trial_p58_edits.sh", '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 makes OUT under a directory another user owns', "tools/trial_p58_edits.sh", '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 takes a find that fails for a directory none can write to', "tools/trial_p58_edits.sh", '        found="find failed"\n', '        found=""\n', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ("P-58 reads OUT's parent alone, not the directories above it", "tools/trial_p58_edits.sh", '    above=$(dirname -- "$above")\n', '    break\n', ('tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky',)),
+    ('P-58 reads a mint cut short as none', "tools/trial_p58_edits.sh", '    if [ "$minted_status" = 201 ] && { [ -z "$token" ] || [ "$minted_exit" != 0 ]; }; then\n', '    if false; then\n', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ("P-58 loses a token a refused mint's cut answer held", "tools/trial_p58_edits.sh", '        token=$(token_in "$minted")    # a refusal cut short', '        token=""    # a refusal cut short', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ('P-58 drops a token a refused mint held', "tools/trial_p58_edits.sh", '        minted=""\n        echo "trial_p58_edits: $slug: the mint answered', '        token=""\n        minted=""\n        echo "trial_p58_edits: $slug: the mint answered', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ("P-58 writes a refused mint's answer to scratch", "tools/trial_p58_edits.sh", '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
+    ('P-58 leaves its token live on a signal', "tools/trial_p58_edits.sh", "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.EditsReadTrial.test_a_signal_mid_read_revokes_the_live_token',)),
+    ('P-58 goes on past a revocation that fails', "tools/trial_p58_edits.sh", '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n', ('tests.test_tools.EditsReadTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so',)),
+    ('P-58 keeps a read curl failed', "tools/trial_p58_edits.sh", '    if [ "$read_ok" = 0 ] || [ -z "$status" ]; then\n', '    if false; then\n', ('tests.test_tools.EditsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked',)),
+    ('P-58 goes on past a capture the redaction refused', "tools/trial_p58_edits.sh", '> "$out/clean-$n") 2> "$out/redacted-$n"\n', '> "$out/clean-$n") 2> "$out/redacted-$n" || true\n', ('tests.test_tools.EditsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked',)),
+    ('P-58 takes a key file it cannot read', "tools/trial_p58_edits.sh", 'if [ ! -r "$key" ]; then', 'if false; then', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-58 trusts a mint whose transfer failed', "tools/trial_p58_edits.sh", ' || [ "$minted_exit" != 0 ]', '', ('tests.test_tools.EditsReadTrial.test_a_mint_answered_whole_by_a_transfer_that_failed_is_revoked_and_told',)),
+    ('P-58 may write OUT inside the repo', "tools/trial_p58_edits.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ("P-58's OUT is read without its links", "tools/trial_p58_edits.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ('tests.test_tools.EditsReadTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused',)),
+    ("P-58's raw answers may be kept inside the repo", "tools/trial_p58_edits.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted',)),
+    ("P-58 keeps the first head's status", "tools/trial_p58_edits.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ('tests.test_tools.EditsReadTrial.test_the_status_kept_is_the_last_heads',)),
     ("P-56 mints for another App's installation", "tools/trial_p56_comments.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56 keeps a read without its redaction", "tools/trial_p56_comments.sh",
      '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
@@ -10949,6 +10994,34 @@ MUTANTS = ISSUE + [
     ('a context run counts one new file of a folder alone', 'tools/context_eval.py', '            at[where]["added"] += change["added"]\n', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
     ('the context eval hashes the sentence with its newline', 'tools/context_eval.sh', 'task_sha256=$(printf \'%s\' "$sentence" |', 'task_sha256=$(printf \'%s\\n\' "$sentence" |', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
     ("the context eval names the agent's mutants in what it checked", 'tools/context_eval.sh', '"added": len(json.loads(a[10])["names"])},', '"added": json.loads(a[10])["names"]},', ('tests.test_tools.ContextEvalScript.test_a_run_is_judged_and_recorded_with_no_model_text',)),
+    # Issue 511: a run passes only having looked nowhere else, and the judge runs in a tree of its own with the export's
+    # mutation runner, which reads the tests it names in a process of their own.
+    ('a context run that looked outside its export passes', 'tools/context_eval.py', ' and outside == 0 and UNREADABLE not in ran)', ' and UNREADABLE not in ran)', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a context run with a command it could not read passes', 'tools/context_eval.py', ' and outside == 0 and UNREADABLE not in ran)', ' and outside == 0)', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a path a command names outside the export is not counted', 'tools/context_eval.py', '                outside += _outside_named(given[COMMAND_INPUT], work)\n', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('a glob outside the export is not counted', 'tools/context_eval.py', '                outside += _outside_named(given.get("pattern"), work)\n', '                pass\n', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('an absolute path inside the export counts as outside', 'tools/context_eval.py', ' or word.startswith("/") and _relative(word.split("*")[0] or "/", work) is not None:', ':', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('the home named by a variable is not outside', 'tools/context_eval.py', '|\\$\\{?HOME\\b\\}?', '', ('tests.test_tools.ContextEval.test_the_record_holds_paths_counts_and_verdicts_and_no_model_text',)),
+    ('the judge reads no list written after another', 'tools/context_eval.py', '        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add):\n            gather(value.left)\n            gather(value.right)\n', '        if False:\n            pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge reads no list through its name', 'tools/context_eval.py', '            seen.add(value.id)\n            gather(named[value.id][0])\n', '            seen.add(value.id)\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps an entry that is code', 'tools/context_eval.py', '        return (own or replace) and all(_data(arg, bound) for arg in node.args)\n', '        return True\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ("the judge refuses an entry in the file's own style", 'tools/context_eval.py', '    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):\n        return _data(node.left, bound) and _data(node.right, bound)\n', '', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps what the agent changed outside the lists', 'tools/context_eval.py', '    other = other or ast.dump(made_module) != ast.dump(left_module)\n', '', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps an entry the agent changed beside the one it replaced', 'tools/context_eval.py', '            if same is not None and ast.dump(same) not in found and id(same) not in replaced:', '            if False:', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge records no entry the agent took out', 'tools/context_eval.py', '            other = True        # an entry the agent took out', '            pass        # an entry the agent took out', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge adds an entry after one with no comma', 'tools/context_eval.py', '                    edits.append((end, end, ","))\n', '                    pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge reads no name a tuple binds', 'tools/context_eval.py', '                names.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))', '                names.update([target.id] if isinstance(target, ast.Name) else [])', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps a name the export does not bind', 'tools/context_eval.py', '        return node.id in bound\n', '        return True\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ('the judge keeps a target outside the tree', 'tools/context_eval.py', ' and ".." not in target.split("/")\n', '\n', ('tests.test_tools.ContextEval.test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries',)),
+    ("the judge's tree keeps a file the agent added outside kernel and tests", 'tools/context_eval.py', '        mine = rel.startswith(("kernel/", "tests/")) and PATH.match(rel)\n', '        mine = PATH.match(rel)\n', ('tests.test_tools.ContextEval.test_the_judge_runs_in_a_tree_of_its_own',)),
+    ("the judge's tree keeps a file the agent removed", 'tools/context_eval.py', '            (judge / rel).unlink()\n', '            pass\n', ('tests.test_tools.ContextEval.test_the_judge_runs_in_a_tree_of_its_own',)),
+    ("the context eval judges in the agent's tree", 'tools/context_eval.sh', '    (cd "$scratch/judge" && env -i', '    (cd "$work" && env -i', ('tests.test_tools.ContextEvalScript.test_a_verdict_that_fails_is_recorded_and_fails_the_run',)),
+    ('the context eval starts with the held-out test already there', 'tools/context_eval.sh', '[ ! -e "$6" ] && [ ! -L "$6" ] || refuse "HELD_OUT is already there; it is placed only once the agent has stopped"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval judges a held-out test never placed', 'tools/context_eval.sh', '[ -f "$held_out" ] && [ ! -L "$held_out" ] || refuse "HELD_OUT is not a file at the place named; nothing was judged"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval starts with a clone of the private home in reach', 'tools/context_eval.sh', '    [ ! -e "$place" ] && [ ! -L "$place" ] || refuse "a clone of the private home is still within reach; move it out first"\n', '', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the context eval starts naming no place a clone was', 'tools/context_eval.sh', '[ -n "${CONTEXT_EVAL_AWAY:-}" ] ||\n    refuse', 'true ||\n    refuse', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
+    ('the mutation runner imports the tests it names in its own process', 'tools/mutants.py', "    missing_of = _missing_apart([test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())], root)\n", "    missing_of = {test: _missing(test) for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())}\n", ('tests.test_tools.Mutants.test_a_test_module_is_read_in_a_process_of_its_own',)),
+    ("the mutation runner reads a test's name in its own process", 'tools/mutants.py', '            said = subprocess.run([sys.executable, "-c", NAMING], cwd=str(root), input=json.dumps(names),\n                                  capture_output=True, text=True, timeout=TIMEOUT)\n            found = json.loads(said.stdout.strip().splitlines()[-1]) if said.stdout.strip() else {}\n', '            found = {name: _missing(name) for name in names}\n', ('tests.test_tools.Mutants.test_a_test_module_is_read_in_a_process_of_its_own',)),
     # Issue 414: eval is read only where the shell may run it, never the word in a quoted title or message.
     ("eval in a quoted title is read as code", "tools/hooks/shell.py",
      'PROSE = re.compile(r"\'[^\']*\'|\\"(?:[^\\"\\\\$`]|\\\\.)*\\"")', 'PROSE = re.compile(r"\'[^\']*\'")', (IDENTITY_TESTS + "test_eval_is_read_only_as_a_command_word", "tests.test_hooks.ShellReading.test_eval_marks_every_name_unknown_where_it_runs")),
@@ -12363,12 +12436,13 @@ def modules(cwd: pathlib.Path) -> list:
     return [name for name in names if name not in slow] + [name for name in names if name in slow]
 
 
-def unnamed(mutants: list) -> list:
+def unnamed(mutants: list, root: pathlib.Path = ROOT) -> list:
     """Why each mutant in `mutants` cannot be run: it names no test, or a test it names does not exist. Every mutant
     names the tests that kill it, as its fifth part, each the dotted name of a test module, class or method that
     exists, so that a kill is confirmed in seconds and a misspelt name is never an ERROR in CI (issue 217), and none of
     them a class in WHOLE_TOO_LONG or the module that holds it."""
     problems = []
+    missing_of = _missing_apart([test for mutant in mutants for test in (mutant[4] if len(mutant) > 4 else ())], root)
     for mutant in mutants:
         name, tests = mutant[0], mutant[4] if len(mutant) > 4 else ()
         if not tests:
@@ -12377,10 +12451,32 @@ def unnamed(mutants: list) -> list:
             if any(whole == test or whole.startswith(test + ".") for whole in WHOLE_TOO_LONG):
                 problems.append("%r names %s, which holds a class too slow to name whole beside the other workers; name "
                                 "the method that kills it" % (name, test))
-            missing = _missing(test)
+            missing = missing_of[test]
             if missing:
                 problems.append("%r names %s, %s" % (name, test, missing))
     return problems
+
+
+NAMING = """import json, sys
+from tools.mutants import _missing
+print(json.dumps({name: _missing(name) for name in json.loads(sys.stdin.read())}))
+"""
+
+
+def _missing_apart(tests: list, root: pathlib.Path = ROOT) -> dict:
+    """`_missing` of each dotted name in `tests`, read in a process of its own in `root`: a test module's import runs
+    there and never in the runner's, where a module that patched the runner could say a mutant it survived was killed
+    (issue 511). A name the other process does not answer for is one that cannot be read."""
+    names = sorted({test for test in tests if isinstance(test, str)})
+    found = {}
+    if names:
+        try:
+            said = subprocess.run([sys.executable, "-c", NAMING], cwd=str(root), input=json.dumps(names),
+                                  capture_output=True, text=True, timeout=TIMEOUT)
+            found = json.loads(said.stdout.strip().splitlines()[-1]) if said.stdout.strip() else {}
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            found = {}
+    return {test: found[test] if isinstance(found.get(test), str) else "which could not be read" for test in names}
 
 
 def _case(found) -> bool:

@@ -5631,7 +5631,8 @@ class OutputMadeAlone(unittest.TestCase):
                "trial_reader_reads.sh": ("KEY", READER, "main", "don-petry"),
                "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
                "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
-               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42")}
+               "trial_p56_comments.sh": ("KEY", CONTROLLER, "42"),
+               "trial_p58_edits.sh": ("KEY", READER, "96")}
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
@@ -5854,7 +5855,7 @@ fi
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
                        "trial_p12_status.sh",
-                       "trial_p56_comments.sh",
+                       "trial_p56_comments.sh", "trial_p58_edits.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -6085,7 +6086,7 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
         # Issue 424: each trial keeps the last head's status, since a proxy's block, or an interim answer, comes first.
         # A blank line in a body opens no head, and an HTTP line after it is the body's (Argon).
         for name in ("trial_reader_reads.sh", "trial_p39_reach.sh", "trial_p8_cost.sh", "trial_p52_pause.sh", "trial_p4_narrow.sh",
-                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh"):
+                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh"):
             text = (ROOT / "tools" / name).read_text()
             self.assertNotIn("sed -n '1s/^HTTP", text, name)
             programs = re.findall(r"awk '(BEGIN \{ head = 1 \}[^']+)'", text)
@@ -8678,6 +8679,30 @@ class Mutants(unittest.TestCase):
             mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
         self.assertIn("1 mutant(s) name no test", str(raised.exception))
 
+    def test_a_test_module_is_read_in_a_process_of_its_own(self):  # issue 511
+        # The runner learns whether a named test exists in another process, so a test module whose import patches the
+        # runner, as an agent's test could, never runs in the runner's own: its patch and its pid are another's.
+        root = clone({"tests/test_patches_the_runner.py":
+                      "import os, sys, unittest\n"
+                      "sys.modules['tools.mutants'].PATCHED = True\n"
+                      "open(os.environ.get('MARK', 'mark'), 'w').write(str(os.getpid()))\n"
+                      "class T(unittest.TestCase):\n    def test_it(self):\n        pass\n"})
+        mark = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "pid"
+        with mock.patch.dict(os.environ, {"MARK": str(mark)}):
+            said = mutants._missing_apart(["tests.test_patches_the_runner.T.test_it", "tests.test_nowhere"], root)
+        self.assertEqual(said, {"tests.test_patches_the_runner.T.test_it": "",
+                                "tests.test_nowhere": "whose module does not exist"})
+        self.assertFalse(hasattr(mutants, "PATCHED"))
+        self.assertNotEqual(mark.read_text(), str(os.getpid()))
+        # The runner's check of every mutant's tests reads them so: the name is found in the tree given, and nothing
+        # of the module ran here.
+        with mock.patch.dict(os.environ, {"MARK": str(mark)}):
+            self.assertEqual(mutants.unnamed([("m", "k.py", "a", "b", ("tests.test_patches_the_runner.T.test_it",))], root), [])
+        self.assertFalse(hasattr(mutants, "PATCHED"))
+        # A process that answers nothing leaves each name unread, never found.
+        with mock.patch.object(mutants, "NAMING", "print('no answer')"):
+            self.assertEqual(mutants._missing_apart(["tests.test_tools"], root), {"tests.test_tools": "which could not be read"})
+
     def test_slow_modules_run_last(self):
         # Issue 217: the fallback after the tests a mutant names ran the modules alphabetically, so a mutant in tools/
         # ran test_hooks and test_simulator before test_tools killed it. The slow modules, SLOW's and test_hooks, run
@@ -9191,7 +9216,9 @@ class ContextEval(unittest.TestCase):
                                                    '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n')
         return pristine, work
 
-    def transcript(self, work) -> str:
+    def transcript(self, work, clean=False) -> str:
+        """The CLI's stream for a run: with a path named outside the export and a command that cannot be read, or, when
+        `clean`, with neither, as a run that may pass is (issue 511)."""
         def assistant(*blocks):
             return json.dumps({"type": "assistant", "message": {"role": "assistant", "content": list(blocks)}})
         lines = [
@@ -9211,6 +9238,10 @@ class ContextEval(unittest.TestCase):
             json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 7, "duration_ms": 1234,
                         "total_cost_usd": 0.25, "usage": {"input_tokens": 100, "output_tokens": 20}, "result": self.PROSE["answer"]}),
         ]
+        if clean:
+            lines = [json.dumps(dict(json.loads(line), message=dict(json.loads(line)["message"], content=[
+                block for block in json.loads(line)["message"]["content"] if block.get("id") not in ("t3", "t8", "t10")])))
+                     if json.loads(line).get("type") == "assistant" else line for line in lines]
         return "\n".join(lines) + "\n"
 
     META = {"commit": "9bfc81383b36f8613d9f4a25e9377046aff27a92", "ran_at": "2026-10-21T09:00:00Z", "cli_version": "2.1.302",
@@ -9236,7 +9267,27 @@ class ContextEval(unittest.TestCase):
                                           {"path": "tools/mutants.py", "added": 1, "removed": 0}])
         # Of what the agent added, and of the rule, only whether: no name it chose and not the code (issue 8).
         self.assertEqual((run["added"], run["task_sha256"]), ({"test": True, "mutant": True, "reason": True}, "b" * 64))
-        self.assertEqual((run["verdicts"], run["passed"]), (self.PASSED, True))
+        # It named two paths outside its export and ran a command that cannot be read, so it does not pass, though its
+        # three verdicts do (issue 511); the same run with neither passes, and with either one alone does not.
+        self.assertEqual((run["verdicts"], run["passed"]), (self.PASSED, False))
+        self.assertIs(context_eval.record(self.transcript(work, clean=True), pristine, work, self.PASSED, self.META)["passed"], True)
+        clean = self.transcript(work, clean=True).splitlines()
+        # A path named outside the export by a command or a glob counts as one read there (issue 511): an absolute path
+        # that is not the export's, the home, or the parent; /dev/null and an absolute path inside the export do not.
+        def bash(command):
+            return {"type": "tool_use", "id": "x", "name": "Bash", "input": {"command": command}}
+        for extra in ({"type": "tool_use", "id": "x1", "name": "Read", "input": {"file_path": "/etc/hosts"}},
+                      {"type": "tool_use", "id": "x2", "name": "Bash", "input": {"command": "PYTHONPATH=. python3 -m unittest"}},
+                      bash("cat /Users/someone/held/test_held_out.py"), bash("cd .. && grep -r rule ."), bash("find / -name t"),
+                      bash("cat ~/held.py"), bash("cat $HOME/held.py"), bash("ls ${HOME}"), bash("echo `cat /etc/x`"),
+                      bash("python3 -m unittest tests.test_decide 2>&1 | tee /tmp/out"),
+                      {"type": "tool_use", "id": "x3", "name": "Glob", "input": {"pattern": "/Users/**/test_held_out.py"}}):
+            more = clean[:-1] + [json.dumps({"type": "assistant", "message": {"content": [extra]}})] + clean[-1:]
+            self.assertIs(context_eval.record("\n".join(more), pristine, work, self.PASSED, self.META)["passed"], False, extra)
+        for fine in (bash("python3 -m unittest tests.test_decide 2>/dev/null"), bash("cat %s" % (work / "kernel" / "derive.py")),
+                     bash("ls kernel/../tests"), {"type": "tool_use", "id": "x4", "name": "Glob", "input": {"pattern": "kernel/**/*.py"}}):
+            more = clean[:-1] + [json.dumps({"type": "assistant", "message": {"content": [fine]}})] + clean[-1:]
+            self.assertIs(context_eval.record("\n".join(more), pristine, work, self.PASSED, self.META)["passed"], True, fine)
         for word in list(self.PROSE.values()) + ["test_empty_diff_never_converges", "an empty diff converges", "empty_diff"]:
             self.assertNotIn(word, json.dumps(run))
         # The rule is named nowhere (issue 8). A command keeps its program, its flags and the paths and modules the
@@ -9370,6 +9421,107 @@ class ContextEval(unittest.TestCase):
             (work / "tests" / "test_soft.py").symlink_to(outside / "test_alone.py")
             self.assertEqual(context_eval._read(work, work / "tests" / "test_soft.py"), "")
 
+    def test_the_judge_runs_the_exports_mutation_runner_with_the_agents_entries(self):  # issue 511
+        pristine, work = self.export()
+        # The export's file defines one of its helpers, as this repo's does.
+        made = ("def moved_after(rel, block, anchor):\n    return ()\n\n\nPAIR_PY, PAIR_TESTS = \"kernel/derive.py\", (\"t\",)\n"
+                + (pristine / "tools" / "mutants.py").read_text())
+        (pristine / "tools" / "mutants.py").write_text(made)
+        (work / "tools" / "mutants.py").write_text(made.replace("]\n", '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n'))
+        entry = '("an empty diff converges", DERIVE, "c", "d", ("t",))'
+        with_entry = made.replace("]\n", "    %s,\n]\n" % entry)
+        # The agent's entry alone, wherever it stands in the list: kept, and nothing put back.
+        text, other = context_eval.judged_mutants(pristine, work)
+        self.assertEqual((text, other), (with_entry, False))
+        (work / "tools" / "mutants.py").write_text(made.replace("MUTANTS = [\n", "MUTANTS = [\n    %s,\n" % entry))
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (with_entry, False))
+        # A runner the agent edited is the export's again, its entry kept, and the edit recorded as put back.
+        (work / "tools" / "mutants.py").write_text(with_entry + "import sys\nsys.exit(0)\n")
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (with_entry, True))
+        # An entry in the file's own style is data: strings joined, a helper of the file's own, a string's replace.
+        for styled in ('("joined", DERIVE, "a" + "b", "c", ("t",))', '*moved_after(DERIVE, "a", "b")',
+                       '("replaced", DERIVE, DERIVE.replace("k", "j"), "c", ("t",))', '("paired", PAIR_PY, "a", "b", PAIR_TESTS)'):
+            (work / "tools" / "mutants.py").write_text(made.replace("]\n", "    %s,\n]\n" % styled))
+            self.assertEqual(context_eval.judged_mutants(pristine, work), (made.replace("]\n", "    %s,\n]\n" % styled), False),
+                             styled)
+        # An entry that runs code is put back; so is one with keywords; so is a file that is no module, a link or none.
+        for code in ('("x", DERIVE, __import__("os").getcwd(), "c", ("t",))', '("x", DERIVE, sorted("ab", key=len), "c", ("t",))',
+                     '("x", DERIVE, [c for c in "ab"], "c", ("t",))',
+                     # A name the export's file does not bind, and a target outside the tree, absolute or through `..`.
+                     '("x", ELSEWHERE, "a", "b", ("t",))', '("x", "../outside.py", "a", "b", ("t",))',
+                     '("x", "/etc/hosts", "a", "b", ("t",))', '("x", "kernel/../../outside.py", "a", "b", ("t",))'):
+            (work / "tools" / "mutants.py").write_text(made.replace("]\n", "    %s,\n]\n" % code))
+            self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True), code)
+        (work / "tools" / "mutants.py").write_text("MUTANTS = [\n")
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        (work / "tools" / "mutants.py").unlink()
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        elsewhere = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "mutants.py"
+        elsewhere.write_text(with_entry)
+        (work / "tools" / "mutants.py").symlink_to(elsewhere)
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        (work / "tools" / "mutants.py").unlink()
+        # An existing entry the agent changed, its target moved by the change, replaces the one of its name; one it took
+        # out stays, and the file is recorded as put back.
+        (work / "tools" / "mutants.py").write_text(made.replace('("a rule", DERIVE, "a", "b", ("t",))', '("a rule", DERIVE, "a2", "b", ("t",))'))
+        self.assertEqual(context_eval.judged_mutants(pristine, work),
+                         (made.replace('("a rule", DERIVE, "a", "b", ("t",))', '("a rule", DERIVE, "a2", "b", ("t",))'), False))
+        (work / "tools" / "mutants.py").write_text(made.replace('    ("a rule", DERIVE, "a", "b", ("t",)),\n', ""))
+        self.assertEqual(context_eval.judged_mutants(pristine, work), (made, True))
+        # A list whose last entry has no comma gains one right after it, before a comment on its line.
+        (pristine / "tools" / "mutants.py").write_text(made.replace('("t",)),\n]', '("t",))  # the last, a, b\n]'))
+        (work / "tools" / "mutants.py").write_text(with_entry)
+        text, other = context_eval.judged_mutants(pristine, work)
+        self.assertIsNotNone(context_eval._lists_of(text), "the judge's file is a module")
+        self.assertEqual((len(context_eval._lists_of(text)[1][0].elts), other), (2, False))
+        self.assertIn('("t",)),  # the last, a, b', text)
+        # The lists as this repo writes them, `MUTANTS = ISSUE + [...]`: an entry the agent put in either is kept there.
+        joined = ('DERIVE = "kernel/derive.py"\nISSUE = [\n    ("an issue rule", DERIVE, "a", "b", ("t",)),\n]\n'
+                  'MUTANTS = ISSUE + [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n]\n')
+        (pristine / "tools" / "mutants.py").write_text(joined)
+        for into in ("ISSUE = [\n", "MUTANTS = ISSUE + [\n"):
+            (work / "tools" / "mutants.py").write_text(joined.replace(into, into + "    %s,\n" % entry))
+            text, other = context_eval.judged_mutants(pristine, work)
+            self.assertIs(other, False, into)
+            self.assertIn(entry, text.split(into)[1].split("]")[0] + "]", into)
+            self.assertEqual([len(found.elts) for found in (context_eval._lists_of(text) or (None, []))[1]],
+                             [2, 1] if into.startswith("ISSUE") else [1, 2], into)
+
+    def test_the_judge_runs_in_a_tree_of_its_own(self):  # issue 511
+        # The judge's tree is the export as made with the agent's own kernel/ and tests/ files and the judged mutants'
+        # file: a package of the agent's that would shadow the runner, a root module that would shadow the standard
+        # library, and a link are left out and recorded by where; nothing is written through a link the agent left.
+        pristine, work = self.export()
+        (work / "tools" / "mutants").mkdir()
+        (work / "tools" / "mutants" / "__main__.py").write_text("print('killed')\n")
+        (work / "subprocess.py").write_text("x = 1\n")
+        (work / "Makefile").write_text("verify:\n\t@true\n")
+        (pristine / "Makefile").write_text("verify:\n\t@false\n")
+        outside = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (outside / "held.py").write_text("held = 1\n")
+        (work / "tests" / "test_link.py").symlink_to(outside / "held.py")
+        (work / "tests" / "test_decide.py").unlink()
+        scratch = pathlib.Path(SCRATCH.name).resolve()
+        judge = pathlib.Path(tempfile.mkdtemp(dir=scratch)) / "judge"
+        with mock.patch("sys.stdout", io.StringIO()) as said:
+            self.assertEqual(context_eval.main(["judge", str(pristine), str(work), str(judge)], base=scratch), 0)
+        self.assertEqual(json.loads(said.getvalue()), {"restored": ["./", "Makefile", "tests/", "tools/mutants/"]})
+        self.assertEqual((judge / "kernel" / "derive.py").read_text(), (work / "kernel" / "derive.py").read_text())
+        self.assertEqual((judge / "Makefile").read_text(), "verify:\n\t@false\n")
+        self.assertFalse((judge / "tools" / "mutants").exists())
+        self.assertFalse((judge / "subprocess.py").exists())
+        self.assertFalse((judge / "tests" / "test_link.py").exists())
+        self.assertFalse((judge / "tests" / "test_decide.py").exists(), "a file the agent removed is gone")
+        self.assertIn("an empty diff converges", (judge / "tools" / "mutants.py").read_text())
+        self.assertEqual((outside / "held.py").read_text(), "held = 1\n")
+        # A JUDGE that is already there, a link among them, is refused, and nothing is written through it.
+        with mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(context_eval.main(["judge", str(pristine), str(work), str(judge)], base=scratch), 2)
+            linked = judge.parent / "linked"
+            linked.symlink_to(outside, target_is_directory=True)
+            self.assertEqual(context_eval.main(["judge", str(pristine), str(work), str(linked)], base=scratch), 2)
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["held.py"])
+
     def test_what_cannot_be_read_makes_no_record(self):
         pristine, work = self.export()
         text = self.transcript(work)
@@ -9387,7 +9539,7 @@ class ContextEval(unittest.TestCase):
     def test_the_front_door_refuses_a_transcript_inside_the_repo_and_writes_the_record(self):
         pristine, work = self.export()
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        (folder / "raw").write_text(self.transcript(work))
+        (folder / "raw").write_text(self.transcript(work, clean=True))
         (folder / "verdicts.json").write_text(json.dumps(self.PASSED))
         (folder / "meta.json").write_text(json.dumps(self.META))
         out = folder / "record.json"
@@ -9429,8 +9581,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
   --version) env > "$here/env-version"; cat "$here/version"; exit 0 ;;
   -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; pwd > "$here/cwd"
+      if [ -e "$(cat "$here/held")" ]; then echo there > "$here/held-seen"; else echo absent > "$here/held-seen"; fi
       [ -f "$here/tamper" ] && printf 'verify:\\n\\t@echo tampered\\n' > Makefile
-      [ -f "$here/survive" ] && cp "$here/survive" tools/survive
+      [ -f "$here/rig" ] && python3 -c 'p = "tools/mutants.py"; s = open(p).read(); open(p, "w").write(s.replace("if name in survive", "if False"))'
       printf 'def rule(f):\\n    return "empty_diff"\\n' >> kernel/derive.py
       printf '\\n    def test_empty_diff_never_converges(self):\\n        pass\\n' >> tests/test_decide.py
       python3 - <<'PY'
@@ -9441,8 +9594,8 @@ PY
 esac
 exit 9
 """
-    # The stand-in repo's mutation check: it kills every mutant its list holds, but one named in tools/survive, and
-    # says so as the real one does, with the real one's exit.
+    # The stand-in repo's mutation check: it kills every mutant its list holds, but one named in the repo's own
+    # tools/survive, and says so as the real one does, with the real one's exit.
     MUTANTS_PY = '''import os, sys
 DERIVE = "kernel/derive.py"
 MUTANTS = [
@@ -9467,16 +9620,22 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.aside = self.home.parent / (self.home.name + "-aside")
         self.aside.mkdir()
         (self.aside / "sentence").write_text(self.SENTENCE + "\n")
-        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
-                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+        # The held-out test, which the Maintainer places only once the agent has stopped (issue 511).
+        self.held = ("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
+                     "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+        # Where a clone of the private home was before it was moved out of reach: gone.
+        self.away = str(self.home.parent / (self.home.name + "-clone-moved"))
 
     # The stand-in repo's verify passes only once the held-out test has been taken out again.
-    def repo(self, verify="verify:\n\t@test ! -f tests/test_held_out.py\n") -> tuple:
-        """A stand-in repo with one commit: an AGENTS.md, a Kernel, a test, a mutation check and a Makefile."""
+    def repo(self, verify="verify:\n\t@test ! -f tests/test_held_out.py\n", survive=None) -> tuple:
+        """A stand-in repo with one commit: an AGENTS.md, a Kernel, a test, a mutation check and a Makefile, and, where
+        `survive` names a mutant, a tools/survive that has the check let it survive."""
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         files = {"AGENTS.md": "# a repo\n", "Makefile": verify, "kernel/__init__.py": "", "kernel/derive.py": "def derive(f):\n    return f\n",
                  "tests/__init__.py": "", "tests/test_decide.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        pass\n",
                  "tools/__init__.py": "", "tools/mutants.py": self.MUTANTS_PY + "]\n" + self.MUTANTS_MAIN}
+        if survive:
+            files["tools/survive"] = survive + "\n"
         for rel, text in files.items():
             (folder / rel).parent.mkdir(parents=True, exist_ok=True)
             (folder / rel).write_text(text)
@@ -9487,25 +9646,42 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         commit = subprocess.run(["git", "-C", str(folder), "rev-parse", "HEAD"], env=env, check=True, capture_output=True, text=True).stdout.strip()
         return folder, commit
 
-    def stand_in(self, version=None, tamper=False, survive=None) -> pathlib.Path:
+    def stand_in(self, version=None, tamper=False, rig=False, clean=True) -> pathlib.Path:
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
         if tamper:
             (folder / "tamper").write_text("")
-        if survive:
-            (folder / "survive").write_text(survive + "\n")
+        if rig:
+            (folder / "rig").write_text("")
         (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
-        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere")).replace("/nowhere/", ""))
+        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere"), clean=clean).replace("/nowhere/", ""))
         cli = folder / "claude"
         cli.write_text(self.STAND_IN)
         cli.chmod(0o755)
         return folder
 
-    def run_script(self, out, cfg, repo, commit, sentence, held_out, cli) -> subprocess.CompletedProcess:
-        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C",
+    def run_script(self, out, cfg, repo, commit, sentence, held_out, cli, place=True) -> subprocess.CompletedProcess:
+        """Run the script as the Maintainer does: once it says the agent has stopped, the held-out test is placed at
+        HELD_OUT, unless `place` is False, and Enter is pressed. Whether HELD_OUT was there while the agent ran is
+        written beside the stand-in CLI by the CLI itself."""
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C", "CONTEXT_EVAL_AWAY": self.away,
                "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
-        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(repo), commit, str(sentence), str(held_out), str(cli)],
-                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=300)
+        pathlib.Path(cli).parent.joinpath("held").write_text(str(held_out))
+        run = subprocess.Popen(["bash", str(self.SCRIPT), str(out), str(cfg), str(repo), commit, str(sentence), str(held_out), str(cli)],
+                               cwd=SCRATCH.name, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, env=env)
+        said = []
+        for line in run.stderr:
+            said.append(line)
+            if line.startswith("and press Enter"):
+                if place:
+                    pathlib.Path(held_out).write_text(self.held)
+                run.stdin.write("\n")
+                run.stdin.flush()
+        stdout, _ = run.communicate(timeout=300)
+        if place and pathlib.Path(held_out).exists():
+            pathlib.Path(held_out).unlink()
+        return subprocess.CompletedProcess(run.args, run.returncode, stdout, "".join(said))
 
     def texts(self, out) -> dict:
         return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
@@ -9515,6 +9691,8 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         cli = self.stand_in()
         ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude")
         self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        # No copy of the answer was where the agent's shell could reach it while it ran (issue 511).
+        self.assertEqual((cli / "held-seen").read_text().strip(), "absent")
         named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
         for call in ("version", "task"):
             given = dict(line.split("=", 1) for line in (cli / ("env-" + call)).read_text().splitlines() if "=" in line)
@@ -9542,7 +9720,7 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual([c["path"] for c in record["changed"]], ["kernel/derive.py", "tests/test_decide.py", "tools/mutants.py"])
         # The stand-in reads a kernel/AGENTS.md this export does not hold, so it is recorded by its folder.
         self.assertEqual(record["read"], ["AGENTS.md", "kernel/", "kernel/derive.py"])
-        self.assertEqual((record["outside_reads"], record["restored"]), (2, []))
+        self.assertEqual((record["outside_reads"], record["unread_commands"], record["restored"]), (0, 0, []))
         checked = json.loads(texts["checked.json"])
         self.assertEqual((checked["agent"]["exit"], checked["agent"]["stderr"]["lines"], checked["mutants"]["added"]),
                          (0, 1, 1))
@@ -9565,8 +9743,8 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         record = json.loads((self.out / "record.json").read_text())
         self.assertEqual((record["verdicts"]["verify"], record["passed"]), ("fail", False))
         # The held-out test that fails: the rule the agent wrote is not the one the answer expects.
-        (self.aside / "test_held_out.py").write_text("import unittest\n\n\nclass HeldOut(unittest.TestCase):\n"
-                                                    "    def test_the_rule_holds(self):\n        self.fail('not the rule')\n")
+        self.held = ("import unittest\n\n\nclass HeldOut(unittest.TestCase):\n"
+                     "    def test_the_rule_holds(self):\n        self.fail('not the rule')\n")
         folder, commit = self.repo()
         out = self.home.parent / (self.home.name + "-held-out-fails")
         ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", self.stand_in() / "claude")
@@ -9575,15 +9753,42 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual((record["verdicts"]["held_out_test"], record["verdicts"]["verify"], record["passed"]), ("fail", "pass", False))
         self.assertNotIn("not the rule", "".join(self.texts(out).values()) + ran.stdout + ran.stderr)
         # The agent's mutant that survives, by the whole check's exit and its line, fails the run.
-        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
-                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
-        folder, commit = self.repo()
+        self.setUp()
+        folder, commit = self.repo(survive="an empty diff converges")
         out = self.home.parent / (self.home.name + "-survives")
         ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
-                              self.stand_in(survive="an empty diff converges") / "claude")
+                              self.stand_in() / "claude")
         self.assertEqual(ran.returncode, 1, ran.stderr)
         record = json.loads((out / "record.json").read_text())
         self.assertEqual((record["verdicts"]["mutant"], record["passed"]), ("survived", False))
+        # The agent that rigs the mutation runner in tools/mutants.py so its surviving mutant reads killed: the judge runs
+        # the export's runner with the agent's entry, the mutant survives, and the file is recorded as put back (issue 511).
+        folder, commit = self.repo(survive="an empty diff converges")
+        out = self.home.parent / (self.home.name + "-rigged")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(rig=True) / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["mutant"], record["passed"], record["restored"]),
+                         ("survived", False, ["tools/mutants.py"]))
+        self.assertTrue(record["added"]["mutant"], "the agent's entry was kept")
+        # A rigged runner with nothing to survive: the judge's runner, the export's, runs and kills the agent's mutant.
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-rigged-killed")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(rig=True) / "claude")
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["mutant"], record["restored"]), ("killed", ["tools/mutants.py"]), ran.stderr)
+        # A run whose agent named paths outside its export, and a command that cannot be read, fails though every
+        # verdict passes (issue 511).
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-looked-out")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(clean=False) / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"], record["outside_reads"], record["unread_commands"], record["passed"]),
+                         ({"held_out_test": "pass", "verify": "pass", "mutant": "killed"}, 2, 1, False))
         # The agent that rewrites the judge's Makefile: it is put back as made, recorded, and the judge is the export's own.
         folder, commit = self.repo()
         out = self.home.parent / (self.home.name + "-tampered")
@@ -9592,7 +9797,7 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual(ran.returncode, 0, ran.stderr)
         record = json.loads((out / "record.json").read_text())
         self.assertEqual((record["restored"], record["verdicts"]["verify"], record["passed"]), (["Makefile"], "pass", True))
-        self.assertNotIn("Makefile", [c["path"] for c in record["changed"]], "put back before the changes are counted")
+        self.assertIn("Makefile", [c["path"] for c in record["changed"]], "the agent's change is counted, and not judged")
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder, commit = self.repo()
@@ -9604,9 +9809,12 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         no_code = self.aside / "no-code"
         no_code.write_text("An empty diff never converges, with no code named.\n")
         inside = folder / "test_inside.py"
-        inside.write_text("")
+        placed = self.aside / "test_placed.py"
+        placed.write_text("")
         linked = self.aside / "test_linked.py"
-        linked.symlink_to(inside)
+        linked.symlink_to(self.aside / "never-there.py")
+        into = self.aside / "into"
+        into.symlink_to(folder, target_is_directory=True)
         good = [self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude"]
         cases = [("OUT exists", [existing] + good, "exists; name a new directory"),
                  ("OUT inside the repo", [ROOT / "never-made"] + good, "OUT is inside the repo"),
@@ -9617,17 +9825,40 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
                  ("COMMIT unknown", [self.out, self.cfg, folder, "0" * 40] + good[3:], "COMMIT is not a commit in REPO"),
                  ("two sentences", good[:3] and [self.out] + good[:3] + [two] + good[4:], "not one sentence"),
                  ("no code", [self.out] + good[:3] + [no_code] + good[4:], "names no reason code"),
-                 ("HELD_OUT inside REPO", [self.out] + good[:4] + [inside, cli / "claude"], "stay outside the repo"),
-                 ("HELD_OUT linked into REPO", [self.out] + good[:4] + [linked, cli / "claude"], "stay outside the repo"),
+                 ("HELD_OUT inside REPO", [self.out] + good[:4] + [inside, cli / "claude"], "HELD_OUT stays outside the repo"),
+                 ("HELD_OUT in a folder linked into REPO", [self.out] + good[:4] + [into / "test_x.py", cli / "claude"],
+                  "HELD_OUT stays outside the repo"),
+                 # The held-out test is placed only once the agent has stopped: one already there, or a link, is refused.
+                 ("HELD_OUT already there", [self.out] + good[:4] + [placed, cli / "claude"], "placed only once the agent has stopped"),
+                 ("HELD_OUT a link", [self.out] + good[:4] + [linked, cli / "claude"], "placed only once the agent has stopped"),
+                 ("HELD_OUT's folder missing", [self.out] + good[:4] + [self.aside / "none" / "test_x.py", cli / "claude"],
+                  "HELD_OUT's folder must exist"),
                  ("CONFIG_DIR inside REPO", [self.out, folder / "kernel"] + good[1:], "CONFIG_DIR is inside REPO"),
-                 ("HELD_OUT not a test", [self.out] + good[:4] + [self.aside / "sentence", cli / "claude"], "is named test_")]
+                 ("HELD_OUT not a test", [self.out] + good[:4] + [self.aside / "not_a_test.py", cli / "claude"], "is named test_")]
         (self.home / ".claude" / "x").mkdir(parents=True)
-        for name, args, said in cases:
+        # No clone of the private home within reach: CONTEXT_EVAL_AWAY names none, or a place that is still there.
+        there = self.home.parent / (self.home.name + "-clone-still-here")
+        there.mkdir()
+        cases += [("CONTEXT_EVAL_AWAY unset", [self.out] + good, "CONTEXT_EVAL_AWAY names no place", None),
+                  ("CONTEXT_EVAL_AWAY empty", [self.out] + good, "CONTEXT_EVAL_AWAY names no place", ":"[:0]),
+                  ("a clone still within reach", [self.out] + good, "still within reach", self.away + ":" + str(there))]
+        for name, args, said, *away in cases:
+            away = away[0] if away else self.away
+            env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C"}
+            if away is not None:
+                env["CONTEXT_EVAL_AWAY"] = away
             ran = subprocess.run(["bash", str(self.SCRIPT), *map(str, args)], cwd=SCRATCH.name, capture_output=True, text=True,
-                                 env={"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C"}, timeout=120)
+                                 env=env, timeout=120)
             self.assertEqual(ran.returncode, 2, (name, ran.stderr))
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((cli / "env-version").exists(), name + ": nothing was asked")
+        # Once the agent has stopped, a HELD_OUT the Maintainer did not place judges nothing and records nothing.
+        out = self.home.parent / (self.home.name + "-unplaced")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in() / "claude", place=False)
+        self.assertEqual(ran.returncode, 2, ran.stderr)
+        self.assertIn("HELD_OUT is not a file at the place named; nothing was judged", ran.stderr)
+        self.assertFalse((out / "record.json").exists())
         self.assertFalse((ROOT / "never-made").exists())
         # The wrong version, after asking it and before the agent.
         wrong = self.stand_in(version="0.0.1")
@@ -10237,6 +10468,142 @@ class CommentsReadTrial(IssueLookupTrial):
     CURL = IssueLookupTrial.CURL.replace('if grant == "issues" or', 'if grant == "pull_requests" or', 1).replace(
         '''status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}''',
         '''status, answer = 200, [{"id": 7, "user": {"id": 9, "type": "User"}, "leak": "gh" + "s_" + "L" * 36}]''', 1)
+
+
+class EditsReadTrial(IssueLookupTrial):
+    """`tools/trial_p58_edits.sh`, run against the same stand-ins and never GitHub (issue 519). It is P-54's script held to
+    the reader's installation and one GraphQL read, so every test of that one that is not about what is asked runs over it
+    too, by inheritance."""
+
+    SCRIPT = ROOT / "tools" / "trial_p58_edits.sh"
+    CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    GIVEN = (CANARY, "96")
+    FIRST = "pull_requests"
+    KEPT = ('"lastEditedAt": "2026-11-03T19:24:25Z"', '"login": "don-petry"', '"editedAt"')
+    # The port's query, word for word (issue 519): the reader leg reads exactly what the port will send.
+    QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
+             "lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} "
+             "nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}")
+    NOT_A_NUMBER = "is not a pull request's number"
+    # The stand-in answers the GraphQL read: to a token narrowed to pull_requests, and to any token where the repo is
+    # public, as a file beside it says; and it keeps what was sent, for the test to read.
+    CURL = IssueLookupTrial.CURL.replace('elif "/issues/" in url:', '''elif url.endswith("/graphql"):
+    if body and body.startswith("@"):
+        with open(os.path.join(here, "sent"), "a") as kept:
+            kept.write(open(body[1:]).read() + "\\n")
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    if grant == "pull_requests" or os.path.exists(os.path.join(here, "public")):
+        status, answer = 200, {"data": {"repository": {"pullRequest": {
+            "lastEditedAt": "2026-11-03T19:24:25Z", "editor": {"__typename": "Bot", "login": "github-actions"},
+            "userContentEdits": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": "Y3Vy"}, "nodes": [
+                {"editedAt": "2026-11-03T19:20:23Z", "createdAt": "2026-11-03T19:20:23Z", "deletedAt": None,
+                 "editor": {"__typename": "User", "login": "don-petry", "databaseId": 36422719}}]}}}}}
+    else:
+        # GraphQL refuses an integration with 200, a null in place of what it may not read, and an error.
+        status, answer = 200, {"data": {"repository": {"pullRequest": None}},
+                               "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+elif "/issues/" in url:''', 1)
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        for public in (False, True):
+            with self.subTest(public=public):
+                self.setUp()
+                if public:
+                    (self.stand_in / "public").write_text("")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+                calls = self.calls()
+                # Each token is minted, read with once and revoked before the next is minted.
+                self.assertEqual([(c["method"], c["url"].rsplit("/", 1)[1]) for c in calls],
+                                 [("POST", "access_tokens"), ("POST", "graphql"), ("DELETE", "token")] * 2)
+                mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+                self.assertEqual([m["url"].split("/app/")[1] for m in mints],
+                                 ["installations/%d/access_tokens" % installation] * 2)
+                self.assertEqual([json.loads(m["body"]) for m in mints],
+                                 [{"repositories": [self.CANARY.split("/")[1]], "permissions": {self.FIRST: "read"}},
+                                  {"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}}])
+                reads = [c for c in calls if c["url"].endswith("/graphql")]
+                self.assertEqual([(c["method"], c["url"]) for c in reads], [("POST", "https://api.github.com/graphql")] * 2)
+                self.assertEqual(len([c for c in calls if c["method"] == "DELETE"]), 2)
+                self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+                # What was sent is the port's query, the pull request named by variables alone.
+                sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
+                owner, name = self.CANARY.split("/")
+                self.assertEqual(sent, [{"query": self.QUERY, "variables": {"owner": owner, "name": name, "number": 96}}] * 2)
+                texts = {p.name: p.read_text() for p in self.out.iterdir()}
+                self.assertEqual(sorted(texts), ["clean-1", "clean-2", "query.json", "ran_at", "redacted-1", "redacted-2",
+                                                 "requests.json"])
+                self.assertEqual(json.loads(texts["query.json"]), sent[0])
+                asked = json.loads(texts["requests.json"])
+                self.assertEqual([(a.get("narrowed_to") or a.get("revoked"), a.get("call"), a["status"]) for a in asked],
+                                 [(self.FIRST + ": read", "POST /graphql", 200), (self.FIRST + ": read", None, 204),
+                                  ("metadata: read", "POST /graphql", 200), ("metadata: read", None, 204)])
+                for kept in self.KEPT:
+                    self.assertIn(kept, texts["clean-1"])
+                # The second token's answer: the edits where the repo is public, else GraphQL's refusal, kept as it came.
+                for kept in (self.KEPT if public else ('"FORBIDDEN"', '"pullRequest": null')):
+                    self.assertIn(kept, texts["clean-2"])
+                # Every answer carried a token-shaped string, and the redaction took each out and said so.
+                self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+                self.assertTrue(texts["redacted-1"].strip() and texts["redacted-2"].strip())
+
+    def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
+        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "POST", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertEqual((self.out / "clean-1").read_text() if (self.out / "clean-1").exists() else "", "")
+                self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        elsewhere = "is not the canary the reader is installed on"
+        for given, out, said in (((self.CANARY, "96"), self.out.parent, "exists"),
+                                 ((self.CANARY, "96"), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", "96"), None, elsewhere),
+                                 (("combsmith/elsewhere", "96"), None, elsewhere),
+                                 (("combsmith", "96"), None, "is not owner/name"),
+                                 ((self.CANARY, "0"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "12a"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "-1"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "1/../2"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, ""), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY,), None, "usage:"), ((self.CANARY, "96", "97"), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the read's, 200 with an error where refused.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 200])
+        self.assertIn('"FORBIDDEN"', (self.out / "clean-2").read_text())
+
 
 
 class Rulesets(unittest.TestCase):
