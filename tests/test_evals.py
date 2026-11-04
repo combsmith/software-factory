@@ -509,7 +509,9 @@ class TheSet(unittest.TestCase):
         script = (ROOT / "tools" / "context_eval.sh").read_text()
         pin, cap = re.search(r"^PIN=(\S+)$", script, re.M).group(1), int(re.search(r"^CAP=(\d+)$", script, re.M).group(1))
         for r in newest:
-            self.assertEqual(r["passed"], r["verdicts"] == {"held_out_test": "pass", "verify": "pass", "mutant": "killed"})
+            # A run passes on its three verdicts and having looked nowhere outside its export (issue 511).
+            self.assertEqual(r["passed"], r["verdicts"] == {"held_out_test": "pass", "verify": "pass", "mutant": "killed"}
+                             and r["outside_reads"] == 0 and r["unread_commands"] == 0)
             self.assertEqual((r["cli_version"], r["cap_turns"]), (pin, cap))
             self.assertEqual(r["task_sha256"], record["task_sha256"], "a run on another sentence")
             self.assertEqual(r["added"], {"test": True, "mutant": True, "reason": True})

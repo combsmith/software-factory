@@ -970,6 +970,10 @@ decision 0055). It has no `run` job and no model, and it asks the Kernel
 again as it starts (I-38): `kernel.decide.still_wanted` holds the Decision it was started by to
 what the Kernel decides on the facts it just read, and the approval goes ahead only if it is issued
 again for the same item and content, as a Run goes ahead only if it is admitted again (issue 195).
+The queue App's acts, an enqueue, a dequeue and a resolution, are act Runs too (decision 0128): the
+queue act's one job, `queue` on `factory-queue`, holds the queue App's key, and its own token reads
+the pass record alone; it does not ask the Kernel again, but reads the pull request again with the
+App's token and the Pause from its `vars` (decision 0130, decision 0134).
 Its run record is what bounds an approval that does not land: a failed
 one whose outcome is `item` is an attempt, and `max_attempts` of them since a person with write
 access acted hold the item, reason `attempts_exhausted` (I-28). An approval that lands is an act,

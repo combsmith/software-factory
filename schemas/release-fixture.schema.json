@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "What GitHub answered of a Release's runs: each release.yml run's outcome, and what can be read from outside it (#197's ruling 9′, as amended on 2026-11-03).",
+  "$comment": "The step prints codes alone and keeps no exchange of its own, so an item holds the run, its job's log at the step, and the reads after it. What no schema can say, that an item agrees with its own exchanges, and that it holds no credential, is tools/check_release.py's.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "repo", "items", "removed"],
+  "properties": {
+    "schema": {"const": "release-fixture/1"},
+    "version": {
+      "description": "The Release the runs cut, refused or moved to: a data file's own Release is its commit's.",
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "repo": {"const": "combsmith/software-factory"},
+    "items": {
+      "description": "Each item of ruling 9′ this fixture holds, in the order the runs happened.",
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/item"}
+    },
+    "removed": {
+      "description": "Where each thing was taken out, as a path such as items[0].exchanges[0].request.headers.authorization.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "run", "asked", "printed", "conclusion", "read_at", "exchanges"],
+      "properties": {
+        "item": {
+          "description": "Which of ruling 9′'s five it is.",
+          "enum": ["cut_refused_by_the_closed_gate", "cut_and_move_of_next", "refused_move_of_the_release", "rollback",
+                   "move_forward_again"]
+        },
+        "run": {"description": "The release.yml run's id.", "type": "integer", "minimum": 1},
+        "asked": {
+          "description": "The step's inputs, as its job's log shows them.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command", "version", "to", "cut_commit"],
+          "properties": {
+            "command": {"enum": ["cut", "move", "rollback"]},
+            "version": {"type": "string", "pattern": "^(factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*))?$"},
+            "to": {"type": "string", "pattern": "^(factory/v[0-9a-z.-]+)?$"},
+            "cut_commit": {"type": "string", "pattern": "^([0-9a-f]{40})?$"}
+          }
+        },
+        "printed": {
+          "description": "The step's last line, which says what it did by codes alone.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["writes", "deployments"],
+          "properties": {
+            "writes": {"type": "array", "items": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9/._-]+$"}}},
+            "deployments": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "refused": {"type": "string", "pattern": "^[a-z][a-z_]*$"},
+            "sent": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9/._-]+$"}}
+          }
+        },
+        "conclusion": {"enum": ["success", "failure", "cancelled", "timed_out"]},
+        "read_at": {"$ref": "trial.schema.json#/$defs/time"},
+        "exchanges": {
+          "description": "The run, its job's log at the step, and the reads after it, in the order they were made.",
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "trial.schema.json#/$defs/exchange"}
+        }
+      }
+    }
+  }
+}

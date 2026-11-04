@@ -109,6 +109,11 @@ TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "t
              "uniq", "cut", "tr", "diff", "test", "[", "true", "false"}
 SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
 UNSEEN_SCRIPT = "a shell reads a script the hook cannot see"
+# A shell that a process substitution >( ) runs, zsh's >>( ) among them, given no -c: it reads what is written to it
+# (#410). One given -c, in its own command, runs a script the hook reads (the Claude review and Astra on #520); one in
+# <( ) is read as any command is.
+PROCESS_SHELL = re.compile(r">\(\s*(?:\(\s*)*(?:[^\s()<>;&|]*/)?(?:%s)(?=[\s);&|<>]|$)(?![^);&|\n]*\s-[A-Za-z]*c)"
+                           % "|".join(re.escape(name) for name in sorted(SHELLS_AND_SOURCE)))
 # gh's commands that only read, as READS are git's: beside a script the hook cannot see, what they are given names no write
 # (issue 488). A `gh api` reads too, given only these options, and no word the shell would change: flags cluster, as -iX does.
 GH_API_READING = {"--jq", "-q", "--paginate", "--include", "-i", "--silent", "--template", "-t", "--hostname", "--cache", "--slurp",
@@ -782,6 +787,12 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         if _only_reads(tool, words) and not WRITE_TEXT.search(" ".join(_bare(w) for i, w in enumerate(marked) if i != at)):
             reading.add(index)
         calls += [(tool, where, words, kind) for where in wheres]
+    # Its backslashes out after the >(, as the shell takes them out of a name: \bash and b\ash are bash (the security
+    # pass); one before the > or the ( makes them text, echo \>\(bash\) (the Claude review of #520).
+    masked = shell._masked(shell.without_heredocs(text))
+    fed = any(PROCESS_SHELL.match(masked[m.start():].replace("\\", "")) for m in re.finditer(r">\(", masked))
+    if fed:
+        blind.append(UNSEEN_SCRIPT)     # echo 'git push' > >(bash): what is written to it is its script (#410)
     said = " ".join(w for words, _, _ in commands for w in words or [])     # as the shell runs it: g''it push is git push
     writes = any(kind for _, _, _, kind in calls)
     if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or writes):
@@ -790,7 +801,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         # What only prints is no write, unless a pipe may carry it to the script, echo 'git push' | bash, or anything
         # in the command, a compound's closing word or an exec among them, redirects to or from a file (the reviews),
         # or $_ gives its last word to what follows: echo 'git push' && bash x.sh "$_" (Argon).
-        piped = any(raw is None and redirected == "|" for raw, redirected, _ in commands) or "$_" in text or "${_" in text
+        # A shell a process substitution runs is as a pipe: zsh's >>(bash) is split as no redirection at all (#520).
+        piped = any(raw is None and redirected == "|" for raw, redirected, _ in commands) or "$_" in text or "${_" in text or fed
         filed = any(t not in PRINTED_TO and not (op.endswith("&") and t in ("1", "2"))
                     for raw, redirected, _ in commands if raw is not None for op, t in redirected)
         quiet = reading | (set() if piped or filed else printing)
@@ -1392,8 +1404,11 @@ def takes_next(word: str, valued: str, optional: str = "") -> bool:
 
 def _quoted(text: str) -> str:
     """`text` with each command substitution outside quotes, $(...) or `...`, made one quoted word $(...), as one in
-    double quotes is: so that what it gives a command is read as a word that cannot be read, not as words cut off."""
+    double quotes is: so that what it gives a command is read as a word that cannot be read, not as words cut off.
+    What each holds is spelt as shell._nested spells a body's script, each level's quotes its own and a ${...}'s
+    substitutions read, within one budget (#410); past it, as it stands, main's reading (_spelt)."""
     out, i, quote, braces = [], 0, None, 0     # braces: where a ${...} that began ends; a # in it begins no comment
+    room = [shell.KEPT_TIMES * len(text) + shell.KEPT_MORE]
     while i < len(text):
         c = text[i]
         if quote is None and text.startswith("${", i) and i >= braces:
@@ -1409,7 +1424,7 @@ def _quoted(text: str) -> str:
             if end is None:
                 return text
             # A script of its own, whose quotes are its own: escaped, as below, so that shlex keeps the word whole.
-            out.append("$(%s)" % text[i + 2:end].replace("\\", "\\\\").replace('"', '\\"'))
+            out.append("$(%s)" % _spelt(text[i + 2:end], room).replace("\\", "\\\\").replace('"', '\\"'))
             i = end + 1
             continue
         elif quote == '"':
@@ -1438,12 +1453,21 @@ def _quoted(text: str) -> str:
                 inner = re.sub(r"\\([\\`$])", r"\1", inner)
             # One double-quoted word holding $(inner): inside it shlex reads only \ and ", so escaping those keeps
             # inner's own quotes literal and the word intact, whatever inner holds.
-            out.append('"$(%s)"' % inner.replace("\\", "\\\\").replace('"', '\\"'))
+            out.append('"$(%s)"' % _spelt(inner, room).replace("\\", "\\\\").replace('"', '\\"'))
             i = end + 1
             continue
         out.append(c)
         i += 1
     return "".join(out)
+
+
+def _spelt(script: str, room: list) -> str:
+    """`script` spelt as shell._nested spells a body's, each level's quotes its own, while `room` lasts; past it, as it
+    stands. Escaping each level again doubles what it holds, so a deep nest outruns any room, and main reads it so."""
+    try:
+        return shell._nested(script, room)
+    except ValueError:
+        return script       # past the budget, main's reading (the Claude review of #520)
 
 
 def _closed(text: str, i: int, end: str):
@@ -1861,9 +1885,9 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     try:
         commands = shell.commands(_quoted(shell.without_heredocs(read, raw=True)), spend, scopes=True, marked=True)
         calls, problems, inline = _calls(commands, payload.get("cwd"), read, env, spend)
-    except ValueError as err:
+    except (ValueError, RecursionError) as err:
         # The command cannot be split into words, so whatever it names, git may be among it under a spelling the hook
-        # cannot see (issue 174).
+        # cannot see (issue 174), nor one nested past Python's own depth, "$( "$( ... )" )" (Astra on #520).
         return [("command_unreadable", "the command cannot be split into words (%s); split it, or put its text in a "
                                        "file" % err)]
     except Spent:
