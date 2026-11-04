@@ -8082,9 +8082,11 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
         (folder / "claude").write_text('#!/bin/sh\nexec python3 -B "$(cd "$(dirname "$0")" && pwd)/cli.py" "$@"\n')
         (folder / "cli.py").write_text(self.CLI)
         (folder / "claude").chmod(0o755)
-        # A stand-in `timeout`, which runs its command after the duration: macOS has none on its own PATH.
+        # A stand-in `timeout`, which runs its command after the duration: macOS has none on its own PATH. It refuses a
+        # duration that is not whole seconds, or no command, as GNU timeout does, with 125.
         (folder / "bin").mkdir()
-        (folder / "bin" / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+        (folder / "bin" / "timeout").write_text(
+            '#!/bin/sh\ncase "$1" in ""|*[!0-9]*) exit 125 ;; esac\n[ "$#" -ge 2 ] || exit 125\nshift\nexec "$@"\n')
         (folder / "bin" / "timeout").chmod(0o755)
         return folder
 
