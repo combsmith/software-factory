@@ -139,7 +139,11 @@ SHAPES = re.compile("|".join((
     # again to the run's end took time in the square of a run of them with no dot (issue 370).
     r"(?<![a-z0-9_-])(?=[a-z0-9_-]*?eyJ)[a-z0-9_-]*\.",
     r"//[^/\s:@]+:[^/\s@]+@",                       # a user and password in a URL
-    r"[?&](sig|token|access_token|x-amz-signature|x-amz-credential)=",
+    # A signed URL's secret, by its parameter: Azure's sig; AWS's and CloudFront's Signature, and AWS's v4 parameters
+    # and session token; Google's v4 parameters, and the Signature of its older form. After a query's ? or &, as it
+    # is written raw, escaped in JSON or HTML, or percent-encoded inside another URL.
+    r"(?:[?&;]|%3f|%26|\\u0026)(sig|signature|token|access_token|x-amz-signature|x-amz-credential|x-amz-security-token"
+    r"|x-goog-signature|x-goog-credential)(?:=|%3d)",
     r"\b(set-cookie|cookie|authorization|proxy-authorization)\s*:",
     r"(token|bearer|secret|password)\W{0,3}[0-9a-f]{40}",
     # auth and any letters after it, then a hex secret. Only the first auth of a run of letters is tried, and is not
