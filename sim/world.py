@@ -1366,11 +1366,11 @@ class World:
 
     def edited_since_approval(self) -> bool:
         """Whether the description was edited at or after the machine user's first approval since the Maintainer last
-        looked, or, where none has come since but one came before, the look itself, in the world's own words. A look
-        the Maintainer took back, by dismissing their own approval, is none."""
-        looks = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"]
+        looked, or, where none has come since but one came before, the look itself, in the world's own words. A look is
+        any person's approval, the Maintainer's or a colleague's; one a person dismissed since is taken back."""
+        looks = [rv["submitted_at"] for rv in self.reviews if self.is_person(told(rv["by"]))
                  and "approved" in (rv["state"], rv["dismissed_from"])
-                 and (rv["dismissed_by"] or {}).get("name") != MAINTAINER["name"]]
+                 and not (rv["dismissed_by"] is not None and self.is_person(told(rv["dismissed_by"])))]
         machine = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == CONFIG["approver"]
                    and "approved" in (rv["state"], rv["dismissed_from"])]
         look = max(looks) if looks else None
