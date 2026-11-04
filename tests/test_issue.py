@@ -472,6 +472,15 @@ class Done(unittest.TestCase):
                                       linked=merges[:1]))["reason"], "merged")
         self.assertEqual(derive(facts(label_events=[labelled(HANDS_OFF, minute=4), unlabelled(HANDS_OFF, minute=4)],
                                       linked=merges[:1]))["reason"], "merged_while_held")
+        # The Consumer entry is not read: with issues turned off, or the issue's life begun before the entry's date, a
+        # person's hands-off at the merge still asks a person, and so does a Hold.
+        for cfg in (config(served_from=None), config(served_from=at(1))):
+            d = decide(facts(label_events=[labelled(HANDS_OFF, minute=4)], linked=merges[:1]), cfg=cfg)
+            self.assertEqual((d["state"], what(d), d["attention"]),
+                             ("not_served", ("nothing", "merged_while_hands_off", None), "needs_you"))
+            d = decide(facts(label_events=[labelled(HOLD, minute=4)], linked=merges[:1]), cfg=cfg)
+            self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "merged_while_held", None),
+                                                                     "needs_you"))
         # Row 3 before row 4, as everywhere: a person's hands-off before a Hold; a person's close before the merge is
         # read first of all.
         both = dict(label_events=[labelled(HOLD, minute=3), labelled(HANDS_OFF, minute=4)])

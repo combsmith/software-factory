@@ -330,6 +330,14 @@ ISSUE = [
      "        if not served(facts, config):\n            return out(t.NOT_SERVED, \"left_out\", [])\n"
      "        if hands_off_stood(facts, first):\n",
      ("tests.test_issue.Done.test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time",)),
+    ("an issue left out under a person's hands-off at the merge is quiet", ISSUE_PY,
+     '            return out(t.NOT_SERVED, "merged_while_hands_off", merges)\n',
+     '            if not served(facts, config):\n                return out(t.NOT_SERVED, "left_out", [])\n'
+     '            return out(t.NOT_SERVED, "merged_while_hands_off", merges)\n', PLATFORM_CLOSE_TESTS),
+    ("an issue left out under a Hold at the merge is quiet", ISSUE_PY,
+     '            return out(t.HELD, "merged_while_held", merges)\n',
+     '            if not served(facts, config):\n                return out(t.NOT_SERVED, "left_out", [])\n'
+     '            return out(t.HELD, "merged_while_held", merges)\n', PLATFORM_CLOSE_TESTS),
     ("issues turned off, or the entry's date moved, is read at the merge", ISSUE_PY,
      "        if hands_off_stood(facts, first):\n",
      "        start = config[\"issues\"][\"served_from\"]\n"
