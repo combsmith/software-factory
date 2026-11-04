@@ -31,6 +31,45 @@ def load(rel: str):
     return json.loads((ROOT / rel).read_text())
 
 
+class Heads:
+    """A transport standing in for the anonymous one `fetch` reads each case's head with: each commit's tarball as
+    codeload serves one (P-60), or, for a commit in `refused`, a 404. What it was asked is kept by path."""
+
+    def __init__(self, refused=()):
+        self.refused, self.asked = set(refused), []
+
+    def send(self, req: dict) -> dict:
+        from adapters import github
+        from tests import support
+        self.asked.append((req["path"], req.get("follow"), req.get("bound")))
+        sha = github.TARBALL.fullmatch(req["path"]).group(3)
+        if sha in self.refused:
+            return {"status": 404, "headers": {}, "body": "404: Not Found"}
+        return {"status": 200, "headers": {}, "body": support.tarball(sha).decode("utf-8", errors="surrogateescape")}
+
+
+def github_tarred() -> int:
+    from adapters import github
+    return github.TARRED
+
+
+def reviewed(env, release, began, call=None, clock=None, place=None):
+    """`harness/eval/run.reviewer`, given a scratch directory whose `heads/<id>` stands for the head `fetch` unpacked
+    for each case it is asked (decision 0138), unless `place` is given."""
+    import tempfile
+    from harness.eval import run as step
+    from tests import test_harness as live
+    place = pathlib.Path(tempfile.mkdtemp()) if place is None else place
+    review = step.reviewer(env, release, began, call, clock if clock is not None else live.Clock(), place)
+
+    def asking(case):
+        if isinstance(case, dict) and isinstance(case.get("id"), str):
+            (place / "heads" / case["id"]).mkdir(parents=True, exist_ok=True)
+        return review(case)
+    asking.seen = review.seen
+    return asking
+
+
 class Scoring(unittest.TestCase):
     def test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails(self):
         case, result = load("examples/eval-case.json"), load("examples/result.json")
@@ -524,6 +563,9 @@ class EvalJob(unittest.TestCase):
 
     def step(self, step, *given, env=None):
         from harness import eval as job
+        if getattr(step, "__module__", None) == job.__name__ and getattr(step, "__name__", None) == "fetch" \
+                and len(given) == 1:
+            given += (Heads(),)     # each case's head, read as codeload would answer it (decision 0138)
         try:
             return step(dict(self.env, **(env or {})), self.root, self.work, *given)
         except job.Stop as stop:
@@ -1178,7 +1220,7 @@ class EvalJob(unittest.TestCase):
         small = dict(step.live.configuration(), max_diff_characters=1)
         with mock.patch.object(step.live, "configuration", lambda *a: small):
             with self.assertRaises(job.Stop) as stopped:
-                step.reviewer(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
+                reviewed(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("diff_not_whole", []))
         # And the code reaches the report, not `unanswered`, as the job writes it.
         first = next(iter(self.cases))
@@ -1283,14 +1325,14 @@ class EvalJob(unittest.TestCase):
 
     def test_a_case_is_reviewed_by_the_task_and_the_engine_a_live_run_is(self):  # issue 309, ruling 5
         # What is measured is what runs: the case's Task is the one a live Run admitted for the same content is given,
-        # but for its Run id, and the CLI is called as a live Run calls it, the Task as data, with no tool.
+        # but for its Run id, and the CLI is called as a live Run calls it, the Task as data, with the read tools alone.
         from harness import engine, task
         from harness.eval import run as step
         case, live = self.reviewed()
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         env = dict(live.JOB, HELDOUT_TOKEN="a-stand-in-held-out-token", HELDOUT_OWNER="o")
         with mock.patch.object(step, "run_id", lambda: live.RUN):
-            result = step.reviewer(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
+            result = reviewed(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
         self.assertEqual((result["status"], result["run"]), ("completed", live.RUN))
         asked, = cli.asked()
         given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
@@ -1298,7 +1340,9 @@ class EvalJob(unittest.TestCase):
         config["harness"] = live.HARNESS
         manifest = load("roles/pr-review.json")
         self.assertEqual(given, task.build(live.record(), live.RUN, live.facts(), [], manifest, [], config, live.DIFF))
-        self.assertTrue(engine.no_tool(asked["args"]))
+        # With the read tools alone, held to the case's head, the folder it starts in (decision 0138).
+        self.assertTrue(engine.read_alone(asked["args"]))
+        self.assertEqual(pathlib.Path(asked["head"]).parts[-2:], ("heads", case["id"]))
         # The model's credential reaches the CLI, and nothing of the home: not its token, nor where it is.
         self.assertEqual(asked["env"]["CLAUDE_CODE_OAUTH_TOKEN"], live.TOKEN)
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
@@ -1368,7 +1412,7 @@ class EvalJob(unittest.TestCase):
         class Said(live.CLI):
             """The CLI, with the stderr `harness/run.cli_call` always captures."""
 
-            def __call__(self, args, env, timeout):
+            def __call__(self, args, env, timeout, **given):
                 done = super().__call__(args, env, timeout)
                 # The credential is cut across by where the end of it begins: taken out after the cut, a piece would be left.
                 last = "error: bubblewrap is required"
@@ -1378,7 +1422,8 @@ class EvalJob(unittest.TestCase):
         def checked(cli, env=None):
             out = io.StringIO()
             with mock.patch.object(step, "run_id", lambda: live.RUN), mock.patch("sys.stdout", out):
-                code = canary.review(dict(live.JOB) if env is None else env, cli, live.Clock(*[float(i) for i in range(9)]))
+                code = canary.review(dict(live.JOB) if env is None else env, cli, live.Clock(*[float(i) for i in range(9)]),
+                                     Heads())
             return code, out.getvalue()
         # An answer the eval's path read and scored is green, on the repo's own case and by one call of the model.
         answered = Said(said=live.answer(live.judged(findings=[], effects={})))
@@ -1420,7 +1465,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(validate(held, load("schemas/eval-case.schema.json"), schemas=eval_result.schemas()), [])
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         with mock.patch.object(step, "run_id", lambda: live.RUN):
-            step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(held)
+            reviewed(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(held)
         asked, = cli.asked()
         given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
         config = dict(live.config(), release="factory/v0.1.0")
@@ -1439,7 +1484,7 @@ class EvalJob(unittest.TestCase):
         too_long = dict(case, issue=dict(held["issue"], body="x" * (live.HARNESS["texts"]["characters"] + 1)))
         cli = live.CLI()
         with self.assertRaises(job.Stop) as stopped:
-            step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0))(too_long)
+            reviewed(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0))(too_long)
         self.assertEqual((stopped.exception.code, cli.asked()), ("issue_not_whole", []))
         spaced = dict(case, issue=dict(held["issue"], by=dict(by, name="a colleague")))
         self.assertEqual(job.case_fault(spaced), "issue_unreadable")
@@ -1451,7 +1496,7 @@ class EvalJob(unittest.TestCase):
         case, live = self.reviewed()
         for said in ("", "not json", json.dumps({"is_error": False})):
             with mock.patch.object(step, "run_id", lambda: live.RUN):
-                result = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, live.CLI(said=said), live.Clock(0.0, 1.0, 2.0))(case)
+                result = reviewed(dict(live.JOB), "factory/v0.1.0", 0, live.CLI(said=said), live.Clock(0.0, 1.0, 2.0))(case)
             self.assertEqual((result["status"], result["reason"]), ("failed", "no_answer"), said)
             self.assertIn(result["reason"], job.ENGINE_FAULTS)
         # So through the job it is the case's code, and however many others passed the run is `engine_fault`.
@@ -1492,7 +1537,7 @@ class EvalJob(unittest.TestCase):
 
         class Reading(live.CLI):
             """The CLI, answering at the line the Task numbers for the check the change moved below its use."""
-            def __call__(self, args, env, timeout):
+            def __call__(self, args, env, timeout, **given):
                 if args[1:] != ["--version"]:
                     diff = json.loads(args[2].split(engine.TASK, 1)[1])["texts"][0]["body"]
                     shown.extend(int(n) for n in re.findall(r"^(\d+)\|\+    if not items:$", diff, re.M))
@@ -1503,7 +1548,7 @@ class EvalJob(unittest.TestCase):
                 return super().__call__(args, env, timeout)
 
         with mock.patch.object(step, "run_id", lambda: live.RUN):
-            result = step.reviewer(live.JOB, "factory/v0.1.0", 0, Reading(), live.Clock(0.0, 1.0, 2.0))(case)
+            result = reviewed(live.JOB, "factory/v0.1.0", 0, Reading(), live.Clock(0.0, 1.0, 2.0))(case)
         # The hunk's header names line 86 first; the moved check is the head's second line, after `first = items[0]`.
         self.assertEqual(shown, [87])
         self.assertEqual(eval_result.score(case, result), {"case": case["id"], "verdict": "pass", "reasons": []})
@@ -1523,25 +1568,25 @@ class EvalJob(unittest.TestCase):
                     dict(case, facts=dict(case["facts"], content_id=None))):
             cli = live.CLI()
             with self.assertRaises(job.Stop) as stopped:
-                step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(bad)
+                reviewed(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(bad)
             self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
         # Less time left than a case's tier allows: the step starts no case, and the case is unanswered.
         cli = live.CLI()
         late = live.HARNESS["limits"]["standard"]["seconds"]
-        review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late + 1))
+        review = reviewed(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late + 1))
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
         # Less time left than the tier allows and the Engine's two reads of the CLI's version: not started either.
         cli = live.CLI()
-        review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS + 1))
+        review = reviewed(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS + 1))
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
         # With just that time left, it is asked.
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         with mock.patch.object(step, "run_id", lambda: live.RUN):
-            step.reviewer(live.JOB, "factory/v0.1.0", 0, cli,
+            reviewed(live.JOB, "factory/v0.1.0", 0, cli,
                           live.Clock(step.BUDGET - late - step.VERSION_READS, 1.0, 2.0))(case)
         self.assertEqual(len(cli.asked()), 1)
         # The limit is the case's own tier's, read from the configuration, never a constant.
@@ -1550,7 +1595,7 @@ class EvalJob(unittest.TestCase):
         longer["harness"]["limits"]["standard"]["seconds"] = late * 2
         cli = live.CLI()
         with mock.patch.object(step.live, "configuration", lambda: longer):
-            review = step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS))
+            review = reviewed(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS))
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
@@ -1561,7 +1606,7 @@ class EvalJob(unittest.TestCase):
         # A diff that cannot be the bytes of any content, a lone surrogate, is no case of this set either.
         cli = live.CLI()
         with self.assertRaises(job.Stop) as stopped:
-            step.reviewer(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(dict(case, diff="\ud800"))
+            reviewed(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(0.0))(dict(case, diff="\ud800"))
         self.assertEqual((stopped.exception.code, cli.asked()), ("not_this_set", []))
         # Only the eval job builds a Task from an admission it holds itself; every other Task is a pass record's.
         callers = sorted(p.relative_to(ROOT).as_posix() for p in walk.files(ROOT) if p.suffix == ".py"
@@ -1731,6 +1776,49 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((len(asked), [(c["verdict"], c["reasons"]) for c in written["cases"]]),
                          (1, [("unreadable", ["unanswered"])] * 2))
+
+    def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
+        # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its
+        # own, never the home's, and unpacks it under heads/; the run step reads it as the case's folder and removes it
+        # once the case is asked. A head that cannot be read whole is the case's `head_unreadable`, an Engine's or the
+        # Factory's fault, never the reviewer's: the gate closes.
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        cases = {i: (json.dumps(dict(case, id=i, head=h), indent=2) + "\n").encode()
+                 for i, h in (("poc-one", "1" * 40), ("poc-two", "2" * 40))}
+        self.set(cases)
+        self.step(job.plan)
+        heads = Heads(refused={"2" * 40})
+        self.assertEqual(self.step(job.fetch, self.home(cases), heads), "fetched 1 of 2 cases")
+        repo = case["facts"]["item"]["repo"]
+        self.assertEqual(heads.asked, [("/repos/%s/tarball/%s" % (repo, "1" * 40), True, github_tarred()),
+                                       ("/repos/%s/tarball/%s" % (repo, "2" * 40), True, github_tarred())])
+        place = self.temp / "heldout"
+        self.assertEqual(json.loads((place / "fetched.json").read_text()), {"poc-one": None, "poc-two": "head_unreadable"})
+        self.assertEqual(sorted(p.name for p in (place / "heads").iterdir()), ["poc-one"])
+        self.assertTrue((place / "heads" / "poc-one" / "README.md").is_file())
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        kept_plan = json.loads((place / "plan.json").read_text())
+        (place / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
+        self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
+        asked, = cli.asked()
+        self.assertEqual(pathlib.Path(asked["head"]).parts[-2:], ("heads", "poc-one"))
+        self.assertFalse((place / "heads" / "poc-one").exists(), "removed once its case is asked")
+        report = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual({c["id"]: c["reasons"] for c in report["cases"]}["poc-two"], ["head_unreadable"])
+        self.assertIn("head_unreadable", job.ENGINE_FAULTS)
+        self.assertEqual(self.step(job.judge.step if hasattr(job.judge, "step") else job.judge), "engine_fault")
+        # The fetch step's own transport for the heads sends no token: the home's is never sent anywhere else.
+        import importlib
+        from adapters import github
+        fetching = importlib.import_module("harness.eval.fetch")
+        made = []
+        with mock.patch.object(fetching, "fetch", lambda env, root, work, home, heads: made.append((home, heads)) or "x"):
+            fetching.step({"HELDOUT_TOKEN": "a-stand-in-held-out-token"}, self.root, self.work)
+        (home, anonymous), = made
+        self.assertIsNone(anonymous._token)
+        self.assertIsInstance(anonymous, github.Live)
 
     def test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run(self):  # issue 309, ruling 5
         # Through the step as the workflow runs it: each case's Task names the Release the dispatch named, which plan

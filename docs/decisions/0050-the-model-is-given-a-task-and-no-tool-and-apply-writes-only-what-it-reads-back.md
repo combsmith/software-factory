@@ -1,10 +1,6 @@
 # 0050. The model is given a Task and no tool, and apply writes only what it reads back
 
-Status: accepted. Taken as working rulings on 2026-10-21, which the Maintainer may overturn in review, for
-"Harness: run and apply for the review Intent, and the model holds no credential that can write" (issue 194). It reopens
-`docs/decisions/0033-the-factorys-model-credential-is-for-now-the-maintainers-own-subscription-and-a-trial-of-a-vendors-cli-records-no-repo.md`,
-as that decision asked of slice 1's CI credential. Its first pull request holds the `run` job; the second, `apply`, and the
-third, the Role, add rows here. Its amendment of 2026-10-22 adds the change and moves the credential to the org.
+Status: replaced by `docs/decisions/0138-the-review-reads-the-pull-requests-head-with-the-read-tools-alone-held-to-it-by-restricted.md`.
 
 ## Decision
 

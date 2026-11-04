@@ -108,6 +108,7 @@
                 "engine_timeout",
                 "task_too_large",
                 "rubric_unreadable",
+                "head_unreadable",
                 "answer_off_rubric",
                 "result_not_completed",
                 "finding_not_raised",

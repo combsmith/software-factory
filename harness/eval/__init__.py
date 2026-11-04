@@ -5,7 +5,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
 - `plan` reads the set's manifest at the commit and the Release the dispatch names; a set of no case ends the run here,
   `eval_set_empty`, before any credential is used (ruling 8);
 - `fetch` reads each case from the private home through `adapters/heldout.py`, with the Maintainer's read-only token, into
-  a scratch directory outside the workspace, on a runner thrown away when the job ends;
+  a scratch directory outside the workspace, on a runner thrown away when the job ends, and each case's head, the
+  commit its diff was taken at, as its tarball with no credential, unpacked by hand beside it (decision 0138);
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: the
@@ -24,6 +25,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import sys
 import time
 
@@ -212,10 +214,33 @@ def seen_of(review) -> dict:
     return said
 
 
-def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> str:
+def head_of(data: bytes, place: pathlib.Path, ident: str, transport):
+    """The head a case names, its tarball read through `transport` and unpacked into `heads/` under its id, or the code
+    `head_unreadable` when it cannot be read or unpacked whole; None, and nothing read, for a case with no head to read,
+    which its schema refuses after (decision 0138). Nothing of the head is printed or kept but its files there."""
+    from harness import head
+    try:
+        case = json.loads(data)
+        repo, sha = case["facts"]["item"]["repo"], case["head"]
+    except (ValueError, TypeError, KeyError, RecursionError):
+        return None
+    if not (isinstance(sha, str) and COMMIT.fullmatch(sha) and isinstance(repo, str)):
+        return None
+    folder = place / "heads"
+    folder.mkdir(mode=0o700, exist_ok=True)
+    try:
+        head.unpack(head.fetch(transport, repo, sha), sha, within(folder, ident))
+    except (head.Refused, OSError, Stop):
+        shutil.rmtree(str(folder / ident), ignore_errors=True)
+        return "head_unreadable"
+    return None
+
+
+def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, heads=None) -> str:
     """Each case the set names, read from the home into the scratch directory as the bytes its manifest hashed, and
     why each that is not there is not: `fetched.json`, by id, a code or null, and `fetch-causes.json`, by id, what a read
-    that raised raised, by its class and place alone."""
+    that raised raised, by its class and place alone. Each case's head is read through `heads`, with no credential, and
+    a case whose head cannot be read whole is not there either, `head_unreadable`."""
     from adapters import heldout
     _, found, place = _planned(env, root, workspace)
     why, causes = {}, {}
@@ -226,8 +251,10 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
         except Exception as err:
             data, code = None, "unanswered"
             causes[entry["id"]] = cause_of(err)
+        if data is not None and heads is not None:
+            code = head_of(data, place, entry["id"], heads)
         why[entry["id"]] = code
-        if data is not None:
+        if data is not None and code is None:
             path = within(place / "cases", "%s.json" % entry["id"])
             with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
                 out.write(data)
@@ -239,7 +266,7 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
 # The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
 # reviewer's. `result_invalid` stays the reviewer's: an answer that could not be held to its schema (decision 0121).
 ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_failed", "engine_timeout", "task_too_large",
-                 "rubric_unreadable", "no_answer")
+                 "rubric_unreadable", "no_answer", "head_unreadable")
 # What stops a run reaching or trusting a case, whatever the rest of the set read: no bar can be held over it. A case's own
 # fault is another matter, one case not passed, which is the bar's to weigh (decision 0120).
 RUN_FAULTS = ("schema", "not_found", "hash_differs", "too_large", "unanswered")

@@ -349,3 +349,47 @@ def releasing(environ):
             return value
         raise steps.Stop("release_untagged")
     return mock.patch.object(steps, "release", release)
+
+
+def tar_member(name: str, kind: bytes = b"0", body: bytes = b"", raw_name: bytes = None) -> bytes:
+    """One member of a tar archive as GitHub writes one (P-60), its header built by hand: ustar, the checksum its own."""
+    header = bytearray(512)
+    named = raw_name if raw_name is not None else name.encode()
+    header[0:len(named)] = named
+    for at, width, value in ((100, 8, 0o644 if kind != b"5" else 0o755), (108, 8, 0), (116, 8, 0), (124, 12, len(body)),
+                             (136, 12, 0)):
+        header[at:at + width] = b"%0*o\0" % (width - 1, value)
+    header[148:156] = b" " * 8
+    header[156:157] = kind
+    header[257:265] = b"ustar\x0000"
+    header[148:156] = b"%06o\0 " % sum(header)
+    return bytes(header) + body + b"\0" * (-len(body) % 512)
+
+
+def pax(records: dict) -> bytes:
+    """A pax header's records, each `LENGTH KEY=VALUE\\n`, its length counting itself."""
+    out = b""
+    for key, value in records.items():
+        line = (" %s=%s\n" % (key, value)).encode()
+        length = len(line) + 1
+        while len(str(length).encode() + line) != length:
+            length += 1
+        out += str(length).encode() + line
+    return out
+
+
+def tarball(sha: str, members=(("README.md", b"0", b"# a repo\n"),), comment: str = None, top: str = None,
+            gzipped: bool = True) -> bytes:
+    """A commit's tarball as codeload serves one (P-60): a pax global header naming the commit, one folder named for it,
+    then each member `(name, kind, body)` under that folder, and the two end blocks; gzipped unless asked not to be."""
+    import zlib
+    folder = top if top is not None else "combsmith-software-factory-%s" % sha[:7]
+    tar = tar_member("pax_global_header", b"g", pax({"comment": sha if comment is None else comment}))
+    tar += tar_member(folder + "/", b"5")
+    for name, kind, body in members:
+        tar += tar_member(name if name.startswith(("/", "\0")) or top == "" else folder + "/" + name, kind, body)
+    tar += b"\0" * 1024
+    if not gzipped:
+        return tar
+    zipper = zlib.compressobj(9, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
+    return zipper.compress(tar) + zipper.flush()

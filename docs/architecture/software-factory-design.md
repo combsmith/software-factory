@@ -655,6 +655,11 @@ nothing, so nothing that can merely start a workflow can choose what a Run does.
 A Task that contains text of class `outside` or `advisory` is given no shell and no network tool.
 A review needs neither, and text a stranger wrote is exactly what an injection arrives in.
 
+A review reads the pull request's head, read-only (decision 0138): the Harness unpacks its tree at the
+commit its diff was read at, by hand and as data, and starts the CLI there with Read, Grep and Glob
+alone. `--restricted` confines them to that folder; `--setting-sources ""` keeps the head's own
+settings and instructions out (P-59). Its files are data, as every text in the Task is.
+
 Trust classes are `maintainer`, `role`, `advisory` and `outside`. Text of any class is data: it
 cannot change the Task's permissions, limits or result schema.
 
@@ -940,9 +945,10 @@ automatic pause and the Run ceiling bound it, not the attempts
 tell a slow provider from a slow item, and reading `item` would count an outage as an attempt on
 every item. The cost is accepted (issue 433): a Task the model cannot finish in time has up to
 `max_runs_per_item` Runs and not `max_attempts`, its spend unrecorded, and two such items in the
-window can raise the automatic pause, which stops no act. No Run has a tool (decision 0050), so an
-item can slow its Run only by what the model reads. The design that first gives a Run a tool, issue
-314, rules on this again, since an item can then hang its Run. One the CLI ends because the model could not finish,
+window can raise the automatic pause, which stops no act. No Run has a tool that runs; the review reads
+its head with Read, Grep and Glob alone, confined to it by `--restricted` and kept from the head's own settings
+by `--setting-sources ""` (decision 0138, P-59), each read a turn of the tier's, so an item can slow its Run
+only by what the model reads, within the tier's turns and its cost ceiling. One the CLI ends because the model could not finish,
 `error_max_structured_output_retries` or `error_max_turns`, or that its tier's cost ceiling stopped,
 `error_max_budget_usd`, is `no_answer`, an attempt on its item, because words in the item can lead the model there; any
 other way the CLI says it erred stays `environment` (decisions 0122 and 0136). A Run `cancelled`
@@ -956,7 +962,7 @@ as a newer one queues (P-44); a person's cancel of a waiting Run reads the same,
 the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
 port reads as `queued` (`adapters/records.py`). The simulator's lane holds this
 (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`); the outcome of
-a Run that did not succeed is read from its artifact by `adapters/artifacts.py`, through the transport's one redirect. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
+a Run that did not succeed is read from its artifact by `adapters/artifacts.py`, through the transport's redirect for an artifact's download. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
 estimated. One cause must never become fifty Holds.
 
 **The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only the
