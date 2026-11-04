@@ -6,11 +6,11 @@ tool call, `sh ./probe.sh`; to every other request for a message it answers the 
 and answers 404 to any other path. It reads no prompt, keeps no header and logs, a line to a request, only the path
 and what kind of answer it gave, so the trial's markers never reach its log.
 
-Trial P-59 (issue 517's follow-up, the review Role reading the head) gives it a script instead: when the directory it is
-started in holds `calls.json`, `{"calls": [[TOOL, INPUT], ...], "markers": {NAME: TEXT, ...}}`, read again at each
-request, it answers a request that offers any tool with the next call the conversation has no result for yet, and the
-word done once every call has one. Then it also logs, never their text, the tools offered by name, and the names of the
-markers each tool result holds and the rest of the request holds.
+Trial P-59 (the Maintainer's decision of 2026-11-04 that the review Role reads a pull request's head) gives it a script
+instead: when the directory it is started in holds `calls.json`, `{"calls": [[TOOL, INPUT, ...], ...], "markers":
+{NAME: TEXT, ...}}`, read again at each request, it answers a request that offers any tool with the next call the
+conversation has no result for yet, and the word done once every call has one. Then it also logs, never their text, the
+tools offered by name, and the names of the markers each tool result holds and the rest of the request holds.
 
     (cd DIR && python3 -I tools/trial_p50_stub.py)
 

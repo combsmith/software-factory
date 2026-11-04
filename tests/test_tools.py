@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.parse
 import zlib
 from unittest import mock
 
@@ -5252,31 +5253,46 @@ class Trials(unittest.TestCase):
 
     def test_the_read_tools_on_a_linux_runner_are_held_to_their_folder_only_with_both_flags(self):
         # trials/P-59.json: the analysis is read again from the job's log, the files the canary ran are the ones in
-        # tools/, and the pass follows: with --restricted and --setting-sources "" no read reached outside the folder, no
-        # setting of the head's ran and its CLAUDE.md was not sent; without them, each of those happened.
+        # tools/, and the pass follows. With --restricted and --setting-sources "", every call outside the folder was
+        # refused, no marker reached the model, no setting of the head's ran and its CLAUDE.md was not sent; with
+        # --restricted alone the same; with --setting-sources "" alone the reads reached outside; with neither, each of
+        # those happened.
         p59 = json.loads((ROOT / "trials" / "P-59.json").read_text())
-        log, analysis = p59["exchanges"][8]["response"]["body"], p59["exchanges"][-1]["response"]["body"]
+        log, analysis = p59["exchanges"][-2]["response"]["body"], p59["exchanges"][-1]["response"]["body"]
         said = [m.group(1) if m else "" for m in (re.match(r"^[^\t]*\t[^\t]*\t\S+Z (.*)$", line) for line in log.splitlines())]
         start, end = said.index("{"), len(said) - 1 - said[::-1].index("}")
         self.assertEqual(json.loads("\n".join(said[start:end + 1])), analysis["checked"], "the analysis is what the log printed")
-        for i, name in ((6, "p59/run.sh"), (7, "p59/stub.py")):
-            self.assertEqual(p59["exchanges"][i]["response"]["body"]["sha"], analysis["copied_whole"][name]["canary"])
-            self.assertEqual(len(set(analysis["copied_whole"][name].values())), 1, name + " ran as it was in tools/")
+        for name, tools_file in (("p59/run.sh", "tools/trial_p59_read_confinement.sh"), ("p59/stub.py", "tools/trial_p50_stub.py")):
+            copied = analysis["copied_whole"][name]
+            self.assertEqual(sorted(copied), ["canary", tools_file], name)
+            blob = subprocess.run(["git", "hash-object", str(ROOT / tools_file)], capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual((copied["canary"], copied[tools_file]), (blob, blob), name + " ran as it is in tools/")
         checked = analysis["checked"]
         self.assertEqual(checked["version"], {"pinned": "2.1.306", "before": "2.1.306", "after": "2.1.306"})
-        engine, unguarded = checked["configurations"]["engine"], checked["configurations"]["unguarded"]
-        for part in (engine, unguarded):
-            self.assertEqual((part["exit"], part["answer"]["is_error"], [c["tool"] for c in part["calls"] if c["error"] is False][0]),
-                             (0, False, "Read"))
-            self.assertTrue(all(c["error"] for c in part["calls"] if c["tool"] in ("Bash", "Write")))
-        outside = [c for c in engine["calls"][1:] if c["at"] not in ("HEAD",)]
-        self.assertTrue(all(c["error"] is True and c["markers"] == [] for c in outside), "every read outside was refused")
-        self.assertEqual((engine["escaped"], engine["markers_elsewhere_in_requests"], any(engine["left_by_the_head"].values())),
-                         ([], [], False))
-        self.assertEqual(unguarded["escaped"], ["ENVIRON", "HOME", "OUTSIDE"])
-        self.assertEqual(unguarded["markers_elsewhere_in_requests"], ["INSTRUCTIONS"])
-        self.assertEqual({k for k, v in unguarded["left_by_the_head"].items() if v}, {"hooked-pre", "hooked-start", "helper"})
-        self.assertEqual((engine["holds"]["passes"], unguarded["holds"]["passes"], checked["passes"]), (True, False, True))
+        parts = checked["configurations"]
+        self.assertEqual(sorted(parts), ["engine", "restricted", "sources", "unguarded"])
+        for name, part in parts.items():
+            calls = part["calls"]
+            self.assertEqual((part["exit"], part["answer"]["is_error"], len(calls)), (0, False, 24), name)
+            self.assertEqual(calls[0], {"tool": "Read", "at": "HEAD/inside.txt", "outside": False, "error": False, "markers": ["INSIDE"]}, name)
+            writes = [c for c in calls if c["tool"] in ("Bash", "Write")]
+            self.assertEqual((len(writes), all(c["error"] is True for c in writes)), (3, True), name)
+            self.assertEqual(part["offered"], ["DeferredToolPlaceholder", "Glob", "Grep", "Read"], name)
+        for name in ("engine", "restricted"):
+            outside = [c for c in parts[name]["calls"] if c["outside"]]
+            self.assertEqual(len(outside), 18, name)
+            self.assertEqual([c["at"] for c in outside if c["error"] is not True or c["markers"]], [], name + ": every read outside refused")
+            self.assertEqual((parts[name]["escaped"], parts[name]["markers_elsewhere_in_requests"]), ([], []), name)
+            self.assertFalse(any(parts[name]["left_by_the_head"].values()), name)
+            self.assertTrue(parts[name]["holds"]["passes"], name)
+        self.assertEqual([k for k, v in parts["sources"]["holds"].items() if v is False and k != "passes"],
+                         ["every_outside_call_refused", "nothing_outside_read"], "--setting-sources alone confines nothing")
+        self.assertFalse(any(parts["sources"]["left_by_the_head"].values()), "but keeps the head's settings out")
+        self.assertEqual(parts["sources"]["markers_elsewhere_in_requests"], [])
+        self.assertEqual({k for k, v in parts["unguarded"]["left_by_the_head"].items() if v}, {"hooked-pre", "hooked-start", "helper"})
+        self.assertIn("INSTRUCTIONS", parts["unguarded"]["markers_elsewhere_in_requests"])
+        self.assertEqual(sorted(parts["unguarded"]["escaped"]), ["ENVIRON", "HOME", "OUTSIDE"])
+        self.assertEqual((parts["unguarded"]["holds"]["passes"], checked["passes"]), (False, True))
         self.assertEqual(p59["verdict"], "pass")
 
     def test_a_commits_tarball_is_one_redirect_to_codeload_which_never_redirects_over_https(self):
@@ -5290,6 +5306,9 @@ class Trials(unittest.TestCase):
         self.assertEqual((asked["status"], asked["headers"]["location"]),
                          (302, "https://codeload.github.com/%s/legacy.tar.gz/%s" % (p60["repo"], sha)))
         self.assertEqual(served["request"]["call"].split(" ")[3], asked["headers"]["location"])
+        # Every header a fixture keeps is held in lower case, so a name in any case is caught by its lower-case form.
+        for e in ex:
+            self.assertEqual([h for h in list(e["request"]["headers"]) + list(e["response"]["headers"]) if h != h.lower()], [])
         self.assertNotIn("authorization", served["request"]["headers"])
         self.assertEqual((served["response"]["status"], served["response"]["headers"]["content-type"]), (200, "application/x-gzip"))
         self.assertNotIn("content-length", served["response"]["headers"], "the transport bounds what it reads itself")
@@ -5311,12 +5330,23 @@ class Trials(unittest.TestCase):
         self.assertEqual(comment, sha)
         self.assertEqual({n.split("/")[0] for n in names}, {p60["repo"].replace("/", "-") + "-" + sha[:7]})
         self.assertEqual(set(kinds), {"0", "5"}, "regular files and directories alone")
-        for e in ex:
-            if "https://codeload.github.com/" in e["request"]["call"].split(" (")[0]:
-                self.assertNotIn(e["response"]["status"], (301, 302, 303, 307, 308), e["request"]["call"][:80])
-        self.assertEqual((ex[2]["response"]["status"], ex[2]["response"]["headers"]["location"]),
-                         (301, asked["headers"]["location"]), "plain HTTP is the one way codeload redirected")
-        self.assertEqual([ex[5]["response"]["status"], ex[6]["response"]["status"]], [404, 302], "a commit it does not hold")
+        # Each codeload exchange by its address, parsed: none over HTTPS redirected, and plain HTTP redirected to HTTPS.
+        codeload = {}
+        for i, e in enumerate(ex[1:6], 1):
+            address = urllib.parse.urlsplit(e["request"]["call"].split(" ")[3])
+            self.assertEqual(address.hostname, "codeload.github.com", i)
+            codeload[i] = (address.scheme, address.path, e["response"]["status"])
+        self.assertEqual([i for i, (scheme, _, status) in codeload.items() if scheme == "https" and 300 <= status < 400], [])
+        archive = "/%s/legacy.tar.gz/" % p60["repo"]
+        self.assertEqual(codeload[2], ("http", archive + sha, 301))
+        self.assertEqual(ex[2]["response"]["headers"]["location"], asked["headers"]["location"], "to the same address over HTTPS")
+        self.assertEqual(codeload[3], ("https", "/%s/legacy.tar.gz/%s" % (p60["repo"].upper(), sha), 200), "in capitals")
+        self.assertEqual(codeload[4], ("https", archive + "main", 200), "the branch by its name")
+        self.assertEqual(served["response"]["body"], ex[3]["response"]["body"])
+        self.assertEqual(served["response"]["body"], ex[4]["response"]["body"])
+        self.assertEqual(codeload[5], ("https", archive + "0" * 39 + "1", 404), "a commit it does not hold")
+        self.assertEqual(ex[6]["request"]["call"].split(" ")[1], "/repos/%s/tarball/%s" % (p60["repo"], "0" * 39 + "1"))
+        self.assertEqual(ex[6]["response"]["status"], 302, "the API does not read the commit")
         self.assertEqual(p60["verdict"], "pass")
 
     def test_a_sandboxed_tool_on_a_linux_runner_reads_the_parents_environment(self):
@@ -7875,16 +7905,20 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
 class ReadConfinementTrial(unittest.TestCase):
     """`tools/trial_p59_read_confinement.sh` (the review Role reading a pull request's head), run against a stand-in CLI
     that asks P-50's real stub, given P-59's calls, for each call in turn, as the pinned CLI would. It holds the read tools
-    to its working folder only when given both `--restricted` and `--setting-sources`, as the pinned CLI was seen to,
-    and each flag beside it lets one part of the condition fail: the verdict each earns, what each configuration is given,
-    and that nothing it made is left."""
+    to its working folder when given `--restricted`, and keeps the head's settings out given either flag, as the pinned
+    CLI was seen to, and each flag
+    beside it lets one part of the condition fail: the verdict each earns, what each configuration is given, and that
+    nothing it made is left."""
 
     SCRIPT = ROOT / "tools" / "trial_p59_read_confinement.sh"
     STUB = ROOT / "tools" / "trial_p50_stub.py"
     PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
-    # The stand-in CLI. `leak-N` lets the Nth call read outside the folder though the CLI is held; `hooks-run` runs the
-    # head's hook commands, `md` sends its CLAUDE.md, `extra-tool` offers Bash, `write-lands` makes each Write, and
-    # `is-error` says the Task failed. Unheld, as without the two flags, it does all of the first three, as the pin did.
+    # The stand-in CLI. `leak-N` lets the Nth call reach outside the folder though the CLI is held; `context-leak` sends
+    # the outside file's text beside the task; `hooks-run` runs the head's hook commands, `md` sends its CLAUDE.md;
+    # `extra-tool` offers Bash and `late-tool` WebFetch from the second request on; `refuse-inside` refuses every read;
+    # `stop-early` ends after the first call; `bash-runs` answers Bash; `write-lands` makes each Write and says so,
+    # `write-lands-quietly` makes it and says it failed; `is-error` says the Task failed. Unheld, as with neither flag, it
+    # reaches outside, runs the hooks and sends the CLAUDE.md, as the pin did.
     CLI = r'''#!/usr/bin/env python3
 import json, os, pathlib, re, sys, urllib.request
 here = pathlib.Path(__file__).resolve().parent
@@ -7894,14 +7928,18 @@ if args[:1] == ["--version"]:
     print((here / name).read_text().strip() + " (Claude Code)")
     sys.exit(0)
 (here / "asked").write_text("")
-held = "--restricted" in args and "--setting-sources" in args
-which = "engine" if held else "unguarded"
+which = {(True, True): "engine", (True, False): "restricted", (False, True): "sources", (False, False): "unguarded"}[
+    ("--restricted" in args, "--setting-sources" in args)]
+# As the pin was seen to: --restricted alone holds the reads to the folder, and either flag keeps the head's settings
+# and instructions out.
+held, settled = "--restricted" in args, which != "unguarded"
 (here / ("argv-" + which)).write_text(json.dumps(args))
 (here / ("env-" + which)).write_text(json.dumps(dict(os.environ)))
 flags = {p.name for p in here.iterdir()}
 cwd = os.path.realpath(".")
 settings = json.load(open(".claude/settings.json"))
-if not held or "hooks-run" in flags:
+outside = settings["permissions"]["additionalDirectories"][0]
+if not settled or "hooks-run" in flags:
     for command in [h["command"] for e in settings["hooks"].values() for g in e for h in g["hooks"]] + [settings["apiKeyHelper"]]:
         pathlib.Path(re.match(r"touch (\S+)", command).group(1)).touch()
 def post(body):
@@ -7914,13 +7952,15 @@ def inside(path):
     return real == cwd or real.startswith(cwd + os.sep)
 def answer(tool, given, i):
     reach = not held or ("leak-%d" % i) in flags
-    if tool == "Write" and "write-lands" in flags:
+    if tool == "Write" and ("write-lands" in flags or "write-lands-quietly" in flags):
         pathlib.Path(given["file_path"]).write_text(given["content"])
-        return "written", False
+        return "written", "write-lands-quietly" in flags
+    if tool == "Bash" and "bash-runs" in flags:
+        return "ran", False
     if tool not in ("Read", "Grep", "Glob"):
         return "No such tool available: " + tool, True
     path = given.get("file_path") or given.get("path")
-    if not inside(path) and not reach:
+    if "refuse-inside" in flags or (not inside(path) and not reach):
         return "denied: outside the working directories", True
     if path == "/proc/self/environ":
         return "\0".join("%s=%s" % kv for kv in os.environ.items()), False
@@ -7932,15 +7972,18 @@ def answer(tool, given, i):
     except OSError:
         return "no such file", True
     return text if tool == "Read" else "\n".join(l for l in text.splitlines() if given["pattern"] in l) or "No matches found", False
-tools = [{"name": n} for n in ("DeferredToolPlaceholder", "Glob", "Grep", "Read")] + ([{"name": "Bash"}] if "extra-tool" in flags else [])
-told = open("CLAUDE.md").read() if not held or "md" in flags else ""
+told = open("CLAUDE.md").read() if not settled or "md" in flags else ""
+told += open(os.path.join(outside, "secret.txt")).read() if "context-leak" in flags else ""
 results = []
 while True:
+    tools = [{"name": n} for n in ("DeferredToolPlaceholder", "Glob", "Grep", "Read")]
+    tools += [{"name": "Bash"}] if "extra-tool" in flags else []
+    tools += [{"name": "WebFetch"}] if "late-tool" in flags and results else []
     content = [{"type": "text", "text": "the task " + told}] + results
     said = post({"model": "m", "stream": True, "tools": tools, "messages": [{"role": "user", "content": content}]})
     events = [json.loads(line[6:]) for line in said.splitlines() if line.startswith("data: ")]
     start = next(e for e in events if e["type"] == "content_block_start")["content_block"]
-    if start["type"] != "tool_use":
+    if start["type"] != "tool_use" or ("stop-early" in flags and results):
         break
     given = json.loads(next(e for e in events if e["type"] == "content_block_delta")["delta"]["partial_json"])
     text, error = answer(start["name"], given, len(results))
@@ -7960,29 +8003,42 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
         (folder / "claude").chmod(0o755)
         return folder
 
-    def run_script(self, folder) -> tuple:
+    def environment(self) -> tuple:
         home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        temp = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        return home, temp, {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "TMPDIR": str(temp)}
+
+    def run_script(self, folder) -> tuple:
+        home, temp, env = self.environment()
         out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
-        env = {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "TMPDIR": str(pathlib.Path(SCRATCH.name).resolve())}
         ran = subprocess.run(["bash", str(self.SCRIPT), str(out), str(folder / "claude"), str(self.STUB)],
-                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
-        return home, out, ran
+                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=180, stdin=subprocess.DEVNULL)
+        return home, temp, out, ran
 
     def test_the_engine_configuration_is_judged_by_the_condition(self):
-        # (name, flags, after, passes, the engine's part that fails, the markers that escaped)
+        outside = ["every_outside_call_refused", "nothing_outside_read"]
+        # (name, flags, after, passes, the engine's holds that fail, the markers that escaped)
         cases = [
-            ("held to its folder", (), None, True, None, []),
-            ("a read by an absolute path reaches outside", ("leak-1",), None, False, "nothing_outside_read", ["OUTSIDE"]),
-            ("a read through a link reaches outside", ("leak-4",), None, False, "nothing_outside_read", ["OUTSIDE"]),
-            ("its own environ is read", ("leak-6",), None, False, "nothing_outside_read", ["ENVIRON"]),
-            ("the home directory is read", ("leak-10",), None, False, "nothing_outside_read", ["HOME"]),
-            ("a grep outside finds the marker", ("leak-11",), None, False, "nothing_outside_read", ["OUTSIDE"]),
-            ("the head's hooks run", ("hooks-run",), None, False, "no_setting_ran", []),
-            ("the head's CLAUDE.md is sent", ("md",), None, False, "no_instructions_sent", []),
-            ("a tool that runs is offered", ("extra-tool",), None, False, "read_tools_alone", []),
-            ("a write lands", ("write-lands",), None, False, ["no_write_tool", "nothing_written"], []),
-            ("the Task said it failed", ("is-error",), None, False, "answered", []),
-            ("the version moved under the run", (), "9.9.9", False, None, []),
+            ("held to its folder", (), None, True, [], []),
+            ("a read by an absolute path reaches outside", ("leak-1",), None, False, outside, ["OUTSIDE"]),
+            ("a read through a link reaches outside", ("leak-4",), None, False, outside, ["OUTSIDE"]),
+            ("its own environ is read", ("leak-6",), None, False, outside, ["ENVIRON"]),
+            ("the home directory is read", ("leak-11",), None, False, outside, ["HOME"]),
+            ("a grep outside finds the marker", ("leak-12",), None, False, outside, ["OUTSIDE"]),
+            ("a glob lists the outside folder", ("leak-18",), None, False, outside, ["OUTSIDE"]),
+            ("the outside file's text is sent beside the task", ("context-leak",), None, False, ["nothing_outside_read"], ["OUTSIDE"]),
+            ("the head's hooks run", ("hooks-run",), None, False, ["no_setting_ran"], []),
+            ("the head's CLAUDE.md is sent", ("md",), None, False, ["no_instructions_sent"], []),
+            ("a tool that runs is offered", ("extra-tool",), None, False, ["read_tools_alone"], []),
+            ("a tool that runs is offered later", ("late-tool",), None, False, ["read_tools_alone"], []),
+            ("every read is refused, the inside one too", ("refuse-inside",), None, False, ["inside_read"], []),
+            ("the Task ends after its first call", ("stop-early",), None, False,
+             ["every_call_answered", "every_outside_call_refused", "no_write_tool"], []),
+            ("Bash runs", ("bash-runs",), None, False, ["no_write_tool"], []),
+            ("a write lands and says so", ("write-lands",), None, False, ["no_write_tool", "nothing_written"], []),
+            ("a write lands and says it failed", ("write-lands-quietly",), None, False, ["nothing_written"], []),
+            ("the Task said it failed", ("is-error",), None, False, ["answered"], []),
+            ("the version moved under the run", (), "9.9.9", False, [], []),
         ]
 
         def one(case):
@@ -7990,31 +8046,42 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
             return case, (folder,) + self.run_script(folder)
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(one, cases))
-        for (name, flags, after, passes, failing, escaped), (folder, home, out, ran) in results:
+        for (name, flags, after, passes, failing, escaped), (folder, home, temp, out, ran) in results:
             self.assertEqual(ran.returncode, 0, (name, ran.stderr))
             checked = json.loads((out / "checked.json").read_text())
             self.assertEqual(checked["passes"], passes, name)
+            self.assertEqual(sorted(checked["configurations"]), ["engine", "restricted", "sources", "unguarded"], name)
             engine, unguarded = checked["configurations"]["engine"], checked["configurations"]["unguarded"]
-            failing = [failing] if isinstance(failing, str) else failing or []
             self.assertEqual([k for k, v in engine["holds"].items() if v is False and k != "passes"], failing, name)
             self.assertEqual(engine["escaped"], escaped, name)
-            self.assertEqual(engine["calls"][0], {"tool": "Read", "at": "HEAD/inside.txt", "error": False, "markers": ["INSIDE"]}, name)
-            # The unheld configuration, recorded and deciding nothing, shows each escape the probe can see.
+            if "refuse-inside" not in flags:
+                self.assertEqual(engine["calls"][0], {"tool": "Read", "at": "HEAD/inside.txt", "outside": False, "error": False,
+                                                      "markers": ["INSIDE"]}, name)
+            # The configuration with neither flag, recorded and deciding nothing, shows each escape the probe can see,
+            # where the stand-in reads at all.
             self.assertFalse(unguarded["holds"]["passes"], name)
-            self.assertEqual(sorted(unguarded["escaped"]), ["ENVIRON", "HOME", "OUTSIDE"], name)
+            if not set(flags) & {"refuse-inside", "stop-early"}:
+                self.assertEqual(sorted(unguarded["escaped"]), ["ENVIRON", "HOME", "OUTSIDE"], name)
             self.assertFalse(unguarded["holds"]["no_setting_ran"] or unguarded["holds"]["no_instructions_sent"], name)
-            # Nothing it made is left, and no marker reached its output.
+            if not flags and not after:
+                # Each flag alone: --restricted holds the reads; --setting-sources "" keeps the settings out alone.
+                restricted, sources = checked["configurations"]["restricted"], checked["configurations"]["sources"]
+                self.assertTrue(restricted["holds"]["passes"], name)
+                self.assertEqual([k for k, v in sources["holds"].items() if v is False and k != "passes"],
+                                 ["every_outside_call_refused", "nothing_outside_read"], name)
+            # Nothing it made is left, in OUT, the home directory or the temporary one, and no marker reached its output.
             self.assertEqual(sorted(p.name for p in out.iterdir()), ["checked.json"], name)
-            self.assertEqual(list(home.iterdir()), [], name)
+            self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
             self.assertNotRegex(ran.stdout + ran.stderr + (out / "checked.json").read_text(), r"P59[A-Z]+[0-9a-f]{16}", name)
 
-    def test_each_configuration_is_given_the_read_tools_and_only_the_engine_both_flags(self):
+    def test_each_configuration_is_given_the_read_tools_and_its_own_flags(self):
         folder = self.stand_in()
-        home, out, ran = self.run_script(folder)
+        home, temp, out, ran = self.run_script(folder)
         self.assertEqual(ran.returncode, 0, ran.stderr)
-        argv = {n: json.loads((folder / ("argv-" + n)).read_text()) for n in ("engine", "unguarded")}
-        env = {n: json.loads((folder / ("env-" + n)).read_text()) for n in ("engine", "unguarded")}
-        for n in argv:
+        names = ("engine", "restricted", "sources", "unguarded")
+        argv = {n: json.loads((folder / ("argv-" + n)).read_text()) for n in names}
+        env = {n: json.loads((folder / ("env-" + n)).read_text()) for n in names}
+        for n in names:
             a = argv[n]
             self.assertEqual((a[a.index("--tools") + 1], a[a.index("--allowedTools") + 1], a[a.index("--permission-mode") + 1]),
                              ("Read,Grep,Glob", "Read,Grep,Glob", "dontAsk"), n)
@@ -8025,20 +8092,24 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
             self.assertRegex(env[n]["ANTHROPIC_BASE_URL"], r"^http://127\.0\.0\.1:[0-9]{1,5}$")
         engine = argv["engine"]
         self.assertEqual((engine[engine.index("--setting-sources") + 1], "--restricted" in engine), ("", True))
+        self.assertEqual(("--restricted" in argv["restricted"], "--setting-sources" in argv["restricted"]), (True, False))
+        self.assertEqual(("--restricted" in argv["sources"], argv["sources"][argv["sources"].index("--setting-sources") + 1]),
+                         (False, ""))
         self.assertFalse({"--restricted", "--setting-sources"} & set(argv["unguarded"]))
-        self.assertNotEqual(env["engine"]["CLAUDE_CONFIG_DIR"], env["unguarded"]["CLAUDE_CONFIG_DIR"], "a directory each")
+        self.assertEqual(len({env[n]["CLAUDE_CONFIG_DIR"] for n in names}), 4, "a configuration directory each")
 
     def test_the_stub_answers_the_trials_calls_and_logs_only_the_markers_names(self):
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        calls = [["Read", {"file_path": "/a"}], ["Grep", {"pattern": "p", "path": "/b"}]]
+        calls = [["Read", {"file_path": "/a"}, False], ["Grep", {"pattern": "p", "path": "/b"}, True]]
         (folder / "calls.json").write_text(json.dumps({"calls": calls, "markers": {"IN": "NEVER-LOGGED-IN", "OUT": "NEVER-LOGGED-OUT"}}))
         with subprocess.Popen([sys.executable, "-I", str(self.STUB)], cwd=folder,
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as stub:
             try:
                 port = stub.stdout.readline().strip()
                 tools = [{"name": "Read"}, {"name": "Grep"}]
+                # A result as a string, and one as a list of blocks, as the CLI may send either.
                 said = [{"type": "tool_result", "content": "has NEVER-LOGGED-IN", "is_error": False},
-                        {"type": "tool_result", "content": [{"type": "text", "text": "x"}], "is_error": True}]
+                        {"type": "tool_result", "content": [{"type": "text", "text": "has NEVER-LOGGED-OUT"}], "is_error": True}]
                 asks = [("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": "NEVER-LOGGED-OUT"}]}),
                         ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": said[:1]}]}),
                         ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": said}]}),
@@ -8056,21 +8127,24 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
         lines = [json.loads(line) for line in log.splitlines()]
         self.assertEqual([(l["offered"], l["found"], l["elsewhere"]) for l in lines],
                          [(["Grep", "Read"], [], ["OUT"]), (["Grep", "Read"], [["IN"]], []),
-                          (["Grep", "Read"], [["IN"], []], []), ([], [], [])])
+                          (["Grep", "Read"], [["IN"], ["OUT"]], []), ([], [], [])])
         self.assertEqual(lines[2]["result_error"], [False, True])
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder = self.stand_in()
         taken = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        for name, args, said in [("OUT exists", (str(taken),), "exists; name a new directory"),
-                                 ("no stub", ("out", "--stub", "/nonexistent/stub.py"), "no stub at")]:
-            stub = args[2] if len(args) > 1 else str(self.STUB)
-            ran = subprocess.run(["bash", str(self.SCRIPT), args[0], str(folder / "claude"), stub],
+        for name, out, cli, stub, said in [
+                ("OUT exists", str(taken), folder / "claude", self.STUB, "exists; name a new directory"),
+                ("no CLI", "out", folder / "missing", self.STUB, "no CLI at"),
+                ("no stub", "out", folder / "claude", pathlib.Path("/nonexistent/stub.py"), "no stub at")]:
+            home, temp, env = self.environment()
+            ran = subprocess.run(["bash", str(self.SCRIPT), out, str(cli), str(stub)],
                                  cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,
-                                 timeout=60, stdin=subprocess.DEVNULL)
+                                 env=env, timeout=60, stdin=subprocess.DEVNULL)
             self.assertEqual(ran.returncode, 2, name)
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
+            self.assertEqual((list(home.iterdir()), list(temp.iterdir())), ([], []), name)
 
 
 class PauseReadTrial(unittest.TestCase):
