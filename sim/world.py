@@ -1367,13 +1367,18 @@ class World:
     def edited_since_approval(self) -> bool:
         """Whether the description was edited at or after the machine user's first approval since the Maintainer last
         looked, or, where none has come since but one came before, the look itself, in the world's own words. A look is
-        any person's approval, the Maintainer's or a colleague's; one a person dismissed since is taken back."""
+        any person's approval, the Maintainer's or a colleague's; one a person dismissed since is taken back. As the
+        Kernel reads it (`kernel/derive.py`'s `description_anchor`), a look after the edit clears it."""
         looks = [rv["submitted_at"] for rv in self.reviews if self.is_person(rv["by"])
                  and "approved" in (rv["state"], rv["dismissed_from"])
                  and not (rv["dismissed_by"] is not None and self.is_person(rv["dismissed_by"]))]
         machine = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == CONFIG["approver"]
                    and "approved" in (rv["state"], rv["dismissed_from"])]
-        look = max(looks) if looks else None
+        if any(look > self.edited for look in looks):
+            return False
+        # A look in the edit's second saw nothing of it: only a look before the edit moves the anchor.
+        before = [look for look in looks if look < self.edited]
+        look = max(before) if before else None
         since = [at for at in machine if look is None or at >= look]
         anchor = min(since) if since else (look if machine else None)
         return anchor is not None and self.edited >= anchor

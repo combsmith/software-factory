@@ -515,16 +515,18 @@ class Simulation(unittest.TestCase):
 
         def review(by, at, dismissed_by=None):
             return {"by": dict(by), "state": "dismissed" if dismissed_by else "approved", "commit": "c1",
-                    "content_id": "sha256:c1", "submitted_at": world.World.at(at), "dismissed_by":
+                    "content_id": "sha256:00c1", "submitted_at": world.World.at(at), "dismissed_by":
                     dict(dismissed_by) if dismissed_by else None, "dismissed_from": "approved" if dismissed_by else None}
 
         machine, person, colleague = world.MACHINE, world.MAINTAINER, world.COLLEAGUE
         for reviews, edited, held in (
                 ([review(machine, 15)], 20, True),
+                ([review(machine, 15), review(machine, 25)], 20, True),
                 ([review(machine, 15), review(colleague, 25)], 20, False),
                 ([review(machine, 15), review(person, 25, dismissed_by=colleague)], 20, True),
                 ([review(machine, 15), review(person, 25, dismissed_by=world.REVIEWER_APP)], 20, False),
                 ([review(machine, 5), review(person, 10)], 12, True),
+                ([review(machine, 5), review(person, 10), review(machine, 15)], 10, True),
                 ([review(person, 10)], 12, False),
                 ([review(machine, 15)], 10, False)):
             w = World(1, faults=False, people=False)
