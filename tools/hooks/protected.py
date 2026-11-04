@@ -1773,6 +1773,8 @@ def check(payload: dict, env: dict, data: dict = None, source: pathlib.Path = RO
         if not isinstance(command, str):
             return [("command_unreadable", "the Bash call carries no command")]
         return list(dict.fromkeys(Command(command, payload.get("cwd"), rules, data, env).read()))
+    except RecursionError:      # nested past Python's own depth, "$( "$( ... )" )" (Astra on #520)
+        return [("command_unreadable", "the command is nested deeper than the hook reads")]
     except Spent:
         return [("budget_spent", "the hook ran out of its %d seconds reading this, so it cannot clear it" % seconds)]
 

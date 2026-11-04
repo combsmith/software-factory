@@ -6,6 +6,12 @@ tool call, `sh ./probe.sh`; to every other request for a message it answers the 
 and answers 404 to any other path. It reads no prompt, keeps no header and logs, a line to a request, only the path
 and what kind of answer it gave, so the trial's markers never reach its log.
 
+Trial P-59 (the Maintainer's decision of 2026-11-04 that the review Role reads a pull request's head) gives it a script
+instead: when the directory it is started in holds `calls.json`, `{"calls": [[TOOL, INPUT, ...], ...], "markers":
+{NAME: TEXT, ...}}`, read again at each request, it answers a request that offers any tool with the next call the
+conversation has no result for yet, and the word done once every call has one. Then it also logs, never their text, the
+tools offered by name, and the names of the markers each tool result holds and the rest of the request holds.
+
     (cd DIR && python3 -I tools/trial_p50_stub.py)
 
 It takes no argument and opens no path it is given: it logs to stub.log in the directory it is started in, listens on a
@@ -17,26 +23,51 @@ import os
 import sys
 
 COMMAND = "sh ./probe.sh"
+SCRIPT = "calls.json"
 calls = [0]
 
 
-def blocks(kind: str, n: int) -> list:
-    """The content of the answer: the one tool call, or the word done."""
+def script():
+    """P-59's calls and markers, from SCRIPT in the directory the stub runs in, or None: P-50's one call."""
+    try:
+        with open(SCRIPT) as f:
+            held = json.load(f)
+    except (OSError, ValueError):
+        return None
+    ok = isinstance(held, dict) and isinstance(held.get("calls"), list) and isinstance(held.get("markers"), dict)
+    return held if ok else None
+
+
+def text_of(block) -> str:
+    """What a tool result or a message says, as text, for the markers alone: it is never logged."""
+    content = block.get("content") if isinstance(block, dict) else block
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(text_of(c) if isinstance(c, dict) and "content" in c else str(c.get("text", ""))
+                        for c in content if isinstance(c, dict))
+    return ""
+
+
+def blocks(kind: str, n: int, call=None) -> list:
+    """The content of the answer: the one tool call, the script's next call, or the word done."""
+    if kind == "tool_use" and call is not None:
+        return [{"type": "tool_use", "id": "toolu_p59_%d" % n, "name": str(call[0]), "input": call[1]}]
     if kind == "tool_use":
         return [{"type": "tool_use", "id": "toolu_p50_%d" % n, "name": "Bash",
                  "input": {"command": COMMAND, "description": "Run the trial's probe"}}]
     return [{"type": "text", "text": "done"}]
 
 
-def message(kind: str, n: int, model: str) -> dict:
+def message(kind: str, n: int, model: str, call=None) -> dict:
     return {"id": "msg_p50_%d" % n, "type": "message", "role": "assistant", "model": model,
-            "content": blocks(kind, n), "stop_reason": "tool_use" if kind == "tool_use" else "end_turn",
+            "content": blocks(kind, n, call), "stop_reason": "tool_use" if kind == "tool_use" else "end_turn",
             "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}}
 
 
-def events(kind: str, n: int, model: str) -> list:
+def events(kind: str, n: int, model: str, call=None) -> list:
     """The same answer as the stream of server-sent events the API sends for `"stream": true`."""
-    whole = message(kind, n, model)
+    whole = message(kind, n, model, call)
     out = [("message_start", {"type": "message_start", "message": dict(whole, content=[], stop_reason=None)})]
     for i, block in enumerate(whole["content"]):
         if block["type"] == "tool_use":
@@ -70,6 +101,33 @@ def kind_of(body: dict) -> str:
     messages = body.get("messages") if isinstance(body.get("messages"), list) else []
     answered = any(kind in ("tool_use", "tool_result") for m in messages for kind in types(m))
     return "tool_use" if offers and not answered else "text"
+
+
+def results_of(body: dict) -> list:
+    messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+    return [c for m in messages if isinstance(m, dict) and isinstance(m.get("content"), list)
+            for c in m["content"] if isinstance(c, dict) and c.get("type") == "tool_result"]
+
+
+def next_call(body: dict, held):
+    """The script's call this request is answered with, or None: done, once every call has its result, or no tool is
+    offered."""
+    done = len(results_of(body))
+    return held["calls"][done] if body.get("tools") and done < len(held["calls"]) else None
+
+
+def seen(body: dict, held) -> dict:
+    """What P-59 logs of a request beside its shape: the tools offered, by name, and the names of the markers each
+    tool result holds and the rest of the request holds. Never a text."""
+    marks = {k: v for k, v in held["markers"].items() if isinstance(k, str) and isinstance(v, str) and v}
+
+    def named(text):
+        return sorted(k for k, v in marks.items() if v in text)
+    rest = dict(body, messages=[dict(m, content=[c for c in m["content"] if not (isinstance(c, dict) and c.get("type") == "tool_result")])
+                                if isinstance(m, dict) and isinstance(m.get("content"), list) else m
+                                for m in body.get("messages") or []])
+    return {"offered": sorted(str(t.get("name"))[:40] for t in body.get("tools") or [] if isinstance(t, dict)),
+            "found": [named(text_of(c)) for c in results_of(body)], "elsewhere": named(json.dumps(rest))}
 
 
 def shape(body: dict) -> dict:
@@ -125,17 +183,19 @@ class Stub(http.server.BaseHTTPRequestHandler):
             return self.do_GET()
         calls[0] += 1
         n = calls[0]
-        kind = kind_of(body)
+        held = script()
+        call = next_call(body, held) if held else None
+        kind = ("tool_use" if call is not None else "text") if held else kind_of(body)
         model = body.get("model") if isinstance(body.get("model"), str) and len(body["model"]) < 80 else "p50-stub"
         stream = body.get("stream") is True
-        self.note(answer=kind, stream=stream, n=n, **shape(body))
+        self.note(answer=kind, stream=stream, n=n, **shape(body), **(seen(body, held) if held else {}))
         if not stream:
-            return self.send(200, message(kind, n, model))
+            return self.send(200, message(kind, n, model, call))
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        for name, data in events(kind, n, model):
+        for name, data in events(kind, n, model, call):
             self.wfile.write(("event: %s\ndata: %s\n\n" % (name, json.dumps(data))).encode())
         self.wfile.flush()
         self.close_connection = True
