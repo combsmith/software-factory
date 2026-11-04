@@ -3414,9 +3414,46 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.lint(other), "job verify is granted actions: write"))
         self.assertEqual(check_workflows.lint(check_workflows.RUN_SHIM % 41898282), [])
         self.assertEqual([p for p in check_workflows.lint(good) if p[0] == "permissions"], [])
-        for job, homes in (("wake", "run-jobs.yml and approve-job.yml"), ("lane", "run.yml and approve.yml")):
+        for job, homes in (("wake", "run-jobs.yml and approve-job.yml and queue-job.yml"),
+                           ("lane", "run.yml and approve.yml and queue.yml")):
             text = "name: x\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  %s:\n    runs-on: ubuntu-24.04\n" % job
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "the job %s is reserved for %s" % (job, homes)), job)
+
+    def test_the_queue_acts_job_holds_its_key_the_jobs_reads_and_the_pause_word_for_word(self):  # issue 381
+        act = (self.LIVE / "queue-job.yml").read_text()
+        self.assertEqual(check_workflows.queue_job_problems(act), [])
+        self.assertEqual(check_workflows.shim_problems("queue-job.yml", act), [])
+        # Its wake is the approving act's, but for the job it waits on, and holds nothing.
+        approving = (self.LIVE / "approve-job.yml").read_text()
+        self.assertEqual(act[act.index("  wake:\n"):].replace("      - queue\n", ""),
+                         approving[approving.index("  wake:\n"):].replace("      - approve\n", ""))
+        self.assertEqual(check_workflows.wake_problems(check_workflows.read(act)[0]), [])
+        broken = {
+            "the job's token writes": act.replace("      actions: read\n      contents: read\n", "      actions: write\n      contents: read\n"),
+            "no read of the record": act.replace("      actions: read\n      contents: read\n", "      contents: read\n"),
+            "no Pause read": act.replace("          FACTORY_PAUSED: ${{ vars.FACTORY_PAUSED }}\n", ""),
+            "another key beside": act.replace("          QUEUE_APP_KEY: ${{ secrets.QUEUE_APP_KEY }}\n",
+                                              "          QUEUE_APP_KEY: ${{ secrets.QUEUE_APP_KEY }}\n          K: ${{ secrets.APPROVER_TOKEN }}\n"),
+            "another environment": act.replace("environment: factory-queue", "environment: factory-approve"),
+            "the item's code checked out": act.replace("          ref: ${{ job.workflow_sha }}\n", "          ref: ${{ inputs.item }}\n"),
+            "an outcome a failure skips": act.replace("      - name: Leave the Run's outcome\n        if: always()\n",
+                                                      "      - name: Leave the Run's outcome\n"),
+            "no wake": act[:act.index("  wake:\n")],
+        }
+        for why, text in broken.items():
+            self.assertNotEqual(text, act, why)
+            self.assertTrue(caught(check_workflows.shim_problems("queue-job.yml", text), "the queue act's one job"), why)
+        # The shim that calls it, which may hold the lane's write, runs on a dispatch alone and only once its hash is
+        # recorded: on a pull request it would run a branch's code with that write, as approve.yml would.
+        lane = ("name: x\non:\n  %s:\npermissions: {}\njobs:\n  lane:\n    permissions:\n      actions: write\n"
+                "    uses: combsmith/software-factory/.github/workflows/queue-job.yml@factory/v0-next\n")
+        for shim in ("queue.yml", "approve.yml"):
+            self.assertTrue(caught(check_workflows.shim_problems(shim, lane % "pull_request"), "a shim on workflow_dispatch alone"), shim)
+            self.assertTrue(caught(check_workflows.shim_problems(shim, lane % "workflow_dispatch"), "a shim is held word for word"), shim)
+        # Its key and environment are its alone: another file that names either is refused, and it names no other.
+        for text in ("  K: ${{ secrets.QUEUE_APP_KEY }}\n", "    environment: factory-queue\n"):
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
+                                   "which only queue-job.yml names"), text)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
         good = (self.LIVE / "run-jobs.yml").read_text()
