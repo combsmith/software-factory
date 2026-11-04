@@ -12,7 +12,7 @@ Not built yet, by the stories that hold their rules: push.py.
 | A text's trust class is read from who wrote it, never from the text; an issue's is `outside` | `tests/test_harness.py::test_each_text_is_labelled_by_who_wrote_it_never_by_the_text` |
 | A Task keeps each text whole or leaves it out, the Maintainer's first, and says what it left out and how much | `tests/test_harness.py::test_a_task_says_what_it_left_out_and_how_much` |
 | The CLI is given exactly the named environment: the scrub set, the credential under its one name, no other secret | `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential` |
-| The CLI is given no tool, the Task as data after a fixed instruction, and the Task's limits | `tests/test_harness.py::test_the_cli_is_given_no_tool` |
+| The CLI is given no tool, or a review the read tools alone held to its head (decision 0138), the Task as data after a fixed instruction, and the Task's limits | `tests/test_harness.py::test_the_cli_is_given_no_tool` |
 | A Task too long for one argument is refused before the CLI starts | `tests/test_harness.py::test_a_task_too_long_for_one_argument_is_refused_before_the_cli_starts` |
 | An issue's Run is found among the issues; an Effect is claimed only from what was read back | `tests/test_harness.py::test_an_issues_run_is_found_among_the_issues`, `tests/test_apply.py::test_an_effect_is_claimed_only_from_what_was_read_back` |
 | The CLI is handed `result/1` resolved, with the Harness's fields removed and status and Effects narrowed | `tests/test_harness.py::test_the_cli_is_handed_result_1_resolved_and_narrowed` |
@@ -21,7 +21,7 @@ Not built yet, by the stories that hold their rules: push.py.
 | An answer that does not validate is a `failed` Result, `result_invalid`; a CLI with no answer is `no_answer`; both with empty lists | `tests/test_harness.py::test_an_answer_that_does_not_validate_is_no_result` |
 | A CLI that fails or runs past its time is a `failed` Result | `tests/test_harness.py::test_a_cli_that_fails_or_runs_past_its_time_is_a_failed_result` |
 | The `run` job writes the Result and its digest; the log carries the digest alone | `tests/test_harness.py::test_the_job_writes_the_result_and_its_digest_and_nothing_else`, `tests/test_harness.py::test_the_log_carries_the_digest_alone` |
-| The CLI starts in an empty directory, with nothing on its input and only its environment | `tests/test_harness.py::test_the_cli_starts_in_an_empty_directory_with_only_its_environment` |
+| The CLI starts in an empty directory, or a review's head, with nothing on its input and only its environment | `tests/test_harness.py::test_the_cli_starts_in_an_empty_directory_with_only_its_environment` |
 | `apply` writes nothing on an item closed, held, paused, moved or no longer admitted for the Run, the Kernel asked again with the Run left out | `tests/test_apply.py::test_a_change_under_the_run_writes_nothing_and_is_superseded` |
 | `apply` writes nothing for a Result not the Run's, not completed or uncovered | `tests/test_apply.py::test_a_result_not_the_runs_or_not_completed_writes_nothing`, `tests/test_apply.py::test_an_uncovered_result_writes_nothing` |
 | `apply` refuses an Effect not permitted, a thread off the item, or a Finding posted other than once or out of place | `tests/test_apply.py::test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing` |

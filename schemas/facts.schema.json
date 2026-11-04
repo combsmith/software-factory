@@ -99,7 +99,7 @@
           "type": "boolean"
         },
         "characters": {
-          "description": "How long the whole diff is as a Task carries it, escaped as JSON, counted from the bytes the content id is the digest of. Absent where GitHub would not serve the diff or its bytes are no UTF-8, which no Task carries; a pull request whose count is absent or past the configuration's max_diff_characters is held too large (issue 327)",
+          "description": "How long the whole diff is as a Task carries it, each line the head holds numbered and escaped as JSON, counted from the bytes the content id is the digest of. Absent where GitHub would not serve the diff or its bytes are no UTF-8, which no Task carries; a pull request whose count is absent or past the configuration's max_diff_characters is held too large (issue 327)",
           "type": "integer",
           "minimum": 0
         }
@@ -172,6 +172,14 @@
         "type": "string",
         "pattern": "^r_[0-9A-Z]{6,26}$"
       }
+    },
+    "description_edited_at": {
+      "description": "When the pull request's description was last edited, the latest `editedAt` among its `userContentEdits`, whoever edited it (trials/P-58.json), or null if never. Keyed on `editedAt`, since the opening text's entry is created only with the first later edit. Absent, it reads as null: the port does not read it yet, so the rule it serves holds nothing until it does (decision 0135)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "last_reopened_at": {
       "description": "When the pull request was last reopened, from its timeline's `reopened` event (trials/P-7.reopened.json), or null if it never was. An approval submitted before it does not stand (issue 378)",

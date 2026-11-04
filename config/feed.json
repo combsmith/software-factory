@@ -263,6 +263,21 @@
       ]
     },
     {
+      "reason": "description_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "description_edited_after_approval",
+      "question": "description_edited_after_approval",
+      "choices": [
+        "approve",
+        "close"
+      ]
+    },
+    {
       "reason": "acceptance_reporters_unreadable",
       "question": "fact_unreadable",
       "choices": [

@@ -5,18 +5,23 @@ answer and on a recorded one.
 
 `Live` sends HTTPS to api.github.com alone: it follows no redirect, uses no proxy, takes its token from its caller and
 never from the environment, sets a timeout on every request, bounds every answer, and keeps no body anywhere but in the
-answer it returns. One redirect is followed, and one only (decision 0045, the Maintainer's ruling on #192): an
-artifact's download, `download(path)`, from that endpoint alone, to GitHub's artifact storage alone, over HTTPS, with
-no token sent there and its body bounded far tighter: 64 KiB, or 1 MiB for a pass record, the one artifact its reader
-asks the wider bound for (decision 0045's row of #196). The address it is sent to carries a signature, and is never put
-in an error or kept. A body that is not JSON is text decoded without loss, so its bytes are what any hash is taken over. `Replay`
+answer it returns. Two redirects are followed, each from one endpoint alone, once, over HTTPS, with no token sent on:
+an artifact's download, `download(path)`, to GitHub's artifact storage alone (decision 0045, the Maintainer's ruling on
+#192), its body bounded far tighter, 64 KiB, or 1 MiB for a pass record, the one artifact its reader asks the wider
+bound for (decision 0045's row of #196); and a commit's tarball, `tarball(path)`, to codeload.github.com alone, at the
+archive of that repo and that commit (decision 0138, the Maintainer's "Tarball, allow codeload", 2026-11-04; P-60),
+bounded at 32 MiB. A redirect from either is refused: there is no second hop. The address it is sent to can carry a
+signature, and is never put in an error or kept. `Live.anonymous()` sends no token, and a commit's tarball alone. A body
+that is not JSON is text decoded without loss, so its bytes are what any hash is taken over. `Replay`
 answers from a fixture's exchanges in the order they were recorded, each once, matched by method, path, Accept and the
 whole body, a GraphQL query's variables among it, and refuses anything else: it never answers with an empty default
-(L-51). It refuses a redirect as `Live` does, and follows an artifact's download as `Live` does, to the storage exchange
-recorded next.
+(L-51). It refuses a redirect as `Live` does, and follows an artifact's download or a tarball as `Live` does, to the
+exchange recorded next: the storage's, or codeload's, which a trial records as its command line (P-60). A body a trial
+kept as `{"base64": ...}`, since a fixture is JSON and an archive is not text, is answered as `Live` answers those bytes.
 """
 from __future__ import annotations
 
+import base64
 import http.client
 import json
 import re
@@ -40,6 +45,11 @@ STORED_UNDER = "/actions-results/"
 STORED = 64 * 1024              # bytes an artifact's download may hold: an outcome is a few bytes, zipped
 PASSED = 1024 * 1024            # bytes a pass record's download may hold, zipped: its facts for every open item
 BOUNDS = (STORED, PASSED)       # the only bounds a download is asked under
+# The other redirect followed: a commit's tarball, by its whole sha, to codeload alone (decision 0138, P-60).
+# An owner or a repo is never `.` or `..`, which a URL would read as a step up the API's own paths.
+TARBALL = re.compile(r"/repos/((?!\.{1,2}/)[A-Za-z0-9_.-]{1,100})/((?!\.{1,2}/)[A-Za-z0-9_.-]{1,100})/tarball/([0-9a-f]{40})")
+CODELOAD = "codeload.github.com"
+TARRED = 32 * 1024 * 1024       # bytes a tarball may hold, gzipped: this repo's head is under 5 MiB
 REDIRECTS = {301, 302, 303, 307, 308}
 
 
@@ -63,8 +73,9 @@ EXTRA = {"Cache-Control", "If-None-Match"}
 def request(method: str, path: str, accept: str = JSON, body=None, headers=None, follow: bool = False,
             bound=None) -> dict:
     """A request by its method and its path from the API's root, with its query, its Accept, a JSON body or none, and
-    at most the headers `EXTRA` names, each one line. `follow` is an artifact's download alone, and `bound` the bytes it
-    may hold, one of `BOUNDS`, `STORED` unless asked: see `download`."""
+    at most the headers `EXTRA` names, each one line. `follow` is an artifact's download or a commit's tarball alone, and
+    `bound` the bytes it may hold: one of `BOUNDS`, `STORED` unless asked, for a download, and `TARRED` for a tarball.
+    See `download` and `tarball`."""
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         raise Unanswered("a request needs an HTTP method, not %r" % (method,))
     parts = urllib.parse.urlsplit(path)
@@ -76,14 +87,21 @@ def request(method: str, path: str, accept: str = JSON, body=None, headers=None,
             raise Unanswered("a request may add %s alone, each one line" % ", ".join(sorted(EXTRA)))
     built = {"method": method, "path": path, "accept": accept, "body": body, "headers": extra}
     if follow is not False:
-        if follow is not True or method != "GET" or body is not None or extra or not ARTIFACT.fullmatch(path):
-            raise Unanswered("only an artifact's download follows its redirect, a GET of %s alone" % ARTIFACT.pattern)
-        bound = STORED if bound is None else bound
-        if type(bound) is not int or bound not in BOUNDS:
-            raise Unanswered("an artifact's download is bounded at %s bytes alone" % " or ".join(map(str, BOUNDS)))
+        tarred = TARBALL.fullmatch(path) is not None
+        if follow is not True or method != "GET" or body is not None or extra or not (tarred or ARTIFACT.fullmatch(path)):
+            raise Unanswered("only an artifact's download or a commit's tarball follows its redirect, a GET of %s or %s "
+                             "alone" % (ARTIFACT.pattern, TARBALL.pattern))
+        if tarred:
+            bound = TARRED if bound is None else bound
+            if type(bound) is not int or bound != TARRED:
+                raise Unanswered("a tarball is bounded at %d bytes alone" % TARRED)
+        else:
+            bound = STORED if bound is None else bound
+            if type(bound) is not int or bound not in BOUNDS:
+                raise Unanswered("an artifact's download is bounded at %s bytes alone" % " or ".join(map(str, BOUNDS)))
         built["follow"], built["bound"] = True, bound
     elif bound is not None:
-        raise Unanswered("only an artifact's download is asked under a bound of its own")
+        raise Unanswered("only an artifact's download or a tarball is asked under a bound of its own")
     return built
 
 
@@ -91,6 +109,35 @@ def download(path: str, bound: int = STORED) -> dict:
     """The request for an artifact's zip, whose one redirect the transport follows to `storage`, its answers bounded at
     `bound` bytes: `STORED`, or `PASSED` for a pass record's alone."""
     return request("GET", path, follow=True, bound=bound)
+
+
+def tarball(path: str) -> dict:
+    """The request for a commit's tarball, `/repos/{owner}/{repo}/tarball/{sha}` with the whole sha, whose one redirect
+    the transport follows to `codeload`, its answer bounded at `TARRED` bytes (decision 0138)."""
+    return request("GET", path, follow=True)
+
+
+def codeload(url, path: str) -> str:
+    """The address a tarball's request redirects to, if it is codeload over HTTPS on its own port, at the archive of the
+    repo and the commit `path` asked for, as P-60 recorded it; refused otherwise. The address is never named in the
+    refusal: for a private repo it can carry a token in its query."""
+    asked, parts = TARBALL.fullmatch(path), None
+    if asked and isinstance(url, str) and url.isascii():
+        try:
+            parts = urllib.parse.urlsplit(url)
+        except ValueError:
+            pass    # refused below, outside the handler, so no error names it
+    if parts is None or parts.scheme != "https" or parts.netloc != CODELOAD or parts.fragment \
+            or any(c in url for c in " \t\r\n\0\\"):
+        raise Unanswered("a tarball redirects off %s, or not over HTTPS" % CODELOAD)
+    if parts.path != "/%s/%s/legacy.tar.gz/%s" % asked.groups():
+        raise Unanswered("a tarball redirects to another repo's archive, or another commit's")
+    return url
+
+
+def onward(path: str, url) -> str:
+    """Where a followed request's one redirect may go: codeload for a tarball, the artifact storage for a download."""
+    return codeload(url, path) if TARBALL.fullmatch(path) else storage(url)
 
 
 def storage(url) -> str:
@@ -153,26 +200,35 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Live:
-    """HTTPS to api.github.com, with the token its caller gives it."""
+    """HTTPS to api.github.com, with the token its caller gives it, or none at all for a commit's tarball alone."""
 
-    def __init__(self, token: str, timeout: int = TIMEOUT):
-        if not isinstance(token, str) or not token or any(c.isspace() for c in token):
+    def __init__(self, token: str, timeout: int = TIMEOUT, anonymous: bool = False):
+        if anonymous is not True and (not isinstance(token, str) or not token or any(c.isspace() for c in token)):
             raise Unanswered("a token is one word, given by the caller")
-        self._token = token
+        self._token = None if anonymous is True else token
         self._timeout = timeout
         # No proxy from the environment, and no redirect: the request goes to the host named, or nowhere.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
                                                   urllib.request.HTTPSHandler)
 
+    @classmethod
+    def anonymous(cls, timeout: int = TIMEOUT):
+        """A transport that sends no token, and sends a commit's tarball alone: a public repo's head, read with no
+        credential (decision 0138)."""
+        return cls(None, timeout, anonymous=True)
+
     def send(self, req: dict) -> dict:
         req = request(req["method"], req["path"], req["accept"], req["body"], req.get("headers"),
                       req.get("follow", False), req.get("bound"))
+        if self._token is None and not (req.get("follow") and TARBALL.fullmatch(req["path"])):
+            raise Unanswered("a transport with no token sends a commit's tarball alone")
         url = "https://%s%s" % (HOST, req["path"])
         if urllib.parse.urlsplit(url).netloc != HOST:
             raise Unanswered("a request goes to %s alone" % HOST)
         data = None if req["body"] is None else json.dumps(req["body"]).encode()
-        headers = {"Accept": req["accept"], "Authorization": "Bearer " + self._token,
-                   "X-GitHub-Api-Version": VERSION, "User-Agent": "software-factory"}
+        headers = {"Accept": req["accept"], "X-GitHub-Api-Version": VERSION, "User-Agent": "software-factory"}
+        if self._token is not None:
+            headers["Authorization"] = "Bearer " + self._token
         headers.update(req["headers"])
         if data is not None:
             headers["Content-Type"] = "application/json"
@@ -182,11 +238,12 @@ class Live:
             return answer
         if not req.get("follow"):
             raise Unanswered("GitHub answered a redirect; the transport follows none")
-        # The artifact at the storage address: no token, no header of the API's, no redirect, its bound at most.
-        fetched = urllib.request.Request(storage(moved), headers={"User-Agent": "software-factory"}, method="GET")
+        # The artifact at the storage address, or the tarball at codeload's: no token, no header of the API's, no
+        # second redirect, its bound at most.
+        fetched = urllib.request.Request(onward(req["path"], moved), headers={"User-Agent": "software-factory"}, method="GET")
         answer, moved = self._open(fetched, req["bound"])
         if answer is None:
-            raise Unanswered("the artifact's storage answered a redirect; the transport follows none")
+            raise Unanswered("the address redirected to answered a redirect; the transport follows no second")
         return answer
 
     def _open(self, sent, largest: int) -> tuple:
@@ -230,11 +287,16 @@ def _body(body) -> str:
 
 
 def _recorded(exchange: dict):
-    """The method, path, Accept and body a fixture's exchange was asked with, or None for one no transport sends."""
+    """The method, path, Accept and body a fixture's exchange was asked with, or None for one no transport sends. A
+    trial's GET of codeload, which it records as its command line, `curl --max-redirs 0 URL ...` (P-60), is the GET a
+    tarball's redirect sends there."""
     asked = exchange.get("request") or {}
+    words = str(asked.get("call", "")).split()
+    if asked.get("via") == "cli" and words[:3] == ["curl", "--max-redirs", "0"] and len(words) > 3 \
+            and words[3].startswith("https://%s/" % CODELOAD):
+        return "GET", words[3], None, _body(None)
     if asked.get("via") not in ("rest", "graphql", "storage"):
         return None
-    words = str(asked.get("call", "")).split()
     if len(words) < 2:
         return None
     path = words[1].rstrip(",")
@@ -247,8 +309,8 @@ def _recorded(exchange: dict):
 class Replay:
     """Answers from a fixture's exchanges, each once, in the order they were recorded: a request asked out of that
     order, or one the next exchange does not hold, is refused. A redirect is refused, as `Live` refuses it, but for an
-    artifact's download: that is answered by the storage exchange recorded next, if it is of the address redirected
-    to."""
+    artifact's download or a tarball: that is answered by the exchange recorded next, the storage's or codeload's, if it
+    is of the address redirected to."""
 
     def __init__(self, exchanges: list):
         self._left = [(_recorded(e), e["response"]) for e in exchanges if _recorded(e) is not None]
@@ -263,14 +325,21 @@ class Replay:
                 if not req.get("follow"):
                     raise Unanswered("GitHub answered a redirect; the transport follows none")
                 location = {str(k).lower(): v for k, v in (answer.get("headers") or {}).items()}.get("location")
-                stored = ("GET", storage(_moved("https://%s%s" % (HOST, req["path"]), location)), None, _body(None))
+                stored = ("GET", onward(req["path"], _moved("https://%s%s" % (HOST, req["path"]), location)), None,
+                          _body(None))
                 if not self._left or self._left[0][0] != stored:
-                    raise Unanswered("the fixture holds no answer, next, from the artifact's storage")
+                    raise Unanswered("the fixture holds no answer, next, from the address redirected to")
                 asked, answer = self._left.pop(0)
                 if answer["status"] in REDIRECTS:
-                    raise Unanswered("the artifact's storage answered a redirect; the transport follows none")
-            if req.get("follow") and isinstance(answer.get("body"), str) and len(raw(answer["body"])) > req["bound"]:
+                    raise Unanswered("the address redirected to answered a redirect; the transport follows no second")
+            body = answer.get("body")
+            # An archive a trial kept as base64, where a followed redirect led: the bytes, as `Live` would hand them.
+            if asked[2] is None and isinstance(body, dict) and list(body) == ["base64"]:
+                try:
+                    body = base64.b64decode(body["base64"], validate=True).decode("utf-8", errors="surrogateescape")
+                except (TypeError, ValueError):
+                    raise Unanswered("the fixture's archive is not base64") from None
+            if req.get("follow") and isinstance(body, str) and len(raw(body)) > req["bound"]:
                 raise Unanswered("an answer over %d bytes; it is refused, not cut short" % req["bound"])
-            return {"status": answer["status"], "headers": dict(answer.get("headers") or {}),
-                    "body": answer.get("body")}
+            return {"status": answer["status"], "headers": dict(answer.get("headers") or {}), "body": body}
         raise Unanswered("the fixture holds no answer, next, to %s %s (%s)" % want[:3])

@@ -40,8 +40,8 @@ def install(env: dict, call=subprocess.run) -> int:
 def told(call):
     """`call`, the CLI's, saying the end of what the CLI said when it failed, its credential taken out first: the log is
     public, and a slice could start inside the value, where a runner's masking would not know it."""
-    def asked(args, env, timeout):
-        done = call(args, env, timeout)
+    def asked(args, env, timeout, **given):
+        done = call(args, env, timeout, **given)
         if done.returncode != 0:
             said = done.stderr.replace(env[engine.CREDENTIAL_NAME], "***")
             print("the CLI exited %d: %s" % (done.returncode, said[-TAIL:]))
@@ -49,25 +49,30 @@ def told(call):
     return asked
 
 
-def review(env: dict, call=live.cli_call, clock=time.time) -> int:
+def review(env: dict, call=live.cli_call, clock=time.time, heads=None) -> int:
     """One review by the eval job's path: 0 if the CLI answered in a status the Engine may write, its answer read and
-    scored, and 1 otherwise, a `failed` Result among them. A scorer that raises fails the step."""
+    scored, and 1 otherwise, a `failed` Result among them. A scorer that raises fails the step. The example's head is
+    read through `heads`, by default with no credential, as the eval job's fetch reads a case's (decision 0138)."""
     case = json.loads((job.ROOT / "examples" / "eval-case.json").read_text())
     content = "sha256:" + hashlib.sha256(case["diff"].encode("utf-8")).hexdigest()
     case["facts"]["content_id"] = content
     results = []
-    reviewer = step.reviewer(env, RELEASE, int(clock()), told(call), clock)
-
-    def answered(given: dict) -> dict:
-        results.append(reviewer(given))
-        return results[-1]
-
     with tempfile.TemporaryDirectory() as scratch:
         place = pathlib.Path(scratch)
+        reviewer = step.reviewer(env, RELEASE, int(clock()), told(call), clock, place)
+
+        def answered(given: dict) -> dict:
+            results.append(reviewer(given))
+            return results[-1]
         (place / "cases").mkdir()
-        (place / "cases" / ("%s.json" % case["id"])).write_text(json.dumps(case), encoding="utf-8")
+        data = json.dumps(case).encode("utf-8")
+        (place / "cases" / ("%s.json" % case["id"])).write_bytes(data)
         found = {"role": case["role"], "intent": case["intent"], "cases": [{"id": case["id"]}]}
-        verdict, reasons = job.assess(found, {case["id"]: None}, place, answered)[case["id"]]
+        if heads is None:
+            from adapters import github
+            heads = github.Live.anonymous()
+        fetched = job.head_of(data, place, case["id"], heads)
+        verdict, reasons = job.assess(found, {case["id"]: fetched}, place, answered)[case["id"]]
     status = results[0].get("status") if results else None
     print("status %s, verdict %s, reasons %s" % (status, verdict, ",".join(reasons) or "none"))
     return 0 if status in engine.ENGINE_WRITES else 1

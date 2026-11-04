@@ -235,6 +235,7 @@
     "read_at": "2026-10-11T12:20:00Z"
   },
   "diff": "--- a/kernel/decide.py\n+++ b/kernel/decide.py\n@@ -86,9 +86,9 @@\n-    if not items:\n-        return []\n     first = items[0]\n+    if not items:\n+        return []\n     return parse(first, items[1:])\n",
+  "head": "c514ff021d93934192c9dbb14b6c31c2b421e6c7",
   "expected": {
     "verdict": "the reviewer should object",
     "criterion": "PR-3",
