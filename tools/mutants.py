@@ -6661,6 +6661,12 @@ MUTANTS = ISSUE + [
     ("the eval reads the heads with the home's token", 'harness/eval/fetch.py',
      '    return fetch(env, root, workspace, transport(env), github.Live.anonymous())',
      '    return fetch(env, root, workspace, transport(env), transport(env))', ('tests.test_evals.EvalJob.test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate',)),
+    ("a tarball's owner is not quoted whole", 'harness/head.py',
+     'urllib.parse.quote(owner, safe=""), urllib.parse.quote(name, safe="")',
+     'owner, urllib.parse.quote(name, safe="")', ('tests.test_harness.Head.test_the_head_of_p60_is_unpacked_as_codeload_served_it',)),
+    ("a tarball's name is not quoted whole", 'harness/head.py',
+     'urllib.parse.quote(owner, safe=""), urllib.parse.quote(name, safe="")',
+     'urllib.parse.quote(owner, safe=""), urllib.parse.quote(name)', ('tests.test_harness.Head.test_the_head_of_p60_is_unpacked_as_codeload_served_it',)),
     # Issue 312: P-51, the pinned CLI's sandbox and writes outside the work directory, against a stand-in CLI and P-50's stub.
     ("P-51's write outside may land", P51,
      'held = part["probe_ran"] and len(exits) == len(names) and not any(landed.values())', 'held = part["probe_ran"]',

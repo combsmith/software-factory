@@ -14,6 +14,7 @@ but its bytes, written as they are, its user's alone; no mode, owner or time of 
 from __future__ import annotations
 
 import os
+import urllib.parse
 import zlib
 
 from adapters import github
@@ -31,11 +32,18 @@ class Refused(Exception):
     `head_unreadable`, and the words say which check refused it."""
 
 
+def path_of(repo: str, sha: str) -> str:
+    """The API's path to `repo`'s tarball at `sha`, its owner and its name each quoted whole, so that neither is ever
+    read as more than one segment of the path; for a name the transport admits, quoting changes nothing."""
+    owner, _, name = repo.partition("/") if isinstance(repo, str) else ("", "", "")
+    return "/repos/%s/%s/tarball/%s" % (urllib.parse.quote(owner, safe=""), urllib.parse.quote(name, safe=""), sha)
+
+
 def fetch(transport, repo: str, sha: str) -> bytes:
     """The gzipped tarball of `repo` at `sha`, the bytes codeload sent; Refused unless it answered them. The transport
     asks for no commit but by its whole sha in lower case, and of no repo whose owner or name is `.` or `..`."""
     try:
-        answer = transport.send(github.tarball("/repos/%s/tarball/%s" % (repo, sha)))
+        answer = transport.send(github.tarball(path_of(repo, sha)))
     except github.Unanswered:
         raise Refused("the tarball could not be read") from None
     if answer.get("status") != 200 or not isinstance(answer.get("body"), str):

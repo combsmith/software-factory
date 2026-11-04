@@ -1004,10 +1004,15 @@ class Head(unittest.TestCase):
         class Refusing:
             def send(self, req):
                 raise AssertionError("nothing is sent")
-        for repo in ("../..", "o/..", "./r", "o/.", "o", "o/r/x", "", None, "o/r?x"):
+        for repo in ("../..", "o/..", "./r", "o/.", "o", "o/r/x", "", None, "o/r?x", "%2e%2e/r", "o/%2e%2e"):
             with self.assertRaises(head.Refused, msg=repo):
                 head.fetch(Refusing(), repo, sha)
         self.assertTrue(github.TARBALL.fullmatch("/repos/o.k/r..x/tarball/" + sha))
+        # The owner and the name are each quoted whole: neither is ever more than one segment of the path, and a name the
+        # transport admits is sent as it is.
+        for repo, owner, name in (("o/r/x", "o", "r%2Fx"), ("%2e%2e/r", "%252e%252e", "r"), ("o/%2e%2e", "o", "%252e%252e"),
+                                  ("o/r?x", "o", "r%3Fx"), (p60["repo"],) + tuple(p60["repo"].split("/"))):
+            self.assertEqual(head.path_of(repo, sha).split("/"), ["", "repos", owner, name, "tarball", sha], repo)
 
     def test_regular_files_and_folders_alone_are_written_and_links_are_left_out(self):
         members = [("a/", b"5", b""), ("a/b.txt", b"0", b"bee\n"), ("c.txt", b"\0", b"see"), ("link", b"2", b""),
