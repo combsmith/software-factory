@@ -138,7 +138,8 @@ def unpack(data: bytes, sha: str, into: str) -> dict:
     if not unzip.eof or unzip.unused_data:
         raise Refused("the tarball is cut short, or has bytes after its end")
     os.mkdir(into, 0o700)
-    top, named, written, extended, members = None, None, {"files": 0, "folders": 0, "bytes": 0, "links_left_out": 0}, {}, 0
+    top, named, written, members = None, None, {"files": 0, "folders": 0, "bytes": 0, "links_left_out": 0}, 0
+    extended = None     # the records of a pax header that waits for its member
     seen = set()
     at = 0
     while True:
@@ -149,6 +150,9 @@ def unpack(data: bytes, sha: str, into: str) -> dict:
             # Two end blocks, and nothing after them but the zeros a tar pads its last record with.
             if tar[at:at + 2 * BLOCK] != b"\0" * (2 * BLOCK) or tar[at:].strip(b"\0"):
                 raise Refused("the archive's end is not two zero blocks and padding alone")
+            # A pax header names the member after it: an archive that ends before that member is not whole.
+            if extended is not None:
+                raise Refused("the archive ends before the member its last pax header names")
             break
         _checked(header)
         size, kind = _octal(header[124:136]), header[156:157]
@@ -162,7 +166,7 @@ def unpack(data: bytes, sha: str, into: str) -> dict:
         if kind == EXTENDED:
             extended = _pax(body)
             continue
-        name, extended = _name(header, extended), {}
+        name, extended = _name(header, extended or {}), None
         members += 1
         if members > MEMBERS:
             raise Refused("the archive holds more than %d members" % MEMBERS)
