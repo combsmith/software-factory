@@ -495,7 +495,14 @@ class Engine(unittest.TestCase):
             given = list(full)
             given.insert(given.index(flag), "--append-system-prompt")
             self.assertFalse(engine.read_alone(given), flag)
-        self.assertTrue(engine.read_alone(["claude", "-p", "x", "--strict-mcp-config"] + engine.READ))
+        # The options in these calls that take no value, named here and not read from ALONE; and an option written with
+        # its value, `--flag=value`, takes nothing after it (Muse's read of the follow-on).
+        for alone in ("--restricted", "--disable-slash-commands", "--strict-mcp-config", "--no-session-persistence"):
+            if alone != "--restricted":
+                self.assertTrue(engine.read_alone(["claude", "-p", "x", alone] + engine.READ), alone)
+            self.assertTrue(engine.no_tool(["claude", "-p", "x", alone, "--tools", ""]), alone)
+        self.assertTrue(engine.read_alone(["claude", "-p", "x", "--model=m"] + engine.READ))
+        self.assertTrue(engine.no_tool(["claude", "-p", "x", "--append-system-prompt=y", "--tools", ""]))
         # What may never stand beside the read tools, named here and not read from WIDER, so that an option dropped from
         # it is noticed (decision 0138).
         forbidden = ("--add-dir", "--settings", "--mcp-config", "--plugin-dir", "--plugin-url", "--agents", "--agent",
