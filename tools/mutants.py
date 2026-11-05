@@ -11504,6 +11504,16 @@ MUTANTS = ISSUE + [
     ("P-56's token is not narrowed", "tools/trial_p56_comments.sh", '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56's token reaches every repo", "tools/trial_p56_comments.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     # Issue 519: P-58's reader leg, the same script with the reader's installation and the port's GraphQL read.
+    # Issue 551: trial P-61's script reads each step through the Maintainer's login and keeps it only redacted.
+    ("P-61 keeps the raw answer", "tools/trial_p61_timeline.sh",
+     '(cd "$root" && python3 -m tools.redact_trial < "$dir/raw" > "$out/clean-$step")', '(cp "$dir/raw" "$out/clean-$step")', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
+    ("P-61 asks no link by hand", "tools/trial_p61_timeline.sh", 'CONNECTED_EVENT,DISCONNECTED_EVENT,', '', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
+    ("P-61 reads another repo's issue", "tools/trial_p61_timeline.sh", '-f owner="$owner" -f name="$name"', '-f owner="$owner" -f name=other', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
+    ("P-61 writes inside the repo", "tools/trial_p61_timeline.sh",
+     'case "$out/" in "$root"/*)\n    echo "trial_p61_timeline: $out is inside the repo', 'case "$out/" in "$root"/nowhere/*)\n    echo "trial_p61_timeline: $out is inside the repo', ("tests.test_tools.TimelineTrial.test_what_it_is_given_is_held_before_anything_is_read",)),
+    ("P-61 writes over an output that exists", "tools/trial_p61_timeline.sh", 'if [ -e "$1" ] || [ -L "$1" ]; then', 'if false; then', ("tests.test_tools.TimelineTrial.test_what_it_is_given_is_held_before_anything_is_read",)),
+    ("P-61 reads on when no step is answered", "tools/trial_p61_timeline.sh",
+     'read -r _ || { echo "trial_p61_timeline: no answer; stopped before step $step" >&2; exit 1; }', 'read -r _ || true', ("tests.test_tools.TimelineTrial.test_a_run_stopped_before_a_step_keeps_what_it_read_and_reads_no_more",)),
     ("P-58's first token is narrowed to metadata, not pull_requests", "tools/trial_p58_edits.sh", 'with_token pull_requests\n', 'with_token metadata\n', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-58's token is not narrowed", "tools/trial_p58_edits.sh", '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-58's token reaches every repo", "tools/trial_p58_edits.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),

@@ -11711,3 +11711,75 @@ class Copies(unittest.TestCase):
         self.assertFalse(made[0].parent.exists())
         # A copy is the tree as tools/walk.py reads it: no other working tree, and megabytes.
         self.assertLess(sum(f.stat().st_size for f in walk.files(ROOT)), 64 * 2 ** 20)
+
+
+class TimelineTrial(unittest.TestCase):
+    """`tools/trial_p61_timeline.sh`, run against a stand-in gh and never GitHub (issue 551): it reads the issue's timeline
+    at each of eight steps, through the Maintainer's own login, keeps each answer only redacted and outside the repo, and
+    mints nothing."""
+
+    SCRIPT = ROOT / "tools" / "trial_p61_timeline.sh"
+    STAND_IN = """#!/usr/bin/env python3
+import json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(here, "calls"), "a") as kept:
+    kept.write(json.dumps(sys.argv[1:]) + "\\n")
+token = "ghs_" + "x" * 36
+body = {"data": {"repository": {"issue": {"state": "OPEN", "issueType": None, "timelineItems": {
+    "totalCount": 0, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}},
+    "pullRequest": {"state": "OPEN", "mergedAt": None, "closingIssuesReferences": {"totalCount": 0, "nodes": []}}}},
+    "leak": token}
+sys.stdout.write("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\nAuthorization: token %s\\r\\n\\r\\n" % token)
+sys.stdout.write(json.dumps(body))
+"""
+
+    def run_script(self, args, answers="\n" * 7):
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (bin_ / "gh").write_text(self.STAND_IN)
+        (bin_ / "gh").chmod(0o755)
+        scratch = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch))
+        done = subprocess.run(["sh", str(self.SCRIPT)] + list(args), env=env, input=answers,
+                              capture_output=True, text=True, timeout=120)
+        calls = (bin_ / "calls").read_text().splitlines() if (bin_ / "calls").exists() else []
+        return done, [json.loads(c) for c in calls], scratch
+
+    def test_each_step_is_read_kept_redacted_outside_the_repo_and_named(self):
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "p61"
+        done, calls, scratch = self.run_script([str(out), "x/canary", "7", "8"], "\n" * 7)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         sorted(["ran_at", "query.json", "steps"] + ["clean-%d" % n for n in range(1, 9)]))
+        query = json.loads((out / "query.json").read_text())["query"]
+        for n in range(1, 9):
+            kept = (out / ("clean-%d" % n)).read_text()
+            self.assertNotIn("ghs_", kept)
+            self.assertIn('"timelineItems"', kept)
+        self.assertEqual(len((out / "steps").read_text().splitlines()), 8)
+        # Every call is the same GraphQL read through gh, of that repo's issue and pull request, and nothing else.
+        self.assertEqual(calls, [["api", "graphql", "--include", "-f", "query=" + query, "-f", "owner=x", "-f", "name=canary",
+                                  "-F", "issue=7", "-F", "pr=8"]] * 8)
+        for event in ("ISSUE_TYPE_ADDED_EVENT", "CONNECTED_EVENT", "DISCONNECTED_EVENT", "CLOSED_EVENT"):
+            self.assertIn(event, query)
+        self.assertEqual(list(scratch.glob("trial-p61.*")), [])
+
+    def test_a_run_stopped_before_a_step_keeps_what_it_read_and_reads_no_more(self):
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "p61"
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], "\n" * 2)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("stopped before step 4", done.stderr)
+        self.assertEqual((len(calls), sorted(p.name for p in out.glob("clean-*"))), (3, ["clean-1", "clean-2", "clean-3"]))
+
+    def test_what_it_is_given_is_held_before_anything_is_read(self):
+        here = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (here / "taken").mkdir()
+        for args, said in (([str(here / "o"), "canary", "7", "8"], "REPO is owner/name"),
+                           ([str(here / "o"), "x/canary", "seven", "8"], "are numbers"),
+                           ([str(here / "taken"), "x/canary", "7", "8"], "exists"),
+                           ([str(ROOT / "p61-out"), "x/canary", "7", "8"], "is inside the repo"),
+                           ([str(here / "missing" / "o"), "x/canary", "7", "8"], "does not exist"),
+                           (["only", "two"], "usage")):
+            done, calls, _ = self.run_script(args)
+            self.assertEqual((done.returncode, calls), (2, []), args)
+            self.assertIn(said, done.stderr, args)
+        self.assertFalse((ROOT / "p61-out").exists())
