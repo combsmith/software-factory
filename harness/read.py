@@ -8,10 +8,12 @@ Decision: the three inputs the pass dispatched it with. The step mints the reade
 for the home repo with the reads its grant allows and no write; finds the pass record by PASS among the poller's runs;
 finds in it the Decision of the Run id the run-name names, which must be of the item and the content the run-name names;
 reads the pull request's facts, its threads held to what its Lenses recorded, and the bytes of its diff, which must be the content the Decision admitted;
-reads the tarball of its head, the commit the diff was read at, through the transport's one redirect to codeload; and writes,
+reads the tarball of its head, the commit the diff was read at, through the transport's one redirect to codeload, and
+that commit's tree, which the head unpacked is held to file by file (decision 0142); and writes,
 into the new folder OUT, the record, the Run id, the facts, the diff, the texts, the Role's manifest and the Findings,
 and the head unpacked by hand into `head/` (decision 0138), which is read as data and never run,
-for `python3 -m harness.run OUT RESULT`. A head that cannot be read or unpacked whole stops the step, `head_unreadable`. The token is revoked before the step ends, whatever happened, and a token
+for `python3 -m harness.run OUT RESULT`. A head that cannot be read or unpacked whole, or is not its commit's tree, stops
+the step, `head_unreadable`. The token is revoked before the step ends, whatever happened, and a token
 GitHub did not revoke fails the step, so the model's step never starts beside a live reader token.
 
 Before anything else is read, the Run's own Release is named: the one Release tag, among the `factory/` tags read with
@@ -139,14 +141,16 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     if "sha256:" + hashlib.sha256(change).hexdigest() != admit["content_id"]:
         raise Stop("content_moved")
     role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % admit["role"]))
-    # The head's tree at the commit the diff was read at, for the review to read (decision 0138).
+    # The head's tree at the commit the diff was read at, for the review to read (decision 0138), and the commit's tree as
+    # git holds it, which the archive is held to: one export-ignore or export-subst shaped is not the commit (0142).
     try:
         tarred = head_.fetch(transport, home, head)
+        tree = head_.tree(transport, home, head)
     except head_.Refused:
         raise Stop("head_unreadable") from None
     return {"record.json": record, "run": (parts["run"] + "\n").encode(), "facts.json": facts, "diff": change,
             "texts.json": texts.issues(transport, first, who, opener, opened), "role.json": role, "findings.json": [],
-            "head": (head, tarred)}
+            "head": (head, tarred, tree)}
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
@@ -179,10 +183,11 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise
     if revoke() is not True:
         raise Stop("token_not_revoked")
-    # The head first, so that a head not unpacked whole leaves nothing a run could take for a Task.
-    sha, tarred = found["head"]
+    # The head first, so that a head not unpacked whole, or not its commit's, leaves nothing a run could take for a Task.
+    sha, tarred, tree = found["head"]
     try:
         head_.unpack(tarred, sha, os.path.join(folder, "head"))
+        head_.held(os.path.join(folder, "head"), tree)
     except (head_.Refused, OSError):
         shutil.rmtree(os.path.join(folder, "head"), ignore_errors=True)
         raise Stop("head_unreadable") from None

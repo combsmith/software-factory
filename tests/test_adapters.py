@@ -271,8 +271,11 @@ class Transport(unittest.TestCase):
                 sent.append(req)
                 raise AssertionError("nothing is sent")
         anonymous.opener = Opener()
+        # Nor a commit's tree, which the live review reads with the reader's token and the eval does not read (decision
+        # 0142).
         for req in (github.request("GET", "/repos/o/r"), github.request("GET", "/repos/o/r/tarball/" + "a" * 40),
-                    github.download("/repos/o/r/actions/artifacts/9/zip"), github.request("POST", "/repos/o/r/issues", body={})):
+                    github.download("/repos/o/r/actions/artifacts/9/zip"), github.request("POST", "/repos/o/r/issues", body={}),
+                    github.request("GET", "/repos/o/r/git/trees/%s?recursive=1" % ("a" * 40))):
             with self.assertRaises(github.Unanswered, msg=req["path"]):
                 anonymous.send(req)
         self.assertEqual(sent, [])
@@ -3618,6 +3621,8 @@ REFUSALS = {
     ("P-25", 0): None,                 # the canary holds no CodeRabbit configuration file, which no port reads
     # A push to a queued pull request's branch, and a draft's enqueue and merge, refused; no port makes them (P-2).
     ("P-2.queue", 20): None, ("P-2.queue", 26): None, ("P-2.queue", 27): None,
+    # The tree of a commit the canary does not hold, 422: the head port reads it as no tree, so no head (decision 0142).
+    ("P-60.tree", 1): None,
 }
 
 
