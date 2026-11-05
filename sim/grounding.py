@@ -16,6 +16,13 @@ copy of the repo: keep them so.
 """
 
 RULES = (
+    # trials/P-58.json, trials/P-58.reader.json: the Maintainer's edit, cubic's 23 s after opening, CodeRabbit's and a
+    # workflow's bot's each moved the time; a push and a title's edit did not. No editor is read (decision 0140).
+    ("a_description_edit_moves_its_time", "An edit of a pull request's description, by a person, a bot or an App, moves "
+     "the time of its last edit, `lastEditedAt` and the newest `editedAt` among its `userContentEdits`; a push and an "
+     "edit of its title alone move neither", ("P-58",), ("trials/P-58.json", "trials/P-58.reader.json"), None),
+    ("an_app_edits_a_description", "Bots and Apps edit a pull request's description, a reviewer App's summary seconds "
+     "after it opens among them", ("P-58",), ("trials/P-58.json", "trials/P-58.reader.json"), None),
     ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), "trials/P-29.base.json", None),
     ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher, from the newest "
      "entry of the head branch's activity, a person's push and an App's alike: the entry names the App's bot login, "
@@ -334,6 +341,11 @@ ASKS = {
         "P-35": "does a job a pull request adds in a file of its own, under a required Lens's check name, report "
               "under GitHub Actions with that file's path?",
     },
+    "a_description_edit_moves_its_time": {
+        "P-58": "Does a pull request's `lastEditedAt` move when its description is edited, and not when only its title is, "
+                "or when its head is pushed",
+    },
+    "an_app_edits_a_description": {"P-58": "does an edit by a bot or an App move it?"},
     "an_upload_turns_codeqls_success_neutral": {
         "P-36": "change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports?",
     },

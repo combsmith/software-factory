@@ -321,7 +321,10 @@ class Simulation(unittest.TestCase):
             last = w.settle()
             self.assertEqual((w.pr_state, last["state"]), ("open", "held"), "seed %d: %s\n%s" % (
                 seed, last["reason"], "\n".join(w.trace[-15:])))
-            self.assertIn(last["reason"], (reason, "run_ceiling"), "seed %d" % seed)
+            # Or on a description edited after the approval, on the Maintainer's own pull request, where GitHub refuses
+            # their approval and no other person comes: a Hold only a person ends (decision 0140).
+            edited = "description_edited_after_approval" if w.cls == "maintainer" and w.edits is not None else None
+            self.assertIn(last["reason"], (reason, "run_ceiling", edited), "seed %d" % seed)
             reasons.append(last["reason"])
         self.assertIn(reason, reasons)
 
@@ -472,6 +475,73 @@ class Simulation(unittest.TestCase):
                         turned += 1
         self.assertTrue(turned)
         self.assertTrue(read)
+
+    def test_the_seeds_edit_the_description_after_the_approval(self):  # decision 0140, P-58
+        # On every seed a reviewer App edits the description as the pull request opens, which holds nothing; on one seed
+        # in seven an App or the Maintainer edits it again, and an edit after the first approval holds the item until a
+        # person approves after it. The Kernel approves and queues nothing on that reading, and every invariant holds.
+        edited, held, current = 0, 0, None
+
+        def recording(f, r, c, cfg, now):
+            nonlocal held
+            d = decide(f, r, c, cfg, now)
+            if d.get("reason") == "description_edited_after_approval":
+                # Only a seed that edits after opening holds on it: the App's summary as it opens holds nothing.
+                self.assertEqual(current % world.EDITS_EVERY, world.EDITS, current)
+                held += 1
+                self.assertNotIn(d.get("action"), ("issue_approval", "enqueue"))
+            return d
+
+        with mock.patch.object(world, "decide", recording):
+            for seed in sorted(SEEDS):
+                current = seed
+                w = World(seed)
+                self.assertLess(w.facts()["description_edited_at"], w.now(), seed)
+                for _ in range(250):
+                    seen = len(w.trace)
+                    w.step()
+                    if any("edited the description" in line for line in w.trace[seen:]):
+                        self.assertTrue(w.faults and seed % world.EDITS_EVERY == world.EDITS, seed)
+                        self.assertEqual(w.facts()["description_edited_at"], w.now(), seed)
+                        edited += 1
+        self.assertTrue(edited)
+        self.assertTrue(held)
+
+    def test_the_worlds_reading_of_an_edit_after_the_approval_is_the_kernels(self):  # decision 0140
+        # The queue's merge objects to a description edited since the approval in the world's own words, so those words
+        # must be the Kernel's anchor: any person's approval is a look, a colleague's too, and one a person dismissed since
+        # is taken back; with no machine approval since the look but one before it, the look itself anchors.
+        from kernel import derive
+
+        def review(by, at, dismissed_by=None):
+            return {"by": dict(by), "state": "dismissed" if dismissed_by else "approved", "commit": "c1",
+                    "content_id": "sha256:00c1", "submitted_at": world.World.at(at), "dismissed_by":
+                    dict(dismissed_by) if dismissed_by else None, "dismissed_from": "approved" if dismissed_by else None}
+
+        machine, person, colleague = world.MACHINE, world.MAINTAINER, world.COLLEAGUE
+        for reviews, edited, held in (
+                ([review(machine, 15)], 20, True),
+                ([review(machine, 15, dismissed_by=person)], 20, True),
+                ([review(machine, 15), review(machine, 25)], 20, True),
+                ([review(machine, 15), review(colleague, 25)], 20, False),
+                ([review(machine, 15), review(person, 25, dismissed_by=colleague)], 20, True),
+                ([review(machine, 15), review(person, 25, dismissed_by=world.REVIEWER_APP)], 20, False),
+                ([review(machine, 5), review(person, 10)], 12, True),
+                ([review(machine, 5), review(person, 10), review(machine, 15)], 10, True),
+                # A look before the edit moves the anchor to the first machine approval after it, the last such look.
+                ([review(machine, 5), review(person, 10), review(machine, 15)], 12, False),
+                ([review(machine, 5), review(person, 8), review(machine, 9), review(person, 10), review(machine, 15)], 12,
+                 False),
+                ([review(person, 10)], 12, False),
+                ([review(machine, 15)], 10, False),
+                # In one second no order can be told: an edit in the anchor's second, and an approval in the look's.
+                ([review(machine, 15)], 15, True),
+                ([review(person, 10), review(machine, 10), review(machine, 15)], 12, True)):
+            w = World(1, faults=False, people=False)
+            w.reviews, w.edited = reviews, world.World.at(edited)
+            anchor = derive.description_anchor(w.facts(), w.edited)
+            kernel = anchor is not None and w.edited >= anchor
+            self.assertEqual((w.edited_since_approval(), kernel), (held, held), (reviews, edited))
 
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it

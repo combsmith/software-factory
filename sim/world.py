@@ -139,6 +139,13 @@ NEVER_RUN = "9000000001"
 MISSING_PUSH_EVERY, MISSING_PUSH = 9, 5
 # GitHub's id of a run, as P-17 listed one, for the first Run on an item; each Run after it is one more.
 FIRST_RUN_ID = 39086879694
+# On every seed a reviewer App edits the description seconds after the pull request opens, before any approval, so it
+# holds nothing (trials/P-58.json). On one seed in seven, under faults, the description is edited again now and then, by
+# that App or by the Maintainer, most often while an approval stands: an edit after the first approval since a person
+# looked holds the item until a person approves after it (decision 0140). What concerns the description draws from its own generator, so that every other
+# seed stays as it was.
+EDITS_EVERY, EDITS = 7, 1
+SUMMARY_APP = {"kind": "app", "name": "cubic-dev-ai[bot]", "can_write": True}
 
 
 class Broken(AssertionError):
@@ -222,6 +229,11 @@ class World:
         # Whether this seed's activity can miss a push, drawn from its own generator, so every other seed stays as it was.
         self.activity = random.Random("activity %d" % seed) if seed % MISSING_PUSH_EVERY == MISSING_PUSH else None
         self.missing_passes = 0    # passes that read the last pusher null
+        # GitHub: an_app_edits_a_description
+        # When the description was last edited: the reviewer App's summary, seconds after the pull request opened, which
+        # was before the world's first minute.
+        self.edited = self.at(-1)
+        self.edits = random.Random("edits %d" % seed) if seed % EDITS_EVERY == EDITS else None
         self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
         self.made = set()          # each transition a change made, as (from, to, by)
         self.trace = []
@@ -318,7 +330,8 @@ class World:
             # GitHub: a_pull_request_lists_the_paths_it_changes
             "changed_paths": [{"path": p, "previous": None} for p in sorted(self.changed)],
             "label_events": copy.deepcopy(self.events),
-            "last_push_at": self.last_push, "last_reopened_at": None, "description_edited_at": None,
+            # GitHub: a_description_edit_moves_its_time
+            "last_push_at": self.last_push, "last_reopened_at": None, "description_edited_at": self.edited,
             "expired_reviews": [],
             "last_writer_action_at": self.last_writer,
             # GitHub: an_actor_has_a_kind
@@ -453,8 +466,9 @@ class World:
 
     def objections(self) -> list:
         """What a queued item may not merge over, in the world's own words: no approval of its content by the
-        approver that stands, a writer's request for changes or open thread, a Hold, or a required check that
-        failed or gave no verdict (L-19, FR-23, I-9). A check still pending is a wait, and is no objection."""
+        approver that stands, a writer's request for changes or open thread, a Hold, a required check that
+        failed or gave no verdict (L-19, FR-23, I-9), or a description edited since the approval that no person has read
+        (decision 0140). A check still pending is a wait, and is no objection."""
         out = []
         # The approver's approval stands only while it can write, as the Kernel reads it (decision 0048).
         if not any(rv["by"]["name"] == CONFIG["approver"] and told(rv["by"])["can_write"] is True
@@ -474,6 +488,8 @@ class World:
             out.append("a contract no person approved, or one changed since")
         if not self.accepted(self.acceptance(), self.reviews, self.cid()):
             out.append("a criterion with no passing evidence on this content from its reporter")
+        if self.edited_since_approval():
+            out.append("a description edited since the approval, which no person has read")
         return out
 
     @classmethod
@@ -1169,6 +1185,17 @@ class World:
             return
         if self.faults and self.meddler.random() < 0.03 and self.an_app_meddles():
             self.caused(self.by_of(AUTHOR_APP))
+        # Most often while the machine user's approval stands, which is when an edit holds the item.
+        approved = any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved" for rv in self.reviews)
+        if self.edits is not None and self.faults and self.edits.random() < (0.4 if approved else 0.05):
+            # GitHub: an_app_edits_a_description
+            # GitHub: a_description_edit_moves_its_time
+            # An edit moves no writer's time: the timeline the port reads it from has no event for it (P-58).
+            who = SUMMARY_APP if self.edits.random() < 0.5 else MAINTAINER
+            self.edited = self.now()
+            self.note("%s edited the description" % who["name"])
+            self.caused(self.by_of(who))
+            return
         live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
         if self.faults and live and self.rng.random() < 0.1:
             # GitHub: an_app_can_dismiss_a_review
@@ -1337,6 +1364,25 @@ class World:
         self.writer_acted()
         self.note("maintainer reviewed: %s" % state)
 
+    def edited_since_approval(self) -> bool:
+        """Whether the description was edited at or after the machine user's first approval since the Maintainer last
+        looked, or, where none has come since but one came before, the look itself, in the world's own words. A look is
+        any person's approval, the Maintainer's or a colleague's; one a person dismissed since is taken back. As the
+        Kernel reads it (`kernel/derive.py`'s `description_anchor`), a look after the edit clears it."""
+        looks = [rv["submitted_at"] for rv in self.reviews if self.is_person(rv["by"])
+                 and "approved" in (rv["state"], rv["dismissed_from"])
+                 and not (rv["dismissed_by"] is not None and self.is_person(rv["dismissed_by"]))]
+        machine = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == CONFIG["approver"]
+                   and "approved" in (rv["state"], rv["dismissed_from"])]
+        if any(look > self.edited for look in looks):
+            return False
+        # A look in the edit's second saw nothing of it: only a look before the edit moves the anchor.
+        before = [look for look in looks if look < self.edited]
+        look = max(before) if before else None
+        since = [at for at in machine if look is None or at >= look]
+        anchor = min(since) if since else (look if machine else None)
+        return anchor is not None and self.edited >= anchor
+
     def verdict(self):
         """The Maintainer's latest verdict, dismissed or not, or None. A comment is none, dismissed or not.
 
@@ -1435,8 +1481,9 @@ class World:
             if self.open_for(th):
                 th.update(resolved=True, resolved_by=dict(MAINTAINER))
         self.caused("human")
-        # The Maintainer approves what they asked to be changed.
-        if self.asked:
+        # The Maintainer approves what they asked to be changed, and, on another's pull request, a description edited
+        # since the first approval, having read it: on their own, GitHub refuses their approval, and it stays held.
+        if self.asked or (self.cls != "maintainer" and self.edited_since_approval()):
             self.review("approved")
             self.caused("human")
         # The Maintainer puts back a contract a push deleted, and the person who approves the contract approves it at

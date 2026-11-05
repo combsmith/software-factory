@@ -26,7 +26,7 @@ import datetime
 import json
 import pathlib
 
-from adapters import acceptance, applied, checks, pull, threads, timeline
+from adapters import acceptance, applied, checks, edits, pull, threads, timeline
 from adapters.github import Unanswered
 from tools.jsonschema_lite import validate
 
@@ -68,6 +68,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     read = checks.read(transport, first, raw)
     contract, contract_whole = acceptance.read(transport, first, accounts, opener, opened)
     found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded, content["content_id"])
+    edited = edits.last_edited_at(transport, first)
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
     if not pull.unchanged(transport, first):
@@ -84,6 +85,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
         "label_events": labels,
         "last_push_at": pushed_at or now,
         "last_reopened_at": timeline.reopened_at(events),
+        "description_edited_at": edited,
         "last_writer_action_at": writer["last_writer_action_at"],
         "reviews": reviews,
         "threads": found,

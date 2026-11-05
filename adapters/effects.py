@@ -34,7 +34,7 @@ import sys
 import time
 import urllib.parse
 
-from adapters import acceptance, checks, identity, pause as pause_, threads
+from adapters import acceptance, checks, edits, identity, pause as pause_, threads
 from adapters.github import Live, Unanswered, request
 from controller import feed as feed_
 from controller import writes as writes_
@@ -64,7 +64,7 @@ STATUS_KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
 TITLE_MOST = 255
 DIGITS = re.compile(r"[1-9][0-9]{0,18}")
 # The facts port's own GraphQL reads, which the approver's token may ask of its item and nothing else.
-QUERIES = (threads.QUERY, checks.QUERY, acceptance.QUERY)
+QUERIES = (threads.QUERY, checks.QUERY, acceptance.QUERY, edits.QUERY)
 
 
 class Refused(ValueError):

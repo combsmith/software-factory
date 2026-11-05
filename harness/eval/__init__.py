@@ -280,6 +280,7 @@ RUN_FAULTS = ("schema", "not_found", "hash_differs", "too_large", "unanswered")
 FACTS_THE_SET_PREDATES = (
     ("last_reopened_at", None, "never reopened: a case cannot exercise an approval from before a reopening"),
     ("expired_reviews", [], "no Lens review past retention: a case cannot exercise one being asked for again"),
+    ("description_edited_at", None, "never edited: a case cannot exercise an edit of the description after the approval"),
 )
 THREAD_FIELDS_THE_SET_PREDATES = (
     ("ruling", None, "the Lens decided nothing of its Finding: a case cannot exercise a ruling on a thread"),

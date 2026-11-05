@@ -1149,9 +1149,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if not isinstance(facts.get("last_pusher"), str) or facts["last_pusher"] == "":
         return {"state": None, "reason": "last_pusher_unreadable", "evidence": []}
     # So could the description's last edit, which may have added a closing keyword since the approval (issue 519).
-    # Absent or null, it is no edit; anything else that is not a time is read before the approval.
+    # Null, it is no edit; absent, or anything else that is not a time, it is unread, and read before the approval: the
+    # port reads the edits, so a snapshot that leaves the field out is short, never one with no edit (decision 0140).
     edited = facts.get("description_edited_at")
-    if edited is not None and not is_time(edited):
+    if "description_edited_at" not in facts or (edited is not None and not is_time(edited)):
         return {"state": None, "reason": "description_unreadable", "evidence": []}
     # So could a required Lens's thread whose category or severity cannot be read: a security Finding at any severity.
     unread = unreadable_threads(facts, config)
