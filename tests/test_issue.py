@@ -341,9 +341,11 @@ class Unreadable(unittest.TestCase):
     def test_draft_events_in_the_opening_second_and_after_the_close_are_read(self):  # issue 554
         # Opened as a draft and marked ready in that second: a chronology, read whole. One after the close is read too:
         # no trial says GitHub refuses it, and refusing it would let a closed pull request's author stall the issue.
-        for linked in (pr(drafts=(("ready_for_review", 0),)),
-                       pr(is_open=False, closed=5, draft=True, drafts=(("ready_for_review", 2), ("converted_to_draft", 6)))):
-            self.assertIsNotNone(state(facts(linked=[linked])), linked)
+        for linked, expected in ((pr(drafts=(("ready_for_review", 0),)), ("in_review", "linked_ready")),
+                                 (pr(is_open=False, closed=5, draft=True,
+                                     drafts=(("ready_for_review", 2), ("converted_to_draft", 6))), ("new", "acceptance_due"))):
+            d = derive(facts(linked=[linked]))
+            self.assertEqual((d["state"], d["reason"]), expected, linked)
 
     def test_an_unreadable_life_defers(self):
         for over in ({"life_started_at": None}, {"life_started_at": "2026-10-11"}, {"reopened_last_by": "a person"},
