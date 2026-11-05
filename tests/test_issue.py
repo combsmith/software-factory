@@ -552,10 +552,28 @@ class Done(unittest.TestCase):
         linked = agents(number=12, draft=False, drafts=(("ready_for_review", 7),),
                         events=hands + [unlabelled(HANDS_OFF, OTHER_APP, 6)])
         self.assertEqual(derive(facts(linked=[merged, linked]))["reason"], "merged_while_hands_off")
-        # The draft's flag now and its last event that disagree: no chronology, and nothing is read.
-        for draft, drafts in ((False, (("converted_to_draft", 3),)), (True, (("ready_for_review", 3),))):
+        # A conversion and a marking ready in one second, in the order the timeline lists them, whoever made them: read,
+        # never a stall, and before the merge they leave the flag as the last of them (Claude's security read).
+        for draft, drafts in ((False, (("converted_to_draft", 3), ("ready_for_review", 3))),
+                              (True, (("ready_for_review", 3), ("converted_to_draft", 3)))):
+            linked = agents(number=12, draft=draft, drafts=drafts, events=hands)
+            d = derive(facts(linked=[merged, linked]))
+            self.assertEqual((d["state"], d["reason"]), ("not_served", "merged_while_hands_off") if draft else
+                             ("done", "merged"), drafts)
+            self.assertNotEqual(derive(facts(linked=[strangers(number=12, draft=draft, drafts=drafts)]))["state"], None)
+        # The draft's flag now and its last event that disagree, two of one kind in a row, or a time listed out of order:
+        # no chronology, and nothing is read.
+        for draft, drafts in ((False, (("converted_to_draft", 3),)), (True, (("ready_for_review", 3),)),
+                              (True, (("converted_to_draft", 2), ("converted_to_draft", 3))),
+                              (True, (("converted_to_draft", 3), ("ready_for_review", 2), ("converted_to_draft", 4)))):
             d = derive(facts(linked=[merged, agents(number=12, draft=draft, drafts=drafts)]))
             self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), drafts)
+        # When a pull request became linked carries no time: a draft opened before the merge, with a person's hands-off,
+        # is read as linked then, though a keyword may have named the issue only after it, and a person decides
+        # ("Facts: a closing keyword's link timed by the first pass that saw it, and the Consumer entry at the merge
+        # (after the first cut)", issue 552).
+        linked = agents(number=12, draft=True, opened=3, events=hands)
+        self.assertEqual(derive(facts(linked=[merged, linked]))["reason"], "merged_while_hands_off")
 
     def test_a_merge_counts_only_where_the_issues_timeline_names_it_the_closer(self):  # issue 267, trials/P-46.json
         # P-46: an edit to a merged pull request's description after the merge added an open issue to its closing

@@ -191,13 +191,17 @@ def readable_link(entry, config: dict) -> bool:
 
 def readable_draft_events(entry: dict) -> bool:
     """Whether a pull request's conversions to a draft and markings ready can be read: each one or the other, with its
-    time, and the last of them its flag now, since a timeline that ends on a conversion leaves a draft (P-33)."""
+    time, in the order the timeline lists them, which is the order they happened, two in one second among them; each a
+    change of the flag, so a conversion follows a marking ready and the other way round; and the last of them its flag
+    now, since a timeline that ends on a conversion leaves a draft (P-33)."""
     events = entry.get("draft_events")
     if not isinstance(events, list):
         return False
     if not all(isinstance(ev, dict) and ev.get("action") in DRAFT_ACTIONS and is_time(ev.get("at")) for ev in events):
         return False
-    return not events or (max(events, key=lambda ev: ev["at"])["action"] == DRAFTED) == entry["draft"]
+    if any(later["at"] < ev["at"] or later["action"] == ev["action"] for ev, later in zip(events, events[1:])):
+        return False
+    return not events or (events[-1]["action"] == DRAFTED) == entry["draft"]
 
 
 def readable_content(facts: dict) -> bool:
@@ -416,7 +420,7 @@ def draft_at(p: dict, when: str) -> bool:
     marking ready after that second undone, and one in that second read either way, since the reading that stops work
     wins a tie (decision 0141). One opened as a draft has no event for it: before its first event it was what that
     event undid."""
-    events = sorted(p["draft_events"], key=lambda ev: ev["at"])
+    events = p["draft_events"]
     before = [ev for ev in events if ev["at"] < when]
     during = [ev for ev in events if ev["at"] == when]
     if before:
