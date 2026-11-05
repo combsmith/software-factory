@@ -11711,3 +11711,209 @@ class Copies(unittest.TestCase):
         self.assertFalse(made[0].parent.exists())
         # A copy is the tree as tools/walk.py reads it: no other working tree, and megabytes.
         self.assertLess(sum(f.stat().st_size for f in walk.files(ROOT)), 64 * 2 ** 20)
+
+
+class TimelineTrial(unittest.TestCase):
+    """`tools/trial_p61_timeline.sh`, run against a stand-in gh and never GitHub (issue 551): it reads the issue's timeline
+    at each of nine steps, through the Maintainer's own login, keeps each answer only redacted and outside the repo, says
+    and offers again a read that is not GitHub's 200 with data, and mints nothing."""
+
+    SCRIPT = ROOT / "tools" / "trial_p61_timeline.sh"
+    ITEMS = ("itemTypes:[ISSUE_TYPE_ADDED_EVENT,ISSUE_TYPE_CHANGED_EVENT,ISSUE_TYPE_REMOVED_EVENT,CONNECTED_EVENT,"
+             "DISCONNECTED_EVENT,CLOSED_EVENT]")
+    # The read, word for word: each of the six events P-61 asks, each with its time, actor and what it names.
+    QUERY = ('query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$i'
+             'ssue){state issueType{name} timelineItems(first:100,itemTypes:[ISSUE_TYPE_ADDED_EVENT,ISSUE_TYPE_CHANGED_EVE'
+             'NT,ISSUE_TYPE_REMOVED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPag'
+             'e endCursor} nodes{__typename ... on IssueTypeAddedEvent{createdAt actor{__typename login} issueType{name}} '
+             '... on IssueTypeChangedEvent{createdAt actor{__typename login} issueType{name} prevIssueType{name}} ... on I'
+             'ssueTypeRemovedEvent{createdAt actor{__typename login} issueType{name}} ... on ConnectedEvent{createdAt acto'
+             'r{__typename login} source{__typename ... on Issue{number} ... on PullRequest{number}} subject{__typename ..'
+             '. on Issue{number} ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} s'
+             'ource{__typename ... on Issue{number} ... on PullRequest{number}} subject{__typename ... on Issue{number} ..'
+             '. on PullRequest{number}}} ... on ClosedEvent{createdAt actor{__typename login} closer{__typename ... on Pul'
+             'lRequest{number}}}}}} pullRequest(number:$pr){state mergedAt closingIssuesReferences(first:10){totalCount no'
+             'des{number}}}}}')
+    # The stand-in answers each read with a token in a header and in the body; where a file beside it says so, it
+    # refuses the first reads with GraphQL's errors and a complaint naming a token on stderr.
+    STAND_IN = """#!/usr/bin/env python3
+import json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(here, "calls"), "a") as kept:
+    kept.write(json.dumps(sys.argv[1:]) + "\\n")
+token = "ghs_" + "x" * 36
+refuse = os.path.join(here, "refuse")
+mode = None
+if os.path.exists(refuse):
+    left, mode = open(refuse).read().split()
+    if int(left) > 0:
+        open(refuse, "w").write("%d %s" % (int(left) - 1, mode))
+    else:
+        mode = None
+if mode == "all":
+    sys.stdout.write("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n")
+    sys.stdout.write(json.dumps({"errors": [{"message": "Field 'issueType' doesn't exist"}]}))
+    sys.stderr.write("gh: refused with token %s\\n" % token)
+    sys.exit(1)
+body = {"data": {"repository": {"issue": {"state": "OPEN", "issueType": None, "timelineItems": {
+    "totalCount": 0, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}},
+    "pullRequest": {"state": "OPEN", "mergedAt": None, "closingIssuesReferences": {"totalCount": 0, "nodes": []}}}},
+    "leak": token}
+if mode == "errors":
+    # Data beside errors, as GitHub answers a query it read in part, and gh says nothing wrong.
+    body["errors"] = [{"message": "Field 'prevIssueType' doesn't exist"}]
+if mode == "status":
+    # A gateway's refusal with a body that reads as data: only the status says it is no answer.
+    sys.stdout.write("HTTP/2.0 502 Bad Gateway\\r\\nContent-Type: application/json\\r\\n\\r\\n" + json.dumps(body))
+    sys.exit(0)
+if mode == "interim":
+    # An interim head before the answer: the answer is the last head's.
+    sys.stdout.write("HTTP/1.1 100 Continue\\r\\n\\r\\n")
+if mode == "hidden":
+    # A refusal with what reads as a second head in its body: only the first head says it is no answer.
+    sys.stdout.write("HTTP/2.0 502 Bad Gateway\\r\\nContent-Type: application/json\\r\\n\\r\\n"
+                     "HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n" + json.dumps(body))
+    sys.exit(0)
+if mode == "unpaged":
+    # No page at all: whether the timeline was read whole cannot be told.
+    del body["data"]["repository"]["issue"]["timelineItems"]["pageInfo"]
+if mode == "paged":
+    # More events than one page holds: the timeline is not read whole.
+    body["data"]["repository"]["issue"]["timelineItems"]["pageInfo"] = {"hasNextPage": True, "endCursor": "Y3Vy"}
+sys.stdout.write("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\nAuthorization: token %s\\r\\n\\r\\n" % token)
+sys.stdout.write(json.dumps(body))
+if mode == "exit":
+    # A good answer, but gh failed: what it printed is no whole read.
+    sys.exit(1)
+if mode == "cut":
+    # The connection dropped mid-answer: the body ends inside the JSON, and the redaction refuses it.
+    sys.stdout.write('{"cut')
+    sys.exit(1)
+"""
+
+    def run_script(self, args, answers="\n" * 8, refuse=0, tmpdir=None):
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (bin_ / "gh").write_text(self.STAND_IN)
+        (bin_ / "gh").chmod(0o755)
+        if refuse:
+            (bin_ / "refuse").write_text("%d %s" % refuse)
+        scratch = pathlib.Path(tmpdir or tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch))
+        done = subprocess.run(["sh", str(self.SCRIPT)] + list(args), env=env, input=answers,
+                              capture_output=True, text=True, timeout=120)
+        calls = (bin_ / "calls").read_text().splitlines() if (bin_ / "calls").exists() else []
+        return done, [json.loads(c) for c in calls], scratch
+
+    def out(self) -> pathlib.Path:
+        return pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "p61"
+
+    def test_each_step_is_read_kept_redacted_outside_the_repo_and_named(self):
+        out = self.out()
+        done, calls, scratch = self.run_script([str(out), "x/canary", "7", "8"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(sorted(p.name for p in out.iterdir()), sorted(
+            ["ran_at", "query.json", "steps"] + ["clean-%d" % n for n in range(1, 10)] + ["redacted-%d" % n for n in range(1, 10)]))
+        asked = json.loads((out / "query.json").read_text())
+        self.assertEqual(asked["variables"], {"owner": "x", "name": "canary", "issue": 7, "pr": 8})
+        query = asked["query"]
+        self.assertEqual(query, self.QUERY)
+        self.assertIn(self.ITEMS, query)
+        for fragment in ("IssueTypeChangedEvent{createdAt actor{__typename login} issueType{name} prevIssueType{name}}",
+                         "ConnectedEvent{createdAt actor{__typename login} source{__typename ... on Issue{number} ... on "
+                         "PullRequest{number}} subject{", "ClosedEvent{createdAt actor{__typename login} closer{",
+                         "closingIssuesReferences(first:10)"):
+            self.assertIn(fragment, query)
+        for n in range(1, 10):
+            self.assertNotIn("ghs_", (out / ("clean-%d" % n)).read_text())
+            self.assertIn('"timelineItems"', (out / ("clean-%d" % n)).read_text())
+        self.assertEqual(len((out / "steps").read_text().splitlines()), 9)
+        # Every call is the same GraphQL read through gh, of that repo's issue and pull request, and nothing else.
+        self.assertEqual(calls, [["api", "graphql", "--include", "-f", "query=" + query, "-f", "owner=x", "-f", "name=canary",
+                                  "-F", "issue=7", "-F", "pr=8"]] * 9)
+        self.assertEqual(list(scratch.glob("trial-p61.*")), [])
+        self.assertNotIn("ghs_", done.stdout + done.stderr)
+        self.assertEqual(out.stat().st_mode & 0o077, 0)     # OUT is the Maintainer's alone
+
+    def test_a_refused_read_is_said_and_offered_again_before_anything_changes(self):
+        # A wrong field is refused with errors: the run says so at step 1, with gh's complaint redacted, and stops when
+        # told; told to read again, it reads the same step again and goes on.
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="q\n", refuse=(5, "all"))
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("step 1 was not read whole", done.stderr)
+        self.assertIn("stopped at step 1", done.stderr)
+        self.assertNotIn("ghs_", done.stdout + done.stderr)
+        self.assertEqual((len(calls), sorted(p.name for p in out.glob("clean-*"))), (1, ["clean-1"]))
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 8, refuse=(1, "all"))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual((len(calls), (out / "steps").read_text().count("\n")), (10, 9))
+        # An interim head before a good answer is a good read.
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], refuse=(9, "interim"))
+        self.assertEqual((done.returncode, len(calls)), (0, 9), done.stderr)
+        # No one left to answer the offer to read again: the run stops, and does not read again on its own.
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="", refuse=(5, "all"))
+        self.assertEqual((done.returncode, len(calls)), (1, 1), done.stderr)
+        self.assertIn("stopped at step 1", done.stderr)
+        # A read the redaction refuses keeps nothing and is offered again: after the merge, a lost read cannot be redone.
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 8, refuse=(1, "cut"))
+        self.assertEqual((done.returncode, len(calls)), (0, 10), done.stderr)
+        self.assertIn("the redaction of step 1 failed", done.stderr)
+        # Data beside errors is no whole read, nor is a good answer from a gh that failed: each is said and stopped.
+        for mode in ("errors", "exit", "cut", "paged", "status", "hidden", "unpaged"):
+            out = self.out()
+            done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="q\n", refuse=(5, mode))
+            self.assertEqual((done.returncode, len(calls)), (1, 1), mode)
+            self.assertIn("the redaction of step 1 failed" if mode == "cut" else "step 1 was not read whole", done.stderr, mode)
+
+    def test_a_run_stopped_before_a_step_keeps_what_it_read_and_reads_no_more(self):
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], "\n" * 2)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("stopped before step 4", done.stderr)
+        self.assertEqual((len(calls), sorted(p.name for p in out.glob("clean-*"))), (3, ["clean-1", "clean-2", "clean-3"]))
+
+    def test_what_it_is_given_is_held_before_anything_is_read(self):
+        here = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (here / "taken").mkdir()
+        shared = here / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        (here / "into").symlink_to(ROOT)
+        # A name in the repo no other run uses, removed whatever happens: a mutant that writes there must leave the copy
+        # as it found it, or the run on the unbroken code meets what it made.
+        inside = "p61-out-%s" % here.name
+        self.addCleanup(lambda: shutil.rmtree(ROOT / inside, ignore_errors=True))
+        for args, said in (([str(here / "o"), "canary", "7", "8"], "is not owner/name"),
+                           ([str(here / "o"), "x/y/z", "7", "8"], "is not owner/name"),
+                           ([str(here / "o"), "x/canary\n", "7", "8"], "is not owner/name"),
+                           ([str(here / "o"), "combsmith/software-factory", "7", "8"], "never in the Factory's own repo"),
+                           ([str(here / "o"), "Combsmith/Software-Factory", "7", "8"], "never in the Factory's own repo"),
+                           ([str(here / "o"), "x/canary", "seven", "8"], "is not an issue's"),
+                           ([str(here / "o"), "x/canary", "", "8"], "is not an issue's"),
+                           ([str(here / "o"), "x/canary", "7", "08"], "is not an issue's"),
+                           ([str(here / "taken"), "x/canary", "7", "8"], "exists"),
+                           ([str(ROOT / inside), "x/canary", "7", "8"], "is inside the repo"),
+                           ([str(here / "into" / inside), "x/canary", "7", "8"], "is inside the repo"),
+                           ([str(here / "missing" / "o"), "x/canary", "7", "8"], "does not exist"),
+                           ([str(shared / "o"), "x/canary", "7", "8"], "can be written by other users"),
+                           (["only", "two"], "usage")):
+            done, calls, _ = self.run_script(args)
+            self.assertEqual((done.returncode, calls), (2, []), args)
+            self.assertIn(said, done.stderr, args)
+        self.assertFalse((ROOT / inside).exists())
+
+    def test_a_scratch_directory_inside_the_repo_is_refused(self):
+        root = clone({"tools/trial_p61_timeline.sh": self.SCRIPT.read_text(), "scratch/.keep": ""})
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "into-the-repo"
+        link.symlink_to(root / "scratch")
+        out = self.out()
+        done = subprocess.run(["sh", str(root / "tools" / "trial_p61_timeline.sh"), str(out), "x/canary", "7", "8"],
+                              env=dict(os.environ, PATH="/nowhere:/usr/bin:/bin", TMPDIR=str(link)),
+                              input="", capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("is inside the repo", done.stderr)
+        self.assertFalse(out.exists())
