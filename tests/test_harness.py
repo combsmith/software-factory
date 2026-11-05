@@ -1220,6 +1220,25 @@ class Head(unittest.TestCase):
         with self.assertRaises(head.Refused) as refused:
             head.held(changed("p2/fifo", os.mkfifo), tree)
         self.assertIn("not a regular file", str(refused.exception))
+        # Nor a head that is not a folder, is a link to one, or holds a folder that cannot be listed, whose files would
+        # go unseen (Argon's read).
+        for where in (os.path.join(tempfile.mkdtemp(), "none"), os.path.join(into, "p2", "a.md")):
+            with self.assertRaises(head.Refused, msg=where) as refused:
+                head.held(where, {"files": {}, "links": set()})
+            self.assertIn("not a folder", str(refused.exception))
+        linked = os.path.join(tempfile.mkdtemp(), "head")
+        os.symlink(into, linked)
+        with self.assertRaises(head.Refused) as refused:
+            head.held(linked, tree)
+        self.assertIn("not a folder", str(refused.exception))
+        if os.geteuid() != 0:
+            hidden = changed("hidden", os.mkdir)
+            pathlib.Path(hidden, "hidden", "extra").write_bytes(b"x")
+            os.chmod(os.path.join(hidden, "hidden"), 0)
+            self.addCleanup(os.chmod, os.path.join(hidden, "hidden"), 0o700)
+            with self.assertRaises(head.Refused) as refused:
+                head.held(hidden, tree)
+            self.assertIn("cannot be listed", str(refused.exception))
         # Nor a tree whose size for a file is not that file's, though its blob hash is.
         blob, size = tree["files"]["p2/a.md"]
         with self.assertRaises(head.Refused):
@@ -1261,6 +1280,9 @@ class Head(unittest.TestCase):
                 ("an entry not an object", body("a/e")),
                 ("a submodule", body({"path": "sub", "mode": "160000", "type": "commit", "sha": blob})),
                 ("a blob's sha cut short", body(dict(empty, sha=blob[:7]))),
+                ("a blob's sha too long", body(dict(empty, sha=blob + "0"))),
+                ("a blob's sha in capitals", body(dict(empty, sha=blob.upper()))),
+                ("no blob sha", body(dict(empty, sha=None))),
                 ("a size not a count", body(dict(empty, size=True))),
                 ("a size below zero", body(dict(empty, size=-1))),
                 ("a mode git does not write", body(dict(empty, mode="100664"))),

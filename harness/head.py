@@ -261,9 +261,14 @@ def held(into: str, tree_: dict) -> None:
     """Hold the head unpacked into `into` to its commit's tree: every regular file of the tree is a file there, whose git
     blob hash, sha1 of `blob <size>\\0` and its bytes, is the tree's, and no file is there that the tree lacks. A file the
     commit's .gitattributes marked export-ignore, or one export-subst, ident, eol or working-tree-encoding rewrote, is so
-    caught (decisions 0138 and 0142). A link, to a file or a folder, is refused. Refused at the first file that differs."""
+    caught (decisions 0138 and 0142). A link, to a file or a folder, is refused, and so is a head that is not a folder
+    or holds one that cannot be listed. Refused at the first file that differs."""
+    def unreadable(err):
+        raise Refused("a folder of the head cannot be listed") from None
+    if os.path.islink(into) or not os.path.isdir(into):
+        raise Refused("the head is not a folder")
     found = {}
-    for folder, folders, names in os.walk(into):
+    for folder, folders, names in os.walk(into, onerror=unreadable):
         if any(os.path.islink(os.path.join(folder, name)) for name in folders):
             raise Refused("the head holds a link to a folder, which os.walk would not go into")
         for name in names:
