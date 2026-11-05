@@ -11769,6 +11769,14 @@ if mode == "status":
 if mode == "interim":
     # An interim head before the answer: the answer is the last head's.
     sys.stdout.write("HTTP/1.1 100 Continue\\r\\n\\r\\n")
+if mode == "hidden":
+    # A refusal with what reads as a second head in its body: only the first head says it is no answer.
+    sys.stdout.write("HTTP/2.0 502 Bad Gateway\\r\\nContent-Type: application/json\\r\\n\\r\\n"
+                     "HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n" + json.dumps(body))
+    sys.exit(0)
+if mode == "unpaged":
+    # No page at all: whether the timeline was read whole cannot be told.
+    del body["data"]["repository"]["issue"]["timelineItems"]["pageInfo"]
 if mode == "paged":
     # More events than one page holds: the timeline is not read whole.
     body["data"]["repository"]["issue"]["timelineItems"]["pageInfo"] = {"hasNextPage": True, "endCursor": "Y3Vy"}
@@ -11855,7 +11863,7 @@ if mode == "cut":
         self.assertEqual((done.returncode, len(calls)), (0, 10), done.stderr)
         self.assertIn("the redaction of step 1 failed", done.stderr)
         # Data beside errors is no whole read, nor is a good answer from a gh that failed: each is said and stopped.
-        for mode in ("errors", "exit", "cut", "paged", "status"):
+        for mode in ("errors", "exit", "cut", "paged", "status", "hidden", "unpaged"):
             out = self.out()
             done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="q\n", refuse=(5, mode))
             self.assertEqual((done.returncode, len(calls)), (1, 1), mode)
@@ -11877,6 +11885,7 @@ if mode == "cut":
         (here / "into").symlink_to(ROOT)
         for args, said in (([str(here / "o"), "canary", "7", "8"], "is not owner/name"),
                            ([str(here / "o"), "x/y/z", "7", "8"], "is not owner/name"),
+                           ([str(here / "o"), "x/canary\n", "7", "8"], "is not owner/name"),
                            ([str(here / "o"), "combsmith/software-factory", "7", "8"], "never in the Factory's own repo"),
                            ([str(here / "o"), "Combsmith/Software-Factory", "7", "8"], "never in the Factory's own repo"),
                            ([str(here / "o"), "x/canary", "seven", "8"], "is not an issue's"),

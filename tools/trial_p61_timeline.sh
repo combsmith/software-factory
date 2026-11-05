@@ -27,8 +27,8 @@
 # OUT receives only the redacted answers (clean-N), where the redaction removed something (redacted-N), what was asked
 # (query.json, with its variables, and steps), and when the run started (ran_at). A read that is not GitHub's 200 with
 # data and no errors, and the issue's timeline whole on its one page, is said, with gh's complaint redacted, and offered
-# again before anything changes; a bad query stops the run at step 1, and so does an issue with more than a hundred of
-# these events, which is no new issue. A session builds trials/P-61.json from OUT alone.
+# again before anything changes, until the Maintainer types q: a bad query is found at step 1, and so is an issue with
+# more than a hundred of these events, which is no new issue. A session builds trials/P-61.json from OUT alone.
 set -euf
 set +x
 
@@ -38,11 +38,14 @@ if [ "$#" -ne 4 ]; then
 fi
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 # A repo and each number are one word of the shapes GitHub allows, so none reaches the query as anything else.
-case "$(printf '%s' "$2" | tr 'A-Z' 'a-z')" in
-    */*/*|/*|*/|-*|*[!a-z0-9._/-]*) echo "trial_p61_timeline: $2 is not owner/name" >&2; exit 2 ;;
-    combsmith/software-factory) echo "trial_p61_timeline: a trial runs in the canary, never in the Factory's own repo" >&2; exit 2 ;;
+case "$2" in
+    */*/*|/*|*/|-*|*[!A-Za-z0-9._/-]*) echo "trial_p61_timeline: $2 is not owner/name" >&2; exit 2 ;;
     */*) ;;
     *) echo "trial_p61_timeline: $2 is not owner/name" >&2; exit 2 ;;
+esac
+# GitHub reads a name in any case, so the Factory's own repo is refused in any.
+case "$(printf '%s' "$2" | tr 'A-Z' 'a-z')" in
+    combsmith/software-factory) echo "trial_p61_timeline: a trial runs in the canary, never in the Factory's own repo" >&2; exit 2 ;;
 esac
 for number in "$3" "$4"; do
     case "$number" in
@@ -122,7 +125,9 @@ head, body = parts[-2], parts[-1]
 answer = json.loads(body)
 issue = ((answer.get("data") or {}).get("repository") or {}).get("issue") or {}
 whole = ((issue.get("timelineItems") or {}).get("pageInfo") or {}).get("hasNextPage") is False
-sys.exit(0 if head.split("\n", 1)[0].split()[1:2] == ["200"] and not answer.get("errors") and whole else 1)
+# Every head before the last is an interim one, a 1xx, so no refusal hides behind a later head.
+interim = all(h.split("\n", 1)[0].split()[1:2][0:1] and h.split("\n", 1)[0].split()[1].startswith("1") for h in parts[:-2])
+sys.exit(0 if interim and head.split("\n", 1)[0].split()[1:2] == ["200"] and not answer.get("errors") and whole else 1)
 ' "$out/clean-$step" 2>/dev/null; then
         rm -f "$dir/err"
         return 0
