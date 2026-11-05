@@ -1,6 +1,6 @@
 # 0139. A platform close keeps the State a person set on an issue held or not served
 
-Status: accepted. Replaces `docs/decisions/0028-an-issues-state-is-derived-in-a-module-of-its-own.md`, and keeps all of it but one line, which it overturns: "A person's hands-off that stood at the merge, with a Hold beside it or not and lifted since or not, … leave it done". The Factory Builder's ruling of 2026-11-04 on "A platform close keeps the State a person set on an issue held or not served" (issue 522), of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182), found by the read of "An outsider's merge never makes an issue done (P-48)" (issue 521). It narrows row 1 of the issue's States again, after decision 0132.
+Status: replaced by `docs/decisions/0141-a-linked-draft-is-read-as-it-stood-at-the-merge-that-closed-its-issue.md`, which holds the rule in force.
 
 ## Decision
 

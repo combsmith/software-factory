@@ -36,6 +36,10 @@ ISSUE_READ_IN_FULL = ("linked", "runs", "timeline")
 REOPENED_BY = ("writer", "other", "never")
 # The classes of a pull request, as the port gives them.
 CLASSES = ("agent", "maintainer", "dependency", "outside")
+# A pull request's timeline events that change its draft flag (trials/P-33.json), as the facts name them.
+DRAFTED = "converted_to_draft"
+READIED = "ready_for_review"
+DRAFT_ACTIONS = ("converted_to_draft", "ready_for_review")
 # The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
 APP_KINDS = ("app", "lens", "queue")
 # What GitHub says of an issue: open, or closed.
@@ -182,7 +186,18 @@ def readable_link(entry, config: dict) -> bool:
     closer = entry.get("closed_issue_at", "")
     if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
-    return readable_events(entry.get("label_events"), config)
+    return readable_draft_events(entry) and readable_events(entry.get("label_events"), config)
+
+
+def readable_draft_events(entry: dict) -> bool:
+    """Whether a pull request's conversions to a draft and markings ready can be read: each one or the other, with its
+    time, and the last of them its flag now, since a timeline that ends on a conversion leaves a draft (P-33)."""
+    events = entry.get("draft_events")
+    if not isinstance(events, list):
+        return False
+    if not all(isinstance(ev, dict) and ev.get("action") in DRAFT_ACTIONS and is_time(ev.get("at")) for ev in events):
+        return False
+    return not events or (max(events, key=lambda ev: ev["at"])["action"] == DRAFTED) == entry["draft"]
 
 
 def readable_content(facts: dict) -> bool:
@@ -396,11 +411,27 @@ def as_of(item: dict, when: str) -> dict:
                                     if ev["label"] in t.CONTROL_LABELS and ev["at"] <= when])
 
 
+def draft_at(p: dict, when: str) -> bool:
+    """Whether the pull request was a draft at any moment of the second `when`: its flag now, with every conversion and
+    marking ready after that second undone, and one in that second read either way, since the reading that stops work
+    wins a tie (decision 0141). One opened as a draft has no event for it: before its first event it was what that
+    event undid."""
+    events = sorted(p["draft_events"], key=lambda ev: ev["at"])
+    before = [ev for ev in events if ev["at"] < when]
+    during = [ev for ev in events if ev["at"] == when]
+    if before:
+        entering = before[-1]["action"] == DRAFTED
+    elif events:
+        entering = events[0]["action"] == READIED
+    else:
+        entering = p["draft"]
+    return entering or any(ev["action"] == DRAFTED for ev in during)
+
+
 def drafts_at(links: list, when: str) -> list:
     """The linked pull requests that were open drafts at `when`: opened by then and not closed before it, one closed
-    in that second among them, since the reading that stops work wins a tie. Whether one was a draft then is read
-    from its flag now, the one the facts carry."""
-    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]
+    in that second among them, since the reading that stops work wins a tie, and a draft then by its timeline."""
+    return [p for p in links if draft_at(p, when) and p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]
 
 
 def released_since(item: dict, name: str, when: str) -> bool:
@@ -437,12 +468,16 @@ def a_persons_hands_off(labels: dict, facts: dict, drafts: list, links: list = (
                for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
 
 
-def hands_off_stood(facts: dict, when: str) -> bool:
-    """Whether a person's hands-off stood on the issue itself at `when`, by its label events' times, and no person has
-    removed it since: only a person ends it, and an App's removal ends nothing. A draft's is not read here: whether a
-    pull request was a draft, or linked, at a time is not in the facts."""
-    past = as_of(facts, when)
-    return placed_by_a_person(standing_labels(past), past) and not released_since(facts, t.LABEL_HANDS_OFF, when)
+def hands_off_stood(facts: dict, links: list, when: str) -> bool:
+    """Whether a person's hands-off stood at `when` on the issue, or on a pull request linked then that was a draft
+    then, by their label events' times and the draft's timeline, and no person has removed it since: only a person ends
+    it, and an App's removal ends nothing. When a pull request became linked is not in the facts: one opened by then is
+    read as linked then ("Facts: a closing keyword's link timed by the first pass that saw it", issue 552)."""
+    for item in [facts] + drafts_at(links, when):
+        past = as_of(item, when)
+        if placed_by_a_person(standing_labels(past), past) and not released_since(item, t.LABEL_HANDS_OFF, when):
+            return True
+    return False
 
 
 def held_by(labels: dict, drafts: list) -> list:
@@ -520,11 +555,13 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # (issue 522). Row 3 is read before row 4, as below. Only what the facts place at the merge is read, so that no
         # terminal State is left by a fact with no time: the issue's own label events, and the Hold. A person's
         # hands-off on the issue stands until a person removes it, and the merge then reads on; one removed since still
-        # lets a Hold beside it pass, as the Factory leaves a queued item to merge under it. The Consumer entry, whose
-        # configuration has no history, a left-out label or type, two links and a draft's hands-off carry no time in
-        # the facts and read as before: "Facts: the times of a link, a left-out label and an issue's type, so that row
-        # 1 reads them at the merge" (issue 542).
-        if hands_off_stood(facts, first):
+        # lets a Hold beside it pass, as the Factory leaves a queued item to merge under it. A linked draft's flag is
+        # read as it stood at the merge, from its timeline (decision 0141), so a draft's hands-off and a Hold on a draft
+        # are placed there too. The Consumer entry, whose configuration has no history, a left-out label or type, and
+        # two links carry no time in the facts and read as before: "Trial P-61: an issue's type changes and a pull
+        # request linked by hand, each timed on the issue's timeline" (issue 551) and "Facts: a closing keyword's link
+        # timed by the first pass that saw it, and the Consumer entry at the merge (after the first cut)" (issue 552).
+        if hands_off_stood(facts, links, first):
             return out(t.NOT_SERVED, "merged_while_hands_off", merges)
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)

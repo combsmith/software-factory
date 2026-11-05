@@ -69,10 +69,11 @@ def unlabelled(label: str, by=None, minute: int = 2) -> dict:
 
 
 def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=None, closed=None, empty=False,
-       events=(), opened=0, closed_issue="merge") -> dict:
+       events=(), opened=0, closed_issue="merge", drafts=()) -> dict:
     """A pull request that closes the issue. By default the Maintainer's, opened with the issue, open and ready. A
     merged one closed then, and closed the issue in its second, as the issue's timeline records it (P-33);
-    `closed_issue=None` is one the issue's timeline never names, as one whose reference an edit added (P-46)."""
+    `closed_issue=None` is one the issue's timeline never names, as one whose reference an edit added (P-46). `drafts`
+    are its conversions to a draft and its markings ready, as (action, minute), the last of which is its flag now."""
     if merged is not None and closed is None:
         closed = merged
     if closed_issue == "merge":
@@ -80,7 +81,8 @@ def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=N
     return {"number": number, "class": cls, "opener": dict(WRITER if by is None else by), "open": is_open,
             "draft": draft, "opened_at": at(opened), "merged_at": None if merged is None else at(merged),
             "closed_at": None if closed is None else at(closed), "empty": empty, "label_events": list(events),
-            "closed_issue_at": None if closed_issue is None else at(closed_issue)}
+            "closed_issue_at": None if closed_issue is None else at(closed_issue),
+            "draft_events": [{"action": action, "at": at(minute)} for action, minute in drafts]}
 
 
 def agents(**over) -> dict:
@@ -309,7 +311,12 @@ class Unreadable(unittest.TestCase):
                dict(good, open=False, closed_at="2026-10-11"), dict(good, open=False, closed_at=at(5), merged_at=1),
                # No moment, though it sorts after the opening, so only the reading of the time refuses it.
                dict(good, open=False, closed_at="2026-10-11T25:00:00Z"),
-               dict(good, label_events=[dict(labelled(HOLD), by=None)]), dict(good, label_events=None), "11"]
+               dict(good, label_events=[dict(labelled(HOLD), by=None)]), dict(good, label_events=None), "11",
+               # Its draft events, each a conversion or a marking ready with its time, the last of them its flag now.
+               dict(good, draft_events=None), dict(good, draft_events=[{"action": "ready_for_review"}]),
+               dict(good, draft_events=[{"action": "drafted", "at": at(3)}]),
+               dict(good, draft_events=[{"action": "converted_to_draft", "at": at(3)}]),
+               dict(good, draft=True, draft_events=[{"action": "ready_for_review", "at": at(3)}])]
         no_class = dict(good)
         del no_class["class"]
         for entry in bad + [no_class]:
@@ -490,8 +497,8 @@ class Done(unittest.TestCase):
 
     def test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time(self):  # issue 522
         # No terminal State is left by a fact with no time: a link made after the merge, a left-out label or type set
-        # after it, a draft's flag and the Consumer entry, whose configuration has no history, are read as they stand
-        # now, so row 1 does not read them at the merge (issue 542). Issues turned off, or the entry's date moved past
+        # after it and the Consumer entry, whose configuration has no history, are read as they stand now, so row 1
+        # does not read them at the merge (issues 551 and 552). A draft's flag is read as it stood (decision 0141). Issues turned off, or the entry's date moved past
         # the life's start: done, and an admitted outsider's merge still asks a person, as decision 0132 reads it.
         merged = pr(is_open=False, merged=5)
         closed = dict(state="closed", closed_first_at=at(5))
@@ -503,17 +510,52 @@ class Done(unittest.TestCase):
             d = decide(f, cfg=cfg)
             self.assertEqual((d["state"], what(d), d["attention"]),
                              ("declined", ("nothing", "closed_by_outsider_merge", None), "needs_you"))
-        # A pull request opened before the merge and linked since, ready or a draft, a person's hands-off on a draft
-        # linked then, which may have been marked ready since, or on a ready one, a left-out label or the type: done.
+        # A pull request opened before the merge and linked since, ready or a draft, a person's hands-off on a ready
+        # one, a left-out label or the type: done.
         for f in (facts(linked=[merged, pr(12, opened=3)]),
                   facts(linked=[merged, strangers(number=12, admitted=True, opened=3)]),
                   facts(linked=[merged, pr(12, opened=3, draft=True)]),
-                  facts(linked=[merged, agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=4)])]),
                   facts(linked=[merged, pr(12, events=[labelled(HANDS_OFF, minute=4)])]),
                   facts(label_names=["epic"], linked=[merged]),
                   facts(type="Epic", linked=[merged])):
             d = derive(dict(f, state="closed", closed_first_at=at(5)))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), f)
+
+    def test_a_linked_draft_is_read_as_it_stood_at_the_merge(self):  # issue 542, decision 0141, trials/P-33.json
+        # P-33: a pull request's timeline gives each conversion to a draft and each marking ready, with its time, and one
+        # opened as a draft has no event for it. Its flag at the merge is its flag now with every later event undone; in
+        # an event's own second, the reading that stops work wins, so it was a draft if it was one at any moment of it.
+        merged = pr(is_open=False, merged=5)
+        hands = [labelled(HANDS_OFF, minute=4)]
+        hold = [labelled(HOLD, OTHER_APP, 4)]
+        for draft, drafts, stood in (
+                (True, (), True),                                         # a draft throughout
+                (False, (("ready_for_review", 6),), True),                # marked ready after the merge
+                (True, (("converted_to_draft", 6),), False),              # ready at the merge, a draft since
+                (False, (("ready_for_review", 3),), False),               # marked ready before the merge
+                (True, (("ready_for_review", 2), ("converted_to_draft", 3)), True),
+                (False, (("ready_for_review", 5),), True),                # marked ready in the merge's second
+                (True, (("converted_to_draft", 5),), True)):              # converted in the merge's second
+            linked = agents(number=12, draft=draft, drafts=drafts, events=hands)
+            d = derive(facts(linked=[merged, linked]))
+            self.assertEqual((d["state"], d["reason"]), ("not_served", "merged_while_hands_off") if stood else
+                             ("done", "merged"), drafts)
+            linked = agents(number=12, draft=draft, drafts=drafts, events=hold)
+            d = derive(facts(linked=[merged, linked]))
+            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held") if stood else ("done", "merged"),
+                             drafts)
+        # A person's hands-off on the draft, removed by a person since, ends it, and the merge reads on; an App's removal
+        # ends nothing.
+        linked = agents(number=12, draft=False, drafts=(("ready_for_review", 7),),
+                        events=hands + [unlabelled(HANDS_OFF, minute=6)])
+        self.assertEqual(derive(facts(linked=[merged, linked]))["reason"], "merged")
+        linked = agents(number=12, draft=False, drafts=(("ready_for_review", 7),),
+                        events=hands + [unlabelled(HANDS_OFF, OTHER_APP, 6)])
+        self.assertEqual(derive(facts(linked=[merged, linked]))["reason"], "merged_while_hands_off")
+        # The draft's flag now and its last event that disagree: no chronology, and nothing is read.
+        for draft, drafts in ((False, (("converted_to_draft", 3),)), (True, (("ready_for_review", 3),))):
+            d = derive(facts(linked=[merged, agents(number=12, draft=draft, drafts=drafts)]))
+            self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), drafts)
 
     def test_a_merge_counts_only_where_the_issues_timeline_names_it_the_closer(self):  # issue 267, trials/P-46.json
         # P-46: an edit to a merged pull request's description after the merge added an open issue to its closing

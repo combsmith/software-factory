@@ -3558,6 +3558,8 @@ NOT_READ = {
     # adapters/acceptance.py reads closing references, and adapters/timeline.py the draft flag's events, each in a
     # shape these GraphQL fixtures did not record: P-33 asked no issue's repo, and no REST timeline of a draft change.
     "a_closing_reference_is_read_from_any_pull_request": "shape", "who_changed_the_draft_flag_is_read": "shape",
+    # The issue port that reads each linked pull request's draft events is not built yet (decision 0141).
+    "a_draft_change_is_timed": "issues_port",
     "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",

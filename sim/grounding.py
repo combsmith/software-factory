@@ -263,6 +263,11 @@ RULES = (
      "one to another base carries no reference", ("P-33",), "trials/P-33.json", None),
     ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it to a "
      "draft", ("P-33",), "trials/P-33.json", None),
+    # trials/P-33.json: pull request 38 marked ready, converted to a draft and marked ready again, each its own event a
+    # second or two apart; pull request 37, opened as a draft, has none (decision 0141).
+    ("a_draft_change_is_timed", "A pull request's timeline gives each conversion to a draft and each marking ready as an "
+     "event of its own, with its time to the second; one opened as a draft has no event for it", ("P-33",),
+     "trials/P-33.json", None),
     # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
     # names to closingIssuesReferences, and closes nothing: the issue stays open and its timeline gains no close; undoing
     # the edit takes it out again. trials/P-33.json: the merge's own close of the issue names the pull request as the
@@ -443,6 +448,7 @@ ASKS = {
               "default one carry it?",
     },
     "who_changed_the_draft_flag_is_read": {"P-33": "Can who last changed the draft flag be read?"},
+    "a_draft_change_is_timed": {"P-33": "Can who last changed the draft flag be read?"},
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": {
         "P-33": "Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged "
               "pull request alike",

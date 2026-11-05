@@ -55,7 +55,7 @@ def agents_draft(w: IssueWorld) -> dict:
     """The Factory's draft pull request, linked to the issue."""
     return {"number": 100, "class": "agent", "opener": dict(issues.AUTHOR_APP), "open": True, "draft": True,
             "opened_at": w.now(), "merged_at": None, "closed_at": None, "empty": False, "label_events": [],
-            "closed_issue_at": None}
+            "closed_issue_at": None, "draft_events": []}
 
 
 def after(trace: list, first: str, then: str) -> bool:
