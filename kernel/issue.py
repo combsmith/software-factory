@@ -36,6 +36,10 @@ ISSUE_READ_IN_FULL = ("linked", "runs", "timeline")
 REOPENED_BY = ("writer", "other", "never")
 # The classes of a pull request, as the port gives them.
 CLASSES = ("agent", "maintainer", "dependency", "outside")
+# A pull request's timeline events that change its draft flag (trials/P-33.json), as the facts name them.
+DRAFTED = "converted_to_draft"
+READIED = "ready_for_review"
+DRAFT_ACTIONS = ("converted_to_draft", "ready_for_review")
 # The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
 APP_KINDS = ("app", "lens", "queue")
 # What GitHub says of an issue: open, or closed.
@@ -182,7 +186,22 @@ def readable_link(entry, config: dict) -> bool:
     closer = entry.get("closed_issue_at", "")
     if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
-    return readable_events(entry.get("label_events"), config)
+    return readable_draft_events(entry) and readable_events(entry.get("label_events"), config)
+
+
+def readable_draft_events(entry: dict) -> bool:
+    """Whether a pull request's conversions to a draft and markings ready can be read: each one or the other, with its
+    time, in the order the timeline lists them, which is the order they happened, two in one second among them; each a
+    change of the flag, so a conversion follows a marking ready and the other way round; and the last of them its flag
+    now, since a timeline that ends on a conversion leaves a draft (P-33)."""
+    events = entry.get("draft_events")
+    if not isinstance(events, list):
+        return False
+    if not all(isinstance(ev, dict) and ev.get("action") in DRAFT_ACTIONS and is_time(ev.get("at")) for ev in events):
+        return False
+    if any(later["at"] < ev["at"] or later["action"] == ev["action"] for ev, later in zip(events, events[1:])):
+        return False
+    return not events or (events[-1]["action"] == DRAFTED) == entry["draft"]
 
 
 def readable_content(facts: dict) -> bool:
@@ -396,13 +415,6 @@ def as_of(item: dict, when: str) -> dict:
                                     if ev["label"] in t.CONTROL_LABELS and ev["at"] <= when])
 
 
-def drafts_at(links: list, when: str) -> list:
-    """The linked pull requests that were open drafts at `when`: opened by then and not closed before it, one closed
-    in that second among them, since the reading that stops work wins a tie. Whether one was a draft then is read
-    from its flag now, the one the facts carry."""
-    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]
-
-
 def released_since(item: dict, name: str, when: str) -> bool:
     """Whether a person removed the label `name` from `item` after `when`: only a person ends what a label holds,
     and a removal in the second of `when` is read as before it."""
@@ -410,37 +422,30 @@ def released_since(item: dict, name: str, when: str) -> bool:
                for ev in item["label_events"])
 
 
-def stopped_before(facts: dict, links: list, when: str) -> list:
-    """The labels that held the issue when the merge at `when` landed and that no person has released since: a Hold,
-    whoever placed it, and hands-off anyone but a person placed, standing then on the issue or on a draft linked then.
-    Placed later, a label does not touch what the merge did; placed in the merge's second, the reading that stops work
-    wins; released by a person since, it was answered, and placed again after that it is a Hold of its own; an App's
-    removal, and a draft closed since, release nothing."""
-    out = []
-    for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF):
-        for item in [facts] + drafts_at(links, when):
-            if name in standing_labels(as_of(item, when)) and not released_since(item, name, when):
-                out.append(name)
-                break
-    return out
+def stopped_before(facts: dict, when: str) -> list:
+    """The labels that held the issue itself when the merge at `when` landed and that no person has released since: a
+    Hold, whoever placed it, and hands-off anyone but a person placed. Placed later, a label does not touch what the
+    merge did; placed in the merge's second, the reading that stops work wins; released by a person since, it was
+    answered, and placed again after that it is a Hold of its own; an App's removal releases nothing. A linked draft's
+    labels are not read here: when a pull request became linked carries no time, so none can be placed at the merge
+    (decision 0141)."""
+    past = as_of(facts, when)
+    return [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF)
+            if name in standing_labels(past) and not released_since(facts, name, when)]
 
 
-def a_persons_hands_off(labels: dict, facts: dict, drafts: list, links: list = (), by: str = None) -> bool:
-    """Whether a person's hands-off stands on the issue or on its linked draft, or stood there at the time `by` where
-    one is given, on a draft linked then, lifted since or not: the Factory never acts on it, and leaves a queued item
-    to merge under it."""
-    items = [facts] + list(drafts)
-    if by is not None:
-        items = [as_of(item, by) for item in [facts] + drafts_at(links, by)]
-        labels = standing_labels(items[0])
+def a_persons_hands_off(labels: dict, facts: dict, drafts: list) -> bool:
+    """Whether a person's hands-off stands on the issue or on its linked draft: the Factory never acts on it, and leaves
+    a queued item to merge under it."""
     return any(placed_by_a_person(each, item)
-               for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
+               for each, item in [(labels, facts)] + [(standing_labels(p), p) for p in drafts])
 
 
 def hands_off_stood(facts: dict, when: str) -> bool:
     """Whether a person's hands-off stood on the issue itself at `when`, by its label events' times, and no person has
-    removed it since: only a person ends it, and an App's removal ends nothing. A draft's is not read here: whether a
-    pull request was a draft, or linked, at a time is not in the facts."""
+    removed it since: only a person ends it, and an App's removal ends nothing. A linked draft's is not read here: when
+    a pull request became linked carries no time ("Facts: a closing keyword's link timed by the first pass that saw it,
+    and the Consumer entry at the merge (after the first cut)", issue 552)."""
     past = as_of(facts, when)
     return placed_by_a_person(standing_labels(past), past) and not released_since(facts, t.LABEL_HANDS_OFF, when)
 
@@ -520,13 +525,17 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # (issue 522). Row 3 is read before row 4, as below. Only what the facts place at the merge is read, so that no
         # terminal State is left by a fact with no time: the issue's own label events, and the Hold. A person's
         # hands-off on the issue stands until a person removes it, and the merge then reads on; one removed since still
-        # lets a Hold beside it pass, as the Factory leaves a queued item to merge under it. The Consumer entry, whose
-        # configuration has no history, a left-out label or type, two links and a draft's hands-off carry no time in
-        # the facts and read as before: "Facts: the times of a link, a left-out label and an issue's type, so that row
-        # 1 reads them at the merge" (issue 542).
+        # lets a Hold beside it pass, as the Factory leaves a queued item to merge under it. A linked draft's labels are
+        # not read: its flag at the merge can be read from its timeline, but when it became linked cannot, so neither
+        # its Hold nor its hands-off is placed at the merge (decision 0141). The Consumer entry, whose configuration has
+        # no history, a left-out label or type, and two links carry no time in the facts and read as before: "Trial
+        # P-61: an issue's type changes and a pull request linked by hand, each timed on the issue's timeline" (issue
+        # 551) and "Facts: a closing keyword's link timed by the first pass that saw it, and the Consumer entry at the
+        # merge (after the first cut)" (issue 552).
+        past = as_of(facts, first)
         if hands_off_stood(facts, first):
             return out(t.NOT_SERVED, "merged_while_hands_off", merges)
-        if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
+        if stopped_before(facts, first) and not placed_by_a_person(standing_labels(past), past):
             return out(t.HELD, "merged_while_held", merges)
         # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where
         # only an outsider's did, a person decides whether the work is done (issue 280).

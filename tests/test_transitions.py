@@ -1189,8 +1189,10 @@ def linked_pull_request(how: str):
         p = live[0]
         if how == "ready":
             p["draft"] = False
+            p["draft_events"].append({"action": issue.READIED, "at": now(item)})
         elif how == "draft":
             p["draft"] = True
+            p["draft_events"].append({"action": issue.DRAFTED, "at": now(item)})
         else:
             p.update(open=False, closed_at=now(item), merged_at=now(item) if how != "close" else None,
                      empty=how == "empty", closed_issue_at=closes_the_issue(item) if how != "close" else None)
@@ -1224,6 +1226,7 @@ def app_marks_ready(item: dict):
     if not live:
         return None
     live[0]["draft"] = False
+    live[0]["draft_events"].append({"action": issue.READIED, "at": now(item)})
     return item
 
 
@@ -1232,12 +1235,14 @@ def queue_merges_issue(item: dict, kind: str = "agent"):
     issue is in review, since the Controller dequeues on a person's hold or close (issue 227). An admitted outsider's
     may name in its description, after the approval, an issue the Controller does not watch, so it merges while that
     issue is new too (P-48, issue 280). It merges too where row 1 reads the State at the merge, which then stays, since
-    only a person ends it (issue 522): held by a Hold, the race of a pass that has not yet dequeued; and not served by
-    a person's hands-off on the issue, under which the Factory leaves a queued item to merge. From two links, a draft's
-    hands-off or an issue the Consumer entry leaves out, row 1 waits on the facts' times (issue 542)."""
+    only a person ends it (issue 522): held by a Hold on the issue, the race of a pass that has not yet dequeued; and
+    not served by a person's hands-off on the issue, under which the Factory leaves a queued item to merge. Under a
+    linked draft's Hold or hands-off, from two links or on an issue the Consumer entry leaves out, row 1 waits on the
+    time a link was made (decision 0141; issues 551 and 552)."""
     live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == kind and not p["draft"]]
     d = issue_kernel(item)
-    kept = d["reason"] == "human_hold" or (d["reason"] == "hands_off" and issue_stands(item, t.LABEL_HANDS_OFF))
+    kept = (d["reason"] == "human_hold" and issue_stands(item, t.LABEL_HOLD)) or \
+        (d["reason"] == "hands_off" and issue_stands(item, t.LABEL_HANDS_OFF))
     if not live or not (d["state"] in (("in_review", "new") if kind == "outside" else ("in_review",)) or kept):
         return None
     live[0].update(open=False, closed_at=now(item), merged_at=now(item), closed_issue_at=closes_the_issue(item))

@@ -309,7 +309,8 @@
             "closed_at": null,
             "empty": false,
             "label_events": [],
-            "closed_issue_at": null
+            "closed_issue_at": null,
+            "draft_events": []
           },
           {
             "number": 140,
@@ -337,7 +338,8 @@
                 "at": "2026-10-11T09:45:00Z"
               }
             ],
-            "closed_issue_at": null
+            "closed_issue_at": null,
+            "draft_events": []
           }
         ],
         "role_comments": [

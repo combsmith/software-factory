@@ -514,7 +514,8 @@ class IssueWorld:
             # GitHub: a_closing_reference_is_read_from_any_pull_request
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": True,
                                 "draft": True, "opened_at": self.now(), "merged_at": None, "closed_at": None,
-                                "empty": False, "label_events": [], "closed_issue_at": None})
+                                "empty": False, "label_events": [], "closed_issue_at": None,
+                                "draft_events": []})
             self.branch_head = "%040x" % (0xabc0 + number)
             self.moves()
             self.note("run %s: opened the draft #%d" % (run["run"], number))
@@ -533,7 +534,9 @@ class IssueWorld:
             p = mine[0]
             if p["draft"]:
                 # GitHub: who_changed_the_draft_flag_is_read
+                # GitHub: a_draft_change_is_timed
                 p["draft"] = False
+                p["draft_events"].append({"action": issue.READIED, "at": self.now()})
                 self.moves()
                 self.note("#%d marked ready by its author" % p["number"])
                 self.caused(FACTORY)
@@ -553,7 +556,8 @@ class IssueWorld:
                 and not any(p["class"] == "outside" for p in self.linked):
             self.linked.append({"number": 200 + len(self.linked), "class": "outside", "opener": dict(STRANGER),
                                 "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
-                                "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None})
+                                "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None,
+                                "draft_events": []})
             self.reached.append(2)
             self.note("a stranger's pull request names the issue")
             self.caused(STRANGER_BY)
@@ -697,7 +701,8 @@ class IssueWorld:
             number, merged = 400 + len(self.linked), World.at(self.life_started)
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": False,
                                 "draft": False, "opened_at": merged, "merged_at": merged,
-                                "closed_at": merged, "empty": False, "label_events": [], "closed_issue_at": None})
+                                "closed_at": merged, "empty": False, "label_events": [], "closed_issue_at": None,
+                                "draft_events": []})
             self.late.append(number)
             self.reached.append(6)
             self.note("an edit after its merge made #%d name the issue" % number)
@@ -731,13 +736,16 @@ class IssueWorld:
             if self.rng.random() < 0.3:
                 self.linked.append({"number": 300 + len(self.linked), "class": "maintainer", "opener": dict(who),
                                     "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
-                                    "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None})
+                                    "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None,
+                                    "draft_events": []})
                 self.writer_acted()
                 self.note("%s opened a pull request of their own" % who["name"])
             return
         p, roll = mine[0], self.rng.random()
         if roll < 0.3:
+            # GitHub: a_draft_change_is_timed
             p["draft"] = not p["draft"]
+            p["draft_events"].append({"action": issue.DRAFTED if p["draft"] else issue.READIED, "at": self.now()})
             self.note("%s %s #%d" % (who["name"], "converted to draft" if p["draft"] else "marked ready", p["number"]))
         elif roll < 0.6 and self.true_state != issue.DECLINED and not p["draft"]:
             # GitHub: a_draft_is_not_merged
