@@ -319,13 +319,12 @@ class Unreadable(unittest.TestCase):
                dict(good, draft=True, draft_events=[{"action": "ready_for_review", "at": at(3)}]),
                # A time in another form or no string, an event that is no object, and one before it opened.
                dict(good, draft_events=[{"action": "ready_for_review", "at": "2026-10-11"}]),
+               dict(good, draft=True, draft_events=[{"action": "converted_to_draft", "at": "2026-10-11T12:30:00"}]),
                dict(good, draft_events=[{"action": "ready_for_review", "at": 12}]),
                dict(good, draft_events=["ready_for_review"]),
                dict(good, opened_at=at(2), draft_events=[{"action": "converted_to_draft", "at": at(1)},
                                                          {"action": "ready_for_review", "at": at(3)}]),
-               # And one after it closed: a closed pull request is neither converted nor marked ready.
-               dict(good, open=False, closed_at=at(5), draft_events=[{"action": "converted_to_draft", "at": at(4)},
-                                                                     {"action": "ready_for_review", "at": at(6)}])]
+               ]
         no_class = dict(good)
         del no_class["class"]
         for entry in bad + [no_class]:
@@ -339,10 +338,11 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[strangers()])), "new")
 
-    def test_draft_events_in_the_opening_and_the_closing_second_are_read(self):  # issue 554
-        # Opened as a draft and marked ready in that second, or converted and closed in one: a chronology, read whole.
+    def test_draft_events_in_the_opening_second_and_after_the_close_are_read(self):  # issue 554
+        # Opened as a draft and marked ready in that second: a chronology, read whole. One after the close is read too:
+        # no trial says GitHub refuses it, and refusing it would let a closed pull request's author stall the issue.
         for linked in (pr(drafts=(("ready_for_review", 0),)),
-                       pr(is_open=False, closed=5, draft=True, drafts=(("ready_for_review", 2), ("converted_to_draft", 5)))):
+                       pr(is_open=False, closed=5, draft=True, drafts=(("ready_for_review", 2), ("converted_to_draft", 6)))):
             self.assertIsNotNone(state(facts(linked=[linked])), linked)
 
     def test_an_unreadable_life_defers(self):
