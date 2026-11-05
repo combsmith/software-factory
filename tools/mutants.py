@@ -302,6 +302,11 @@ ISSUE = [
     ("a flag that disagrees with its last event is read", ISSUE_PY,
      '    return not events or (events[-1]["action"] == DRAFTED) == entry["draft"]\n',
      '    return True\n', ("tests.test_issue.Done.test_a_linked_drafts_labels_leave_a_done_issue_done", "tests.test_issue.Unreadable.test_an_unreadable_linked_pull_request_defers")),
+    ("a person's hands-off on a linked draft at the merge excuses the issue's Hold", ISSUE_PY,
+     '        if stopped_before(facts, first) and not placed_by_a_person(standing_labels(past), past):\n',
+     '        if stopped_before(facts, first) and not any(placed_by_a_person(standing_labels(as_of(q, first)), as_of(q, first))\n'
+     '                                                   for q in [facts] + [p for p in links if p["opened_at"] <= first]):\n',
+     ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)),
     ("two draft events of one kind in a row are read", ISSUE_PY,
      ' or later["action"] == ev["action"] for ev, later', ' for ev, later', ("tests.test_issue.Done.test_a_linked_drafts_labels_leave_a_done_issue_done",)),
     ("draft events out of order are read", ISSUE_PY,

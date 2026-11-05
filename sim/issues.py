@@ -737,7 +737,7 @@ class IssueWorld:
                 self.linked.append({"number": 300 + len(self.linked), "class": "maintainer", "opener": dict(who),
                                     "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
                                     "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None,
-                                "draft_events": []})
+                                    "draft_events": []})
                 self.writer_acted()
                 self.note("%s opened a pull request of their own" % who["name"])
             return

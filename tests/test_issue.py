@@ -498,8 +498,9 @@ class Done(unittest.TestCase):
     def test_a_done_issue_stays_done_whatever_changes_after_the_merge_that_carries_no_time(self):  # issue 522
         # No terminal State is left by a fact with no time: a link made after the merge, a left-out label or type set
         # after it and the Consumer entry, whose configuration has no history, are read as they stand now, so row 1
-        # does not read them at the merge (issues 551 and 552). A draft's flag is read as it stood (decision 0141). Issues turned off, or the entry's date moved past
-        # the life's start: done, and an admitted outsider's merge still asks a person, as decision 0132 reads it.
+        # does not read them at the merge (issues 551 and 552), nor a linked draft's labels (decision 0141). Issues
+        # turned off, or the entry's date moved past the life's start: done, and an admitted outsider's merge still asks
+        # a person, as decision 0132 reads it.
         merged = pr(is_open=False, merged=5)
         closed = dict(state="closed", closed_first_at=at(5))
         for cfg in (config(served_from=None), config(served_from=at(1))):
@@ -700,8 +701,8 @@ class Done(unittest.TestCase):
             d = decide(f)
             self.assertEqual((d["state"], what(d), d["attention"]), ("declined", ("nothing", "merged_while_declined", None),
                                                                      "needs_you"))
-        # A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue or on its linked draft,
-        # placed before the merge or in its second (seed 20); a person's close read first, where both stand.
+        # A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue, placed before the merge or in
+        # its second (seed 20); a person's close read first, where both stand.
         held = [[labelled(HOLD, minute=4)], [labelled(HOLD, OTHER_APP, 5)], [labelled(HANDS_OFF, OTHER_APP, 4)]]
         for f in [facts(label_events=events, linked=merged) for events in held]:
             d = derive(f)
@@ -716,9 +717,12 @@ class Done(unittest.TestCase):
                        [labelled(HOLD, minute=3), labelled(HANDS_OFF, minute=2), unlabelled(HANDS_OFF, minute=4)]):
             d = derive(facts(label_events=events, linked=merged))
             self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"), events)
-        d = derive(facts(label_events=[labelled(HOLD, minute=4)],
-                         linked=merged + [agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=6)])]))
-        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # Nor does a person's hands-off on a linked draft, placed after the merge or before it: its link carries no time,
+        # so it excuses the issue's Hold no more than it holds the issue (decision 0141).
+        for minute in (6, 4):
+            d = derive(facts(label_events=[labelled(HOLD, minute=4)],
+                             linked=merged + [agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=minute)])]))
+            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"), minute)
         # A Hold on a linked draft is not the issue's at the merge, open, closed since or before it: when it became linked
         # carries no time (decision 0141). A Hold an App placed before the merge, took off after it and a person put
         # back, which an App's removal never ended.
