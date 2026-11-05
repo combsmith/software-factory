@@ -521,59 +521,38 @@ class Done(unittest.TestCase):
             d = derive(dict(f, state="closed", closed_first_at=at(5)))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), f)
 
-    def test_a_linked_draft_is_read_as_it_stood_at_the_merge(self):  # issue 542, decision 0141, trials/P-33.json
-        # P-33: a pull request's timeline gives each conversion to a draft and each marking ready, with its time, and one
-        # opened as a draft has no event for it. Its flag at the merge is its flag now with every later event undone; in
-        # an event's own second, the reading that stops work wins, so it was a draft if it was one at any moment of it.
+    def test_a_linked_drafts_labels_leave_a_done_issue_done(self):  # issue 542, decision 0141, trials/P-33.json
+        # When a pull request became linked carries no time: one opened before the merge may have been named by a keyword
+        # an edit added after it. So row 1 places neither a Hold nor a person's hands-off on a linked draft at the merge,
+        # whatever its flag was then, and no fact with no time moves a terminal State, in either direction (ruling A).
         merged = pr(is_open=False, merged=5)
         hands = [labelled(HANDS_OFF, minute=4)]
         hold = [labelled(HOLD, OTHER_APP, 4)]
-        for draft, drafts, stood in (
-                (True, (), True),                                         # a draft throughout
-                (False, (("ready_for_review", 6),), True),                # marked ready after the merge
-                (True, (("converted_to_draft", 6),), False),              # ready at the merge, a draft since
-                (False, (("ready_for_review", 3),), False),               # marked ready before the merge
-                (True, (("ready_for_review", 2), ("converted_to_draft", 3)), True),
-                (False, (("ready_for_review", 5),), True),                # marked ready in the merge's second
-                (True, (("converted_to_draft", 5),), True)):              # converted in the merge's second
-            linked = agents(number=12, draft=draft, drafts=drafts, events=hands)
+        for draft, drafts in ((True, ()), (False, (("ready_for_review", 6),)), (True, (("converted_to_draft", 6),)),
+                              (False, (("ready_for_review", 3),)), (True, (("converted_to_draft", 5),))):
+            for events in (hands, hold):
+                linked = agents(number=12, draft=draft, drafts=drafts, events=events)
+                d = derive(facts(linked=[merged, linked]))
+                self.assertEqual((d["state"], d["reason"]), ("done", "merged"), (drafts, events))
+        # The reads' two cases: a draft opened before the merge with a person's hands-off, named by a later edit; and a
+        # draft with an App's Hold, marked ready after the merge. Each stays done.
+        for linked in (agents(number=12, draft=True, opened=3, events=hands),
+                       agents(number=12, draft=False, opened=3, drafts=(("ready_for_review", 7),), events=hold)):
             d = derive(facts(linked=[merged, linked]))
-            self.assertEqual((d["state"], d["reason"]), ("not_served", "merged_while_hands_off") if stood else
-                             ("done", "merged"), drafts)
-            linked = agents(number=12, draft=draft, drafts=drafts, events=hold)
-            d = derive(facts(linked=[merged, linked]))
-            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held") if stood else ("done", "merged"),
-                             drafts)
-        # A person's hands-off on the draft, removed by a person since, ends it, and the merge reads on; an App's removal
-        # ends nothing.
-        linked = agents(number=12, draft=False, drafts=(("ready_for_review", 7),),
-                        events=hands + [unlabelled(HANDS_OFF, minute=6)])
-        self.assertEqual(derive(facts(linked=[merged, linked]))["reason"], "merged")
-        linked = agents(number=12, draft=False, drafts=(("ready_for_review", 7),),
-                        events=hands + [unlabelled(HANDS_OFF, OTHER_APP, 6)])
-        self.assertEqual(derive(facts(linked=[merged, linked]))["reason"], "merged_while_hands_off")
-        # A conversion and a marking ready in one second, in the order the timeline lists them, whoever made them: read,
-        # never a stall, and before the merge they leave the flag as the last of them (Claude's security read).
+            self.assertEqual((d["state"], d["reason"]), ("done", "merged"), linked)
+        # The facts still read whole or defer: a conversion and a marking ready in one second, in the timeline's order,
+        # whoever made them, are read, never a stall; a flag that disagrees with its last event, two of one kind in a
+        # row, or a time out of order is no chronology, and nothing is read.
         for draft, drafts in ((False, (("converted_to_draft", 3), ("ready_for_review", 3))),
                               (True, (("ready_for_review", 3), ("converted_to_draft", 3)))):
-            linked = agents(number=12, draft=draft, drafts=drafts, events=hands)
-            d = derive(facts(linked=[merged, linked]))
-            self.assertEqual((d["state"], d["reason"]), ("not_served", "merged_while_hands_off") if draft else
-                             ("done", "merged"), drafts)
+            self.assertEqual(derive(facts(linked=[merged, agents(number=12, draft=draft, drafts=drafts)]))["reason"],
+                             "merged")
             self.assertNotEqual(derive(facts(linked=[strangers(number=12, draft=draft, drafts=drafts)]))["state"], None)
-        # The draft's flag now and its last event that disagree, two of one kind in a row, or a time listed out of order:
-        # no chronology, and nothing is read.
         for draft, drafts in ((False, (("converted_to_draft", 3),)), (True, (("ready_for_review", 3),)),
                               (True, (("converted_to_draft", 2), ("converted_to_draft", 3))),
                               (True, (("converted_to_draft", 3), ("ready_for_review", 2), ("converted_to_draft", 4)))):
             d = derive(facts(linked=[merged, agents(number=12, draft=draft, drafts=drafts)]))
             self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), drafts)
-        # When a pull request became linked carries no time: a draft opened before the merge, with a person's hands-off,
-        # is read as linked then, though a keyword may have named the issue only after it, and a person decides
-        # ("Facts: a closing keyword's link timed by the first pass that saw it, and the Consumer entry at the merge
-        # (after the first cut)", issue 552).
-        linked = agents(number=12, draft=True, opened=3, events=hands)
-        self.assertEqual(derive(facts(linked=[merged, linked]))["reason"], "merged_while_hands_off")
 
     def test_a_merge_counts_only_where_the_issues_timeline_names_it_the_closer(self):  # issue 267, trials/P-46.json
         # P-46: an edit to a merged pull request's description after the merge added an open issue to its closing
@@ -724,8 +703,7 @@ class Done(unittest.TestCase):
         # A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue or on its linked draft,
         # placed before the merge or in its second (seed 20); a person's close read first, where both stand.
         held = [[labelled(HOLD, minute=4)], [labelled(HOLD, OTHER_APP, 5)], [labelled(HANDS_OFF, OTHER_APP, 4)]]
-        for f in [facts(label_events=events, linked=merged) for events in held] + [
-                facts(linked=merged + [agents(number=12, draft=True, events=[labelled(HOLD, OTHER_APP, 4)])])]:
+        for f in [facts(label_events=events, linked=merged) for events in held]:
             d = derive(f)
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11"]), f)
             d = decide(f)
@@ -741,15 +719,13 @@ class Done(unittest.TestCase):
         d = derive(facts(label_events=[labelled(HOLD, minute=4)],
                          linked=merged + [agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=6)])]))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
-        # A Hold on a linked draft that stood at the merge and closed since; a Hold an App placed before the merge,
-        # took off after it and a person put back, which an App's removal never ended.
-        for closed in (6, 5):
+        # A Hold on a linked draft is not the issue's at the merge, open, closed since or before it: when it became linked
+        # carries no time (decision 0141). A Hold an App placed before the merge, took off after it and a person put
+        # back, which an App's removal never ended.
+        for closed in (6, 5, 4):
             d = derive(facts(linked=merged + [agents(number=12, draft=True, is_open=False, closed=closed,
-                                                     events=[labelled(HOLD, OTHER_APP, 4)])]))
-            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"), closed)
-        d = derive(facts(linked=merged + [agents(number=12, draft=True, is_open=False, closed=4,
-                                                 events=[labelled(HOLD, OTHER_APP, 3)])]))
-        self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
+                                                     events=[labelled(HOLD, OTHER_APP, 3)])]))
+            self.assertEqual((d["state"], d["reason"]), ("done", "merged"), closed)
         d = derive(facts(label_events=[labelled(HOLD, OTHER_APP, 4), unlabelled(HOLD, OTHER_APP, 6), labelled(HOLD, minute=6)],
                          linked=merged))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
@@ -758,13 +734,9 @@ class Done(unittest.TestCase):
                                                     labelled(HOLD, minute=7)], linked=merged))["reason"], "merged")
         self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=4), unlabelled(HOLD, minute=6),
                                                     labelled(HOLD, OTHER_APP, 7)], linked=merged))["reason"], "merged")
-        # A Hold a person placed and removed in the merge's own second stood at it: the reading that stops work wins;
-        # so did a draft opened in that second with its Hold.
+        # A Hold a person placed and removed in the merge's own second stood at it: the reading that stops work wins.
         self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=5), unlabelled(HOLD, minute=5)],
                                       linked=merged))["reason"], "merged_while_held")
-        self.assertEqual(derive(facts(linked=merged + [agents(number=12, draft=True, opened=5,
-                                                              events=[labelled(HOLD, OTHER_APP, 5)])]))["reason"],
-                         "merged_while_held")
         # A label the Kernel does not read carries no time, and an event of it beside a Hold raises nothing.
         d = derive(facts(label_events=[{"label": "bug"}, labelled(HOLD, minute=4)], linked=merged))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))

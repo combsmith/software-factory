@@ -1,6 +1,6 @@
 # 0139. A platform close keeps the State a person set on an issue held or not served
 
-Status: replaced by `docs/decisions/0141-a-linked-draft-is-read-as-it-stood-at-the-merge-that-closed-its-issue.md`, which holds the rule in force.
+Status: replaced by `docs/decisions/0141-a-linked-drafts-flag-is-read-from-its-timeline-and-no-linked-drafts-label-holds-an-issue-at-its-merge.md`, which holds the rule in force.
 
 ## Decision
 
