@@ -1216,6 +1216,10 @@ class Head(unittest.TestCase):
             with self.assertRaises(head.Refused, msg=rel) as refused:
                 head.held(changed(rel, how), tree)
             self.assertIn(said, str(refused.exception))
+        # Nor a FIFO: it is refused as what it is, before any file is opened.
+        with self.assertRaises(head.Refused) as refused:
+            head.held(changed("p2/fifo", os.mkfifo), tree)
+        self.assertIn("not a regular file", str(refused.exception))
         # Nor a tree whose size for a file is not that file's, though its blob hash is.
         blob, size = tree["files"]["p2/a.md"]
         with self.assertRaises(head.Refused):
@@ -1248,6 +1252,12 @@ class Head(unittest.TestCase):
                 ("no body", {"status": 200, "body": "[]"}),
                 ("a path twice", body(empty, empty)),
                 ("no path", body(dict(empty, path=""))),
+                ("a path that climbs", body(dict(empty, path="../evil"))),
+                ("an absolute path", body(dict(empty, path="/abs"))),
+                ("a dot segment", body(dict(empty, path="a/./e"))),
+                ("an empty segment", body(dict(empty, path="a//e"))),
+                ("a backslash", body(dict(empty, path="a\\e"))),
+                ("a nul", body(dict(empty, path="a\0e"))),
                 ("an entry not an object", body("a/e")),
                 ("a submodule", body({"path": "sub", "mode": "160000", "type": "commit", "sha": blob})),
                 ("a blob's sha cut short", body(dict(empty, sha=blob[:7]))),

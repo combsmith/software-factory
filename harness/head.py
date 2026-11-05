@@ -237,9 +237,11 @@ def tree(transport, repo: str, sha: str) -> dict:
     files, links, seen = {}, set(), set()
     for entry in body["tree"]:
         path = entry.get("path") if isinstance(entry, dict) else None
-        if not isinstance(path, str) or not path or path in seen:
+        if not isinstance(path, str) or path in seen:
             raise Refused("an entry of the commit's tree has no path, or one named twice")
         seen.add(path)
+        if "\0" in path or "\\" in path or path.startswith("/") or any(part in ("", ".", "..") for part in path.split("/")):
+            raise Refused("an entry of the commit's tree is absolute, climbs, or holds an empty or a dot segment")
         kind, mode = entry.get("type"), entry.get("mode")
         if kind == "tree" and mode == "040000":
             continue
