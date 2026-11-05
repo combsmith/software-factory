@@ -1208,9 +1208,11 @@ class Head(unittest.TestCase):
         flip = lambda f: pathlib.Path(f).write_bytes(bytes([pathlib.Path(f).read_bytes()[0] ^ 1]) + pathlib.Path(f).read_bytes()[1:])
         grow = lambda f: pathlib.Path(f).write_bytes(pathlib.Path(f).read_bytes() + b"\n")
         for rel, how, said in ((".github/CODEOWNERS", flip, "byte for byte"), ("p2/a.md", grow, "byte for byte"),
-                               ("p2/a.md", os.remove, "not its commit's"),
-                               ("p2/more.md", lambda f: pathlib.Path(f).write_bytes(b""), "not its commit's"),
-                               ("link", lambda f: os.symlink("p2/a.md", f), "not a regular file")):
+                               ("p2/a.md", os.remove, "a committed file is missing, or another is there"),
+                               ("p2/more.md", lambda f: pathlib.Path(f).write_bytes(b""),
+                                "a committed file is missing, or another is there"),
+                               ("link", lambda f: os.symlink("p2/a.md", f), "not a regular file"),
+                               ("p2/out", lambda f: os.symlink(tempfile.mkdtemp(), f), "a link to a folder")):
             with self.assertRaises(head.Refused, msg=rel) as refused:
                 head.held(changed(rel, how), tree)
             self.assertIn(said, str(refused.exception))

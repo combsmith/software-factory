@@ -214,10 +214,8 @@ def unpack(data: bytes, sha: str, into: str) -> dict:
 
 def tree_path(repo: str, sha: str) -> str:
     """The API's path to `repo`'s git tree at commit `sha`, every level of it, its owner and its name each quoted whole,
-    as `path_of` quotes them."""
-    owner, _, name = repo.partition("/") if isinstance(repo, str) else ("", "", "")
-    quoted = (urllib.parse.quote(owner, safe=""), urllib.parse.quote(name, safe=""))
-    return "/repos/%s/%s/git/trees/%s?recursive=1" % (quoted + (sha,))
+    by `path_of` itself: a quoted owner or name holds no slash, so its last `/tarball/` is the one it adds."""
+    return path_of(repo, "").rsplit("/tarball/", 1)[0] + "/git/trees/%s?recursive=1" % sha
 
 
 def tree(transport, repo: str, sha: str) -> dict:
@@ -260,10 +258,12 @@ def tree(transport, repo: str, sha: str) -> dict:
 def held(into: str, tree_: dict) -> None:
     """Hold the head unpacked into `into` to its commit's tree: every regular file of the tree is a file there, whose git
     blob hash, sha1 of `blob <size>\\0` and its bytes, is the tree's, and no file is there that the tree lacks. A file the
-    commit's .gitattributes marked export-ignore, or one export-subst rewrote, is so caught (decisions 0138 and 0142).
-    Refused at the first file that differs."""
+    commit's .gitattributes marked export-ignore, or one export-subst, ident, eol or working-tree-encoding rewrote, is so
+    caught (decisions 0138 and 0142). A link, to a file or a folder, is refused. Refused at the first file that differs."""
     found = {}
-    for folder, _, names in os.walk(into):
+    for folder, folders, names in os.walk(into):
+        if any(os.path.islink(os.path.join(folder, name)) for name in folders):
+            raise Refused("the head holds a link to a folder, which os.walk would not go into")
         for name in names:
             full = os.path.join(folder, name)
             if os.path.islink(full) or not os.path.isfile(full):
@@ -272,8 +272,10 @@ def held(into: str, tree_: dict) -> None:
     wanted = tree_["files"]
     if set(found) != set(wanted):
         raise Refused("the head's files are not its commit's: a committed file is missing, or another is there")
-    for path, (blob, size) in sorted(wanted.items()):
-        with open(found[path], "rb") as f:
+    for path, full in sorted(found.items()):
+        blob, size = wanted.get(path, ("", -1))
+        with open(full, "rb") as f:
             data = f.read()
-        if len(data) != size or hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest() != blob:
+        # Git names a blob by sha1, and the tree gives no other name: the hash is git's, compared with git's own.
+        if len(data) != size or hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest() != blob:
             raise Refused("a file of the head is not its commit's, byte for byte")
