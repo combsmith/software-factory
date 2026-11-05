@@ -316,7 +316,15 @@ class Unreadable(unittest.TestCase):
                dict(good, draft_events=None), dict(good, draft_events=[{"action": "ready_for_review"}]),
                dict(good, draft_events=[{"action": "drafted", "at": at(3)}]),
                dict(good, draft_events=[{"action": "converted_to_draft", "at": at(3)}]),
-               dict(good, draft=True, draft_events=[{"action": "ready_for_review", "at": at(3)}])]
+               dict(good, draft=True, draft_events=[{"action": "ready_for_review", "at": at(3)}]),
+               # A time in another form or no string, an event that is no object, and one before it opened.
+               dict(good, draft_events=[{"action": "ready_for_review", "at": "2026-10-11"}]),
+               dict(good, draft=True, draft_events=[{"action": "converted_to_draft", "at": "2026-10-11T12:30:00"}]),
+               dict(good, draft_events=[{"action": "ready_for_review", "at": 12}]),
+               dict(good, draft_events=["ready_for_review"]),
+               dict(good, opened_at=at(2), draft_events=[{"action": "converted_to_draft", "at": at(1)},
+                                                         {"action": "ready_for_review", "at": at(3)}]),
+               ]
         no_class = dict(good)
         del no_class["class"]
         for entry in bad + [no_class]:
@@ -329,6 +337,15 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[strangers()])), "new")
+
+    def test_draft_events_in_the_opening_second_and_after_the_close_are_read(self):  # issue 554
+        # Opened as a draft and marked ready in that second: a chronology, read whole. One after the close is read too:
+        # no trial says GitHub refuses it, and refusing it would let a closed pull request's author stall the issue.
+        for linked, expected in ((pr(drafts=(("ready_for_review", 0),)), ("in_review", "linked_ready")),
+                                 (pr(is_open=False, closed=5, draft=True,
+                                     drafts=(("ready_for_review", 2), ("converted_to_draft", 6))), ("new", "acceptance_due"))):
+            d = derive(facts(linked=[linked]))
+            self.assertEqual((d["state"], d["reason"]), expected, linked)
 
     def test_an_unreadable_life_defers(self):
         for over in ({"life_started_at": None}, {"life_started_at": "2026-10-11"}, {"reopened_last_by": "a person"},
@@ -536,9 +553,15 @@ class Done(unittest.TestCase):
                 d = derive(facts(linked=[merged, linked]))
                 self.assertEqual((d["state"], d["reason"]), ("done", "merged"), (drafts, events))
         # The reads' two cases: a draft opened before the merge with a person's hands-off, named by a later edit; and a
-        # draft with an App's Hold, marked ready after the merge. Each stays done.
+        # draft with an App's Hold, marked ready after the merge. Each stays done; so does one with several changes of its
+        # flag after the merge, one of the Factory's ready throughout, and a draft opened after the merge (issue 554).
         for linked in (agents(number=12, draft=True, opened=3, events=hands),
-                       agents(number=12, draft=False, opened=3, drafts=(("ready_for_review", 7),), events=hold)):
+                       agents(number=12, draft=False, opened=3, drafts=(("ready_for_review", 7),), events=hold),
+                       agents(number=12, draft=True, drafts=(("ready_for_review", 6), ("converted_to_draft", 7),
+                                                             ("ready_for_review", 8), ("converted_to_draft", 9)), events=hands),
+                       agents(number=12, draft=False, events=hands), agents(number=12, draft=False, events=hold),
+                       agents(number=12, draft=True, opened=6, events=[labelled(HANDS_OFF, minute=6)]),
+                       agents(number=12, draft=True, opened=6, events=[labelled(HOLD, OTHER_APP, 6)])):
             d = derive(facts(linked=[merged, linked]))
             self.assertEqual((d["state"], d["reason"]), ("done", "merged"), linked)
         # The facts still read whole or defer: a conversion and a marking ready in one second, in the timeline's order,

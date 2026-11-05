@@ -54,7 +54,16 @@
       "empty": false,
       "label_events": [],
       "closed_issue_at": null,
-      "draft_events": []
+      "draft_events": [
+        {
+          "action": "ready_for_review",
+          "at": "2026-10-11T09:45:00Z"
+        },
+        {
+          "action": "converted_to_draft",
+          "at": "2026-10-11T09:50:00Z"
+        }
+      ]
     },
     {
       "number": 140,
