@@ -1178,7 +1178,7 @@ class Head(unittest.TestCase):
 
     def test_the_head_of_p60_is_held_to_its_commits_tree(self):
         # The tree the API gave for the canary's commit (trials/P-60.tree.json), and the archive codeload served for it
-        # (trials/P-60.json): every file the archive held is the commit's, byte for byte, and none is missing (issue 543).
+        # (trials/P-60.json): every file the archive held is the commit's, byte for byte, and none is missing (decision 0142).
         from adapters import github
         p60 = json.loads((ROOT / "trials" / "P-60.json").read_text())
         trees = json.loads((ROOT / "trials" / "P-60.tree.json").read_text())

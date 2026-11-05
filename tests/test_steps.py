@@ -270,7 +270,7 @@ class Reader(unittest.TestCase):
         code, printed, files, kept, calls = self.go()
         self.assertEqual((code, files), (0, sorted(read.FILES + ("head",))), printed)
         # The head's tarball is read of the home repo, at the head the diff was read at, with the reader's token, and
-        # unpacked into `head/` (decision 0138); and the commit's tree, which the head is held to, the same way (issue 543).
+        # unpacked into `head/` (decision 0138); and the commit's tree, which the head is held to, the same way (decision 0142).
         self.assertEqual((calls["tarballs"], calls["head"]), ([("the reader's transport", HOME, HEAD)], ["README.md"]))
         self.assertEqual(calls["trees"], [("the reader's transport", HOME, HEAD)])
         self.assertEqual(kept["diff"], DIFF)

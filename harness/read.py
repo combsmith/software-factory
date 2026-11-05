@@ -9,7 +9,7 @@ for the home repo with the reads its grant allows and no write; finds the pass r
 finds in it the Decision of the Run id the run-name names, which must be of the item and the content the run-name names;
 reads the pull request's facts, its threads held to what its Lenses recorded, and the bytes of its diff, which must be the content the Decision admitted;
 reads the tarball of its head, the commit the diff was read at, through the transport's one redirect to codeload, and
-that commit's tree, which the head unpacked is held to file by file (issue 543); and writes,
+that commit's tree, which the head unpacked is held to file by file (decision 0142); and writes,
 into the new folder OUT, the record, the Run id, the facts, the diff, the texts, the Role's manifest and the Findings,
 and the head unpacked by hand into `head/` (decision 0138), which is read as data and never run,
 for `python3 -m harness.run OUT RESULT`. A head that cannot be read or unpacked whole, or is not its commit's tree, stops
@@ -142,7 +142,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
         raise Stop("content_moved")
     role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % admit["role"]))
     # The head's tree at the commit the diff was read at, for the review to read (decision 0138), and the commit's tree as
-    # git holds it, which the archive is held to: one export-ignore or export-subst shaped is not the commit (issue 543).
+    # git holds it, which the archive is held to: one export-ignore or export-subst shaped is not the commit (0142).
     try:
         tarred = head_.fetch(transport, home, head)
         tree = head_.tree(transport, home, head)

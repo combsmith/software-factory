@@ -8,7 +8,7 @@ path and no byte that is not UTF-8, named once; a link is never written, a devic
 do more than `MEMBERS` members, more than `UNPACKED` bytes unpacked, or an end that is not two zero blocks and padding.
 The archive is the commit's as git archives it, so a file the commit's .gitattributes marks export-ignore is not in it,
 and one marked export-subst is not as committed (decision 0138): so `tree(transport, repo, sha)` reads the commit's tree,
-and `held(into, tree)` holds the head unpacked to it, file by file, by git's blob hash (issue 543). The archive must name the commit asked for, in the pax global
+and `held(into, tree)` holds the head unpacked to it, file by file, by git's blob hash (decision 0142). The archive must name the commit asked for, in the pax global
 header GitHub writes (P-60), and hold one folder, which is `into` once unpacked. Nothing of a file's contents is read
 but its bytes, written as they are, its user's alone; no mode, owner or time of the archive's is kept.
 """
@@ -224,7 +224,7 @@ def tree(transport, repo: str, sha: str) -> dict:
     """The commit's tree, every level of it, as GitHub lists it (trials/P-60.tree.json): `{"files": {path: (blob, size)},
     "links": {path}}`, each regular file by its path with its git blob hash and size, and each link, which the unpacker
     leaves out. Refused unless answered 200 and whole, `truncated` false, in that shape, each path once; a submodule, which
-    an archive does not hold, or an entry of any other kind, refuses it too (issue 543)."""
+    an archive does not hold, or an entry of any other kind, refuses it too (decision 0142)."""
     path = tree_path(repo, sha) if isinstance(sha, str) else ""
     if not github.TREE.fullmatch(path):
         raise Refused("a tree is read only by its commit's whole sha, of a repo named as the API names one")
@@ -260,7 +260,7 @@ def tree(transport, repo: str, sha: str) -> dict:
 def held(into: str, tree_: dict) -> None:
     """Hold the head unpacked into `into` to its commit's tree: every regular file of the tree is a file there, whose git
     blob hash, sha1 of `blob <size>\\0` and its bytes, is the tree's, and no file is there that the tree lacks. A file the
-    commit's .gitattributes marked export-ignore, or one export-subst rewrote, is so caught (decision 0138, issue 543).
+    commit's .gitattributes marked export-ignore, or one export-subst rewrote, is so caught (decisions 0138 and 0142).
     Refused at the first file that differs."""
     found = {}
     for folder, _, names in os.walk(into):
