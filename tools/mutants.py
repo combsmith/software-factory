@@ -307,6 +307,10 @@ ISSUE = [
      '        if stopped_before(facts, first) and not any(placed_by_a_person(standing_labels(as_of(q, first)), as_of(q, first))\n'
      '                                                   for q in [facts] + [p for p in links if p["opened_at"] <= first]):\n',
      ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)),
+    # Issue 554: a draft event before its pull request opened is no chronology.
+    ("a draft event before the pull request opened is read", ISSUE_PY,
+     '    if events and events[0]["at"] < entry["opened_at"]:\n        return False\n', '',
+     ("tests.test_issue.Unreadable.test_an_unreadable_linked_pull_request_defers",)),
     ("two draft events of one kind in a row are read", ISSUE_PY,
      ' or later["action"] == ev["action"] for ev, later', ' for ev, later', ("tests.test_issue.Done.test_a_linked_drafts_labels_leave_a_done_issue_done",)),
     ("draft events out of order are read", ISSUE_PY,

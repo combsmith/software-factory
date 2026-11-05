@@ -193,11 +193,14 @@ def readable_draft_events(entry: dict) -> bool:
     """Whether a pull request's conversions to a draft and markings ready can be read: each one or the other, with its
     time, in the order the timeline lists them, which is the order they happened, two in one second among them; each a
     change of the flag, so a conversion follows a marking ready and the other way round; and the last of them its flag
-    now, since a timeline that ends on a conversion leaves a draft (P-33)."""
+    now, since a timeline that ends on a conversion leaves a draft (P-33); none before it opened, which no pull request
+    can have."""
     events = entry.get("draft_events")
     if not isinstance(events, list):
         return False
     if not all(isinstance(ev, dict) and ev.get("action") in DRAFT_ACTIONS and is_time(ev.get("at")) for ev in events):
+        return False
+    if events and events[0]["at"] < entry["opened_at"]:
         return False
     if any(later["at"] < ev["at"] or later["action"] == ev["action"] for ev, later in zip(events, events[1:])):
         return False
