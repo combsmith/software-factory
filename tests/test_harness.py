@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1035,9 +1036,15 @@ class Head(unittest.TestCase):
     SHA = "9f1c2d3e4b5a69788796a5b4c3d2e1f0a9b8c7d6"
 
     def unpacked(self, data: bytes, sha: str = SHA):
-        d = tempfile.mkdtemp()
+        d = self.folder()
         into = os.path.join(d, "head")
         return head.unpack(data, sha, into), into
+
+    def folder(self) -> str:
+        """A new folder, removed when the test ends."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        return d
 
     def refused(self, data: bytes, said: str, sha: str = SHA):
         with self.assertRaises(head.Refused) as refused:
@@ -1212,7 +1219,7 @@ class Head(unittest.TestCase):
                                ("p2/more.md", lambda f: pathlib.Path(f).write_bytes(b""),
                                 "a committed file is missing, or another is there"),
                                ("link", lambda f: os.symlink("p2/a.md", f), "not a regular file"),
-                               ("p2/out", lambda f: os.symlink(tempfile.mkdtemp(), f), "a link to a folder")):
+                               ("p2/out", lambda f: os.symlink(self.folder(), f), "a link to a folder")):
             with self.assertRaises(head.Refused, msg=rel) as refused:
                 head.held(changed(rel, how), tree)
             self.assertIn(said, str(refused.exception))
@@ -1222,16 +1229,22 @@ class Head(unittest.TestCase):
         self.assertIn("not a regular file", str(refused.exception))
         # Nor a head that is not a folder, is a link to one, or holds a folder that cannot be listed, whose files would
         # go unseen (Argon's read).
-        for where in (os.path.join(tempfile.mkdtemp(), "none"), os.path.join(into, "p2", "a.md")):
+        for where in (os.path.join(self.folder(), "none"), os.path.join(into, "p2", "a.md")):
             with self.assertRaises(head.Refused, msg=where) as refused:
                 head.held(where, {"files": {}, "links": set()})
             self.assertIn("not a folder", str(refused.exception))
-        linked = os.path.join(tempfile.mkdtemp(), "head")
+        # A link to the head is refused however it is written, with a trailing slash too, through which islink would
+        # follow it (issue 559).
+        linked = os.path.join(self.folder(), "head")
         os.symlink(into, linked)
-        with self.assertRaises(head.Refused) as refused:
-            head.held(linked, tree)
-        self.assertIn("not a folder", str(refused.exception))
-        if os.geteuid() != 0:
+        for where in (linked, linked + "/", linked + "//"):
+            with self.assertRaises(head.Refused, msg=where) as refused:
+                head.held(where, tree)
+            self.assertIn("not a folder", str(refused.exception))
+        # As root every folder can be listed, so this case is skipped there, and said to be (issue 559).
+        with self.subTest("a folder that cannot be listed"):
+            if os.geteuid() == 0:
+                self.skipTest("as root every folder can be listed")
             hidden = changed("hidden", os.mkdir)
             pathlib.Path(hidden, "hidden", "extra").write_bytes(b"x")
             os.chmod(os.path.join(hidden, "hidden"), 0)
@@ -1256,10 +1269,13 @@ class Head(unittest.TestCase):
         def body(*entries, truncated=False):
             return {"status": 200, "body": {"sha": sha, "tree": list(entries), "truncated": truncated}}
         empty = {"path": "a/e", "mode": "100644", "type": "blob", "sha": blob, "size": 0}
-        tree = head.tree(Answering(body({"path": "a", "mode": "040000", "type": "tree", "sha": blob}, empty,
-                                        dict(empty, path="x", mode="100755"),
-                                        {"path": "l", "mode": "120000", "type": "blob", "sha": blob, "size": 3})),
-                         "o/r", sha)
+        try:
+            tree = head.tree(Answering(body({"path": "a", "mode": "040000", "type": "tree", "sha": blob}, empty,
+                                            dict(empty, path="x", mode="100755"),
+                                            {"path": "l", "mode": "120000", "type": "blob", "sha": blob, "size": 3})),
+                             "o/r", sha)
+        except head.Refused as err:
+            self.fail("a tree of a folder, two files and a link is read, not refused: %s" % err)
         self.assertEqual(tree, {"files": {"a/e": (blob, 0), "x": (blob, 0)}, "links": {"l"}})
         from adapters import github
         for name, answer in (
@@ -1287,5 +1303,11 @@ class Head(unittest.TestCase):
                 ("a size below zero", body(dict(empty, size=-1))),
                 ("a mode git does not write", body(dict(empty, mode="100664"))),
                 ("a tree by another mode", body(dict(empty, type="tree")))):
-            with self.assertRaises(head.Refused, msg=name):
-                head.tree(Answering(answer), "o/r", sha)
+            # Refused, and by nothing else: an error that escapes the port is no refusal (issue 559).
+            with self.subTest(name=name):
+                try:
+                    head.tree(Answering(answer), "o/r", sha)
+                except Exception as err:
+                    self.assertIsInstance(err, head.Refused)
+                else:
+                    self.fail("read, not refused")
