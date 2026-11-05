@@ -11883,6 +11883,10 @@ if mode == "cut":
         shared.mkdir()
         shared.chmod(0o777)
         (here / "into").symlink_to(ROOT)
+        # A name in the repo no other run uses, removed whatever happens: a mutant that writes there must leave the copy
+        # as it found it, or the run on the unbroken code meets what it made.
+        inside = "p61-out-%s" % here.name
+        self.addCleanup(lambda: shutil.rmtree(ROOT / inside, ignore_errors=True))
         for args, said in (([str(here / "o"), "canary", "7", "8"], "is not owner/name"),
                            ([str(here / "o"), "x/y/z", "7", "8"], "is not owner/name"),
                            ([str(here / "o"), "x/canary\n", "7", "8"], "is not owner/name"),
@@ -11892,15 +11896,15 @@ if mode == "cut":
                            ([str(here / "o"), "x/canary", "", "8"], "is not an issue's"),
                            ([str(here / "o"), "x/canary", "7", "08"], "is not an issue's"),
                            ([str(here / "taken"), "x/canary", "7", "8"], "exists"),
-                           ([str(ROOT / "p61-out"), "x/canary", "7", "8"], "is inside the repo"),
-                           ([str(here / "into" / "p61-out"), "x/canary", "7", "8"], "is inside the repo"),
+                           ([str(ROOT / inside), "x/canary", "7", "8"], "is inside the repo"),
+                           ([str(here / "into" / inside), "x/canary", "7", "8"], "is inside the repo"),
                            ([str(here / "missing" / "o"), "x/canary", "7", "8"], "does not exist"),
                            ([str(shared / "o"), "x/canary", "7", "8"], "can be written by other users"),
                            (["only", "two"], "usage")):
             done, calls, _ = self.run_script(args)
             self.assertEqual((done.returncode, calls), (2, []), args)
             self.assertIn(said, done.stderr, args)
-        self.assertFalse((ROOT / "p61-out").exists())
+        self.assertFalse((ROOT / inside).exists())
 
     def test_a_scratch_directory_inside_the_repo_is_refused(self):
         root = clone({"tools/trial_p61_timeline.sh": self.SCRIPT.read_text(), "scratch/.keep": ""})
