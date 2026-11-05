@@ -1,8 +1,8 @@
 # adapters/
 
-All of the Factory's I/O. `github.py` is the one transport; no other reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `applied.py` Lenses' records,
-`facts.py` its snapshot, `records.py` run records, `artifacts.py` a Run's outcome, `seen.py` writes made, `passes.py` past pass records, `acceptance.py` if a contract is asked, `heldout.py` held-out cases, `rules.py` base rules; `effects.py` the Controller's
-and Roles' writes, `pause.py` the Pause, `tags.py` the Factory's tags, `candidate.py` a Release's facts, `deployments.py` its moves, `identity.py` mints a token, and `queue.py` the queue App's acts. A port decides nothing and hands the Kernel no text.
+All of the Factory's I/O. `github.py` is the one transport; no other reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `edits.py` its edits,
+`applied.py` Lenses' records, `facts.py` its snapshot, `records.py` run records, `artifacts.py` a Run's outcome, `seen.py` writes made, `passes.py` past passes, `acceptance.py` a contract's ask, `heldout.py` held-out cases, `rules.py` base rules; `effects.py`
+the Controller's and Roles' writes, `pause.py` the Pause, `tags.py` its tags, `candidate.py` a Release's facts, `deployments.py` its moves, `identity.py` a token, and `queue.py` the queue App's acts. A port decides nothing and hands the Kernel no text.
 Not built yet, by the stories that hold their rules: contract.py, binding.py, issues.py, settings.py, usage.py, and of `texts.py`, the port of the issue a change serves, a thread's text.
 
 | Rule | Held by |
