@@ -1175,3 +1175,83 @@ class Head(unittest.TestCase):
         with self.assertRaises(head.Refused) as refused:
             head._place(into, ["out", "x"])
         self.assertIn("outside the head's folder", str(refused.exception))
+
+    def test_the_head_of_p60_is_held_to_its_commits_tree(self):
+        # The tree the API gave for the canary's commit (trials/P-60.tree.json), and the archive codeload served for it
+        # (trials/P-60.json): every file the archive held is the commit's, byte for byte, and none is missing (issue 543).
+        from adapters import github
+        p60 = json.loads((ROOT / "trials" / "P-60.json").read_text())
+        trees = json.loads((ROOT / "trials" / "P-60.tree.json").read_text())
+        sha = re.search(r"/tarball/([0-9a-f]{40}) ", p60["exchanges"][0]["request"]["call"]).group(1)
+        tree = head.tree(github.Replay(trees["exchanges"][:1]), trees["repo"], sha)
+        self.assertEqual((len(tree["files"]), tree["links"]), (22, set()))
+        _, into = self.unpacked(head.fetch(github.Replay(p60["exchanges"][:2]), p60["repo"], sha), sha)
+        self.assertIsNone(head.held(into, tree))
+        # A commit the canary does not hold is answered 422: no tree, so no head.
+        with self.assertRaises(head.Refused):
+            head.tree(github.Replay(trees["exchanges"][1:]), trees["repo"], "0" * 39 + "1")
+        # Nor is a tree asked by less than the commit's whole sha, or of a repo named as a step up the API's paths.
+        class Refusing:
+            def send(self, req):
+                raise AssertionError("nothing is sent")
+        for repo, sha_ in ((trees["repo"], sha[:7]), (trees["repo"], sha.upper()), (trees["repo"], None), ("../..", sha),
+                           ("o/..", sha), ("o", sha), ("o/r/x", sha), ("o/r?x", sha), ("%2e%2e/r", sha), (None, sha)):
+            with self.assertRaises(head.Refused, msg=(repo, sha_)):
+                head.tree(Refusing(), repo, sha_)
+        # A head that differs from its tree in any file is refused: a byte changed, a byte more, a file gone, a file more,
+        # or a link planted where the unpacker writes none.
+        def changed(rel, how):
+            _, into = self.unpacked(head.fetch(github.Replay(p60["exchanges"][:2]), p60["repo"], sha), sha)
+            full = os.path.join(into, rel)
+            how(full)
+            return into
+        flip = lambda f: pathlib.Path(f).write_bytes(bytes([pathlib.Path(f).read_bytes()[0] ^ 1]) + pathlib.Path(f).read_bytes()[1:])
+        grow = lambda f: pathlib.Path(f).write_bytes(pathlib.Path(f).read_bytes() + b"\n")
+        for rel, how, said in ((".github/CODEOWNERS", flip, "byte for byte"), ("p2/a.md", grow, "byte for byte"),
+                               ("p2/a.md", os.remove, "not its commit's"),
+                               ("p2/more.md", lambda f: pathlib.Path(f).write_bytes(b""), "not its commit's"),
+                               ("link", lambda f: os.symlink("p2/a.md", f), "not a regular file")):
+            with self.assertRaises(head.Refused, msg=rel) as refused:
+                head.held(changed(rel, how), tree)
+            self.assertIn(said, str(refused.exception))
+        # Nor a tree whose size for a file is not that file's, though its blob hash is.
+        blob, size = tree["files"]["p2/a.md"]
+        with self.assertRaises(head.Refused):
+            head.held(into, dict(tree, files=dict(tree["files"], **{"p2/a.md": (blob, size + 1)})))
+
+    def test_a_tree_not_answered_whole_or_holding_what_an_archive_cannot_is_refused(self):
+        sha, blob = self.SHA, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"   # the empty blob's hash
+        class Answering:
+            def __init__(self, answer):
+                self.answer = answer
+            def send(self, req):
+                if isinstance(self.answer, Exception):
+                    raise self.answer
+                return self.answer
+        def body(*entries, truncated=False):
+            return {"status": 200, "body": {"sha": sha, "tree": list(entries), "truncated": truncated}}
+        empty = {"path": "a/e", "mode": "100644", "type": "blob", "sha": blob, "size": 0}
+        tree = head.tree(Answering(body({"path": "a", "mode": "040000", "type": "tree", "sha": blob}, empty,
+                                        dict(empty, path="x", mode="100755"),
+                                        {"path": "l", "mode": "120000", "type": "blob", "sha": blob, "size": 3})),
+                         "o/r", sha)
+        self.assertEqual(tree, {"files": {"a/e": (blob, 0), "x": (blob, 0)}, "links": {"l"}})
+        from adapters import github
+        for name, answer in (
+                ("unanswered", github.Unanswered("no")),
+                ("not 200", dict(body(empty), status=404)),
+                ("truncated", body(empty, truncated=True)),
+                ("no truncated", {"status": 200, "body": {"tree": [empty]}}),
+                ("no list", {"status": 200, "body": {"tree": {}, "truncated": False}}),
+                ("no body", {"status": 200, "body": "[]"}),
+                ("a path twice", body(empty, empty)),
+                ("no path", body(dict(empty, path=""))),
+                ("an entry not an object", body("a/e")),
+                ("a submodule", body({"path": "sub", "mode": "160000", "type": "commit", "sha": blob})),
+                ("a blob's sha cut short", body(dict(empty, sha=blob[:7]))),
+                ("a size not a count", body(dict(empty, size=True))),
+                ("a size below zero", body(dict(empty, size=-1))),
+                ("a mode git does not write", body(dict(empty, mode="100664"))),
+                ("a tree by another mode", body(dict(empty, type="tree")))):
+            with self.assertRaises(head.Refused, msg=name):
+                head.tree(Answering(answer), "o/r", sha)

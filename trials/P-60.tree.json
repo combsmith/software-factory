@@ -1,0 +1,337 @@
+{
+  "schema": "trial/1",
+  "trial": "P-60",
+  "question": "Does GitHub serve a commit's tarball as one redirect from api.github.com to codeload.github.com, which answers it with no Authorization header, and does codeload redirect again?",
+  "pass": "Written 2026-11-05, before the run, for issue 543 (\"The review's head is held to the commit's tree, file by file, by its blob hash\"): pass if an anonymous GET of the git tree of the commit P-60 read, recursive, is answered 200 with truncated false and an entry for every path of that commit, each blob with its mode, sha and size, and every regular file in P-60's tarball of that commit is a blob of the tree whose sha is sha1(\"blob <size>\\0\" + its bytes) and whose size is its length, with no file in the tarball the tree lacks. fail otherwise. Recorded, deciding nothing: what the API answers for a commit the canary does not hold.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-05T05:25:17Z",
+  "exchanges": [
+    {
+      "request": {
+        "call": "GET /repos/combsmith/software-factory-canary/git/trees/7737f8f9e4c4e0d61313e1aed108a44f3ec23929?recursive=1 (curl, no credential): the tree of the canary's main commit, 7737f8f, the commit whose tarball P-60 read, asked of the API with no credential, every level of it",
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential"
+        },
+        "via": "rest",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Thu, 05 Nov 2026 05:25:31 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "public, max-age=86400, s-maxage=86400",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "W/\"52e94ef29129296c2143ff80dd0892b69c4edd65efc4906d047b65ae79245440\"",
+          "last-modified": "Tue, 03 Nov 2026 13:07:48 GMT",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-ratelimit-limit": "60",
+          "x-ratelimit-remaining": "59",
+          "x-ratelimit-used": "1",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-reset": "1793859931",
+          "content-length": "7787",
+          "x-github-request-id": "CC2C:3EAE36:30F854B:A12D822:6AEC134B"
+        },
+        "body": {
+          "sha": "7737f8f9e4c4e0d61313e1aed108a44f3ec23929",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/7737f8f9e4c4e0d61313e1aed108a44f3ec23929",
+          "tree": [
+            {
+              "path": ".coderabbit.yaml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "623703f1950c93ee52dce95ce442567bbcecdfcb",
+              "size": 403,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/623703f1950c93ee52dce95ce442567bbcecdfcb"
+            },
+            {
+              "path": ".github",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "906e24f2a662388ba7614e65a1f65053bb98b54a",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/906e24f2a662388ba7614e65a1f65053bb98b54a"
+            },
+            {
+              "path": ".github/CODEOWNERS",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "60b3c2c43a548cb37b1d67141884e879140fc203",
+              "size": 40,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/60b3c2c43a548cb37b1d67141884e879140fc203"
+            },
+            {
+              "path": ".github/dependabot.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "5ffff02f10f58048ed7870629000c060b4b6da19",
+              "size": 468,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/5ffff02f10f58048ed7870629000c060b4b6da19"
+            },
+            {
+              "path": ".github/workflows",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "e209f31848ea6485f4b64754c913cca05b757233",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/e209f31848ea6485f4b64754c913cca05b757233"
+            },
+            {
+              "path": ".github/workflows/engine-check.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "7613922f7f40857ab63a02e5cae26b938cf8aa38",
+              "size": 916,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/7613922f7f40857ab63a02e5cae26b938cf8aa38"
+            },
+            {
+              "path": ".github/workflows/machine-user-approves.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "c383ef32b4f7347dba0a33b517b55af6d72caef4",
+              "size": 1405,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/c383ef32b4f7347dba0a33b517b55af6d72caef4"
+            },
+            {
+              "path": ".github/workflows/p17-p22-run-records.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "5b40ffe4c0bbfe777f9109bb50d87c2aa8925aa3",
+              "size": 1094,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/5b40ffe4c0bbfe777f9109bb50d87c2aa8925aa3"
+            },
+            {
+              "path": ".github/workflows/p2-queue.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "41daef7c12f19d9d963c81464ee61b55f5a901f6",
+              "size": 821,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/41daef7c12f19d9d963c81464ee61b55f5a901f6"
+            },
+            {
+              "path": ".github/workflows/p3-environment-secret.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "69e3a5c5d64ea6cc922e5b4e63d1bfc386a68096",
+              "size": 979,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/69e3a5c5d64ea6cc922e5b4e63d1bfc386a68096"
+            },
+            {
+              "path": ".github/workflows/p42-checks.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "e239ec05a64b6fc3cf3c2e92860921988460ca59",
+              "size": 1497,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/e239ec05a64b6fc3cf3c2e92860921988460ca59"
+            },
+            {
+              "path": ".github/workflows/p45-pinned.yml",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "6be983fccb773bf9bc9cae04efa47e97161a34ab",
+              "size": 460,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/6be983fccb773bf9bc9cae04efa47e97161a34ab"
+            },
+            {
+              "path": "p2",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "f7300ae0a031e81ee48e9fa9b762717d90bffa60",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/f7300ae0a031e81ee48e9fa9b762717d90bffa60"
+            },
+            {
+              "path": "p2/a.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "71e42be6c08edcfa7419c9da0f6ad25888a7cab7",
+              "size": 77,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/71e42be6c08edcfa7419c9da0f6ad25888a7cab7"
+            },
+            {
+              "path": "p2/d.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "71e42be6c08edcfa7419c9da0f6ad25888a7cab7",
+              "size": 77,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/71e42be6c08edcfa7419c9da0f6ad25888a7cab7"
+            },
+            {
+              "path": "p24",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "5c6130de4de5ab1f1e8182746e20f1d04353dc15",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/5c6130de4de5ab1f1e8182746e20f1d04353dc15"
+            },
+            {
+              "path": "p24/README.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "63fc039b671a179a778e694d9dde58090528b039",
+              "size": 98,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/63fc039b671a179a778e694d9dde58090528b039"
+            },
+            {
+              "path": "p29-unrelated.txt",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "b3d8fb696ac6a6dd7180babc3597a0c4d9db9a57",
+              "size": 106,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/b3d8fb696ac6a6dd7180babc3597a0c4d9db9a57"
+            },
+            {
+              "path": "p3",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "99ebc1989553774a57504376f9bb0bd9787b5d52",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/99ebc1989553774a57504376f9bb0bd9787b5d52"
+            },
+            {
+              "path": "p3/README.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "171f59d2b66dd5a41a3e50e1ca2df1e940900210",
+              "size": 86,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/171f59d2b66dd5a41a3e50e1ca2df1e940900210"
+            },
+            {
+              "path": "p389",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "4678bf22d7e2f42ef573644274c7b53fd803b8f5",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/4678bf22d7e2f42ef573644274c7b53fd803b8f5"
+            },
+            {
+              "path": "p389/q.sh",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "6e4d14cca8feea6dc3214ae6fd7e198b40fd75f7",
+              "size": 154,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/6e4d14cca8feea6dc3214ae6fd7e198b40fd75f7"
+            },
+            {
+              "path": "p389/q2.sh",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "ae06c6d788f19d98f0019e9e3e37a4296e79dff3",
+              "size": 123,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/ae06c6d788f19d98f0019e9e3e37a4296e79dff3"
+            },
+            {
+              "path": "p48",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "b8c615b050cc813be95dbd7b23f4d65829e684e0",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/b8c615b050cc813be95dbd7b23f4d65829e684e0"
+            },
+            {
+              "path": "p48/note.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "78649cdd2945496ca66dee637e0a4201658b0859",
+              "size": 41,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/78649cdd2945496ca66dee637e0a4201658b0859"
+            },
+            {
+              "path": "trial-notes",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "d8a0085907a4b6b113324dfa0f1236a277dd4252",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/d8a0085907a4b6b113324dfa0f1236a277dd4252"
+            },
+            {
+              "path": "trial-notes/p-1.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "71e42be6c08edcfa7419c9da0f6ad25888a7cab7",
+              "size": 77,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/71e42be6c08edcfa7419c9da0f6ad25888a7cab7"
+            },
+            {
+              "path": "trial-notes/p-7-app.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "330c9d74ed530069ee94bc7ccd3efc268d27ff8c",
+              "size": 77,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/330c9d74ed530069ee94bc7ccd3efc268d27ff8c"
+            },
+            {
+              "path": "trial-notes/p-7.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "1787c581c0d0c6bd0892eb220f6ad21d32ca68b3",
+              "size": 57,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/1787c581c0d0c6bd0892eb220f6ad21d32ca68b3"
+            },
+            {
+              "path": "trial",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "044a0fc8b5796b26bdc575aa9016287b96a57ec0",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/044a0fc8b5796b26bdc575aa9016287b96a57ec0"
+            },
+            {
+              "path": "trial/p-33",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "047592bc4f6efc7073b9fcce6a006d7070da26cc",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/047592bc4f6efc7073b9fcce6a006d7070da26cc"
+            },
+            {
+              "path": "trial/p-33/open.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "ff859f9d8395369791e9beeae067f5f04d31f8db",
+              "size": 51,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/ff859f9d8395369791e9beeae067f5f04d31f8db"
+            }
+          ],
+          "truncated": false
+        }
+      }
+    },
+    {
+      "request": {
+        "call": "GET /repos/combsmith/software-factory-canary/git/trees/0000000000000000000000000000000000000001?recursive=1 (curl, no credential): the tree of a commit the canary does not hold, asked the same way",
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential"
+        },
+        "via": "rest",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "user-agent": "software-factory-trial-p60"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "date": "Thu, 05 Nov 2026 05:25:31 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "164",
+          "x-github-media-type": "github.v3; format=json",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "server": "github.com",
+          "x-ratelimit-limit": "60",
+          "x-ratelimit-remaining": "58",
+          "x-ratelimit-used": "2",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-reset": "1793859931",
+          "x-github-request-id": "CC2D:1C9098:2F3D39B:9BE6047:6AEC134B"
+        },
+        "body": {
+          "message": "Invalid object requested. SHA must identify a commit or a tree.",
+          "documentation_url": "https://docs.github.com/rest/git/trees#get-a-tree",
+          "status": "422"
+        }
+      }
+    }
+  ],
+  "removed": [],
+  "verdict": "pass"
+}

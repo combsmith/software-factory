@@ -186,18 +186,26 @@ def recorded_spy(module, calls: list):
 AUTHORITY = json.loads((ROOT / "config" / "authority.json").read_text())
 
 
+README_BLOB = hashlib.sha1(b"blob 9\0# a repo\n").hexdigest()   # the git blob of the one file support.tarball holds
+
+
 class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
-        tarball read gives for a commit, or raises."""
-        calls = {"minted": [], "revoked": 0, "tags": [], "tarballs": []}
+        tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
+        the tree of the one file `support.tarball` holds."""
+        calls = {"minted": [], "revoked": 0, "tags": [], "tarballs": [], "trees": []}
 
         def fetched(transport, repo, sha):
             calls["tarballs"].append((transport, repo, sha))
             return support.tarball(sha) if tarred is None else tarred(sha)
+
+        def tree_read(transport, repo, sha):
+            calls["trees"].append((transport, repo, sha))
+            return {"files": {"README.md": (README_BLOB, 9)}, "links": set()} if tree is None else tree(sha)
 
         def tags_read(transport, repo):
             calls["tags"].append((transport, repo))
@@ -248,7 +256,8 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
                 unittest.mock.patch.object(read.texts, "issues", read_issues), \
-                unittest.mock.patch.object(read.head_, "fetch", fetched):
+                unittest.mock.patch.object(read.head_, "fetch", fetched), \
+                unittest.mock.patch.object(read.head_, "tree", tree_read):
             code, printed = ran(read.step, argv or [NAME, ITEM, PASS, "task"],
                                 environ if environ is not None else {read.KEY: "the key"}, d)
             folder = pathlib.Path(d, "task")
@@ -261,8 +270,9 @@ class Reader(unittest.TestCase):
         code, printed, files, kept, calls = self.go()
         self.assertEqual((code, files), (0, sorted(read.FILES + ("head",))), printed)
         # The head's tarball is read of the home repo, at the head the diff was read at, with the reader's token, and
-        # unpacked into `head/` (decision 0138).
+        # unpacked into `head/` (decision 0138); and the commit's tree, which the head is held to, the same way (issue 543).
         self.assertEqual((calls["tarballs"], calls["head"]), ([("the reader's transport", HOME, HEAD)], ["README.md"]))
+        self.assertEqual(calls["trees"], [("the reader's transport", HOME, HEAD)])
         self.assertEqual(kept["diff"], DIFF)
         self.assertEqual(kept["run"].decode().strip(), RUN)
         self.assertEqual(json.loads(kept["record.json"]), RECORD)
@@ -310,6 +320,17 @@ class Reader(unittest.TestCase):
         partial = lambda sha: support.tarball(sha, [("README.md", b"0", b"# a\n"), ("dev", b"3", b"")])
         code, printed, files, _, _ = self.go(tarred=partial)
         self.assertEqual((code, printed, files), (1, "head_unreadable\n", []))
+        # Issue 543: a tree that cannot be read, or a head that is not its commit's tree, a file the archive left out or
+        # one it holds otherwise than committed, is refused the same way, and leaves nothing either.
+        def unread(sha):
+            raise read.head_.Refused("the commit's tree was not answered whole")
+        for name, tree in (("no tree", unread),
+                           ("a file left out", lambda sha: {"files": {"README.md": (README_BLOB, 9), "kept.md": (README_BLOB, 9)},
+                                                            "links": set()}),
+                           ("a file otherwise", lambda sha: {"files": {"README.md": ("e" * 40, 9)}, "links": set()})):
+            with self.subTest(name=name):
+                code, printed, files, _, calls = self.go(tree=tree)
+                self.assertEqual((code, printed, files, calls["revoked"]), (1, "head_unreadable\n", [], 1))
 
     def test_a_run_on_another_release_than_its_pass_builds_no_task(self):
         # `next` moved between the pass and the Run: the commit the job checked out is another Release's. The Run

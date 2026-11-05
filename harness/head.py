@@ -7,13 +7,16 @@ fails. A member is written only as a regular file or a directory, each inside `i
 path and no byte that is not UTF-8, named once; a link is never written, a device or a FIFO refuses the archive, and so
 do more than `MEMBERS` members, more than `UNPACKED` bytes unpacked, or an end that is not two zero blocks and padding.
 The archive is the commit's as git archives it, so a file the commit's .gitattributes marks export-ignore is not in it,
-and one marked export-subst is not as committed (decision 0138). The archive must name the commit asked for, in the pax global
+and one marked export-subst is not as committed (decision 0138): so `tree(transport, repo, sha)` reads the commit's tree,
+and `held(into, tree)` holds the head unpacked to it, file by file, by git's blob hash (issue 543). The archive must name the commit asked for, in the pax global
 header GitHub writes (P-60), and hold one folder, which is `into` once unpacked. Nothing of a file's contents is read
 but its bytes, written as they are, its user's alone; no mode, owner or time of the archive's is kept.
 """
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import urllib.parse
 import zlib
 
@@ -25,6 +28,7 @@ BLOCK = 512
 REGULAR, DIRECTORY = (b"0", b"\0"), b"5"
 LINKS = (b"1", b"2")            # a hard link and a symbolic one: never written
 GLOBAL, EXTENDED = b"g", b"x"   # pax headers: the archive's own, and the next member's
+BLOB = re.compile(r"[0-9a-f]{40}")   # a blob's whole sha, as git names one
 
 
 class Refused(Exception):
@@ -206,3 +210,70 @@ def unpack(data: bytes, sha: str, into: str) -> dict:
     if top is None:
         raise Refused("the archive holds no folder")
     return written
+
+
+def tree_path(repo: str, sha: str) -> str:
+    """The API's path to `repo`'s git tree at commit `sha`, every level of it, its owner and its name each quoted whole,
+    as `path_of` quotes them."""
+    owner, _, name = repo.partition("/") if isinstance(repo, str) else ("", "", "")
+    quoted = (urllib.parse.quote(owner, safe=""), urllib.parse.quote(name, safe=""))
+    return "/repos/%s/%s/git/trees/%s?recursive=1" % (quoted + (sha,))
+
+
+def tree(transport, repo: str, sha: str) -> dict:
+    """The commit's tree, every level of it, as GitHub lists it (trials/P-60.tree.json): `{"files": {path: (blob, size)},
+    "links": {path}}`, each regular file by its path with its git blob hash and size, and each link, which the unpacker
+    leaves out. Refused unless answered 200 and whole, `truncated` false, in that shape, each path once; a submodule, which
+    an archive does not hold, or an entry of any other kind, refuses it too (issue 543)."""
+    path = tree_path(repo, sha) if isinstance(sha, str) else ""
+    if not github.TREE.fullmatch(path):
+        raise Refused("a tree is read only by its commit's whole sha, of a repo named as the API names one")
+    try:
+        answer = transport.send(github.request("GET", path))
+    except github.Unanswered:
+        raise Refused("the commit's tree could not be read") from None
+    body = answer.get("body")
+    if answer.get("status") != 200 or not isinstance(body, dict) or body.get("truncated") is not False \
+            or not isinstance(body.get("tree"), list):
+        raise Refused("the commit's tree was not answered whole")
+    files, links, seen = {}, set(), set()
+    for entry in body["tree"]:
+        path = entry.get("path") if isinstance(entry, dict) else None
+        if not isinstance(path, str) or not path or path in seen:
+            raise Refused("an entry of the commit's tree has no path, or one named twice")
+        seen.add(path)
+        kind, mode = entry.get("type"), entry.get("mode")
+        if kind == "tree" and mode == "040000":
+            continue
+        if kind == "blob" and mode == "120000":
+            links.add(path)
+            continue
+        blob, size = entry.get("sha"), entry.get("size")
+        if kind == "blob" and mode in ("100644", "100755") and isinstance(blob, str) and BLOB.fullmatch(blob) \
+                and type(size) is int and size >= 0:
+            files[path] = (blob, size)
+            continue
+        raise Refused("the commit's tree holds an entry this check does not read: a submodule, or another kind")
+    return {"files": files, "links": links}
+
+
+def held(into: str, tree_: dict) -> None:
+    """Hold the head unpacked into `into` to its commit's tree: every regular file of the tree is a file there, whose git
+    blob hash, sha1 of `blob <size>\\0` and its bytes, is the tree's, and no file is there that the tree lacks. A file the
+    commit's .gitattributes marked export-ignore, or one export-subst rewrote, is so caught (decision 0138, issue 543).
+    Refused at the first file that differs."""
+    found = {}
+    for folder, _, names in os.walk(into):
+        for name in names:
+            full = os.path.join(folder, name)
+            if os.path.islink(full) or not os.path.isfile(full):
+                raise Refused("the head holds what is not a regular file")
+            found[os.path.relpath(full, into).replace(os.sep, "/")] = full
+    wanted = tree_["files"]
+    if set(found) != set(wanted):
+        raise Refused("the head's files are not its commit's: a committed file is missing, or another is there")
+    for path, (blob, size) in sorted(wanted.items()):
+        with open(found[path], "rb") as f:
+            data = f.read()
+        if len(data) != size or hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest() != blob:
+            raise Refused("a file of the head is not its commit's, byte for byte")
