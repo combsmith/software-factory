@@ -322,7 +322,10 @@ class Unreadable(unittest.TestCase):
                dict(good, draft_events=[{"action": "ready_for_review", "at": 12}]),
                dict(good, draft_events=["ready_for_review"]),
                dict(good, opened_at=at(2), draft_events=[{"action": "converted_to_draft", "at": at(1)},
-                                                         {"action": "ready_for_review", "at": at(3)}])]
+                                                         {"action": "ready_for_review", "at": at(3)}]),
+               # And one after it closed: a closed pull request is neither converted nor marked ready.
+               dict(good, open=False, closed_at=at(5), draft_events=[{"action": "converted_to_draft", "at": at(4)},
+                                                                     {"action": "ready_for_review", "at": at(6)}])]
         no_class = dict(good)
         del no_class["class"]
         for entry in bad + [no_class]:
@@ -335,6 +338,12 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[strangers()])), "new")
+
+    def test_draft_events_in_the_opening_and_the_closing_second_are_read(self):  # issue 554
+        # Opened as a draft and marked ready in that second, or converted and closed in one: a chronology, read whole.
+        for linked in (pr(drafts=(("ready_for_review", 0),)),
+                       pr(is_open=False, closed=5, draft=True, drafts=(("ready_for_review", 2), ("converted_to_draft", 5)))):
+            self.assertIsNotNone(state(facts(linked=[linked])), linked)
 
     def test_an_unreadable_life_defers(self):
         for over in ({"life_started_at": None}, {"life_started_at": "2026-10-11"}, {"reopened_last_by": "a person"},
