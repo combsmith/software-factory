@@ -1745,6 +1745,28 @@ class EvalJob(unittest.TestCase):
         # Citing the nearest must not move a security fault out of `security`, whose thread `apply` holds apart (decision 0095).
         self.assertIn("A security fault no `security` criterion reaches is cited to none, at category `security`", " ".join(prompt.split()))
 
+    def test_the_review_reads_the_head_places_a_finding_where_a_fix_goes_and_cites_what_it_raises(self):  # 0138
+        # The private replay's misses, as counts alone: the right problem placed in another changed file or a few lines
+        # off, a Finding cited to no criterion while that criterion was met, and nothing raised with it met. The review
+        # is told it reads the head (decision 0138), where a Finding sits, and that its Findings and coverage agree.
+        prompt = " ".join((ROOT / "roles" / "pr-review" / "prompt.md").read_text().split())
+        for said in ("which you may read with Read, Grep and Glob",
+                     "A file left out is not reviewed, though the head holds it",
+                     "Read them before you judge the change, not after.",
+                     "Each tool call is one of the Task's turns",
+                     "A fault that is a removed line sits on the numbered lines of its hunk nearest where it was",
+                     "a fault its deletion brings sits on the changed lines of another file that it breaks",
+                     "only when what the criterion judges is not in the Task or the head",
+                     "the numbers the diff gives the lines where the problem is brought in",
+                     "A Finding sits on the changed lines that bring the fault in, the lines a fix would change",
+                     "A fault that spans files sits on the change that causes it",
+                     "give none only when no criterion of the rubric reaches it, and only after checking each criterion",
+                     "A Finding you raise cites the criterion it falls under, the nearest where more than one fits, and that criterion's coverage is `finding`, never `met`",
+                     "A security fault that no `security` criterion reaches stays cited to none, at category `security`, "
+                     "and counts against no criterion's coverage",
+                     "Never `met` on the diff's face alone."):
+            self.assertIn(said, prompt)
+
     def test_a_finding_at_the_line_its_task_numbers_is_where_the_scorer_looks(self):  # decision 0137
         # Run 41718110053 read 7 cases as `location_differs` and 3 as `finding_elsewhere`: the model is now given each
         # head line's number, and a Finding placed by the number the public example's Task shows passes the scorer.
