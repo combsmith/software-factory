@@ -11762,10 +11762,24 @@ body = {"data": {"repository": {"issue": {"state": "OPEN", "issueType": None, "t
 if mode == "errors":
     # Data beside errors, as GitHub answers a query it read in part, and gh says nothing wrong.
     body["errors"] = [{"message": "Field 'prevIssueType' doesn't exist"}]
+if mode == "status":
+    # A gateway's refusal with a body that reads as data: only the status says it is no answer.
+    sys.stdout.write("HTTP/2.0 502 Bad Gateway\\r\\nContent-Type: application/json\\r\\n\\r\\n" + json.dumps(body))
+    sys.exit(0)
+if mode == "interim":
+    # An interim head before the answer: the answer is the last head's.
+    sys.stdout.write("HTTP/1.1 100 Continue\\r\\n\\r\\n")
+if mode == "paged":
+    # More events than one page holds: the timeline is not read whole.
+    body["data"]["repository"]["issue"]["timelineItems"]["pageInfo"] = {"hasNextPage": True, "endCursor": "Y3Vy"}
 sys.stdout.write("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\nAuthorization: token %s\\r\\n\\r\\n" % token)
 sys.stdout.write(json.dumps(body))
 if mode == "exit":
     # A good answer, but gh failed: what it printed is no whole read.
+    sys.exit(1)
+if mode == "cut":
+    # The connection dropped mid-answer: the body ends inside the JSON, and the redaction refuses it.
+    sys.stdout.write('{"cut')
     sys.exit(1)
 """
 
@@ -11826,12 +11840,26 @@ if mode == "exit":
         done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 8, refuse=(1, "all"))
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual((len(calls), (out / "steps").read_text().count("\n")), (10, 9))
+        # An interim head before a good answer is a good read.
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], refuse=(9, "interim"))
+        self.assertEqual((done.returncode, len(calls)), (0, 9), done.stderr)
+        # No one left to answer the offer to read again: the run stops, and does not read again on its own.
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="", refuse=(5, "all"))
+        self.assertEqual((done.returncode, len(calls)), (1, 1), done.stderr)
+        self.assertIn("stopped at step 1", done.stderr)
+        # A read the redaction refuses keeps nothing and is offered again: after the merge, a lost read cannot be redone.
+        out = self.out()
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 8, refuse=(1, "cut"))
+        self.assertEqual((done.returncode, len(calls)), (0, 10), done.stderr)
+        self.assertIn("the redaction of step 1 failed", done.stderr)
         # Data beside errors is no whole read, nor is a good answer from a gh that failed: each is said and stopped.
-        for mode in ("errors", "exit"):
+        for mode in ("errors", "exit", "cut", "paged", "status"):
             out = self.out()
             done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="q\n", refuse=(5, mode))
             self.assertEqual((done.returncode, len(calls)), (1, 1), mode)
-            self.assertIn("step 1 was not read whole", done.stderr, mode)
+            self.assertIn("the redaction of step 1 failed" if mode == "cut" else "step 1 was not read whole", done.stderr, mode)
 
     def test_a_run_stopped_before_a_step_keeps_what_it_read_and_reads_no_more(self):
         out = self.out()
@@ -11850,6 +11878,7 @@ if mode == "exit":
         for args, said in (([str(here / "o"), "canary", "7", "8"], "is not owner/name"),
                            ([str(here / "o"), "x/y/z", "7", "8"], "is not owner/name"),
                            ([str(here / "o"), "combsmith/software-factory", "7", "8"], "never in the Factory's own repo"),
+                           ([str(here / "o"), "Combsmith/Software-Factory", "7", "8"], "never in the Factory's own repo"),
                            ([str(here / "o"), "x/canary", "seven", "8"], "is not an issue's"),
                            ([str(here / "o"), "x/canary", "", "8"], "is not an issue's"),
                            ([str(here / "o"), "x/canary", "7", "08"], "is not an issue's"),

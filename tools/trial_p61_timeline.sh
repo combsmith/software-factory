@@ -12,7 +12,7 @@
 # Enter, and reads it again, step by step:
 #   1. as it is;            2. a type set;          3. the type changed;     4. the type removed;
 #   5. the pull request linked by hand, in the issue's Development box;      6. unlinked;
-#   7. linked again;        8. the pull request merged, once the issue shows closed;   9. a minute later.
+#   7. linked again;        8. the pull request merged;   9. a minute later, closed or not.
 # Needs gh, logged in as the Maintainer, and python3.
 #
 # The pass condition, written before the run:
@@ -26,8 +26,9 @@
 # Each answer is captured in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted;
 # OUT receives only the redacted answers (clean-N), where the redaction removed something (redacted-N), what was asked
 # (query.json, with its variables, and steps), and when the run started (ran_at). A read that is not GitHub's 200 with
-# data and no errors is said, with gh's complaint redacted, and offered again before anything changes; a bad query
-# stops the run at step 1. A session builds trials/P-61.json from OUT alone.
+# data and no errors, and the issue's timeline whole on its one page, is said, with gh's complaint redacted, and offered
+# again before anything changes; a bad query stops the run at step 1, and so does an issue with more than a hundred of
+# these events, which is no new issue. A session builds trials/P-61.json from OUT alone.
 set -euf
 set +x
 
@@ -37,8 +38,8 @@ if [ "$#" -ne 4 ]; then
 fi
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 # A repo and each number are one word of the shapes GitHub allows, so none reaches the query as anything else.
-case "$2" in
-    */*/*|/*|*/|-*|*[!A-Za-z0-9._/-]*) echo "trial_p61_timeline: $2 is not owner/name" >&2; exit 2 ;;
+case "$(printf '%s' "$2" | tr 'A-Z' 'a-z')" in
+    */*/*|/*|*/|-*|*[!a-z0-9._/-]*) echo "trial_p61_timeline: $2 is not owner/name" >&2; exit 2 ;;
     combsmith/software-factory) echo "trial_p61_timeline: a trial runs in the canary, never in the Factory's own repo" >&2; exit 2 ;;
     */*) ;;
     *) echo "trial_p61_timeline: $2 is not owner/name" >&2; exit 2 ;;
@@ -100,23 +101,28 @@ QUERY='query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner
 # What is asked, word for word, with its variables, as the fixture's request keeps it.
 python3 -I -c 'import json, sys; print(json.dumps({"query": sys.argv[1], "variables": {"owner": sys.argv[2], "name": sys.argv[3], "issue": int(sys.argv[4]), "pr": int(sys.argv[5])}}))' \
     "$QUERY" "$owner" "$name" "$3" "$4" > "$out/query.json"
-: > "$out/steps"
-step=0
 # One read, kept redacted, with what the redaction removed beside it; good only if GitHub answered 200 with data and no
 # errors. gh's own complaint, redacted, is shown where it is not.
 read_step() {
     status=0
     gh api graphql --include -f query="$QUERY" -f owner="$owner" -f name="$name" -F issue="$3" -F pr="$4" \
         > "$dir/raw" 2> "$dir/err" || status=$?
+    # An answer the redaction refuses, cut off or in another form, keeps nothing and is offered again like any other.
     (cd "$root" && python3 -m tools.redact_trial < "$dir/raw" > "$out/clean-$step") 2> "$out/redacted-$step" ||
-        { echo "trial_p61_timeline: the redaction of step $step failed" >&2; rm -f "$dir/raw" "$dir/err"; exit 1; }
+        { echo "trial_p61_timeline: the redaction of step $step failed; nothing of it is kept" >&2
+          rm -f "$dir/raw" "$dir/err"; return 1; }
     rm -f "$dir/raw"
     if [ "$status" -eq 0 ] && python3 -I -c '
 import json, sys
 text = open(sys.argv[1]).read().replace("\r\n", "\n")
-head, _, body = text.partition("\n\n")
+# The redaction keeps every head, an interim one or a proxy head among them, and writes the body with no blank line in
+# it: the body is what follows the last blank line, and the status is that of the last head.
+parts = text.split("\n\n")
+head, body = parts[-2], parts[-1]
 answer = json.loads(body)
-sys.exit(0 if head.split(" ")[1:2] == ["200"] and not answer.get("errors") and answer.get("data") else 1)
+issue = ((answer.get("data") or {}).get("repository") or {}).get("issue") or {}
+whole = ((issue.get("timelineItems") or {}).get("pageInfo") or {}).get("hasNextPage") is False
+sys.exit(0 if head.split("\n", 1)[0].split()[1:2] == ["200"] and not answer.get("errors") and whole else 1)
 ' "$out/clean-$step" 2>/dev/null; then
         rm -f "$dir/err"
         return 0
@@ -135,8 +141,8 @@ for asked in "as it is" \
              "link the pull request to the issue by hand, in the issue's Development box" \
              "unlink it there" \
              "link it there again" \
-             "merge the pull request, then wait until the issue shows closed" \
-             "wait a minute more, changing nothing"; do
+             "merge the pull request" \
+             "wait a minute, changing nothing, whether or not the issue shows closed"; do
     step=$((step + 1))
     if [ "$step" -gt 1 ]; then
         printf 'Step %d: %s, in GitHub'"'"'s page; then press Enter here. ' "$step" "$asked" >&2
