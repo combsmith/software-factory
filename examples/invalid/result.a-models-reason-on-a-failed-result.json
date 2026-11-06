@@ -12,6 +12,7 @@
     "engine": "claude-cli",
     "engine_version": "2.1.302",
     "model": "claude-opus",
+    "answering_model": null,
     "session": "3e5b7d91-0c2a-4f6e-8b1d-9a7c5e3f2b60",
     "input_tokens": null,
     "cache_creation_input_tokens": null,
@@ -19,6 +20,7 @@
     "output_tokens": null,
     "turns": null,
     "cost_usd": null,
-    "seconds": 311.4
+    "seconds": 311.4,
+    "effort": "medium"
   }
 }

@@ -1,6 +1,6 @@
 # 0138. The review reads the pull request's head, with the read tools alone, held to it by --restricted
 
-Status: accepted. Replaces `docs/decisions/0045-the-transport-follows-one-redirect-an-artifacts-download-to-githubs-artifact-storage-alone.md` and `docs/decisions/0050-the-model-is-given-a-task-and-no-tool-and-apply-writes-only-what-it-reads-back.md`. The Maintainer's decision of 2026-11-04 that the review Role reads the repo at the pull request's head, read-only, and his choice of the same day, "Tarball, allow codeload" (issue 537, "The review Role reads the pull request's head, read-only"). Of 0050 it overturns two rows, "The Engine"'s empty directory and no tool for the review, and "No tool for any Run"; of 0045, the line that one redirect alone is followed. Nothing else in either changes.
+Status: replaced by `docs/decisions/0147-the-engine-runs-the-pinned-model-by-its-full-id-at-the-tiers-effort-and-keeps-an-answer-only-from-that-model.md`.
 
 ## Decision
 

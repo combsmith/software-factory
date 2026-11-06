@@ -10,6 +10,7 @@ given counts from when the hook asked, the sweep's time included.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import pathlib
 import re
@@ -18,6 +19,8 @@ import signal
 import subprocess
 import tempfile
 import time
+
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TAIL = 40   # lines of output shown; the end of a run is where it says what failed
@@ -141,6 +144,90 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.t
         shutil.rmtree(root, ignore_errors=True)
         for sig, handler in held.items():
             signal.signal(sig, handler)
+
+
+PASSED = "sf-checks-passed"     # in the tree's git directory: the state its last `make checks` that passed was run at
+GIT_SECONDS = 5
+AFTER = 5           # seconds of a run's time kept to read the state again once it has passed
+
+
+def _git(where: pathlib.Path, env: dict, args: list):
+    exe = shutil.which("git", path=env.get("PATH", os.defpath))
+    if exe is None:
+        return None
+    try:
+        done = subprocess.run([exe] + args, cwd=str(where), env=env, capture_output=True, timeout=GIT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.decode("utf-8", "surrogateescape") if done.returncode == 0 else None
+
+
+def gitdir(where: pathlib.Path, env: dict):
+    """The git directory of the tree at `where`, a worktree's own; None where it cannot be read."""
+    found = _git(where, env, ["rev-parse", "--absolute-git-dir"])
+    path = pathlib.Path(found.strip()) if found and found.strip() else None
+    return path if path is not None and path.is_dir() else None
+
+
+def state(where: pathlib.Path, env: dict):
+    """What `make checks` reads in `where`, as one key; None where any of it cannot be read: every entry of git's index,
+    the commits HEAD and origin's main name, and the folders at any depth, the links and the files tools/walk.py lists,
+    each file's mode and bytes. Nothing is written, to git or elsewhere."""
+    held = _git(where, env, ["ls-files", "-s", "-z"])
+    head = _git(where, env, ["rev-parse", "HEAD"])
+    base = _git(where, env, ["for-each-ref", "--format=%(objectname)", "refs/remotes/origin/main"])
+    if held is None or not head or base is None:
+        return None
+    digest = hashlib.sha256("\0".join([held, head.strip(), base.strip()]).encode("utf-8", "surrogateescape"))
+
+    def name(kind: bytes, path: pathlib.Path, mode: int = 0):
+        at = path.relative_to(where).as_posix().encode("utf-8", "surrogateescape")
+        digest.update(b"\0%s %o " % (kind, mode) + at + b"\0")
+    try:
+        for path in walk.directories(where):
+            name(b"d", path)
+        for path in walk.links(where):
+            name(b"l", path)
+            digest.update(os.readlink(str(path)).encode("utf-8", "surrogateescape"))
+        for path in walk.files(where):
+            if path.is_symlink():
+                continue
+            name(b"f", path, path.stat().st_mode)
+            with open(str(path), "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(chunk)
+    except (OSError, ValueError):
+        return None
+    return digest.hexdigest()
+
+
+def ran_out(said: str, target: str, where: pathlib.Path) -> bool:
+    """Whether what a run said is that it did not finish in its time."""
+    before, after = UNFINISHED.split("%d")
+    start, end = before % target, after % where
+    return said.startswith(start) and said.endswith(end) and said[len(start):len(said) - len(end)].isdigit()
+
+
+def checks(where: pathlib.Path, env: dict, timeout: int) -> tuple:
+    """make("checks"), skipped where its last pass was at the state `where` is in now. A pass is written down only when
+    the state read before the run is the state read after it, so an edit made while it ran is never taken as checked.
+    A state that cannot be read skips nothing and is not written down."""
+    asked = time.monotonic()
+    git_dir = gitdir(where, env)
+    record = git_dir / PASSED if git_dir is not None else None
+    key = state(where, env) if git_dir is not None else None
+    try:
+        if key is not None and record.read_text().strip() == key:
+            return True, ""
+    except (OSError, ValueError):       # a record that is not text is no pass (Codex on #568)
+        pass
+    passed, said = make("checks", where, env, max(1, int(timeout - AFTER - (time.monotonic() - asked))))
+    if passed and key is not None and state(where, env) == key:
+        try:
+            record.write_text(key + "\n")
+        except OSError:
+            pass
+    return passed, said
 
 
 def lacks(target: str, where: pathlib.Path, env: dict) -> bool:

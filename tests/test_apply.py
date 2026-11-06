@@ -232,7 +232,7 @@ def the_task(**over) -> dict:
     holds the example Result's Findings' lines."""
     t = {"schema": "task/1", "run": RUN, "release": RELEASE, "role": "pr-review", "intent": "review-change",
          "item": dict(support.ITEM), "content_id": "sha256:aaaa", "findings": [], "texts": [DIFF],
-         "limits": {"turns": 8, "repair_turns": 1, "seconds": 600, "cost_ceiling_usd": 2.0}, "tier": "standard",
+         "limits": {"turns": 8, "repair_turns": 1, "seconds": 600, "cost_ceiling_usd": 2.0, "effort": "medium"}, "tier": "standard",
          "permitted_effects": ["submit_review", "create_check_run"], "result_schema": "result/1", "omitted": []}
     t.update(over)
     return t
@@ -365,6 +365,8 @@ class Apply(unittest.TestCase):
                            ({"status": "failed", "reason": "task_too_large"}, ("item", "task_too_large")),
                            # An attempt on its item: it can't be told from a model that gave none (decision 0121).
                            ({"status": "failed", "reason": "no_answer"}, ("item", "no_answer")),
+                           # So is one another model answered: an item's text can call a fallback (decision 0147).
+                           ({"status": "failed", "reason": "engine_model"}, ("item", "engine_model")),
                            ({"status": "failed", "reason": "engine_failed"}, ("environment", "engine_failed")),
                            # A timeout cannot tell a slow provider from a slow item (issue 433, until issue 314).
                            ({"status": "failed", "reason": "engine_timeout"}, ("environment", "engine_timeout")),

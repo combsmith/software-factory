@@ -188,7 +188,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-34 Model names were scattered through the tree
 **Failure.** Changing a model meant hunting for its full name in scripts, workflows and prompts.
-**Rule.** A model is named in one place. Until the engine port exists, no file names one.
+**Rule.** A model is named in one place, by its full id: the Engine's pin in `config/harness.json`. The counter-examples of its schema copy that id and no other. No other file but a document or a fixture names a model by its full id.
 **Check.** `tools/check_repo.py`
 
 ### L-60 A test that failed under load killed a mutant

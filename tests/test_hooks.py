@@ -42,6 +42,12 @@ STAND_INS = {
             'echo "make $* in $(pwd -P)"\nexit "${FAKE_MAKE_EXIT:-0}"',
 }
 PATHS = {}     # made once: a new program's first run is slow on some systems
+# How .claude/settings.json runs each hook: the main checkout's copy, else the project folder's own, else a note.
+WIRED = ('d=$(git -C "$CLAUDE_PROJECT_DIR" worktree list --porcelain 2>/dev/null | sed -n \'1s/^worktree //p\'); '
+         '[ -n "$d" ] && [ -f "$d/tools/hooks/%(name)s.py" ] || d=$CLAUDE_PROJECT_DIR; '
+         '[ -f "$d/tools/hooks/%(name)s.py" ] || { echo \'{"systemMessage": "The %(name)s hook did not run: no '
+         'tools/hooks/%(name)s.py was found in the main checkout or the project folder."}\'; exit 0; }; '
+         'python3 -I "$d/tools/hooks/%(name)s.py"%(rest)s')
 # A substitution in double quotes inside another, to each depth, every level with quotes of its own (issue 376).
 NESTED = {1: '$(printf "%s" "hello (world)")'}
 for _depth in (2, 3):
@@ -2188,6 +2194,129 @@ class BeforeStop(unittest.TestCase):
         self.assertEqual(before_stop.respond(payload, env, clock=lambda: 3001.0)[0], 2)
 
 
+class SameTree(unittest.TestCase):
+    """make checks is not run again where it last passed at the state the tree is in now, after an edit or at a stop."""
+
+    def setUp(self):
+        self.where = repo(fresh=True)
+        git(self.where, "update-ref", "refs/remotes/origin/main", "HEAD")
+        (self.where / ".gitignore").write_text("*.pem\n__pycache__/\n/corpus/\n")
+        (self.where / "kernel").mkdir()
+        (self.where / "kernel" / "decide.py").write_text("x = 1\n")
+        git(self.where, "add", "-A")
+        git(self.where, "commit", "-q", "-m", "tracked")    # so that an edit to a file git holds is one (Argon on this PR)
+        git(self.where, "update-ref", "refs/remotes/origin/main", "HEAD")
+        bin_dir, self.runs = folder(), folder() / "runs"
+        (bin_dir / "git").symlink_to(shutil.which("git"))
+        # Each run is counted; one may change the tree while it runs, as an edit made meanwhile would.
+        (bin_dir / "make").write_text('#!/bin/sh\n[ "$1" = -n ] && exit 0\necho run >> "$RUNS"\n'
+                                      '[ -n "$MEANWHILE" ] && echo y >> "$MEANWHILE"\nexit "${FAKE_MAKE_EXIT:-0}"\n')
+        (bin_dir / "make").chmod(0o755)
+        self.env = environment(str(bin_dir), CLAUDE_PROJECT_DIR=str(self.where), RUNS=str(self.runs),
+                               TMPDIR=str(folder()))
+
+    def ran(self, **extra) -> bool:
+        before = self.runs.read_text().count("run") if self.runs.exists() else 0
+        passed, _ = make.checks(self.where, dict(self.env, **extra), 30)
+        self.assertTrue(passed or extra.get("FAKE_MAKE_EXIT"))
+        return self.runs.read_text().count("run") > before
+
+    def test_a_pass_at_the_same_state_is_not_run_again(self):
+        self.assertTrue(self.ran())
+        self.assertFalse(self.ran())
+        self.assertFalse(self.ran(FAKE_MAKE_EXIT="1"))      # skipped, so what make would say now is not heard
+
+    def test_any_change_the_checks_could_read_runs_them_again(self):
+        changes = [lambda: (self.where / "kernel" / "decide.py").write_text("x = 2\n"),   # a file git holds
+                   lambda: (self.where / "kernel" / "new.py").write_text(""),             # one it does not yet
+                   lambda: (self.where / "kernel" / "new.py").unlink(),
+                   lambda: (self.where / "key.pem").write_text("secret"),                 # one it ignores, the walk reads
+                   lambda: (self.where / "key.pem").write_text("other"),
+                   lambda: (self.where / "kernel" / "decide.py").chmod(0o755),
+                   lambda: (self.where / "notes").mkdir(),                                # an empty folder (the review)
+                   lambda: (self.where / "kernel" / "actions").mkdir(),                   # one below the top (Codex)
+                   lambda: [(self.where / "a.pyc").write_text("x"), git(self.where, "add", "-f", "a.pyc"),
+                            (self.where / "a.pyc").unlink()],                             # what only the index holds
+                   lambda: os.symlink("kernel", str(self.where / "link")),
+                   lambda: git(self.where, "add", "-A") or git(self.where, "commit", "-q", "-m", "next"),
+                   lambda: git(self.where, "commit", "-q", "--allow-empty", "-m", "only HEAD moves"),
+                   lambda: git(self.where, "update-ref", "refs/remotes/origin/main", "HEAD")]
+        self.assertTrue(self.ran())
+        for change in changes:
+            change()
+            self.assertTrue(self.ran(), change)
+            self.assertFalse(self.ran(), change)
+        # What the walk does not read either, Python's caches and the corpus, changes nothing.
+        (self.where / "kernel" / "__pycache__").mkdir()
+        (self.where / "kernel" / "__pycache__" / "decide.pyc").write_text("x")
+        (self.where / "corpus").mkdir()
+        (self.where / "corpus" / "a.json").write_text("{}")
+        self.assertFalse(self.ran())
+        # Nor does another working tree, which the walk does not read either.
+        (self.where / "nested").mkdir()
+        (self.where / "nested" / ".git").write_text("gitdir: elsewhere\n")
+        (self.where / "nested" / "x.py").write_text("")
+        self.assertFalse(self.ran())
+        # Reading the state writes nothing to git, not even what it ignores (the review: a secret's bytes stay out).
+        def objects():
+            return subprocess.run(["git", "count-objects", "-v"], cwd=str(self.where), capture_output=True, text=True,
+                                  env=self.env, check=True).stdout
+        before = objects()
+        (self.where / "other.pem").write_text("secret")
+        (self.where / "kernel" / "more.py").write_text("y = 1\n")
+        self.assertIsNotNone(make.state(self.where, self.env))
+        self.assertEqual(objects(), before)
+
+    def test_only_a_pass_whose_state_held_through_the_run_is_written_down(self):
+        self.assertTrue(self.ran(FAKE_MAKE_EXIT="1"))
+        self.assertTrue(self.ran(FAKE_MAKE_EXIT="1"))       # a failure is never written down
+        self.assertTrue(self.ran(MEANWHILE=str(self.where / "kernel" / "decide.py")))
+        self.assertTrue(self.ran())                         # an edit made while it ran was not taken as checked
+        self.assertFalse(self.ran())
+        # Nor was the state before it: back there, it runs again (Argon on this PR).
+        (self.where / "kernel" / "decide.py").write_text("x = 1\n")
+        self.assertTrue(self.ran(MEANWHILE=str(self.where / "kernel" / "decide.py")))
+        (self.where / "kernel" / "decide.py").write_text("x = 1\n")
+        self.assertTrue(self.ran())
+
+    def test_a_record_or_a_state_that_cannot_be_read_skips_nothing(self):
+        self.assertTrue(self.ran())
+        record = make.gitdir(self.where, self.env) / make.PASSED
+        record.write_text("not a state\n")
+        self.assertTrue(self.ran())
+        self.assertFalse(self.ran())
+        record.write_bytes(b"\xff\n")                       # not text at all (Codex on #568)
+        self.assertTrue(self.ran())
+        self.assertFalse(self.ran())
+        record.unlink()
+        record.mkdir()                                      # a record that cannot be read or written
+        self.assertTrue(self.ran())
+        self.assertTrue(self.ran())
+        record.rmdir()
+        self.assertTrue(self.ran())
+        with unittest.mock.patch.object(make, "state", lambda *args: None):
+            self.assertTrue(self.ran())
+            self.assertTrue(self.ran())
+        only_make = folder()
+        (only_make / "make").symlink_to(pathlib.Path(self.env["PATH"]) / "make")
+        self.env["PATH"] = str(only_make)                  # no git to read the state with
+        self.assertTrue(self.ran())
+        self.assertTrue(self.ran())
+
+    def test_an_edit_and_the_stop_after_it_share_the_pass(self):
+        (self.where / "kernel" / "decide.py").write_text("x = 3\n")
+        edit = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": str(self.where),
+                "tool_input": {"file_path": str(self.where / "kernel" / "decide.py")}}
+        self.assertEqual(after_edit.respond(edit, self.env), (0, "", ""))
+        self.assertEqual(self.runs.read_text().count("run"), 1)
+        stop = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(self.where)}
+        self.assertEqual(before_stop.respond(stop, dict(self.env, FAKE_MAKE_EXIT="2")), (0, "", ""))
+        self.assertEqual(self.runs.read_text().count("run"), 1)
+        (self.where / "kernel" / "decide.py").write_text("x = 4\n")
+        self.assertEqual(before_stop.respond(stop, dict(self.env, FAKE_MAKE_EXIT="2"))[0], 2)
+        self.assertEqual(self.runs.read_text().count("run"), 2)
+
+
 class MakeLeavesNothing(unittest.TestCase):
     """A make run for a hook leaves nothing behind it, killed or not (issue 344)."""
 
@@ -3581,11 +3710,13 @@ class Settings(unittest.TestCase):
         for event, groups in settings["hooks"].items():
             for group in groups:
                 for handler in group["hooks"]:
-                    found = re.match(r'^python3 -I "\$CLAUDE_PROJECT_DIR/tools/hooks/(\w+)\.py"( \|\| exit 2)?$',
-                                     handler["command"])
+                    found = re.search(r'python3 -I "\$d/tools/hooks/(\w+)\.py"( \|\| exit 2)?$',
+                                      handler["command"])
                     self.assertTrue(found, handler["command"])
+                    self.assertEqual(handler["command"], WIRED % {"name": found.group(1), "rest": found.group(2) or ""})
                     wired[found.group(1)] = (event, group.get("matcher"))
-                    # A hook that cannot start is shown to the agent, never let through. Not on Stop, which would loop.
+                    # A hook that starts and fails is shown to the agent, never let through. Not on Stop, which would
+                    # loop. One with no copy to start runs nothing, with a line that says so.
                     self.assertEqual(bool(found.group(2)), event != "Stop", handler["command"])
         self.assertEqual(wired, {"after_edit": ("PostToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
                                  "before_stop": ("Stop", None), "identity": ("PreToolUse", "Bash"),
@@ -3594,6 +3725,74 @@ class Settings(unittest.TestCase):
         entries = {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
         self.assertEqual(entries, set(wired))
 
+    def test_every_hook_runs_the_main_checkouts_copy_wherever_the_session_started(self):
+        # A session started in an old worktree ran that worktree's copy of the hooks, however stale (the stop-hook
+        # review, 2026-11-05). Each command runs the copy in the main checkout, the first `git worktree list` names.
+        hooks = ("after_edit", "before_stop", "identity", "protected", "rules_changed")
+        stub = ("import os, sys\nprint(__file__)\nprint(os.getcwd())\nprint(sys.stdin.read())\n"
+                "sys.exit(int(os.environ.get('EXIT', '0')))\n")
+
+        def checkout(*init):
+            main = pathlib.Path(init[-1])
+            git(SCRATCH.name, "init", "-q", *init)
+            (main / "tools" / "hooks").mkdir(parents=True)
+            for name in hooks:
+                (main / "tools" / "hooks" / (name + ".py")).write_text(stub)
+            git(main, "add", "-A")
+            git(main, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "hooks")
+            git(main, "worktree", "add", "-q", "--detach", str(main / ".claude" / "worktrees" / "old"))
+            return main
+        spaced = checkout(str(folder() / "a main checkout"))
+        sibling = folder() / "a sibling worktree"
+        git(spaced, "worktree", "add", "-q", "--detach", str(sibling))
+        # Git names no checkout for a bare repository, nor for one whose git directory is kept apart: there the
+        # project folder's own copy runs, as before.
+        apart = folder()
+        separate = checkout("--separate-git-dir", str(apart / "kept.git"), str(apart / "main"))
+        bare = folder() / "bare.git"
+        git(SCRATCH.name, "clone", "-q", "--bare", str(spaced), str(bare))
+        git(bare, "worktree", "add", "-q", "--detach", str(bare.parent / "w"))
+        bin_dir = folder()
+        for program, at in (("git", shutil.which("git")), ("sed", shutil.which("sed")), ("python3", sys.executable)):
+            (bin_dir / program).symlink_to(at)
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        handlers = [(event, h) for event, groups in settings["hooks"].items() for g in groups for h in g["hooks"]]
+        self.assertEqual(len(handlers), len(hooks))
+        for event, handler in handlers:
+            name = re.search(r"tools/hooks/(\w+)\.py", handler["command"]).group(1)
+
+            def run(project, **extra):
+                env = environment(str(bin_dir), CLAUDE_PROJECT_DIR=str(project), **extra)
+                here = folder()
+                done = subprocess.run(["/bin/sh", "-c", handler["command"]], cwd=str(here), input='{"x": 1}',
+                                      capture_output=True, text=True, timeout=30, env=env)
+                lines = done.stdout.splitlines()
+                if len(lines) >= 3 and not lines[0].startswith("{"):    # the event reaches the hook, where it stands
+                    self.assertEqual(lines[1:3], [str(here.resolve()), '{"x": 1}'], name)
+                return done.returncode, lines[0] if lines else ""
+
+            def copy(where):
+                return str(where.resolve() / "tools" / "hooks" / (name + ".py"))
+            old = spaced / ".claude" / "worktrees" / "old"
+            for project in (old, old / "tools", sibling, spaced):
+                self.assertEqual(run(project), (0, copy(spaced)), (name, project))
+            for project in (separate / ".claude" / "worktrees" / "old", bare.parent / "w"):
+                self.assertEqual(run(project), (0, copy(project)), (name, project))
+            # A hook that fails is shown to the agent, as before; not on Stop, which would loop.
+            self.assertEqual(run(old, EXIT="1")[0], 1 if event == "Stop" else 2, name)
+            # Where the main checkout has no copy, the project folder's own runs; where neither has one, nothing
+            # runs, and the person is told in one line.
+            (spaced / "tools" / "hooks" / (name + ".py")).rename(spaced / "gone.py")
+            try:
+                self.assertEqual(run(old), (0, copy(old)), name)
+                (old / "tools" / "hooks" / (name + ".py")).unlink()
+                for nowhere in (folder(), spaced / "absent", old):
+                    code, said = run(nowhere)
+                    self.assertEqual(code, 0, (name, nowhere))
+                    self.assertIn("The %s hook did not run" % name, json.loads(said)["systemMessage"])
+            finally:
+                (spaced / "gone.py").rename(spaced / "tools" / "hooks" / (name + ".py"))
+                git(old, "checkout", "-q", "--", ".")
 
 class ShellReading(unittest.TestCase):
     """shell.py reads the command's structure: here-documents, top-level assignments, and plain values."""

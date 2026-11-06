@@ -182,6 +182,16 @@ def folders(root: pathlib.Path) -> list:
     return sorted(root / n for n in names if n not in gone and (root / n).is_dir() and not (root / n).is_symlink())
 
 
+def directories(root: pathlib.Path) -> list:
+    """Every directory below `root`, at any depth and empty or not, sorted, but none skipped and no link."""
+    skipped, out = _skip(root), []
+    for folder, dirs, names in os.walk(str(root)):
+        gone = skipped(folder, dirs + names)
+        dirs[:] = sorted(d for d in dirs if d not in gone and not os.path.islink(os.path.join(folder, d)))
+        out += [pathlib.Path(folder, d) for d in dirs]
+    return sorted(out)
+
+
 def files(root: pathlib.Path, under: str = "") -> list:
     """Every file below `root / under`, sorted, but none skipped and no link that points at nothing."""
     return [p for p in _entries(root, under) if p.is_file()]

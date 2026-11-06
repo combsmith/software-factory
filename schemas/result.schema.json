@@ -47,6 +47,7 @@
         "task_not_a_review",
         "credential_missing",
         "engine_version",
+        "engine_model",
         "task_too_large",
         "engine_failed",
         "engine_timeout",
@@ -82,6 +83,8 @@
         "engine",
         "engine_version",
         "model",
+        "answering_model",
+        "effort",
         "session",
         "input_tokens",
         "cache_creation_input_tokens",
@@ -102,6 +105,22 @@
         "model": {
           "type": "string",
           "pattern": "^[a-z0-9.-]+$"
+        },
+        "answering_model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9.-]+$"
+        },
+        "effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
         },
         "session": {
           "type": "string",

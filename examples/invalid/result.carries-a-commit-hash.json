@@ -92,6 +92,8 @@
     "engine": "claude-cli",
     "engine_version": "2.1.302",
     "model": "claude-opus",
+    "answering_model": "claude-opus",
+    "effort": "medium",
     "session": "7f3a9c2e-5b1d-4e8a-9c6f-2d4b8a1e0f37",
     "input_tokens": 2,
     "cache_creation_input_tokens": 20475,

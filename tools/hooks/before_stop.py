@@ -2,7 +2,8 @@
 
 At the next stop it ends and the person is told: a hook that sent it back for ever would cycle with
 no bound and no person. With nothing changed and nothing unpushed there is nothing to verify, so a
-turn spent answering questions costs nothing. Run as `python3 -I` on this file; see after_edit.py.
+turn spent answering questions costs nothing, and where the checks last passed at the state the tree is in
+now, after an edit or at a stop, they are not run again (make.checks). Run as `python3 -I` on this file; see after_edit.py.
 
 It runs the checks alone. The tests are CI's, and a builder's own `make verify`: they outgrew any time
 a hook can spend (issue 438). A run it cannot finish is not started (issue 344): each run that ends,
@@ -99,8 +100,8 @@ def respond(payload: dict, env: dict, clock=time.time) -> tuple:
                                                                                                 record))
         return 0, json.dumps({"systemMessage": told}) + "\n", ""
     budget = max(1, int(TIMEOUT - (time.monotonic() - asked)))
-    passed, said = make.make("checks", where, env, budget)
-    unfinished_now = said.startswith(make.UNFINISHED % ("checks", budget, where))
+    passed, said = make.checks(where, env, budget)
+    unfinished_now = make.ran_out(said, "checks", where)
     note(record, now, not unfinished_now)
     if passed:
         return 0, "", ""
