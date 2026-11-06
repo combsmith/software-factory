@@ -12,7 +12,7 @@ the change does not hold, or adopted from a reviewer the configuration does not 
 than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
 Run's Role may not make; a `security` Finding accepted before its author's proposal can be read; and last, unless asked
 to leave it out, a posted Finding on lines no hunk of its file holds on the head's side (decision 0146), the one check
-that needs the diff, so that `job` reads the diff only for a Result every other check let through (decision NNNN). Each
+that needs the diff, so that `job` reads the diff only for a Result every other check let through (decision 0148). Each
 is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
@@ -230,7 +230,7 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
 def off_hunks(task: dict, result: dict):
     """`finding_not_in_hunk` where a posted Finding's lines are not all on one hunk of its file on the head's side, as
     the Task's diff gave them to the model (decision 0146), or None. GitHub refuses a review comment off the diff, but
-    not an annotation, so each is held here. It is the last check, and the one that needs the diff (decision NNNN)."""
+    not an annotation, so each is held here. It is the last check, and the one that needs the diff (decision 0148)."""
     spans = hunks(task)
     raised = {f["ref"]: f for f in result["findings"]}
     for _, _, ref in posts(result["effects"]):
@@ -251,7 +251,7 @@ def hunks(task: dict) -> dict:
     """`{path: [(first, last), ...]}`: the lines each hunk of a file holds on the head's side, from the Task's diff as
     the model was given it (decision 0137), each file by its name at the head. A file the Task's diff leaves out, or
     deletes, or changes with no line on the head's side, has none, and so does one whose name cannot be read; a Task
-    that holds no diff, as `admitted` gives one, holds no line (decision NNNN)."""
+    that holds no diff, as `admitted` gives one, holds no line (decision 0148)."""
     out = {}
     for text in task.get("texts", ()):
         if not text["id"].startswith("diff:"):
@@ -346,7 +346,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
     `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. With
     `lines` false, every check but a Finding's lines is made, which needs no diff; by default that one is made too, of
     the Task's diff, so a caller that forgets fails closed: of a Task that carries no diff, as `admitted` gives one,
-    the refusal is the Factory's, `diff_not_given` (decision NNNN)."""
+    the refusal is the Factory's, `diff_not_given` (decision 0148)."""
     moved = _superseded(task, facts, runs, context, kernel, now, github_run)
     if moved:
         return "superseded", moved
@@ -366,7 +366,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
     why = _effects(task, result, facts, advisory) or _dispositions(task, result, facts, role, authority)
     if why is None and lines:
         # A Finding's lines are held of the Task's diff: a Task that carries none was handed in without it, which is
-        # the Factory's slip, never the Role's, and nothing is written (decision NNNN).
+        # the Factory's slip, never the Role's, and nothing is written (decision 0148).
         if "texts" not in task:
             return "environment", "diff_not_given"
         why = off_hunks(task, result)
@@ -499,7 +499,7 @@ def taken(data: bytes, digest: str):
 def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
     """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, diff)`,
     `diff()` its diff's bytes, read only for a completed Result that posts a Finding and that every check needing no diff
-    let through, from which the Task's diff is built again as the Run was given it (decisions 0146 and NNNN);
+    let through, from which the Task's diff is built again as the Run was given it (decisions 0146 and 0148);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
     request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
@@ -510,7 +510,7 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
     facts, head, runs, context, diff = read()
     # Every check that needs no diff is made first, a change under the Run among them, by the facts and the Result alone:
     # the diff is read again only for a Result they all let through, so no read of it can hide a change under the Run or
-    # turn the Result's own refusal into the environment's (decisions 0146 and NNNN).
+    # turn the Result's own refusal into the environment's (decisions 0146 and 0148).
     why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
                   config["authority"], config["advisory"], config["github_run"], lines=False)
     if why is not None:

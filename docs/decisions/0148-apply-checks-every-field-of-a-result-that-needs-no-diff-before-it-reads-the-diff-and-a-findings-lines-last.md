@@ -1,4 +1,4 @@
-# NNNN. `apply` checks every field of a Result that needs no diff before it reads the diff, and a Finding's lines last
+# 0148. `apply` checks every field of a Result that needs no diff before it reads the diff, and a Finding's lines last
 
 Status: accepted. The Factory Builder's ruling of 2026-11-06 on "apply checks a Result's own fields before it reads the diff, so a Result refused for them spends no read" (issue 573), a follow-on to decision 0146. It changes the order in which `apply` refuses a Result, and when it reads the diff, and nothing else in 0146.
 
