@@ -77,6 +77,7 @@ SIM_CREATED = ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_un
 SIM_CREATES = ("tests.test_simulator.Simulation.test_a_created_check_stands_beside_the_lens_run_and_replaces_only_one_created_before",)
 JOB_PORT = ("tests.test_adapters.Contract.test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids",
             "tests.test_adapters.Contract.test_a_created_check_under_a_lens_name_does_not_pass")
+RESULT_PORT = ("tests.test_adapters.Contract.test_a_results_check_is_read_as_any_check_and_a_created_one_is_foreign_to_its_reporter",)
 WIRE_RUNS = ("tests.test_adapters.EffectsRecorded.test_each_run_in_the_window_is_read_once_and_only_a_listed_one",)
 WIRE_PASSES = ("tests.test_adapters.EffectsRecorded.test_each_pass_in_the_window_is_read_once_and_what_cannot_be_read_is_read_again",)
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
@@ -4573,6 +4574,18 @@ MUTANTS = ISSUE + [
      ("tests.test_decide.Acceptance",)),
     ("a result on earlier content is judged too", "kernel/derive.py",
      '        if ev["content_id"] != content:\n            continue\n', "", ("tests.test_decide.Acceptance",)),
+    # Issue 445, decision 0149: a result's check is read as any check is, so one a job created is foreign to its reporter.
+    ("a result's check keeps the file of a job it is not", "adapters/acceptance.py",
+     '    return {"name": found["name"], "app_id": found["app_id"], "workflow": found["workflow"]}\n',
+     '    return {"name": found["name"], "app_id": found["app_id"], "workflow": node["checkSuite"]["workflowRun"]["file"]["path"]}\n',
+     RESULT_PORT),
+    ("a real job's check is read with no file", 'adapters/acceptance.py',
+     '    return {"name": found["name"], "app_id": found["app_id"], "workflow": found["workflow"]}\n',
+     '    return {"name": found["name"], "app_id": found["app_id"], "workflow": None}\n', RESULT_PORT),
+    ("a result whose check has no file is its reporter's", "kernel/derive.py",
+     '        elif reports_for(ev["check"], lens):\n',
+     '        elif reports_for(ev["check"], lens) or (ev["check"].get("workflow") is None and from_its_app(check, lens)):\n',
+     RESULT_PORT + ("tests.test_decide.Acceptance.test_a_result_counts_only_from_the_reporter_its_kind_names",)),
     ("only the first criterion that failed is named", "kernel/derive.py",
      '        return "failing", fails\n', '        return "failing", fails[:1]\n', ("tests.test_decide.Acceptance",)),
     ("a contract with no criteria converges", "kernel/derive.py",

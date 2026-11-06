@@ -515,7 +515,7 @@
                 ]
               },
               "check": {
-                "description": "The check that reported the result, as the facts give a check: its name exactly as GitHub gives it, the id of the App that reported it, and the path of the workflow file that ran it, null for a check no workflow ran",
+                "description": "The check that reported the result, as the facts give a check: its name exactly as GitHub gives it, the id of the App that reported it, and the path of the workflow file that ran it, null for a check no workflow ran and for one of GitHub Actions' whose details are not its own job's (decision 0149)",
                 "type": "object",
                 "additionalProperties": false,
                 "required": [

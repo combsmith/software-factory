@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 
-from adapters import timeline
+from adapters import checks, timeline
 from adapters.github import Unanswered, request
 from kernel import gate, terms
 
@@ -190,6 +190,18 @@ def _serving(transport, pull: dict, opener, opened) -> tuple:
     if issue is not None and (not whole or any(number != issue for number in found)):
         return {}, None, False
     return found, issue, whole
+
+
+def result_check(node: dict) -> dict:
+    """The check that reported a result, as `facts/1` holds it: its name, App and workflow file, read as the checks port
+    reads any check (`adapters/checks.py`). So a check of GitHub Actions' whose details are not its own job's has no
+    file, and a result it gave is foreign to the Lens that reports its criterion's kind: from its workflow, where a
+    workflow runs that Lens, and from its App where none does, since no Lens of GitHub Actions' runs with no workflow
+    (`tools/check_workflows.py`). The results' port, not built yet, reads each result's check by this (decisions 0104 and
+    0149). A check it cannot read is refused, as the checks port refuses one; whether the port then reads the results
+    short, so the Kernel defers, is that port's to decide."""
+    found = checks.check(node)
+    return {"name": found["name"], "app_id": found["app_id"], "workflow": found["workflow"]}
 
 
 def served(transport, pull: dict, opener=None, opened=None) -> tuple:

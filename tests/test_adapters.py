@@ -3958,6 +3958,45 @@ class Contract(unittest.TestCase):
         given = dict(config, required_lenses={"deterministic": [lens]})
         self.assertEqual(derive.foreign_checks([checks.check(n) for n in real], given), [])
 
+    def test_a_results_check_is_read_as_any_check_and_a_created_one_is_foreign_to_its_reporter(self):  # issue 445
+        # The results' port reads the check that reported a result as the checks port reads any check (decision 0104): a
+        # check a job created under the reporter's name, App and file is read with no file, so a result it gave is foreign
+        # to the Lens that reports its criterion's kind, as the Kernel reads any result whose file cannot be read. No new
+        # fact carries it.
+        from kernel import derive
+        from tests import support
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        nodes = rollup("P-35", self.p35_at("as the port reads them, gate"))
+        forged = [n for n in nodes if n["name"] == "p35-gated-lens" and "/job/" not in n["detailsUrl"]]
+        real = [n for n in nodes if n["name"] == "p35-gated-lens" and "/job/" in n["detailsUrl"]]
+        self.assertTrue(forged and real)
+        path = ".github/workflows/p35-gate.yml"
+        for n in forged + real:
+            read = checks.check(n)
+            self.assertEqual(acceptance.result_check(n), {k: read[k] for k in ("name", "app_id", "workflow")})
+        self.assertEqual({acceptance.result_check(n)["workflow"] for n in forged}, {None})
+        self.assertEqual({acceptance.result_check(n)["workflow"] for n in real}, {path})
+        lens = {"lens": "a-lens", "check": "p35-gated-lens", "app_id": 15368, "workflow": path}
+        given = dict(config, acceptance_reporters={"test": "a-lens"},
+                     required_lenses=dict(config["required_lenses"], deterministic=[lens]))
+        facts_ = {"content_id": "sha256:aaaa"}
+
+        def given_by(node):
+            check = acceptance.result_check(node)
+            return {"approved": {"criteria": [{"id": "AC-1", "kind": "test"}]},
+                    "results": [support.evidence(check=check)]}
+        for n in forged:
+            self.assertEqual(derive.foreign_results(given_by(n), facts_, given), ["AC-1:from_workflow:unreadable"])
+        for n in real:
+            self.assertEqual(derive.foreign_results(given_by(n), facts_, given), [])
+        # Where no workflow runs the reporting Lens, which only another App's may be (tools/check_workflows.py), a created
+        # check's result is foreign from its App.
+        other = {"lens": "b-lens", "check": "p35-gated-lens", "app_id": 57789, "workflow": None}
+        elsewhere = dict(config, acceptance_reporters={"test": "b-lens"},
+                         required_lenses=dict(config["required_lenses"], deterministic=[other]))
+        for n in forged:
+            self.assertEqual(derive.foreign_results(given_by(n), facts_, elsewhere), ["AC-1:from_app:15368"])
+
     def test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids(self):
         # Issue 439: the job's form, whole, its run's id and its own. That is what one forging attempt showed and no promise
         # of GitHub's, so everything else is not its own, a URL or an id that cannot be read among them.
