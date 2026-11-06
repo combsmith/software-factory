@@ -2,8 +2,7 @@
 
 What this repo holds of each held-out eval set: one manifest a directory, `<role>/cases.json`, with the Role, the Intent, the count of cases and each case's id and sha256.
 The cases themselves live in a private repo under a different owner (design §3.13), read only by the eval job (§4.9), and never here, in a pull request, an issue or a note.
-No count of a kind is written here, since a session here cannot read a case to hold it true: the eval job holds the split (decision 0120).
-`tools/eval_result.py` scores one `result/1` against one case, at run time, where the case is.
+No count of a kind is written here, since a session here cannot read a case to hold it true: the eval job holds the split (decision 0120). `tools/eval_result.py` scores one `result/1` against one case, at run time, where the case is.
 `context/task.json` is the context's test (issue 8, "The context's test: a fresh agent adds a rule to the Kernel without being told how"): the sha256 of its one task sentence and of its held-out answer,
 and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Maintainer's terminal and recorded by `tools/context_eval.py` with no text of the model's and no word of the rule.
 
@@ -12,7 +11,8 @@ and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Main
 | A manifest is `eval-set/1`, and its count is its list's length | `tests/test_evals.py::test_the_manifest_counts_its_cases_and_holds_no_case` |
 | Nothing lives here but a manifest in `LIVE` and these rules, and no file here, of any name, holds a case or a diff | `tests/test_evals.py::test_a_case_dropped_under_evals_in_any_file_is_caught` |
 | A new file here is added to `LIVE` in `tools/check_examples.py`, with its schema | `tools/check_examples.py` |
-| A Result passes a case by raising the Finding it expects, in its category, severity and place, with the coverage agreeing; the place is any the case gives, `location` or `also_at`, each readable (decision 0143) | `tests/test_evals.py::test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails`, `tests/test_evals.py::test_a_finding_at_any_place_the_case_gives_is_at_the_place` |
+| A Result passes a case by raising the Finding it expects, in its category, severity and place, with the coverage agreeing | `tests/test_evals.py::test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails` |
+| A case may name each place its fault is rightly put, in `also_at`; a Finding at any is at the place, and every place must be readable (decision 0143) | `tests/test_evals.py::test_a_finding_at_any_place_the_case_gives_is_at_the_place` |
 | A right change passes by covering its criterion as met and raising nothing against it | `tests/test_evals.py::test_a_right_change_is_scored_by_its_coverage` |
 | A case or a Result that cannot be read scores nothing, a case whose criterion its Role's rubric lacks among them | `tests/test_evals.py::test_a_case_or_a_result_that_cannot_be_read_scores_nothing` |
 | A case expects a Finding in the Finding's own categories and severities | `tests/test_evals.py::test_a_cases_categories_are_the_findings` |
