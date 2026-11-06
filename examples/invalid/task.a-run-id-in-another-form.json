@@ -32,7 +32,8 @@
     "turns": 20,
     "repair_turns": 2,
     "seconds": 900,
-    "cost_ceiling_usd": 1.5
+    "cost_ceiling_usd": 1.5,
+    "effort": "medium"
   },
   "tier": "deep",
   "permitted_effects": [

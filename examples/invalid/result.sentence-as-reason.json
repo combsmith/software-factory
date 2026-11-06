@@ -26,6 +26,8 @@
     "engine": "claude-cli",
     "engine_version": "2.1.302",
     "model": "claude-opus",
+    "answering_model": "claude-opus",
+    "effort": "medium",
     "session": "0c81d4b6-2a7e-4f19-8e3d-6b5a9f2c1d84",
     "input_tokens": 2,
     "cache_creation_input_tokens": 20475,

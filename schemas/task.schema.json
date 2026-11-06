@@ -116,7 +116,8 @@
         "turns",
         "repair_turns",
         "seconds",
-        "cost_ceiling_usd"
+        "cost_ceiling_usd",
+        "effort"
       ],
       "properties": {
         "turns": {
@@ -134,6 +135,15 @@
         "cost_ceiling_usd": {
           "type": "number",
           "minimum": 0.01
+        },
+        "effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
         }
       }
     },

@@ -10,13 +10,15 @@
       "turns": 10,
       "repair_turns": 1,
       "seconds": 600,
-      "cost_ceiling_usd": 1.0
+      "cost_ceiling_usd": 1.0,
+      "effort": "medium"
     },
     "deep": {
       "turns": 20,
       "repair_turns": 2,
       "seconds": 900,
-      "cost_ceiling_usd": 1.5
+      "cost_ceiling_usd": 1.5,
+      "effort": "medium"
     }
   },
   "texts": {

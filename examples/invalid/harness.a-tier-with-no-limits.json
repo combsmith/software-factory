@@ -10,7 +10,8 @@
       "turns": 10,
       "repair_turns": 1,
       "seconds": 600,
-      "cost_ceiling_usd": 1.0
+      "cost_ceiling_usd": 1.0,
+      "effort": "medium"
     }
   },
   "texts": {

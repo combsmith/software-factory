@@ -201,7 +201,7 @@ def the_task(**over) -> dict:
     """The Task of Run RUN: the review Intent on the content the Kernel admits on support's facts."""
     t = {"schema": "task/1", "run": RUN, "release": RELEASE, "role": "pr-review", "intent": "review-change",
          "item": dict(support.ITEM), "content_id": "sha256:aaaa", "findings": [], "texts": [],
-         "limits": {"turns": 8, "repair_turns": 1, "seconds": 600, "cost_ceiling_usd": 2.0}, "tier": "standard",
+         "limits": {"turns": 8, "repair_turns": 1, "seconds": 600, "cost_ceiling_usd": 2.0, "effort": "medium"}, "tier": "standard",
          "permitted_effects": ["submit_review", "create_check_run"], "result_schema": "result/1", "omitted": []}
     t.update(over)
     return t

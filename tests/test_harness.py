@@ -29,6 +29,7 @@ SESSION = "7f3a9c2e-5b1d-4e8a-9c6f-2d4b8a1e0f37"
 TOKEN = "a-stand-in-for-the-model-credential"
 HARNESS = json.loads((ROOT / "config" / "harness.json").read_text())
 PIN = HARNESS["engine"]["version"]
+MODEL = HARNESS["engine"]["model"]
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The change Run RUN judges, as GitHub serves a pull request's diff: two files, each its own part.
 DIFF = (b"diff --git a/kernel/decide.py b/kernel/decide.py\n--- a/kernel/decide.py\n+++ b/kernel/decide.py\n"
@@ -94,7 +95,7 @@ def answer(result=None, **over) -> str:
             "usage": {"input_tokens": 2, "cache_creation_input_tokens": 20475, "cache_read_input_tokens": 0,
                       "output_tokens": 194, "server_tool_use": {"web_search_requests": 0}},
             "structured_output": result if result is not None else judged(), "permission_denials": [],
-            "stop_reason": "tool_use"}
+            "stop_reason": "tool_use", "modelUsage": {MODEL: {"inputTokens": 2, "outputTokens": 194, "costUSD": 0.167688}}}
     said.update(over)
     return json.dumps(said)
 
@@ -413,7 +414,7 @@ class Engine(unittest.TestCase):
         cli = CLI()
         engined(cli)
         for call in cli.calls:
-            self.assertEqual(sorted(call["env"]), sorted(["PATH", "LANG", "DISABLE_AUTOUPDATER", engine.SCRUB, "HOME",
+            self.assertEqual(sorted(call["env"]), sorted(["PATH", "LANG", "DISABLE_UPDATES", "DISABLE_AUTOUPDATER", engine.SCRUB, "HOME",
                                                           "TMPDIR", engine.CREDENTIAL_NAME]))
             self.assertEqual((call["env"][engine.SCRUB], call["env"][engine.CREDENTIAL_NAME], call["env"]["PATH"]),
                              ("1", TOKEN, "/usr/bin:/bin"))
@@ -599,10 +600,19 @@ class Engine(unittest.TestCase):
         for option in engine.OPTIONS:
             self.assertIn(option, args)
         self.assertEqual(cli.asked()[0]["env"]["DISABLE_AUTOUPDATER"], "1")
+        self.assertEqual(cli.asked()[0]["env"]["DISABLE_UPDATES"], "1")
         self.assertEqual(args[args.index("--session-id") + 1], SESSION)
         self.assertEqual(args[args.index("--model") + 1], HARNESS["engine"]["model"])
         self.assertEqual(args[args.index("--max-turns") + 1], str(HARNESS["limits"]["standard"]["turns"]))
         self.assertEqual(cli.asked()[0]["timeout"], HARNESS["limits"]["standard"]["seconds"])
+        # The tier's effort, once, never the CLI's default (decision 0145).
+        self.assertEqual(args.count("--effort"), 1)
+        self.assertEqual(args[args.index("--effort") + 1], HARNESS["limits"]["standard"]["effort"])
+        deep = built(role=manifest(tier="deep"), config=config(limits=dict(HARNESS["limits"], deep=dict(
+            HARNESS["limits"]["deep"], effort="high"))))
+        deeper = CLI()
+        self.assertEqual(engined(deeper, deep)["usage"]["effort"], "high")
+        self.assertEqual(deeper.asked()[0]["args"][deeper.asked()[0]["args"].index("--effort") + 1], "high")
         # The tier's cost ceiling, once, as the CLI reads a number (issue 517).
         self.assertEqual(args.count("--max-budget-usd"), 1)
         self.assertEqual(args[args.index("--max-budget-usd") + 1], "1.0")
@@ -706,6 +716,27 @@ class Engine(unittest.TestCase):
         self.assertEqual(schema["properties"]["run"], {"const": RUN})
         self.assertEqual(sorted(schema["properties"]["effects"]["properties"]), ["comment"])
 
+    def test_an_answer_is_kept_only_from_the_pinned_model(self):  # decision 0145
+        other = "claude-" + "sonnet-5-5"
+        for named, recorded in (({other: {}}, other), ({MODEL: {}, other: {}}, None), ({}, None), (None, None),
+                                ({MODEL + "[1m]": {}}, None), ([MODEL], None), ({MODEL.upper(): {}}, None)):
+            said = json.loads(answer())
+            if named is None:
+                del said["modelUsage"]
+            else:
+                said["modelUsage"] = named
+            r = engined(CLI(said=json.dumps(said)))
+            self.assertEqual((r["status"], r["reason"], r["usage"]["answering_model"]), ("failed", "engine_model", recorded),
+                             named)
+            self.assertEqual((r["findings"], r["effects"], r["usage"]["model"]), ([], {}, MODEL), named)
+            self.assertEqual(shared.errors(r, "result"), [], named)
+        # A Run the CLI was never asked names no model that answered; one that erred is not held to it.
+        self.assertIsNone(engined(CLI(versions=("2.1.305",)))["usage"]["answering_model"])
+        erred = json.loads(answer(is_error=True, subtype="error_during_execution"))
+        del erred["modelUsage"]
+        self.assertEqual(engined(CLI(said=json.dumps(erred)))["reason"], "engine_failed")
+        self.assertEqual(engined()["usage"]["answering_model"], MODEL)
+
     def test_the_version_is_held_before_and_after_the_call(self):  # L-35
         for versions, asked in (((PIN, "2.1.307"), 1), (("2.1.305", PIN), 0), ((None, PIN), 0), ((PIN, None), 1),
                                 (((PIN, 1), PIN), 0)):
@@ -723,8 +754,8 @@ class Engine(unittest.TestCase):
         self.assertEqual(shared.errors(r, "result"), [])
         self.assertEqual({k: r[k] for k in ("run", "release", "status", "reason")},
                          {"run": RUN, "release": RECORD["release"], "status": "completed", "reason": None})
-        self.assertEqual(r["usage"], {"engine": "claude-cli", "engine_version": PIN, "model": HARNESS["engine"]["model"],
-                                      "session": SESSION, "input_tokens": 2, "cache_creation_input_tokens": 20475,
+        self.assertEqual(r["usage"], {"engine": "claude-cli", "engine_version": PIN, "model": MODEL,
+                                      "answering_model": MODEL, "effort": "medium", "session": SESSION, "input_tokens": 2, "cache_creation_input_tokens": 20475,
                                       "cache_read_input_tokens": 0, "output_tokens": 194, "turns": 2,
                                       "cost_usd": 0.167688, "seconds": 2.714})
         self.assertNotIn("PROSE", json.dumps(r))
@@ -747,7 +778,7 @@ class Engine(unittest.TestCase):
         # A stream of messages: its last result is the answer.
         r = engined(CLI(said=json.dumps([{"type": "system"}, {"type": "result", "structured_output": {}},
                                          {"type": "result", "structured_output": judged(), "num_turns": 1,
-                                          "is_error": False}])))
+                                          "is_error": False, "modelUsage": {MODEL: {}}}])))
         self.assertEqual((r["status"], r["usage"]["turns"]), ("completed", 1))
 
     def test_an_answer_that_does_not_validate_is_no_result(self):  # decision 0038, decision 0004
