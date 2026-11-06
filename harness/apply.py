@@ -6,9 +6,10 @@ None. In this order, so that each has its own code: the item closed, its content
 held, or the Kernel, asked again with this Run left out, not admitting this Run's Intent on this content, all a change
 under the Run (`superseded`); then the Result: not this Run's or this Release's, not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
-Finding that does not gate on a thread or one that gates on an annotation, or a Finding where it has no place; a
-Disposition that gives neither half or both, or the half this Run's Role may not make; a `security` Finding accepted
-before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
+Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
+the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
+than that reviewer's thread on this item (decision 0143); a Disposition that gives neither half or both, or the half this
+Run's Role may not make; a `security` Finding accepted before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
@@ -163,7 +164,7 @@ def _superseded(task: dict, facts: dict, runs: list, context: dict, kernel: dict
     return None
 
 
-def _effects(task: dict, result: dict, facts: dict):
+def _effects(task: dict, result: dict, facts: dict, advisory):
     effects = result["effects"]
     if any(kind not in task["permitted_effects"] for kind in effects if effects[kind]):
         return "effect_not_permitted"
@@ -200,7 +201,27 @@ def _effects(task: dict, result: dict, facts: dict):
         where = finding.get("location", {})
         if "start_line" not in where or where.get("end_line", where["start_line"]) < where["start_line"]:
             return "finding_has_no_place"
+        # A Finding names a place in the change: a place outside it is no Finding of this review. The place is a path
+        # the change holds on its head's side, a renamed file by its new name, as the facts name it (decision 0143).
+        if where["path"] not in {c["path"] for c in facts["changed_paths"]}:
+            return "finding_not_on_change"
+        # One adopted is adopted from a reviewer the configuration names advisory, and from that reviewer's thread on
+        # this item: a surface the facts cannot show on this item is no Finding of this review.
+        adopted = finding.get("adopted_from")
+        if adopted is not None:
+            if adopted["lens"] not in advisory:
+                return "adopted_lens_not_advisory"
+            surface = adopted["surface"]
+            if surface["type"] != "thread" or not any(
+                    th["id"] == surface["key"] and _opened_by(th, adopted["lens"]) for th in facts["threads"]):
+                return "adopted_surface_not_on_item"
     return None
+
+
+def _opened_by(thread: dict, lens: str) -> bool:
+    """Whether a thread in the facts was opened by that Lens."""
+    by = thread.get("opened_by")
+    return isinstance(by, dict) and by.get("kind") == "lens" and by.get("name") == lens
 
 
 def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: dict):
@@ -249,9 +270,9 @@ def _findings_of(facts: dict, thread: str) -> list:
 
 
 def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, kernel: dict, now: str, role: dict,
-            rubric, authority: dict, github_run=None) -> tuple:
+            rubric, authority: dict, advisory, github_run=None) -> tuple:
     """`(fault, reason)` why nothing may be written, or None. `rubric` is the Intent's when it reviews, else None;
-    `github_run` is this job's own `GITHUB_RUN_ID`."""
+    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`."""
     moved = _superseded(task, facts, runs, context, kernel, now, github_run)
     if moved:
         return "superseded", moved
@@ -264,7 +285,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         said, _ = covered(rubric, result["coverage"], result["findings"], facts["changed_paths"])
         if said != "covered":
             return ("item", "uncovered") if said == "uncovered" else ("environment", "coverage_unreadable")
-    why = _effects(task, result, facts) or _dispositions(task, result, facts, role, authority)
+    why = _effects(task, result, facts, advisory) or _dispositions(task, result, facts, role, authority)
     return ("item", why) if why else None
 
 
@@ -408,7 +429,7 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
         since = next((u["created_at"] for u in context["unidentified_runs"] if _this_run(u, config["github_run"])),
                      None)
     why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
-                  config["authority"], config["github_run"])
+                  config["authority"], config["advisory"], config["github_run"])
     if why is not None:
         record = applied(admit, result, [], role, refused=why[1])
         return record, outcome(admit, record, why)
