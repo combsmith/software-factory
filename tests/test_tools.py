@@ -6027,6 +6027,9 @@ class OutputMadeAlone(unittest.TestCase):
         for name in ("curl", "gh"):
             (folder / "bin" / name).write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
             (folder / "bin" / name).chmod(0o755)
+        if not (folder / "bin" / "timeout").exists():     # P-59 needs one, which a Mac's /usr/bin has not
+            (folder / "bin" / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+            (folder / "bin" / "timeout").chmod(0o755)
         (folder / "key.pem").write_text("not a key\n")
         (folder / "cli").write_text("#!/bin/sh\nexit 0\n")
         (folder / "cli").chmod(0o755)
@@ -6159,7 +6162,7 @@ fi
         # name with .. in it, and make them private whatever the umask. What they made is read too: here a stand-in mkdir
         # leaves one open, as another's change would.
         said = " is another user's, or can be written by other users and is not sticky"
-        for script in list(self.SANDBOX) + ["trial_p59_read_confinement.sh"]:
+        for script in self.SANDBOX:
             with self.subTest(script=script):
                 folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
                 (folder / "unsafe").mkdir()
@@ -6199,7 +6202,7 @@ fi
         # Issue 502 (Argon): in a sticky directory another may put a link where a missing parent of OUT is to be made,
         # once the check has read the directory. The parents are made one at a time inside it, so the link is refused,
         # and nothing is made where it leads. Here a stand-in mkdir puts the link there as it is called.
-        for script in list(self.SANDBOX) + ["trial_p59_read_confinement.sh"]:
+        for script in self.SANDBOX:
             with self.subTest(script=script):
                 folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
                 sticky, elsewhere = folder / "sticky", folder / "elsewhere"

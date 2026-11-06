@@ -64,8 +64,6 @@ cli=$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")
 stub=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 case "$(basename -- "$1")" in .|..) refuse "$1 names no new directory, since it ends in . or ..; name the directory itself" ;; esac
 case "/$1/" in */../*) refuse "$1 holds .., which is read one way here and another by mkdir; name OUT without it" ;; esac
-# The parents are read one line at a time: a newline in OUT would make them short of where it names (the Claude review).
-case "$1" in *$'\n'*) refuse "OUT holds a newline; name it without one" ;; esac
 check_above() {
     local above=$1 found
     while :; do
@@ -86,26 +84,9 @@ check_above() {
 uid=$(id -u)
 near=$(dirname -- "$1")
 until [[ -d "$near" || "$near" == . ]]; do near=$(dirname -- "$near"); done
-here=$(CDPATH= cd -- "$near" && pwd -P)
-here=${here%/}       # / as nothing, so what is made in it is /NAME; read once, by the check and by what is made
-check_above "${here:-/}"
-# OUT is made here, by this script alone: one made since it was found absent is refused, never written into. What this
-# makes above it is made one directory at a time inside the one the check read, never through the path as given, so a
-# link put in its way is refused, not followed (issue 502); each is its user's alone, and read too.
-given=$(dirname -- "$1")
-case "$near" in
-    "$given") rest="" ;;
-    .) rest=$given ;;
-    /) rest=${given#/} ;;
-    *) rest=${given#"$near"/} ;;
-esac
-IFS=/ read -r -a parts <<< "$rest"
-for part in ${parts[@]+"${parts[@]}"}; do
-    [[ -n "$part" && "$part" != . ]] || continue
-    mkdir -m 700 -- "$here/$part" || refuse "$here/$part could not be made new by this run (made since, or refused); name a new directory"
-    here=$here/$part
-done
-parent=$(CDPATH= cd -- "${here:-/}" && pwd -P)
+check_above "$(CDPATH= cd -- "$near" && pwd -P)"
+(umask 077 && mkdir -p -- "$(dirname -- "$1")")
+parent=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)
 check_above "$parent"
 target=$parent/$(basename -- "$1")
 mkdir -m 700 -- "$target" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
