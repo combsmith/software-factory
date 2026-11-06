@@ -630,7 +630,8 @@ class Apply(unittest.TestCase):
         # The job's callbacks, as `apply` calls them: the item read again through the read token; a write token minted
         # from the key with what the Effects need; and each write held to the Role's allowlist on the admitted item.
         seen = {"reread": [], "role_write": []}
-        facts = dict(support.facts(), threads=[support.thread("T1")])
+        # The facts of the content admitted, so the diff is read again of it.
+        facts = dict(support.facts(), threads=[support.thread("T1")], content_id=CONTENT)
 
         def a_job(admit, result, read_, write, mint, role, config, now):
             read_()
@@ -666,6 +667,14 @@ class Apply(unittest.TestCase):
         # Held: the allowlist refuses a write on another item.
         with self.assertRaises(github.Unanswered):
             transport.send(github.request("POST", "/repos/%s/issues/43/comments" % HOME, body={"body": "x"}))
+        # Of content that moved under the Run, it is not read: the facts alone say so.
+        del seen["change"][:]
+        facts["content_id"] = "sha256:" + "b" * 64
+        with unittest.mock.patch.object(reread, "item", item), \
+                unittest.mock.patch.object(apply_step, "change_at", change_at), \
+                unittest.mock.patch.object(effects, "role_write", role_write):
+            self.go(job=None, a_job=a_job)
+        self.assertEqual(seen["change"], [])
 
     def test_the_last_step_leaves_the_outcome(self):
         kept = {"schema": "outcome/1", "run": RUN, "release": RELEASE, "outcome": "item", "reason": "uncovered"}

@@ -1056,6 +1056,14 @@ class Job(unittest.TestCase):
             # Each Effect the Result asked for is recorded refused for that reason, and none written.
             self.assertEqual([(e["id"], e["state"], e["reason"]) for e in record["effects"]],
                              [("e1", "refused", "content_moved"), ("e2", "refused", "content_moved")], change)
+        # A change under the Run is told by the facts first, in refusal's order, whatever the bytes: a closed item that
+        # moved is closed, and content that moved is told so with no diff read.
+        closed = support.facts(state="closed", content_id="sha256:bbbb")
+        for facts, change, want in ((closed, b"other", "item_closed"), (closed, None, "item_closed"),
+                                    (support.facts(content_id="sha256:bbbb"), None, "content_moved")):
+            record, ended, calls = self.go(result(), facts=facts, change=change)
+            self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("superseded", want, []), want)
+            self.assertEqual({e["reason"] for e in record["effects"]}, {want})
         # Cut where the Run's Task was cut: a file it left out holds no line, though the bytes hold it.
         short = dict(self.CONFIG, max_diff_characters=len(task_.numbered(PARTS[0])) + 2)
         record, ended, calls = self.go(result(), config=short)
@@ -1131,6 +1139,29 @@ class Job(unittest.TestCase):
             self.assertIsNone(apply.taken(given, at))
         record, ended, calls = self.go(None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "result_unreadable", []))
+
+    def test_the_live_path_holds_a_result_to_what_was_admitted_and_the_diff_read_again(self):  # issue 567
+        # As the apply step runs it: what the Decision admitted, from the pass record, and no Task built by hand, so the
+        # Task's texts are none but the diff `apply` builds again (Muse's read of 3d2c333).
+        record = json.loads((ROOT / "examples" / "pass.json").read_text())
+        record["release"] = RELEASE
+        entry = record["pull_requests"][0]
+        entry["run"] = RUN
+        entry["decision"]["item"] = dict(support.ITEM)
+        entry["decision"]["admit"] = {"role": "pr-review", "intent": "review-change", "content_id": RAW_ID}
+        admitted = apply.admitted(record, RUN, ROLE, [])
+        self.assertNotIn("texts", admitted)
+        facts = support.facts(content_id=RAW_ID)
+        record, ended, calls = self.go(result(), task=admitted, facts=facts)
+        self.assertEqual([kind for _, kind, _ in calls["written"]], ["submit_review", "create_check_run"], ended)
+        # Off every hunk of the diff read again, a Finding is refused there too.
+        off = result()
+        off["findings"][0]["location"].update(start_line=1, end_line=2)
+        record, ended, calls = self.go(off, task=admitted, facts=facts)
+        self.assertEqual((ended["outcome"], ended["reason"], calls["written"]), ("item", "finding_not_in_hunk", []))
+        # And bytes of another content are a change under the Run.
+        record, ended, calls = self.go(result(), task=admitted, facts=facts, change=RAW + b"+x\n")
+        self.assertEqual((ended["outcome"], ended["reason"]), ("superseded", "content_moved"))
 
     def test_what_a_result_is_held_to_is_the_decision_that_admitted_its_run(self):  # section 3.5
         record = json.loads((ROOT / "examples" / "pass.json").read_text())

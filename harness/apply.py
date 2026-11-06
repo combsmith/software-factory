@@ -452,7 +452,8 @@ def taken(data: bytes, digest: str):
 
 def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
     """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, change)`,
-    `change` its diff's bytes, from which the Task's diff is built again as the Run was given it (decision NNNN);
+    `change` its diff's bytes, or None where its content is not the one admitted, from which the Task's diff is built
+    again as the Run was given it (decision NNNN);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
     request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
@@ -461,6 +462,11 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
                   "findings": [], "rulings": []}
         return record, _ended(admit, ("environment", "result_unreadable"))
     facts, head, runs, context, change = read()
+    # A change under the Run is told first, in refusal's own order: the diff is read again only of the content admitted.
+    moved = _superseded(admit, facts, runs, context, config["kernel"], now, config["github_run"])
+    if moved:
+        record = applied(admit, result, [], role, refused=moved)
+        return record, outcome(admit, record, ("superseded", moved))
     # The Task's diff, built again from the bytes the Decision admitted and cut as the Run's was: the lines a posted
     # Finding is held to (decision NNNN). Bytes that are not that content are a change under the Run.
     try:
