@@ -1827,6 +1827,24 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(check_repo.run(tree({"config/x.json": '"gpt-' + '4o-mini"'})), "names a model"))
         self.assertFalse(caught(check_repo.run(tree({"docs/notes.md": name})), "names a model"))
 
+    def test_a_model_is_named_by_the_engines_pin_and_its_counter_examples_alone(self):
+        name, other = "claude-" + "opus-5-5", "claude-" + "sonnet-5-5"
+        copy = '{"engine": {"model": "%s"}}'
+        problems = check_repo.run(tree({"config/harness.json": copy % name, "examples/invalid/harness.a-copy.json": copy % name,
+                                        "examples/invalid/harness.another.json": copy % other,
+                                        "examples/invalid/harness.both.json": copy % name + other,
+                                        "examples/invalid/harness.a-copy.json.md": copy % name,
+                                        "examples/invalid/result.x.json": copy % name, "examples/harness.json": copy % name,
+                                        "other/config/harness.json": copy % name}))
+        for where in ("config/harness.json", "examples/invalid/harness.a-copy.json"):
+            self.assertNotIn(where + ": names a model by its full id", problems)
+        for where in ("examples/invalid/harness.another.json", "examples/invalid/harness.both.json",
+                      "examples/invalid/harness.a-copy.json.md", "examples/invalid/result.x.json", "examples/harness.json",
+                      "other/config/harness.json"):
+            self.assertIn(where + ": names a model by its full id", problems)
+        unpinned = check_repo.run(tree({"examples/invalid/harness.a-copy.json": copy % name}))
+        self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", unpinned)
+
     def test_an_edited_secrets_baseline_is_caught(self):
         whole = (ROOT / ".gitignore").read_text()
         self.assertFalse(caught(check_repo.run(tree({".gitignore": whole})), "baseline"))

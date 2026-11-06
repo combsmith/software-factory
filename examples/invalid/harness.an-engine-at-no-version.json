@@ -3,7 +3,7 @@
   "engine": {
     "name": "claude-cli",
     "version": "latest",
-    "model": "opus"
+    "model": "claude-opus-5-5"
   },
   "limits": {
     "standard": {

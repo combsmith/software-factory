@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import os
 import pathlib
 import re
@@ -128,8 +129,11 @@ CODEOWNERS_SHA256 = "64da42e5c2edba9d9c92680f5b106be149ed4c5336b2b2e5c0beeec9340
 PYTHON = (3, 9)    # the oldest Python this must run on; newer syntax is refused, as far as this interpreter can tell
 # Named in documents only. No code or data reaches into the proof-of-concept repo.
 FOREIGN = ".github-" + "private"
-# A model is named in one place, once the engine port exists. Until then, nowhere but the documents.
+# A model is named in one place, the Engine's pin, and nowhere else but the documents. The counter-examples of the pin's
+# schema copy it and may name it, and no other model (L-34).
 MODEL_ID = re.compile(r"\b(claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*)")
+PIN = "config/harness.json"
+PIN_COPIES = re.compile(r"\Aexamples/invalid/harness\.[a-z0-9-]+\.json\Z")
 TEXT = {".py", ".json", ".md", ".yml", ".yaml", ".txt", ".toml", ".cfg", ""}
 # The shape of a credential. A secret is referred to by its name, never by its value. This is a
 # net with wide holes; the org's push protection is the real one.
@@ -223,8 +227,17 @@ def _unloadable(rel: pathlib.PurePath) -> list:
     return problems
 
 
+def _pinned(root: pathlib.Path):
+    """The model the Engine is pinned to, by its full id, or None where the pin cannot be read."""
+    try:
+        return json.loads((root / PIN).read_text())["engine"]["model"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
+    pinned = _pinned(root)
     ignore = root / ".gitignore"
     block = BASELINE.search(ignore.read_text(errors="replace")) if ignore.exists() else None
     if block is None:
@@ -290,7 +303,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         recorded = len(rel.parts) == 2 and rel.parts[0] == "trials" and path.suffix == ".json"
         if path.suffix != ".md" and FOREIGN in text and not recorded:
             problems.append("%s: names the proof-of-concept repo; nothing here depends on it" % rel)
-        if rel.parts[0] != "docs" and MODEL_ID.search(text) and not recorded:
+        named = set(MODEL_ID.findall(text)) - ({pinned} if PIN_COPIES.match(rel.as_posix()) else set())
+        if rel.parts[0] != "docs" and named and not recorded and rel.as_posix() != PIN:
             problems.append("%s: names a model by its full id" % rel)
         if path.suffix == ".py":
             problems += _python(rel, text)

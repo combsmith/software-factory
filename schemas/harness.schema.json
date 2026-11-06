@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "harness/1: what the Harness is told beside the Role's manifest: the Engine's CLI, by name, the version it is pinned to and the model it runs; each tier's limits; how many characters of text a Task carries, and of the change's diff apart; and the third-party reviewers whose text is advisory, by the name the facts give their Lens.",
+  "title": "harness/1: what the Harness is told beside the Role's manifest: the Engine's CLI, by name, the version it is pinned to and the model it runs, by its full id and never an alias the CLI resolves; each tier's limits; how many characters of text a Task carries, and of the change's diff apart; and the third-party reviewers whose text is advisory, by the name the facts give their Lens.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -32,7 +32,7 @@
         },
         "model": {
           "type": "string",
-          "pattern": "^[a-z0-9.-]+$"
+          "pattern": "^claude-[a-z]+(-[0-9]+)+$"
         }
       }
     },
