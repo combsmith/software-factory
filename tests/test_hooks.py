@@ -2234,6 +2234,7 @@ class SameTree(unittest.TestCase):
                    lambda: (self.where / "key.pem").write_text("other"),
                    lambda: (self.where / "kernel" / "decide.py").chmod(0o755),
                    lambda: (self.where / "notes").mkdir(),                                # an empty folder (the review)
+                   lambda: (self.where / "kernel" / "actions").mkdir(),                   # one below the top (Codex)
                    lambda: [(self.where / "a.pyc").write_text("x"), git(self.where, "add", "-f", "a.pyc"),
                             (self.where / "a.pyc").unlink()],                             # what only the index holds
                    lambda: os.symlink("kernel", str(self.where / "link")),
@@ -2282,6 +2283,9 @@ class SameTree(unittest.TestCase):
         self.assertTrue(self.ran())
         record = make.gitdir(self.where, self.env) / make.PASSED
         record.write_text("not a state\n")
+        self.assertTrue(self.ran())
+        self.assertFalse(self.ran())
+        record.write_bytes(b"\xff\n")                       # not text at all (Codex on #568)
         self.assertTrue(self.ran())
         self.assertFalse(self.ran())
         record.unlink()

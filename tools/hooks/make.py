@@ -171,7 +171,7 @@ def gitdir(where: pathlib.Path, env: dict):
 
 def state(where: pathlib.Path, env: dict):
     """What `make checks` reads in `where`, as one key; None where any of it cannot be read: every entry of git's index,
-    the commits HEAD and origin's main name, and the folders at the top, the links and the files tools/walk.py lists,
+    the commits HEAD and origin's main name, and the folders at any depth, the links and the files tools/walk.py lists,
     each file's mode and bytes. Nothing is written, to git or elsewhere."""
     held = _git(where, env, ["ls-files", "-s", "-z"])
     head = _git(where, env, ["rev-parse", "HEAD"])
@@ -184,7 +184,7 @@ def state(where: pathlib.Path, env: dict):
         at = path.relative_to(where).as_posix().encode("utf-8", "surrogateescape")
         digest.update(b"\0%s %o " % (kind, mode) + at + b"\0")
     try:
-        for path in walk.folders(where):
+        for path in walk.directories(where):
             name(b"d", path)
         for path in walk.links(where):
             name(b"l", path)
@@ -219,7 +219,7 @@ def checks(where: pathlib.Path, env: dict, timeout: int) -> tuple:
     try:
         if key is not None and record.read_text().strip() == key:
             return True, ""
-    except OSError:
+    except (OSError, ValueError):       # a record that is not text is no pass (Codex on #568)
         pass
     passed, said = make("checks", where, env, max(1, int(timeout - AFTER - (time.monotonic() - asked))))
     if passed and key is not None and state(where, env) == key:
