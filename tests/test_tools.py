@@ -1880,14 +1880,16 @@ class Repo(unittest.TestCase):
         pattern = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())["properties"]["engine"]["properties"]["model"]["pattern"]
         self.assertEqual("^%s$" % check_repo.PIN_FORM.pattern, pattern)
         # A copy names the pinned id and nothing joined to it on either side (Argon's read of be7743a).
-        for joined in (name + "-latest", name + "@20250514", name + ":0", "not-" + name, "anthropic/" + name):
+        for joined in (name + "-latest", name + "@20250514", name + ":0", "not-" + name, "anthropic/" + name, "my_" + name, "x" + name):
             listed = check_repo.run(tree({"config/harness.json": copy % name, "examples/invalid/harness.a-copy.json": copy % joined}))
             self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", listed, joined)
             self.assertNotIn("config/harness.json: names a model by its full id", listed, joined)
-        # A shell script is read as any other file is (Muse's read of be7743a).
-        self.assertIn("tools/x.sh: names a model by its full id",
-                      check_repo.run(tree({"config/harness.json": copy % name, "tools/x.sh": "claude --model %s\n" % name})))
+        # A shell script, and a file of any other kind, is read as any other file is (Muse's reads of be7743a and 1762f89).
+        for where in ("tools/x.sh", "tools/x.bash", "tools/x.js", "x.properties", "tools/x"):
+            self.assertIn(where + ": names a model by its full id",
+                          check_repo.run(tree({"config/harness.json": copy % name, where: "claude --model %s\n" % name})), where)
 
+    @support.wall_clock
     def test_a_long_run_of_a_models_characters_is_read_in_linear_time(self):  # the Claude security read of 1762f89
         # A model is read with what is joined to it, so a run of those characters with no model in it, a base64 blob or a
         # minified line, must be read once and not again from each place in it, or one long run stalls every check.

@@ -284,8 +284,9 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     if version(cli, env, call) != engine["version"]:
         return failed(task, "engine_version", usage)
     # A Run the CLI says another model took part in is the Engine's, whatever else befell it: one that erred or ran out
-    # by a fallback model is not the reviewer's. One that names no model keeps its own reason (decision 0147).
-    if isinstance(said, dict) and said.get("modelUsage") not in (None, {}) and usage["answering_model"] != engine["model"]:
+    # by a fallback model is not the reviewer's. One that names no model, in any empty form, keeps its own reason
+    # (decision 0147).
+    if isinstance(said, dict) and said.get("modelUsage") and usage["answering_model"] != engine["model"]:
         return failed(task, "engine_model", usage)
     if reason is not None:
         return failed(task, reason, usage)

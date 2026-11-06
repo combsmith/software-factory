@@ -742,7 +742,7 @@ class Engine(unittest.TestCase):
         for subtype, own in (("error_during_execution", "engine_failed"), ("error_max_turns", "no_answer"),
                              ("error_max_structured_output_retries", "no_answer")):
             for named, reason in (({other: {}}, "engine_model"), ({MODEL: {}, other: {}}, "engine_model"),
-                                  ({MODEL: {}}, own), ({}, own)):
+                                  ({MODEL: {}}, own), ({}, own), ([], own), ("", own)):
                 ended = json.loads(answer(is_error=True, subtype=subtype, modelUsage=named))
                 self.assertEqual(engined(CLI(said=json.dumps(ended)))["reason"], reason, (subtype, named))
         # Another model's answer is the Engine's before it is held to any schema: one that fails the schema it was handed

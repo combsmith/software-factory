@@ -131,16 +131,17 @@ PYTHON = (3, 9)    # the oldest Python this must run on; newer syntax is refused
 FOREIGN = ".github-" + "private"
 # A model is named in one place, the Engine's pin, and nowhere else but the documents. The pin's file names that model and
 # no other, and the counter-examples of its schema copy it and name no other either (L-34).
-MODEL_ID = re.compile(r"\b(claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*)")
+MODEL_ID = re.compile(r"claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*")
 # A model as a file names it, with what is joined to it on either side and any suffix in brackets, so that the pinned id
-# with `[1m]`, `-latest` or a prefix is not the pin (Muse's and Argon's reads). A match begins only where a run of those
-# characters does, so a long run is read once and not again from each place in it (the Claude security read).
+# with `[1m]`, `-latest` or a prefix, letters among them, is not the pin (Muse's and Argon's reads). A match begins only
+# where a run of those characters does, so a long run is read once and not again from each place in it (the Claude
+# security read).
 MODEL_FORM = re.compile(r"(?<![\w.@:/-])[\w.@:/-]*?(?:%s)[\w.@:/-]*(?:\[[^\]\"]*\])?" % MODEL_ID.pattern)
 PIN = "config/harness.json"
 # A pin is a full id, as `schemas/harness.schema.json` holds it; any other string pins nothing.
 PIN_FORM = re.compile(r"claude-[a-z]+(-[0-9]+)+")
 PIN_COPIES = re.compile(r"\A(config/harness|examples/invalid/harness\.[a-z0-9-]+)\.json\Z")
-TEXT = {".py", ".json", ".md", ".yml", ".yaml", ".txt", ".toml", ".cfg", ".sh", ""}
+TEXT = {".py", ".json", ".md", ".yml", ".yaml", ".txt", ".toml", ".cfg", ""}
 # The shape of a credential. A secret is referred to by its name, never by its value. This is a
 # net with wide holes; the org's push protection is the real one.
 SECRETS = [re.compile(p) for p in (
@@ -304,15 +305,16 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: a test outside tests/ is never run" % rel)
         if rel.parts[0] == "tests" and path.suffix == ".py" and len(rel.parts) > 2:
             problems.append("%s: a test below tests/ is never found; keep tests in tests/ itself" % rel)
-        if path.suffix not in TEXT:
-            continue
         # A fixture keeps what GitHub said, which may name either. check_trials.py keeps all else out of trials/.
         recorded = len(rel.parts) == 2 and rel.parts[0] == "trials" and path.suffix == ".json"
-        if path.suffix != ".md" and FOREIGN in text and not recorded:
-            problems.append("%s: names the proof-of-concept repo; nothing here depends on it" % rel)
+        # A model is read for in every file, whatever it is called, as a credential is (Muse's read of 1762f89).
         named = {m.group(0) for m in MODEL_FORM.finditer(text)} - ({pinned} if PIN_COPIES.match(rel.as_posix()) else set())
         if rel.parts[0] != "docs" and named and not recorded:
             problems.append("%s: names a model by its full id" % rel)
+        if path.suffix not in TEXT:
+            continue
+        if path.suffix != ".md" and FOREIGN in text and not recorded:
+            problems.append("%s: names the proof-of-concept repo; nothing here depends on it" % rel)
         if path.suffix == ".py":
             problems += _python(rel, text)
     return problems
