@@ -4574,7 +4574,7 @@ MUTANTS = ISSUE + [
      ("tests.test_decide.Acceptance",)),
     ("a result on earlier content is judged too", "kernel/derive.py",
      '        if ev["content_id"] != content:\n            continue\n', "", ("tests.test_decide.Acceptance",)),
-    # Issue 445, decision NNNN: a result's check is read as any check is, so one a job created is foreign to its reporter.
+    # Issue 445, decision 0149: a result's check is read as any check is, so one a job created is foreign to its reporter.
     ("a result's check keeps the file of a job it is not", "adapters/acceptance.py",
      '    return {"name": found["name"], "app_id": found["app_id"], "workflow": found["workflow"]}\n',
      '    return {"name": found["name"], "app_id": found["app_id"], "workflow": node["checkSuite"]["workflowRun"]["file"]["path"]}\n',

@@ -1,4 +1,4 @@
-# NNNN. A result's check is read as any check, so one a job created is foreign to its reporter
+# 0149. A result's check is read as any check, so one a job created is foreign to its reporter
 
 Status: accepted. The Factory Builder's ruling of 2026-11-06 on "Acceptance: a result is read only where its check's details are its own job's (raised by record 0104)" (issue 445). It takes decision 0104's rule to an acceptance result, the way that record's own row for this case names, and adds no fact and no evidence code.
 
