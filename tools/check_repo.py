@@ -134,8 +134,8 @@ FOREIGN = ".github-" + "private"
 MODEL_ID = re.compile(r"claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*")
 # A model as a file names it, with what is joined to it on either side and any suffix in brackets, so that the pinned id
 # with `[1m]`, `-latest` or a prefix, letters among them, is not the pin (Muse's and Argon's reads). A match begins only
-# where a run of those characters does, so a long run is read once and not again from each place in it (the Claude
-# security read).
+# where a run of those characters does, so a long run with no model's name begun in it is read once and not again from
+# each place in it (the Claude security read); a run of many near-names is not yet (issue 576).
 MODEL_FORM = re.compile(r"(?<![\w.@:/-])[\w.@:/-]*?(?:%s)[\w.@:/-]*(?:\[[^\]\"]*\])?" % MODEL_ID.pattern)
 PIN = "config/harness.json"
 # A pin is a full id, as `schemas/harness.schema.json` holds it; any other string pins nothing.
