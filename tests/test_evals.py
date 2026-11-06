@@ -204,7 +204,11 @@ class Scoring(unittest.TestCase):
         both["findings"][-1].update(severity=both["findings"][0]["severity"], criterion=None)
         self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
         self.assertNotIn("at_alternate", eval_result.score(case, placed(other, criterion=None)))
-        self.assertNotIn("at_alternate", eval_result.score(load("examples/eval-case.met.json"), result))
+        # A clean case's pass is never marked: its Result's major Finding, which would hold it (decision 0144), at minor.
+        clean = copy.deepcopy(result)
+        clean["findings"][0]["severity"] = "minor"
+        self.assertEqual(eval_result.score(load("examples/eval-case.met.json"), clean)["verdict"], "pass")
+        self.assertNotIn("at_alternate", eval_result.score(load("examples/eval-case.met.json"), clean))
         # Absent, the Finding has its one place, as before.
         alone = copy.deepcopy(case)
         del alone["expected"]["finding"]["also_at"]
@@ -297,6 +301,9 @@ class Scoring(unittest.TestCase):
             self.assertNotEqual(validate(bad, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [], places)
     def test_a_right_change_is_scored_by_its_coverage(self):
         case, result = load("examples/eval-case.met.json"), load("examples/result.json")
+        # The example's major Finding would hold a pull request, which a clean case fails (decision 0144): at minor, it
+        # holds none.
+        result["findings"][0]["severity"] = "minor"
         self.assertEqual(eval_result.score(case, result)["verdict"], "pass")
         # The other side: a Finding raised against a criterion the change met, or the criterion left uncovered.
         wrong = copy.deepcopy(result)
@@ -306,6 +313,43 @@ class Scoring(unittest.TestCase):
         wrong = copy.deepcopy(result)
         del wrong["coverage"][0]
         self.assertEqual(eval_result.score(case, wrong)["reasons"], ["criterion_not_met"])
+
+    def test_a_gating_finding_fails_a_clean_case(self):  # decision 0144
+        # A clean case holds no fault a gate should stop. A Finding that would hold its pull request, blocking or major or
+        # a security Finding at any severity, as `kernel/gate.py` reads a required Lens's, fails the case whatever
+        # criterion it cites or none, and even with the case's own criterion covered as met.
+        from kernel import gate, terms
+        case, result = load("examples/eval-case.met.json"), load("examples/result.json")
+        self.assertEqual(result["findings"][0]["severity"], "major")
+        self.assertNotEqual(result["findings"][0]["criterion"], case["expected"]["criterion"])
+        self.assertEqual([c["verdict"] for c in result["coverage"] if c["criterion"] == case["expected"]["criterion"]], ["met"])
+        self.assertEqual(eval_result.score(case, result), {"case": case["id"], "verdict": "fail", "reasons": ["finding_raised_wrongly"]})
+        # Every severity of every category, cited to another criterion or to none: it fails where the gate would hold it,
+        # and only there.
+        for severity in terms.SEVERITIES:
+            for category in terms.CATEGORIES:
+                for criterion in ("PR-3", None):
+                    raised = copy.deepcopy(result)
+                    raised["findings"][0].update(severity=severity, category=category, criterion=criterion)
+                    holds = severity in gate.GATING_SEVERITIES or category == gate.SECURITY
+                    self.assertEqual(eval_result.score(case, raised)["reasons"], ["finding_raised_wrongly"] if holds else [],
+                                     (severity, category, criterion))
+        # Any one such Finding among others that would not fails it; the code is given once.
+        among = copy.deepcopy(result)
+        among["findings"][0]["severity"] = "minor"
+        among["findings"].append(dict(among["findings"][1], ref="n9", category="security", severity="info"))
+        self.assertEqual(eval_result.score(case, among)["reasons"], ["finding_raised_wrongly"])
+        cites = copy.deepcopy(result)
+        cites["findings"][0]["criterion"] = case["expected"]["criterion"]
+        self.assertEqual(eval_result.score(case, cites)["reasons"], ["finding_raised_wrongly"])
+        # A Finding the case's own criterion cites still fails it at a severity that holds nothing, as before.
+        cites["findings"][0]["severity"] = "info"
+        self.assertEqual(eval_result.score(case, cites)["reasons"], ["finding_raised_wrongly"])
+        # The other side: a case that expects a Finding is scored as before, a Finding elsewhere that would hold it no fault.
+        found = load("examples/eval-case.json")
+        extra = copy.deepcopy(load("examples/result.json"))
+        extra["findings"].append(dict(extra["findings"][1], ref="n9", category="security", severity="blocking"))
+        self.assertEqual(eval_result.score(found, extra)["verdict"], "pass")
 
     def test_a_case_whose_expected_finding_is_off_its_rubric_scores_nothing(self):  # issue 421
         # A Result whose Finding cites a criterion at another severity or category than the rubric's is refused (decisions
@@ -777,7 +821,9 @@ class EvalJob(unittest.TestCase):
         two = dict(copy.deepcopy(one), id="poc-alternate")
         two["expected"]["finding"].update(location={"path": "kernel/decide.py", "start_line": 87, "end_line": 88},
                                           also_at=[{"path": "kernel/decide.py", "start_line": 86}])
-        cases = {one["id"]: self.cases[one["id"]], two["id"]: (json.dumps(two, indent=2) + "\n").encode()}
+        # A case that names an alternate place but is passed at its `location` is not marked.
+        one["expected"]["finding"]["also_at"] = [{"path": "kernel/decide.py", "start_line": 88}]
+        cases = {c["id"]: (json.dumps(c, indent=2) + "\n").encode() for c in (one, two)}
         self.set(cases)
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))

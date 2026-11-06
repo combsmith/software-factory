@@ -86,6 +86,7 @@ ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_
 SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails",
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
+CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
@@ -4368,6 +4369,8 @@ MUTANTS = ISSUE + [
      'if schema.get("uniqueItems") is True and ', "if False and ", ("tests.test_tools.Validator",)),
     ("more items than the most are accepted", "tools/jsonschema_lite.py",
      'len(value) > schema["maxItems"]', 'len(value) > schema["maxItems"] + 1', ("tests.test_tools.Validator",)),
+    ("a most of none is no most", "tools/jsonschema_lite.py",
+     'if "maxItems" in schema and ', 'if schema.get("maxItems") and ', ("tests.test_tools.Validator",)),
     ("the most is not a keyword the validator reads", "tools/jsonschema_lite.py",
      '"minItems", "maxItems", ', '"minItems", ', ("tests.test_tools.Validator",)),
     # Decision 0038: a Result asks and names no one; what one Run carries holds codes.
@@ -7897,8 +7900,8 @@ MUTANTS = ISSUE + [
     # Decision 0120: the gate's bar, of the set and of each kind, and what closes it whatever the bar.
     ("a missed blocking case is left to the bar", 'harness/eval/__init__.py', ' \\\n            or blocking is False:', ':', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("a report that can't say of its blocking cases passes", 'harness/eval/__init__.py', ' or kinds is None or blocking is None:', ' or kinds is None:', ("tests.test_evals.EvalJob.test_the_gate_holds_its_bar_of_the_set_and_of_each_kind",)),
-    ("the report leaves the blocking word out", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     None, causes)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
-    ("the job always says the blocking cases passed", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     True, causes)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
+    ("the report leaves the blocking word out", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     None, causes, alternates)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
+    ("the job always says the blocking cases passed", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     True, causes, alternates)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("every severity must pass", 'harness/eval/__init__.py',
      'if isinstance(said.get("finding"), dict)\n            and (said["finding"].get("severity") == BLOCKING or said.get("criterion") in criteria)]',
      'if isinstance(said.get("finding"), dict)]', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
@@ -8083,6 +8086,8 @@ MUTANTS = ISSUE + [
     ("a right change is marked", 'tools/eval_result.py',
      'if said["verdict"] == PASS and want["verdict"] == "finding" and not any(', 'if said["verdict"] == PASS and not any(', ALSO_AT),
     ("the job keeps no mark", 'harness/eval/__init__.py', '            alternates.add(entry["id"])\n', '            pass\n', ALSO_AT_JOB),
+    ("the job marks every case that names an alternate place", 'harness/eval/__init__.py',
+     '        if said.get("at_alternate") is True:\n', '        if case["expected"].get("finding", {}).get("also_at"):\n', ALSO_AT_JOB),
     ("the report marks a case not passed", 'harness/eval/__init__.py',
      ' if e["id"] in alternates and assessed[e["id"]] == (PASS, []) else {}', ' if e["id"] in alternates else {}', ALSO_AT_JOB),
     ("the gate takes a mark on a case not passed", 'harness/eval/__init__.py',
@@ -8095,6 +8100,21 @@ MUTANTS = ISSUE + [
     ("the run's line counts a mark on a case not passed", 'harness/eval/__init__.py', ' if case.get("at_alternate") and case["verdict"] == PASS])', ' if case.get("at_alternate")])', ALSO_AT_JOB),
     ("a code of where it went is no code of the report", 'schemas/eval-report.schema.json',
      '"finding_uncited",\n', '"finding_uncitedd",\n', ("tests.test_evals.EvalJob.test_every_code_the_scorer_gives_is_one_the_report_may_carry",)),
+    # Decision 0144: a Finding that would hold a clean change fails its case, whatever criterion it cites or none.
+    ("a Finding that would hold a clean change is passed over", 'tools/eval_result.py',
+     '        if citing or any(_gates(f) for f in result["findings"]):\n', '        if citing:\n', CLEAN_CASE),
+    ("a Finding of the clean case's own criterion fails it only where it would hold it", 'tools/eval_result.py',
+     '        if citing or any(_gates(f) for f in result["findings"]):\n', '        if any(_gates(f) for f in result["findings"]):\n', CLEAN_CASE),
+    ("only the first Finding is read for one that would hold a clean change", 'tools/eval_result.py',
+     'any(_gates(f) for f in result["findings"])', 'any(_gates(f) for f in result["findings"][:1])', CLEAN_CASE),
+    ("a major Finding holds no clean change", 'tools/eval_result.py',
+     '    return raised["severity"] in GATING_SEVERITIES or', '    return raised["severity"] == "blocking" or', CLEAN_CASE),
+    ("a minor Finding holds a clean change", 'tools/eval_result.py',
+     '    return raised["severity"] in GATING_SEVERITIES or', '    return raised["severity"] != "info" or', CLEAN_CASE),
+    ("a security Finding holds a clean change only at a severity that gates", 'tools/eval_result.py',
+     ' or raised["category"] == SECURITY\n', '\n', CLEAN_CASE),
+    ("a Finding that would hold a change fails a case that expects one", 'tools/eval_result.py',
+     '        if covered != ["finding"]:\n', '        if covered != ["finding"] or any(_gates(f) for f in result["findings"]):\n', CLEAN_CASE),
     # Decision 0111: the scorer's codes are the report's and the log's.
     ("the judge's log counts no code", 'harness/eval/__init__.py',
      '        if said in ("engine_fault", "run_fault", "case_failed"):\n            print(tally(written))\n',

@@ -10,6 +10,7 @@ import sys
 
 from harness import task
 from kernel.coverage import readable_rubric
+from kernel.gate import GATING_SEVERITIES, SECURITY
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -113,6 +114,12 @@ def _where_it_went(expected: dict, raised: list) -> list:
     return [WENT[1] if in_file else WENT[0]]
 
 
+def _gates(raised: dict) -> bool:
+    """Whether a raised Finding would hold a pull request, as `kernel/gate.py` reads a required Lens's: blocking or major,
+    or a security Finding at any severity (decision 0144)."""
+    return raised["severity"] in GATING_SEVERITIES or raised["category"] == SECURITY
+
+
 def _criteria(role: str, root: pathlib.Path = ROOT):
     """The ids of the rubric a Role reviews by, or None where it has none this repo can read."""
     path = root / "config" / ("rubric-%s.json" % role)
@@ -182,7 +189,9 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
         if covered != ["finding"]:
             reasons.append("coverage_disagrees")
     else:
-        if citing:
+        # A clean case holds no fault a gate should stop, so a Finding that would hold it fails the case, whatever
+        # criterion it cites or none, as one that cites the case's own criterion does at any severity (decision 0144).
+        if citing or any(_gates(f) for f in result["findings"]):
             reasons.append("finding_raised_wrongly")
         if covered != ["met"]:
             reasons.append("criterion_not_met")
