@@ -403,6 +403,22 @@ class Apply(unittest.TestCase):
         handed = engine.handed(the_task())["properties"]["reason"]
         self.assertEqual(handed, {"type": ["string", "null"], "enum": [None] + [r for _, r in model]})
 
+    def test_a_findings_lines_are_held_last_and_only_when_asked(self):  # issue 573
+        # A Finding's lines are the last check, the one that needs the diff: a Result another check refuses is refused
+        # for that, though its lines are off every hunk too; and refusal asked to leave the lines out leaves them out.
+        off = result()
+        off["findings"][0]["location"].update(start_line=1, end_line=2)
+        self.assertEqual(refused(task=the_task(), res=off), ("item", "finding_not_in_hunk"))
+        n1 = off["findings"][0]
+        stranger = dict(off, findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse"))] + off["findings"][1:])
+        self.assertEqual(refused(task=the_task(), res=stranger), ("item", "adopted_lens_not_advisory"))
+        facts = the_facts()
+        self.assertIsNone(apply.refusal(the_task(), off, facts, runs(),
+                                        support.context(active_runs=1), support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY,
+                                        ADVISORY, 4242, lines=False))
+        self.assertEqual(apply.off_hunks(the_task(), off), "finding_not_in_hunk")
+        self.assertIsNone(apply.off_hunks(the_task(), result()))
+
     def test_a_findings_lines_are_on_one_hunk_of_its_file_on_the_heads_side(self):  # issue 567
         decide = lambda *hunks, name="b/kernel/decide.py", before=None: part(name, *hunks, before=before)
         tests = part("b/tests/test_decide.py", (405, ["+e"] * 11))
@@ -1153,6 +1169,28 @@ class Opened(unittest.TestCase):
 class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "advisory": ADVISORY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"], "max_diff_characters": 60000}
+
+    def test_a_result_refused_for_its_own_fields_reads_no_diff(self):  # issue 573
+        # Every check that needs no diff is made before the diff is read: a Result one refuses spends no read, and is
+        # refused for itself, never for a read that failed (bytes that are not the content would say content_moved).
+        n1, n2 = result()["findings"]
+        for res, over, want in ((result(run="r_01JA7Z"), {}, "result_not_the_runs"),
+                                (result(status="incomplete", reason="no_answer"), {}, "reason_not_the_status"),
+                                (result(reason="change_not_reviewed_whole"), {}, "reason_not_the_status"),
+                                (result(coverage=result()["coverage"][1:]), {}, "uncovered"),
+                                (result(), {"task": the_task(permitted_effects=["submit_review"])},
+                                 "effect_not_permitted"),
+                                (result(findings=[n1, n2, dict(n2, ref="n3")]), {}, "finding_not_posted_once"),
+                                (result(findings=[dict(n1, location=dict(n1["location"], path="kernel/admission.py")),
+                                                  n2]), {}, "finding_not_on_change"),
+                                (result(findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse")), n2]),
+                                 {}, "adopted_lens_not_advisory")):
+            record, ended, calls = self.go(res, change=None, facts=the_facts(), **over)
+            self.assertEqual((ended["outcome"], ended["reason"], calls["diff"], calls["mint"]), ("item", want, 0, []),
+                             want)
+        # A read that would fail is never made for such a Result, so its refusal is its own.
+        record, ended, calls = self.go(result(run="r_01JA7Z"), change=github.Unanswered("no answer"), facts=the_facts())
+        self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("item", "result_not_the_runs", 0))
 
     def test_the_tasks_diff_is_built_again_from_the_diff_read_again(self):  # issue 567
         # The lines a Finding is held to are the diff's as the item is read again, cut as the Run's Task was.
