@@ -550,6 +550,7 @@ def _held(text: str) -> str:
     arithmetic = braces = 0
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
     opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
+    ticked = False  # an unquoted backtick has opened and not yet closed
     while i < len(text):
         c = text[i]
         if c == "\\" and quote != "'":
@@ -569,7 +570,15 @@ def _held(text: str) -> str:
                 braces = _balanced(text, i + 2, "}")
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
-                i = len(text) if end < 0 else end
+                end = len(text) if end < 0 else end
+                if ticked:
+                    # A comment in a backtick ends where the backtick does (the Claude review), at the first one no
+                    # backslash holds: \` in it is a backtick, not the end (Codex's read).
+                    j = i
+                    while j < end and text[j] != "`":
+                        j += 2 if text[j] == "\\" else 1
+                    end = min(j, end)
+                i = end
                 continue
             if i < braces and (c in PUNCTUATION or c == "`" or text.startswith("$(", i)):
                 # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs: ${x:-`cmd`}.
@@ -589,6 +598,12 @@ def _held(text: str) -> str:
             if c == "$" and text.startswith('$"', i):
                 i += 1
                 continue
+            if c == "`":
+                if not ticked and not starts:
+                    # A backtick that opens inside a word, ./`cmd`: the word is read up to it as ./$(cmd) is, ./$, a
+                    # word no hook can read, and not as ./, which names a folder (#410).
+                    out.append("$")
+                ticked = not ticked
             # A process substitution's or a command substitution's ( and ) stand in a word: after its ), the command
             # goes on where it was. Any other ) ends what it closed, and what follows is a command again.
             kept = None
@@ -616,7 +631,7 @@ def _held(text: str) -> str:
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
-            comments = c in COMMENTS_AFTER
+            comments = c in COMMENTS_AFTER or (c == "`" and ticked)    # a backtick's script may begin with one (Codex)
         elif c == quote:
             quote, comments = None, False
             out.append(c)
