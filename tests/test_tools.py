@@ -1914,7 +1914,7 @@ class Repo(unittest.TestCase):
         # The scan reads a run with string operations, and must read it as MODEL_ID does: a name of each form, joined to
         # anything on either side, and none where a part of one is all there is.
         parts = ("claude-", "opus", "-", "5", ".", "x", "X", "_", "@", ":", "/", "gpt-", "gemini-", "4", "o", "claude",
-                 "\u0665", "\uff15")
+                 "\u0665", "\uff15", "\u00b2")
         runs = {""}
         for _ in range(4):
             runs |= {r + p for r in runs for p in parts}
