@@ -113,10 +113,9 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
 
         def read():
             facts, head, runs, context = reread.item(reading, config, parts["item"]["number"], utc(), utc)
-            # Content that moved under the Run is superseded by its facts alone: its diff is not read.
-            change = (change_at(reading, config["controller"]["home"]["repo"], parts["item"]["number"], head)
-                      if facts["content_id"] == admit["content_id"] else None)
-            held["item"] = (facts, head, runs, context, change)
+            # The diff is read when `apply` asks, once the facts tell no change under the Run (decision NNNN).
+            diff = lambda: change_at(reading, config["controller"]["home"]["repo"], parts["item"]["number"], head)
+            held["item"] = (facts, head, runs, context, diff)
             return held["item"]
 
         def mint(wanted):

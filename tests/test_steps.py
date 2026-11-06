@@ -634,7 +634,7 @@ class Apply(unittest.TestCase):
         facts = dict(support.facts(), threads=[support.thread("T1")], content_id=CONTENT)
 
         def a_job(admit, result, read_, write, mint, role, config, now):
-            read_()
+            read_()[4]()
             transport, revoke = mint({"pull_requests": "write"})
             write(transport, "comment", {"on": "item"})
             revoke()
@@ -667,13 +667,15 @@ class Apply(unittest.TestCase):
         # Held: the allowlist refuses a write on another item.
         with self.assertRaises(github.Unanswered):
             transport.send(github.request("POST", "/repos/%s/issues/43/comments" % HOME, body={"body": "x"}))
-        # Of content that moved under the Run, it is not read: the facts alone say so.
+        # The diff is read when `apply` asks for it, and not before: the item read again reads none.
         del seen["change"][:]
-        facts["content_id"] = "sha256:" + "b" * 64
         with unittest.mock.patch.object(reread, "item", item), \
                 unittest.mock.patch.object(apply_step, "change_at", change_at), \
                 unittest.mock.patch.object(effects, "role_write", role_write):
-            self.go(job=None, a_job=a_job)
+            def reads_only(admit, result, read_, *a):
+                read_()
+                return apply_step._ended(admit["run"], admit["release"], (None, None))
+            self.go(job=None, a_job=reads_only)
         self.assertEqual(seen["change"], [])
 
     def test_the_last_step_leaves_the_outcome(self):

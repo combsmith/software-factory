@@ -1064,6 +1064,14 @@ class Job(unittest.TestCase):
             record, ended, calls = self.go(result(), facts=facts, change=change)
             self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("superseded", want, []), want)
             self.assertEqual({e["reason"] for e in record["effects"]}, {want})
+        # No diff is read of an item the facts show closed, moved, held or paused: such a read can hide the change.
+        for over in ({"facts": closed}, {"facts": support.facts(content_id="sha256:bbbb")},
+                     {"facts": support.facts(label_events=[support.labelled("factory:hold")])},
+                     {"context": support.context(paused=True, active_runs=1)}):
+            record, ended, calls = self.go(result(), change=None, **over)
+            self.assertEqual((ended["outcome"], calls["diff"]), ("superseded", 0), over)
+        record, ended, calls = self.go(result())
+        self.assertEqual(calls["diff"], 1)
         # Cut where the Run's Task was cut: a file it left out holds no line, though the bytes hold it.
         short = dict(self.CONFIG, max_diff_characters=len(task_.numbered(PARTS[0])) + 2)
         record, ended, calls = self.go(result(), config=short)
@@ -1071,13 +1079,17 @@ class Job(unittest.TestCase):
 
     def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None,
            revoked=True, config=None, facts=None, change=RAW):
-        calls = {"mint": [], "revoke": 0, "written": []}
+        calls = {"mint": [], "revoke": 0, "written": [], "diff": 0}
         given = facts
 
         def read():
             facts = support.facts(state="closed") if refusing else given or support.facts()
             return (facts, HEAD, runs() if records is None else records,
-                    support.context(active_runs=1) if context is None else context, change)
+                    support.context(active_runs=1) if context is None else context, diff)
+
+        def diff():
+            calls["diff"] += 1
+            return change
         real = task_.diff_of
 
         def diff_of(change, facts, admit, config):
