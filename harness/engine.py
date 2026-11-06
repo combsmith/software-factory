@@ -7,10 +7,10 @@ it, and as that trial hardened it:
   the one name the CLI's scrub removes from what a tool is handed, and the scrub set (issue 287);
 - with the Task's limits: its turns as `--max-turns`, its seconds as the call's timeout, its `cost_ceiling_usd` as
   `--max-budget-usd`, which the pin accepts and holds its own estimate of spend to (decision 0136), and its `effort` as
-  `--effort`, so that the effort a Run is given is the tier's and never the CLI's default of the day (decision 0145);
+  `--effort`, so that the effort a Run is given is the tier's and never the CLI's default of the day (decision NNNN);
 - with the model by its full id, and an answer kept only from that model: the one model the CLI's `modelUsage` names,
   which `usage` records, must be the pinned one, or the Run is `failed`, `engine_model`, as one at another version is
-  (decision 0145);
+  (decision NNNN);
 - with no tool at all, `--tools ""`, whatever the Task holds; structured output still works with none (P-13 at
   2.1.306). On a Linux runner at 2.1.306, with the scrub on, a sandboxed tool wrote anywhere the runner's user can,
   and with it off a tool is handed the credential (P-50, P-51, issue 312; P-26), so no Run has a tool that runs;
@@ -46,7 +46,7 @@ MODEL_ENDED = ("error_max_budget_usd", "error_max_structured_output_retries", "e
 CREDENTIAL_NAME = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 # Every name the CLI is given, and its value where it is fixed. Nothing else of the job's environment reaches it.
-# The CLI neither updates itself nor offers to, with either name it reads (decision 0145).
+# The CLI neither updates itself nor offers to, with either name it reads (decision NNNN).
 FIXED = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DISABLE_UPDATES": "1", "DISABLE_AUTOUPDATER": "1", SCRUB: "1"}
 PASSED = ("HOME", "TMPDIR")
 OPTIONS = ["--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
@@ -131,7 +131,7 @@ def argv(cli: str, task: dict, model: str, session: str, instructions: str = "",
              "--model", model, "--session-id", session, "--max-turns", str(task["limits"]["turns"]),
              # The tier's ceiling, which the CLI holds the Run's estimated spend to (decision 0136)
              "--max-budget-usd", str(task["limits"]["cost_ceiling_usd"]),
-             # The tier's effort, never the CLI's default (decision 0145)
+             # The tier's effort, never the CLI's default (decision NNNN)
              "--effort", task["limits"]["effort"]]
             + OPTIONS + (READ if read is True else ["--tools", ""]))
 
@@ -181,7 +181,7 @@ def no_tool(args: list) -> bool:
 
 def answering(said) -> str:
     """The one model the CLI says answered, as its `modelUsage` names it, or None where it names none, more than one,
-    or one in no form result/1 holds (decision 0145)."""
+    or one in no form result/1 holds (decision NNNN)."""
     named = said.get("modelUsage") if isinstance(said, dict) else None
     if not isinstance(named, dict) or len(named) != 1:
         return None
@@ -278,7 +278,7 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     # A CLI that exited 0 and gave no answer to hold to a schema is told from an answer that fails it (decision 0121).
     if not isinstance(found, dict):
         return failed(task, "no_answer", usage)
-    # An answer is kept only from the pinned model, as the CLI names the one that answered (decision 0145).
+    # An answer is kept only from the pinned model, as the CLI names the one that answered (decision NNNN).
     if usage["answering_model"] != engine["model"]:
         return failed(task, "engine_model", usage)
     result = dict(found, release=task["release"], usage=usage)

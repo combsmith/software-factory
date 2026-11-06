@@ -605,7 +605,7 @@ class Engine(unittest.TestCase):
         self.assertEqual(args[args.index("--model") + 1], HARNESS["engine"]["model"])
         self.assertEqual(args[args.index("--max-turns") + 1], str(HARNESS["limits"]["standard"]["turns"]))
         self.assertEqual(cli.asked()[0]["timeout"], HARNESS["limits"]["standard"]["seconds"])
-        # The tier's effort, once, never the CLI's default (decision 0145).
+        # The tier's effort, once, never the CLI's default (decision NNNN).
         self.assertEqual(args.count("--effort"), 1)
         self.assertEqual(args[args.index("--effort") + 1], HARNESS["limits"]["standard"]["effort"])
         deep = built(role=manifest(tier="deep"), config=config(limits=dict(HARNESS["limits"], deep=dict(
@@ -716,7 +716,7 @@ class Engine(unittest.TestCase):
         self.assertEqual(schema["properties"]["run"], {"const": RUN})
         self.assertEqual(sorted(schema["properties"]["effects"]["properties"]), ["comment"])
 
-    def test_an_answer_is_kept_only_from_the_pinned_model(self):  # decision 0145
+    def test_an_answer_is_kept_only_from_the_pinned_model(self):  # decision NNNN
         other = "claude-" + "sonnet-5-5"
         for named, recorded in (({other: {}}, other), ({MODEL: {}, other: {}}, None), ({}, None), (None, None),
                                 ({MODEL + "[1m]": {}}, None), ([MODEL], None), ({MODEL.upper(): {}}, None)):

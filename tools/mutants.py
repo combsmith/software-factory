@@ -7534,7 +7534,7 @@ MUTANTS = ISSUE + [
     ('the version is not read after the call', 'harness/engine.py',
      '    if version(cli, env, call) != engine["version"]:\n        return failed(task, "engine_version", usage)\n',
      '', ('tests.test_harness.Engine.test_the_version_is_held_before_and_after_the_call',)),
-    # Decision 0145: the model pinned by its full id, an answer kept only from it, the tier's effort, and no update.
+    # Decision NNNN: the model pinned by its full id, an answer kept only from it, the tier's effort, and no update.
     ('an answer is kept from any model', 'harness/engine.py',
      '    if usage["answering_model"] != engine["model"]:\n        return failed(task, "engine_model", usage)\n',
      '', ('tests.test_harness.Engine.test_an_answer_is_kept_only_from_the_pinned_model',)),
