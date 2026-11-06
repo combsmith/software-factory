@@ -1179,6 +1179,7 @@ class Job(unittest.TestCase):
         n1, n2 = result()["findings"]
         unread = dict(self.CONFIG, rubric={"criteria": []})
         for res, over, want in ((result(run="r_01JA7Z"), {}, ("item", "result_not_the_runs")),
+                                (result(release="factory/v0.3.2"), {}, ("item", "result_not_the_runs")),
                                 (result(status="incomplete", reason="change_not_reviewed_whole"), {},
                                  ("item", "change_not_reviewed_whole")),
                                 (result(reason="change_not_reviewed_whole"), {}, ("item", "reason_not_the_status")),

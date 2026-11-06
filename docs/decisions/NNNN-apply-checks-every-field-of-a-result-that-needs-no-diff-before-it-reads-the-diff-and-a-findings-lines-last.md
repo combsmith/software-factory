@@ -18,7 +18,7 @@ Status: accepted. The Factory Builder's ruling of 2026-11-06 on "apply checks a 
 
 | Boundary | Check |
 |---|---|
-| A Result refused for its own fields, its run, its reason, its status, its coverage or its rubric unread, its Effects, a Finding posted other than once, a Finding's path or its adoption, or a Disposition, reads no diff and is refused for itself, though the read would fail or find the head moved | `tests/test_apply.py::test_a_result_refused_for_its_own_fields_reads_no_diff` |
+| A Result refused for its own fields, its run or its Release, its reason, its status, its coverage or its rubric unread, its Effects, a Finding posted other than once, a Finding's path or its adoption, or a Disposition, reads no diff and is refused for itself, though the read would fail or find the head moved | `tests/test_apply.py::test_a_result_refused_for_its_own_fields_reads_no_diff` |
 | A Finding's lines are the last refusal: a Result refused for its adoption or a Disposition too is refused for that; `refusal` leaves the lines out unless asked | `tests/test_apply.py::test_a_findings_lines_are_held_last_and_only_when_asked` |
 | The live path, from what the Decision admitted, still refuses a Finding off every hunk of the diff read again | `tests/test_apply.py::test_the_live_path_holds_a_result_to_what_was_admitted_and_the_diff_read_again` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
