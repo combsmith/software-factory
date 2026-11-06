@@ -16,6 +16,7 @@ import unittest
 import unittest.mock
 
 from adapters import effects, github, identity
+from adapters.facts import Moved
 from harness import apply, engine, shared
 from harness import task as task_
 from tests import support
@@ -1077,6 +1078,11 @@ class Job(unittest.TestCase):
             self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("superseded", want, 0), want)
         record, ended, calls = self.go(result())
         self.assertEqual(calls["diff"], 1)
+        # A pull request that moved while its diff was read, or a diff GitHub did not answer, is the step's to end, as
+        # head_moved or facts_unreadable: never taken for moved content.
+        for raised in (Moved("moved"), github.Unanswered("no answer")):
+            with self.assertRaises(type(raised)):
+                self.go(result(), change=raised)
         # Only a Result that posts a Finding needs the diff: one that did not complete, or posts none, reads none.
         for res in (result(status="incomplete", reason="change_not_reviewed_whole"),
                     result(status="failed", reason="engine_failed"), result(findings=[], effects={}, coverage=[])):
@@ -1099,6 +1105,8 @@ class Job(unittest.TestCase):
 
         def diff():
             calls["diff"] += 1
+            if isinstance(change, Exception):
+                raise change
             return change
         real = task_.diff_of
 

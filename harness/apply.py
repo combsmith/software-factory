@@ -462,8 +462,8 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
                   "findings": [], "rulings": []}
         return record, _ended(admit, ("environment", "result_unreadable"))
     facts, head, runs, context, diff = read()
-    # A change under the Run is told first, by the facts alone and in refusal's own order: the diff is read again only of
-    # an item still open, unheld and unpaused on the content admitted, so no read of it can hide such a change.
+    # A change under the Run is told first, by the facts alone and in refusal's own order: the diff is read again only
+    # once none is told, so no read of it can hide such a change.
     moved = _superseded(admit, facts, runs, context, config["kernel"], now, config["github_run"])
     if moved:
         record = applied(admit, result, [], role, refused=moved)
