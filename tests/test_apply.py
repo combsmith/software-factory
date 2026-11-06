@@ -272,7 +272,7 @@ def refused(task=None, res=None, facts=None, records=None, context=None, rubric=
     return apply.refusal(task or the_task(texts=[covering(facts)]), res or result(), facts,
                          runs() if records is None else records,
                          support.context(active_runs=1) if context is None else context, support.CONFIG, NOW, role,
-                         rubric, AUTHORITY, ADVISORY, github_run)
+                         rubric, AUTHORITY, ADVISORY, github_run, lines=True)
 
 
 def read_back(task, res, **over) -> list:
@@ -404,6 +404,52 @@ class Apply(unittest.TestCase):
             self.assertEqual(shared.errors(result(status="failed", reason=code), "result"), [], code)
         handed = engine.handed(the_task())["properties"]["reason"]
         self.assertEqual(handed, {"type": ["string", "null"], "enum": [None] + [r for _, r in model]})
+
+    def test_a_findings_lines_are_held_last_and_left_out_only_when_asked(self):  # issue 573
+        # A Finding's lines are the last check, the one that needs the diff: a Result another check refuses is refused
+        # for that, though its lines are off every hunk too; and refusal asked to leave the lines out leaves them out.
+        off = result()
+        off["findings"][0]["location"].update(start_line=1, end_line=2)
+        self.assertEqual(refused(task=the_task(), res=off), ("item", "finding_not_in_hunk"))
+        n1 = off["findings"][0]
+        stranger = dict(off, findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse"))] + off["findings"][1:])
+        self.assertEqual(refused(task=the_task(), res=stranger), ("item", "adopted_lens_not_advisory"))
+        # After the Dispositions too: a Result with a Disposition on no Finding of the Task is refused for that.
+        astray = dict(off, dispositions=[{"finding": "f_1234567890abcdef", "decision": {"result": "accepted"}}])
+        self.assertEqual(refused(task=the_task(), res=astray), ("item", "disposition_of_no_finding"))
+        facts = the_facts()
+        self.assertIsNone(apply.refusal(the_task(), off, facts, runs(),
+                                        support.context(active_runs=1), support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY,
+                                        ADVISORY, 4242, lines=False))
+        # By default the lines are held too, so a caller that forgets to say fails closed.
+        self.assertEqual(apply.refusal(the_task(), off, facts, runs(), support.context(active_runs=1), support.CONFIG,
+                                       NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242), ("item", "finding_not_in_hunk"))
+        self.assertEqual(apply.off_hunks(the_task(), off), "finding_not_in_hunk")
+        # A Task that carries no diff, as apply.admitted gives one, holds no line; asked to hold the lines of one,
+        # refusal refuses it as the Factory's slip, whatever the Result posts, and the Role is never charged for it.
+        bare = {k: v for k, v in the_task().items() if k != "texts"}
+        self.assertEqual(apply.off_hunks(bare, result()), "finding_not_in_hunk")
+        self.assertIsNone(apply.off_hunks(bare, result(findings=[], effects={})))
+        for res in (result(), off, result(findings=[], effects={}, coverage=[])):
+            self.assertEqual(apply.refusal(bare, res, facts, runs(), support.context(active_runs=1), support.CONFIG, NOW,
+                                           ROLE, None, AUTHORITY, ADVISORY, 4242), ("environment", "diff_not_given"))
+        # Left out, the lines need no diff, and what the other checks let through is let through.
+        self.assertIsNone(apply.refusal(bare, result(), facts, runs(), support.context(active_runs=1), support.CONFIG,
+                                        NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242, lines=False))
+        # The other checks come first: a Result refused for itself is refused for that, diff or none.
+        astray = result(dispositions=[{"finding": "f_1234567890abcdef", "decision": {"result": "accepted"}}])
+        for res, want in ((result(run="r_01JA7Z"), "result_not_the_runs"),
+                          (result(reason="change_not_reviewed_whole"), "reason_not_the_status"),
+                          (result(status="incomplete", reason="change_not_reviewed_whole"), "change_not_reviewed_whole"),
+                          (result(coverage=result()["coverage"][1:]), "uncovered"),
+                          (result(findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse"))]
+                                  + result()["findings"][1:]), "adopted_lens_not_advisory"),
+                          (astray, "disposition_of_no_finding")):
+            self.assertEqual(apply.refusal(bare, res, facts, runs(), support.context(active_runs=1), support.CONFIG,
+                                           NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242), ("item", want), want)
+        self.assertEqual(shared.errors(json.loads((ROOT / "examples" / "outcome.diff-not-given.json").read_text()),
+                                       "outcome"), [])
+        self.assertIsNone(apply.off_hunks(the_task(), result()))
 
     def test_a_findings_lines_are_on_one_hunk_of_its_file_on_the_heads_side(self):  # issue 567
         decide = lambda *hunks, name="b/kernel/decide.py", before=None: part(name, *hunks, before=before)
@@ -1155,6 +1201,34 @@ class Opened(unittest.TestCase):
 class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "advisory": ADVISORY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"], "max_diff_characters": 60000}
+
+    def test_a_result_refused_for_its_own_fields_reads_no_diff(self):  # issue 573
+        # Every check that needs no diff is made before the diff is read: a Result one refuses spends no read, and is
+        # refused for itself, never for a read that failed (bytes that are not the content would say content_moved).
+        n1, n2 = result()["findings"]
+        unread = dict(self.CONFIG, rubric={"criteria": []})
+        for res, over, want in ((result(run="r_01JA7Z"), {}, ("item", "result_not_the_runs")),
+                                (result(release="factory/v0.3.2"), {}, ("item", "result_not_the_runs")),
+                                (result(status="incomplete", reason="change_not_reviewed_whole"), {},
+                                 ("item", "change_not_reviewed_whole")),
+                                (result(reason="change_not_reviewed_whole"), {}, ("item", "reason_not_the_status")),
+                                (result(coverage=result()["coverage"][1:]), {}, ("item", "uncovered")),
+                                (result(), {"config": unread}, ("environment", "coverage_unreadable")),
+                                (result(), {"task": the_task(permitted_effects=["submit_review"])},
+                                 ("item", "effect_not_permitted")),
+                                (result(findings=[n1, n2, dict(n2, ref="n3")]), {}, ("item", "finding_not_posted_once")),
+                                (result(findings=[dict(n1, location=dict(n1["location"], path="kernel/admission.py")),
+                                                  n2]), {}, ("item", "finding_not_on_change")),
+                                (result(findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse")), n2]),
+                                 {}, ("item", "adopted_lens_not_advisory")),
+                                (result(dispositions=[{"finding": "f_1234567890abcdef", "decision": {"result": "accepted"}}]),
+                                 {}, ("item", "disposition_of_no_finding"))):
+            record, ended, calls = self.go(res, change=None, facts=the_facts(), **over)
+            self.assertEqual(((ended["outcome"], ended["reason"]), calls["diff"], calls["mint"]), (want, 0, []), want)
+        # A read that would fail, or find the head moved, is never made for such a Result, so its refusal is its own.
+        for raised in (github.Unanswered("no answer"), Moved("moved")):
+            record, ended, calls = self.go(result(run="r_01JA7Z"), change=raised, facts=the_facts())
+            self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("item", "result_not_the_runs", 0))
 
     def test_the_tasks_diff_is_built_again_from_the_diff_read_again(self):  # issue 567
         # The lines a Finding is held to are the diff's as the item is read again, cut as the Run's Task was.

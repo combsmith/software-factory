@@ -8,10 +8,12 @@ under the Run (`superseded`); then the Result: not this Run's or this Release's,
 give (decision 0146), not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
-the change does not hold (decision 0145), on lines no hunk of its file holds on the head's side (decision 0146), or
-adopted from a reviewer the configuration does not name advisory or from a surface other than that reviewer's thread on
-this item (decision 0145); a Disposition that gives neither half or both, or the half this Run's Role may not make; a `security`
-Finding accepted before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
+the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
+than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
+Run's Role may not make; a `security` Finding accepted before its author's proposal can be read; and last, unless asked
+to leave it out, a posted Finding on lines no hunk of its file holds on the head's side (decision 0146), the one check
+that needs the diff, so that `job` reads the diff only for a Result every other check let through (decision 0148). Each
+is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
@@ -191,7 +193,6 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
         return "finding_named_twice"
     posted = posts(effects)
     refs = [ref for _, _, ref in posted]
-    spans = hunks(task)
     if any(ref not in raised for ref in refs):
         return "finding_not_raised"
     if any(refs.count(ref) != 1 for ref in raised):
@@ -213,11 +214,6 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
         # PATH_LONGEST characters, however long a path the facts hold (decision 0145).
         if len(where["path"]) > PATH_LONGEST or where["path"] not in {c["path"] for c in facts["changed_paths"]}:
             return "finding_not_on_change"
-        # GitHub refuses a review comment off the diff, but not an annotation: each is held to lines one hunk of its
-        # file holds on the head's side, as the Task's diff gave them to the model (decision 0146).
-        last = where.get("end_line", where["start_line"])
-        if not any(first <= where["start_line"] and last <= end for first, end in spans.get(where["path"], ())):
-            return "finding_not_in_hunk"
         # One adopted is adopted from a reviewer the configuration names advisory, and from that reviewer's thread on
         # this item: a surface the facts cannot show on this item is no Finding of this review.
         adopted = finding.get("adopted_from")
@@ -231,6 +227,20 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
     return None
 
 
+def off_hunks(task: dict, result: dict):
+    """`finding_not_in_hunk` where a posted Finding's lines are not all on one hunk of its file on the head's side, as
+    the Task's diff gave them to the model (decision 0146), or None. GitHub refuses a review comment off the diff, but
+    not an annotation, so each is held here. It is the last check, and the one that needs the diff (decision 0148)."""
+    spans = hunks(task)
+    raised = {f["ref"]: f for f in result["findings"]}
+    for _, _, ref in posts(result["effects"]):
+        where = raised[ref]["location"]
+        last = where.get("end_line", where["start_line"])
+        if not any(first <= where["start_line"] and last <= end for first, end in spans.get(where["path"], ())):
+            return "finding_not_in_hunk"
+    return None
+
+
 def _opened_by(thread: dict, lens: str) -> bool:
     """Whether a thread in the facts was opened by that Lens."""
     by = thread.get("opened_by")
@@ -240,9 +250,10 @@ def _opened_by(thread: dict, lens: str) -> bool:
 def hunks(task: dict) -> dict:
     """`{path: [(first, last), ...]}`: the lines each hunk of a file holds on the head's side, from the Task's diff as
     the model was given it (decision 0137), each file by its name at the head. A file the Task's diff leaves out, or
-    deletes, or changes with no line on the head's side, has none, and so does one whose name cannot be read."""
+    deletes, or changes with no line on the head's side, has none, and so does one whose name cannot be read; a Task
+    that holds no diff, as `admitted` gives one, holds no line (decision 0148)."""
     out = {}
-    for text in task["texts"]:
+    for text in task.get("texts", ()):
         if not text["id"].startswith("diff:"):
             continue
         for part in task_.FILE_START.split(text["body"]):
@@ -330,9 +341,12 @@ def _findings_of(facts: dict, thread: str) -> list:
 
 
 def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, kernel: dict, now: str, role: dict,
-            rubric, authority: dict, advisory, github_run=None) -> tuple:
+            rubric, authority: dict, advisory, github_run=None, lines: bool = True) -> tuple:
     """`(fault, reason)` why nothing may be written, or None. `rubric` is the Intent's when it reviews, else None;
-    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`."""
+    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. With
+    `lines` false, every check but a Finding's lines is made, which needs no diff; by default that one is made too, of
+    the Task's diff, so a caller that forgets fails closed: of a Task that carries no diff, as `admitted` gives one,
+    the refusal is the Factory's, `diff_not_given` (decision 0148)."""
     moved = _superseded(task, facts, runs, context, kernel, now, github_run)
     if moved:
         return "superseded", moved
@@ -350,6 +364,12 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         if said != "covered":
             return ("item", "uncovered") if said == "uncovered" else ("environment", "coverage_unreadable")
     why = _effects(task, result, facts, advisory) or _dispositions(task, result, facts, role, authority)
+    if why is None and lines:
+        # A Finding's lines are held of the Task's diff: a Task that carries none was handed in without it, which is
+        # the Factory's slip, never the Role's, and nothing is written (decision 0148).
+        if "texts" not in task:
+            return "environment", "diff_not_given"
+        why = off_hunks(task, result)
     return ("item", why) if why else None
 
 
@@ -478,8 +498,8 @@ def taken(data: bytes, digest: str):
 
 def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
     """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, diff)`,
-    `diff()` its diff's bytes, read only for a Result that posts a Finding and once no change under the Run is told by
-    the facts, from which the Task's diff is built again as the Run was given it (decision 0146);
+    `diff()` its diff's bytes, read only for a completed Result that posts a Finding and that every check needing no diff
+    let through, from which the Task's diff is built again as the Run was given it (decisions 0146 and 0148);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
     request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
@@ -488,12 +508,14 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
                   "findings": [], "rulings": []}
         return record, _ended(admit, ("environment", "result_unreadable"))
     facts, head, runs, context, diff = read()
-    # A change under the Run is told first, by the facts alone and in refusal's own order: the diff is read again only
-    # once none is told, so no read of it can hide such a change.
-    moved = _superseded(admit, facts, runs, context, config["kernel"], now, config["github_run"])
-    if moved:
-        record = applied(admit, result, [], role, refused=moved)
-        return record, outcome(admit, record, ("superseded", moved))
+    # Every check that needs no diff is made first, a change under the Run among them, by the facts and the Result alone:
+    # the diff is read again only for a Result they all let through, so no read of it can hide a change under the Run or
+    # turn the Result's own refusal into the environment's (decisions 0146 and 0148).
+    why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
+                  config["authority"], config["advisory"], config["github_run"], lines=False)
+    if why is not None:
+        record = applied(admit, result, [], role, refused=why[1])
+        return record, outcome(admit, record, why)
     # The Task's diff, built again from the bytes the Decision admitted and cut as the Run's was: the lines a posted
     # Finding is held to (decision 0146), and so read only for a Result that posts one. Bytes that are not that content
     # are a change under the Run.
@@ -506,17 +528,16 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
             return record, outcome(admit, record, ("superseded", "content_moved"))
         texts = [text]
     admit = dict(admit, texts=texts)
+    off = off_hunks(admit, result)
+    if off is not None:
+        record = applied(admit, result, [], role, refused=off)
+        return record, outcome(admit, record, ("item", off))
     # When the Run began: its record's start, or, while it is listed before its name, its run's creation (decision
     # 0036). Neither read, a comment on the item cannot be recovered, and is refused as unreadable.
     since = next((r["started_at"] for r in runs if r["run"] == admit["run"]), None)
     if since is None and isinstance(context.get("unidentified_runs"), list):
         since = next((u["created_at"] for u in context["unidentified_runs"] if _this_run(u, config["github_run"])),
                      None)
-    why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
-                  config["authority"], config["advisory"], config["github_run"])
-    if why is not None:
-        record = applied(admit, result, [], role, refused=why[1])
-        return record, outcome(admit, record, why)
     asked = requests(admit, result, head, role, since)
     ruled = rulings(result, facts)
     # A comment on the item is recovered by when the Run began: not read, nothing is minted and nothing written.
