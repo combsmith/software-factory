@@ -435,9 +435,16 @@ class Apply(unittest.TestCase):
         self.assertIsNone(apply.refusal(bare, result(), facts, runs(), support.context(active_runs=1), support.CONFIG,
                                         NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242, lines=False))
         # The other checks come first: a Result refused for itself is refused for that, diff or none.
-        self.assertEqual(apply.refusal(bare, result(run="r_01JA7Z"), facts, runs(), support.context(active_runs=1),
-                                       support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242),
-                         ("item", "result_not_the_runs"))
+        astray = result(dispositions=[{"finding": "f_1234567890abcdef", "decision": {"result": "accepted"}}])
+        for res, want in ((result(run="r_01JA7Z"), "result_not_the_runs"),
+                          (result(reason="change_not_reviewed_whole"), "reason_not_the_status"),
+                          (result(status="incomplete", reason="change_not_reviewed_whole"), "change_not_reviewed_whole"),
+                          (result(coverage=result()["coverage"][1:]), "uncovered"),
+                          (result(findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse"))]
+                                  + result()["findings"][1:]), "adopted_lens_not_advisory"),
+                          (astray, "disposition_of_no_finding")):
+            self.assertEqual(apply.refusal(bare, res, facts, runs(), support.context(active_runs=1), support.CONFIG,
+                                           NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242), ("item", want), want)
         self.assertEqual(shared.errors(json.loads((ROOT / "examples" / "outcome.diff-not-given.json").read_text()),
                                        "outcome"), [])
         self.assertIsNone(apply.off_hunks(the_task(), result()))
