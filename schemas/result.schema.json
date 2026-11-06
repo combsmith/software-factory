@@ -170,11 +170,13 @@
             },
             "start_line": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 999999999
             },
             "end_line": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 999999999
             }
           }
         },
@@ -216,7 +218,7 @@
           "properties": {
             "lens": {
               "type": "string",
-              "pattern": "^[a-z][a-z0-9-]*$"
+              "pattern": "^[a-z][a-z0-9-]{0,63}$"
             },
             "surface": {
               "type": "object",
@@ -237,7 +239,7 @@
                 },
                 "key": {
                   "type": "string",
-                  "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$"
+                  "pattern": "^[^\\s\\x00-\\x1f\\x7f]{1,64}$"
                 }
               }
             }

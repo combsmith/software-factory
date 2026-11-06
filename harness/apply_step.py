@@ -115,7 +115,9 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
         told = {"kernel": dict(config["kernel"], lifecycle=config["lifecycles"]["pull_request"]),
                 "rubric": steps.read_json(steps.ROOT, os.path.join("config", "rubric-%s.json" % parts["role"])),
                 "authority": steps.read_json(steps.ROOT, os.path.join("config", "authority.json")),
-                "github_run": environ.get("GITHUB_RUN_ID"), "app": config["app"], "needs": config["needs"]}
+                "advisory": steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))["advisory"],
+                "github_run": environ.get("GITHUB_RUN_ID"),
+                "app": config["app"], "needs": config["needs"]}
         if admit is not None:
             try:
                 done = apply.job(admit, result, read, write, mint, role, told, utc())
