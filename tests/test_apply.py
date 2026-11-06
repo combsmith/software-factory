@@ -471,7 +471,7 @@ class Apply(unittest.TestCase):
         # result/1 bounds a line to nine digits, a reviewer's name and its surface's key to 64.
         line = lambda **over: dict(n2, location=dict(n2["location"], **over))
         for finding, ok in ((line(start_line=999999999, end_line=999999999), True),
-                            (line(start_line=1000000000, end_line=1000000000), False),
+                            (line(start_line=1000000000), False),
                             (line(end_line=1000000000), False),
                             (dict(n1, adopted_from=dict(adopted, lens="c" * 64)), True),
                             (dict(n1, adopted_from=dict(adopted, lens="c" * 65)), False),
