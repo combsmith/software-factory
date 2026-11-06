@@ -1844,6 +1844,16 @@ class Repo(unittest.TestCase):
             self.assertIn(where + ": names a model by its full id", problems)
         unpinned = check_repo.run(tree({"examples/invalid/harness.a-copy.json": copy % name}))
         self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", unpinned)
+        # The pin's own file names no second model, and a copy names no other form of the pinned one (Argon's and Muse's
+        # reads). A pin whose model is no id pins nothing, and the check still runs.
+        second = check_repo.run(tree({"config/harness.json": '{"engine": {"model": "%s"}, "x": "%s"}' % (name, other),
+                                      "examples/invalid/harness.wide.json": copy % (name + "[1m]")}))
+        for where in ("config/harness.json", "examples/invalid/harness.wide.json"):
+            self.assertIn(where + ": names a model by its full id", second)
+        for odd in ("[]", "{}", "5"):
+            listed = check_repo.run(tree({"config/harness.json": '{"engine": {"model": %s}}' % odd,
+                                          "examples/invalid/harness.a-copy.json": copy % name}))
+            self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", listed, odd)
 
     def test_an_edited_secrets_baseline_is_caught(self):
         whole = (ROOT / ".gitignore").read_text()

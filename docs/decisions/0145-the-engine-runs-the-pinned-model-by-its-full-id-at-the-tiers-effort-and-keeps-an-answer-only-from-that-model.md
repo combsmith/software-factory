@@ -1,6 +1,6 @@
 # 0145. The Engine runs the pinned model by its full id, at the tier's effort, and keeps an answer only from that model
 
-Status: accepted. The Maintainer's ruling before the factory/v0.1.0 cut, "Pin the model", widened from the harness review by the Factory Builder on 2026-11-05: these choices freeze what the eval measures, so that a score is of one model at one effort.
+Status: accepted. Replaces `docs/decisions/0138-the-review-reads-the-pull-requests-head-with-the-read-tools-alone-held-to-it-by-restricted.md`. The Maintainer's ruling before the factory/v0.1.0 cut, "Pin the model", widened from the harness review by the Factory Builder on 2026-11-05: these choices freeze what the eval measures, so that a score is of one model at one effort. Of 0138 it overturns one thing: the list of names decision 0050's row "The environment" gives the CLI, which 0138 kept, now holds `DISABLE_UPDATES` too. Nothing else in 0138, or in the rows of 0050 it kept, changes.
 
 ## Decision
 
@@ -11,7 +11,7 @@ Status: accepted. The Maintainer's ruling before the factory/v0.1.0 cut, "Pin th
 | The model that answered | `usage.answering_model` records the one model the CLI's `modelUsage` names, or null where it names none, more than one, or one in a form `schemas/result.schema.json` does not hold. An answer whose answering model is not the pinned one is no Result: `failed`, `engine_model`, its findings and Effects dropped, as one at another version is `engine_version`. A Run the CLI never answered, or that erred, is held to its own reason first | The pin names the model asked for; only the CLI's answer says which model answered. An eval score is of the model that answered, so an answer from another model, by a fallback, a remapped alias or a change on the vendor's side, cannot be scored as the pin's |
 | The fault | `engine_model` is an Engine fault in the eval (`ENGINE_FAULTS`, the eval report's reasons), never the reviewer's | Decision 0106: a fault of the Engine is never the reviewer's |
 | The effort | Each tier in `schemas/harness.schema.json` has an `effort`, one of the CLI's levels (`low`, `medium`, `high`, `xhigh`, `max`). Both are `medium`. A Task carries its tier's, `harness/engine.py` gives it to the CLI as `--effort`, and `usage.effort` records it | `medium` is the default the pinned CLI's catalog gives `claude-opus-5-5` today, so nothing a Run does changes. Named, the effort no longer moves when the CLI's default does. The pinned CLI lists `--effort <level>` with these five levels in its help |
-| No update | The CLI is given `DISABLE_UPDATES=1` beside `DISABLE_AUTOUPDATER=1`, and decision 0050's list of the names the CLI is given counts it | The pinned binary reads both names. The version is held before and after each call (L-35), and a CLI that does not try to update cannot fail that check by doing so |
+| No update | The CLI is given `DISABLE_UPDATES=1` beside `DISABLE_AUTOUPDATER=1`: the names it is given are exactly `PATH`, `LANG`, `HOME`, `TMPDIR`, `DISABLE_UPDATES`, `DISABLE_AUTOUPDATER`, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` and the model credential under `CLAUDE_CODE_OAUTH_TOKEN` alone | The pinned binary reads both names. The version is held before and after each call (L-35), and a CLI that does not try to update cannot fail that check by doing so |
 | The CLI's version | Stays at 2.1.306 | Moving the pin is the Maintainer's call, after the cut |
 
 ## Why
@@ -29,6 +29,6 @@ What is owed: no trial has recorded `modelUsage` from a review Run under the rea
 | An answer is kept only from the pinned model, as `modelUsage` names it, and `usage` records the model that answered | `tests/test_harness.py::test_an_answer_is_kept_only_from_the_pinned_model` |
 | `engine_model` is an Engine fault in the eval | `tests/test_evals.py::test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers` |
 | The CLI is given the tier's effort once, and `usage` records it | `tests/test_harness.py::test_the_cli_is_given_no_tool`, `tests/test_harness.py::test_a_result_the_engine_wrote_is_filled_and_kept` |
-| An effort the CLI does not know is no tier's | `tools/check_examples.py`, `examples/invalid/harness.an-effort-the-cli-does-not-know.json` |
+| A tier, and a Task, has an effort the CLI knows, and `usage` names the effort and the model that answered | `tools/check_examples.py`, `examples/invalid/harness.an-effort-the-cli-does-not-know.json`, `examples/invalid/harness.a-tier-with-no-effort.json`, `examples/invalid/task.limits-with-no-effort.json`, `examples/invalid/result.usage-that-names-no-model-that-answered.json`, `examples/invalid/result.usage-with-no-effort.json` |
 | The CLI is given `DISABLE_UPDATES=1` | `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
