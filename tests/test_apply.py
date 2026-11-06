@@ -419,6 +419,9 @@ class Apply(unittest.TestCase):
         self.assertIsNone(apply.refusal(the_task(), off, facts, runs(),
                                         support.context(active_runs=1), support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY,
                                         ADVISORY, 4242, lines=False))
+        # By default the lines are held too, so a caller that forgets to say fails closed.
+        self.assertEqual(apply.refusal(the_task(), off, facts, runs(), support.context(active_runs=1), support.CONFIG,
+                                       NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242), ("item", "finding_not_in_hunk"))
         self.assertEqual(apply.off_hunks(the_task(), off), "finding_not_in_hunk")
         self.assertIsNone(apply.off_hunks(the_task(), result()))
 

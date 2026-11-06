@@ -10,9 +10,9 @@ give (decision 0146), not completed, uncovered (decision
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
 the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
 than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
-Run's Role may not make; a `security` Finding accepted before its author's proposal can be read; and last a posted
-Finding on lines no hunk of its file holds on the head's side (decision 0146), the one check that needs the diff, so that
-`job` reads the diff only for a Result every other check let through (decision NNNN). Each is the Role's (`item`), but a
+Run's Role may not make; a `security` Finding accepted before its author's proposal can be read; and last, unless asked
+to leave it out, a posted Finding on lines no hunk of its file holds on the head's side (decision 0146), the one check
+that needs the diff, so that `job` reads the diff only for a Result every other check let through (decision NNNN). Each is the Role's (`item`), but a
 failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
@@ -338,11 +338,11 @@ def _findings_of(facts: dict, thread: str) -> list:
 
 
 def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, kernel: dict, now: str, role: dict,
-            rubric, authority: dict, advisory, github_run=None, lines: bool = False) -> tuple:
+            rubric, authority: dict, advisory, github_run=None, lines: bool = True) -> tuple:
     """`(fault, reason)` why nothing may be written, or None. `rubric` is the Intent's when it reviews, else None;
-    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. Every check
-    but a Finding's lines needs no diff, and is all that is made unless `lines` asks for that one too, of a Task that
-    holds its diff (decision NNNN)."""
+    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. With
+    `lines` false, every check but a Finding's lines is made, which needs no diff; by default that one is made too, of
+    the Task's diff, so a caller that forgets fails closed (decision NNNN)."""
     moved = _superseded(task, facts, runs, context, kernel, now, github_run)
     if moved:
         return "superseded", moved
