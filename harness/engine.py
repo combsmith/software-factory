@@ -7,10 +7,10 @@ it, and as that trial hardened it:
   the one name the CLI's scrub removes from what a tool is handed, and the scrub set (issue 287);
 - with the Task's limits: its turns as `--max-turns`, its seconds as the call's timeout, its `cost_ceiling_usd` as
   `--max-budget-usd`, which the pin accepts and holds its own estimate of spend to (decision 0136), and its `effort` as
-  `--effort`, so that the effort a Run is given is the tier's and never the CLI's default of the day (decision NNNN);
+  `--effort`, so that the effort a Run is given is the tier's and never the CLI's default of the day (decision 0147);
 - with the model by its full id, and an answer kept only from that model: the one model the CLI's `modelUsage` names,
   which `usage` records, must be the pinned one, or the Run is `failed`, `engine_model`, as one at another version is
-  (decision NNNN);
+  (decision 0147);
 - with no tool at all, `--tools ""`, whatever the Task holds; structured output still works with none (P-13 at
   2.1.306). On a Linux runner at 2.1.306, with the scrub on, a sandboxed tool wrote anywhere the runner's user can,
   and with it off a tool is handed the credential (P-50, P-51, issue 312; P-26), so no Run has a tool that runs;
@@ -20,7 +20,8 @@ it, and as that trial hardened it:
   settings and instructions out (decision 0138). The scrub is set with no other tools: a call that sets it and names
   any other list, or leaves out one of these, is never made;
 - with `result/1` as the CLI is handed it: references resolved, the fields the Harness fills removed, `status` narrowed
-  to what the Engine may write and `effects` narrowed to the Task's `permitted_effects` (decision 0038).
+  to what the Engine may write, `reason` to the model's codes (decision 0146), and `effects` to the Task's
+  `permitted_effects` (decision 0038).
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
 never kept, returned or logged. An answer that does not validate is no Result: the Harness writes the whole Result
 itself, `failed`, `result_invalid`, with empty lists and `usage`; a CLI that exited 0 with no answer to hold to the schema
@@ -46,12 +47,18 @@ MODEL_ENDED = ("error_max_budget_usd", "error_max_structured_output_retries", "e
 CREDENTIAL_NAME = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 # Every name the CLI is given, and its value where it is fixed. Nothing else of the job's environment reaches it.
-# The CLI neither updates itself nor offers to, with either name it reads (decision NNNN).
+# The CLI neither updates itself nor offers to, with either name it reads (decision 0147).
 FIXED = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DISABLE_UPDATES": "1", "DISABLE_AUTOUPDATER": "1", SCRUB: "1"}
 PASSED = ("HOME", "TMPDIR")
 OPTIONS = ["--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
            "--permission-prompts", "none"]
 ENGINE_WRITES = ["completed", "incomplete", "refused"]
+# The reason a Result that did not complete gives, one of these codes and never another (decision 0146): the model's,
+# by the status it writes, and the Harness's, with the `failed` Result it writes whole, here or in `harness/run.py`.
+MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task_not_a_review",)}
+HARNESS_REASONS = ("credential_missing", "engine_version", "engine_model", "task_too_large", "engine_failed",
+                   "engine_timeout", "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable")
+REASONS = dict(MODEL_REASONS, failed=HARNESS_REASONS)
 FILLED = ("release", "usage")
 COUNTS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 MODEL_ID = re.compile(r"[a-z0-9.-]+")      # a model's id as result/1 holds it; any other the CLI names is none
@@ -108,6 +115,10 @@ def handed(task: dict) -> dict:
         schema["properties"].pop(field)
     schema["required"] = [f for f in schema["required"] if f not in FILLED]
     schema["properties"]["status"] = {"enum": list(ENGINE_WRITES)}
+    # The model's codes as result/1 lists them: narrowed from it, never a copy of it that could drift (decision 0146).
+    model = {r for s in ENGINE_WRITES for r in MODEL_REASONS.get(s, ())}
+    reason = schema["properties"]["reason"]
+    schema["properties"]["reason"] = dict(reason, enum=[r for r in reason["enum"] if r is None or r in model])
     schema["properties"]["run"] = {"const": task["run"]}
     effects = schema["properties"]["effects"]
     effects["properties"] = {k: v for k, v in effects["properties"].items() if k in task["permitted_effects"]}
@@ -131,7 +142,7 @@ def argv(cli: str, task: dict, model: str, session: str, instructions: str = "",
              "--model", model, "--session-id", session, "--max-turns", str(task["limits"]["turns"]),
              # The tier's ceiling, which the CLI holds the Run's estimated spend to (decision 0136)
              "--max-budget-usd", str(task["limits"]["cost_ceiling_usd"]),
-             # The tier's effort, never the CLI's default (decision NNNN)
+             # The tier's effort, never the CLI's default (decision 0147)
              "--effort", task["limits"]["effort"]]
             + OPTIONS + (READ if read is True else ["--tools", ""]))
 
@@ -181,7 +192,7 @@ def no_tool(args: list) -> bool:
 
 def answering(said) -> str:
     """The one model the CLI says answered, as its `modelUsage` names it, or None where it names none, more than one,
-    or one in no form result/1 holds (decision NNNN)."""
+    or one in no form result/1 holds (decision 0147)."""
     named = said.get("modelUsage") if isinstance(said, dict) else None
     if not isinstance(named, dict) or len(named) != 1:
         return None
@@ -273,7 +284,7 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     if version(cli, env, call) != engine["version"]:
         return failed(task, "engine_version", usage)
     # A Run the CLI says another model took part in is the Engine's, whatever else befell it: one that erred or ran out
-    # by a fallback model is not the reviewer's. One that names no model keeps its own reason (decision NNNN).
+    # by a fallback model is not the reviewer's. One that names no model keeps its own reason (decision 0147).
     if isinstance(said, dict) and said.get("modelUsage") not in (None, {}) and usage["answering_model"] != engine["model"]:
         return failed(task, "engine_model", usage)
     if reason is not None:
@@ -283,7 +294,7 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     if not isinstance(found, dict):
         return failed(task, "no_answer", usage)
     # An answer is kept only from the pinned model, as the CLI names the one that answered, and that is decided before
-    # the answer is held to any schema: another model's answer that fails one is still the Engine's (decision NNNN).
+    # the answer is held to any schema: another model's answer that fails one is still the Engine's (decision 0147).
     if usage["answering_model"] != engine["model"]:
         return failed(task, "engine_model", usage)
     result = dict(found, release=task["release"], usage=usage)
@@ -296,5 +307,12 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
 
 def sound(result: dict, task: dict) -> bool:
     """What the schema cannot say of a Result: a reason goes with a status other than completed, and never with
-    completed (decision 0038). That it is this Task's Run, the schema the CLI was handed says."""
-    return (result["reason"] is None) == (result["status"] == "completed")
+    completed (decision 0038), and is one its status may give (decision 0146). That it is this Task's Run, the schema
+    the CLI was handed says."""
+    return (result["reason"] is None) == (result["status"] == "completed") and reason_given(result)
+
+
+def reason_given(result: dict) -> bool:
+    """A Result's reason is one its status may give, or none: the model's with `incomplete` or `refused`, the
+    Harness's with `failed`, and none with `completed` (decision 0146)."""
+    return result["reason"] is None or result["reason"] in REASONS.get(result["status"], ())

@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import zlib
 
 from harness import engine, head, run, shared, task
@@ -605,7 +606,7 @@ class Engine(unittest.TestCase):
         self.assertEqual(args[args.index("--model") + 1], HARNESS["engine"]["model"])
         self.assertEqual(args[args.index("--max-turns") + 1], str(HARNESS["limits"]["standard"]["turns"]))
         self.assertEqual(cli.asked()[0]["timeout"], HARNESS["limits"]["standard"]["seconds"])
-        # The tier's effort, once, never the CLI's default (decision NNNN).
+        # The tier's effort, once, never the CLI's default (decision 0147).
         self.assertEqual(args.count("--effort"), 1)
         self.assertEqual(args[args.index("--effort") + 1], HARNESS["limits"]["standard"]["effort"])
         deep = built(role=manifest(tier="deep"), config=config(limits=dict(HARNESS["limits"], deep=dict(
@@ -716,7 +717,7 @@ class Engine(unittest.TestCase):
         self.assertEqual(schema["properties"]["run"], {"const": RUN})
         self.assertEqual(sorted(schema["properties"]["effects"]["properties"]), ["comment"])
 
-    def test_an_answer_is_kept_only_from_the_pinned_model(self):  # decision NNNN
+    def test_an_answer_is_kept_only_from_the_pinned_model(self):  # decision 0147
         other = "claude-" + "sonnet-5-5"
         for named, recorded in (({other: {}}, other), ({MODEL: {}, other: {}}, None), ({}, None), (None, None),
                                 ({MODEL + "[1m]": {}}, None), ([MODEL], None), ({MODEL.upper(): {}}, None)):
@@ -753,6 +754,27 @@ class Engine(unittest.TestCase):
             self.assertEqual(engined(CLI(said=json.dumps(said)))["reason"], "engine_model", broken)
             said["modelUsage"] = {MODEL: {}}
             self.assertEqual(engined(CLI(said=json.dumps(said)))["reason"], "result_invalid", broken)
+
+    def test_the_schema_handed_is_result_1_narrowed_and_never_a_copy_of_it(self):  # issue 567
+        task_ = built()
+        whole = engine.resolved(copy.deepcopy(shared.SCHEMAS["result"]), shared.SCHEMAS, shared.SCHEMAS["result"])
+        handed = engine.handed(task_)
+        self.assertEqual(set(handed["properties"]), set(whole["properties"]) - set(engine.FILLED))
+        for key, value in handed["properties"].items():
+            if key not in ("status", "reason", "run", "effects"):
+                self.assertEqual(value, whole["properties"][key], key)
+        for key in ("status", "reason"):
+            self.assertLess(set(handed["properties"][key]["enum"]), set(whole["properties"][key]["enum"]), key)
+        self.assertEqual({k: v for k, v in handed["properties"]["reason"].items() if k != "enum"},
+                         {k: v for k, v in whole["properties"]["reason"].items() if k != "enum"})
+        effects = handed["properties"]["effects"]["properties"]
+        self.assertEqual(effects, {k: whole["properties"]["effects"]["properties"][k] for k in effects})
+        # A code result/1 no longer lists is no longer handed: the CLI's list is read from it, not kept beside it.
+        fewer = [r for r in whole["properties"]["reason"]["enum"] if r != "task_not_a_review"]
+        with unittest.mock.patch.dict(shared.SCHEMAS["result"]["properties"]["reason"], {"enum": fewer}):
+            self.assertEqual(engine.handed(task_)["properties"]["reason"]["enum"], [None, "change_not_reviewed_whole"])
+        self.assertEqual(engine.handed(task_)["properties"]["reason"]["enum"],
+                         [None, "change_not_reviewed_whole", "task_not_a_review"])
 
     def test_the_version_is_held_before_and_after_the_call(self):  # L-35
         for versions, asked in (((PIN, "2.1.307"), 1), (("2.1.305", PIN), 0), ((None, PIN), 0), ((PIN, None), 1),
@@ -804,7 +826,13 @@ class Engine(unittest.TestCase):
                answer(result=judged(status="superseded", reason="x")),
                answer(result=judged(effects={"comment": [{"id": "e1", "body": "x"}]})),       # not permitted
                answer(result=judged(release="factory/v9.9.9")), answer(result=judged(commit="5d0c7e2")),
-               answer(result=judged(findings=[{"ref": "n1"}]))]
+               answer(result=judged(findings=[{"ref": "n1"}])),
+               # A reason is one of the model's codes: any other, the Harness's among them, is no Result (issue 567).
+               answer(result=judged(status="refused", reason="out_of_scope", findings=[], effects={})),
+               answer(result=judged(status="incomplete", reason="no_answer", findings=[], effects={})),
+               # And one its status may give: the model's code for refusing is no reason it is incomplete.
+               answer(result=judged(status="incomplete", reason="task_not_a_review", findings=[], effects={})),
+               answer(result=judged(status="refused", reason="change_not_reviewed_whole", findings=[], effects={}))]
         # A CLI that exited 0 and gave nothing to hold to the schema is told from an answer that fails it (decision 0121).
         none = ["", "not json", "[]", json.dumps(["x"]), json.dumps([{"type": "other"}]), "null", json.dumps({"is_error": False}),
                 answer(structured_output=None), answer(structured_output="{}"), answer(structured_output=[1])]
@@ -815,9 +843,9 @@ class Engine(unittest.TestCase):
             self.assertEqual((r["usage"]["model"], r["usage"]["session"]), (HARNESS["engine"]["model"], SESSION))
             self.assertEqual(shared.errors(r, "result"), [])
             self.assertNotIn("PROSE", json.dumps(r))
-        refused = engined(CLI(said=answer(result=judged(status="refused", reason="out_of_scope", findings=[],
+        refused = engined(CLI(said=answer(result=judged(status="refused", reason="task_not_a_review", findings=[],
                                                          effects={}))))
-        self.assertEqual((refused["status"], refused["reason"]), ("refused", "out_of_scope"))
+        self.assertEqual((refused["status"], refused["reason"]), ("refused", "task_not_a_review"))
 
     def test_an_answer_python_cannot_parse_or_a_call_it_refuses_is_the_engines(self):  # decision 0131
         # Neither raises past the Engine, where the eval job would read it as a case unanswered.

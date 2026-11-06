@@ -1,6 +1,6 @@
 # 0138. The review reads the pull request's head, with the read tools alone, held to it by --restricted
 
-Status: replaced by `docs/decisions/NNNN-the-engine-runs-the-pinned-model-by-its-full-id-at-the-tiers-effort-and-keeps-an-answer-only-from-that-model.md`.
+Status: replaced by `docs/decisions/0147-the-engine-runs-the-pinned-model-by-its-full-id-at-the-tiers-effort-and-keeps-an-answer-only-from-that-model.md`.
 
 ## Decision
 

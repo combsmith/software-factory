@@ -4,12 +4,14 @@
 `refusal(...)` reads the item again and the Result, and gives the one reason, a code, why nothing may be written, or
 None. In this order, so that each has its own code: the item closed, its content moved, the Factory paused, the item
 held, or the Kernel, asked again with this Run left out, not admitting this Run's Intent on this content, all a change
-under the Run (`superseded`); then the Result: not this Run's or this Release's, not completed, uncovered (decision
+under the Run (`superseded`); then the Result: not this Run's or this Release's, giving a reason its status may not
+give (decision 0146), not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
-the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
-than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
-Run's Role may not make; a `security` Finding accepted before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
+the change does not hold (decision 0145), on lines no hunk of its file holds on the head's side (decision 0146), or
+adopted from a reviewer the configuration does not name advisory or from a surface other than that reviewer's thread on
+this item (decision 0145); a Disposition that gives neither half or both, or the half this Run's Role may not make; a `security`
+Finding accepted before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
@@ -31,7 +33,7 @@ import re
 from adapters import github, identity
 from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
-from harness import shared
+from harness import engine, shared
 from harness import task as task_
 from kernel import derive
 from kernel import terms as t
@@ -59,7 +61,7 @@ UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 # How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's. A Run with no answer stays
 # an attempt on its item, as it can't be told from a model that gave none, whose text must not pause the Factory (decision 0121).
 # So does one another model answered: an item's text can call a fallback model, by a refusal, and must not pause the
-# Factory either (decision NNNN).
+# Factory either (decision 0147).
 THE_ROLES = ("result_invalid", "task_too_large", "no_answer", "engine_model")
 # The branch a pull request the Factory opens stands on: the issue it serves and the count opened for it (decision 0068).
 WORK_BRANCH = re.compile(t.WORK_BRANCH)
@@ -189,6 +191,7 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
         return "finding_named_twice"
     posted = posts(effects)
     refs = [ref for _, _, ref in posted]
+    spans = hunks(task)
     if any(ref not in raised for ref in refs):
         return "finding_not_raised"
     if any(refs.count(ref) != 1 for ref in raised):
@@ -210,6 +213,11 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
         # PATH_LONGEST characters, however long a path the facts hold (decision 0145).
         if len(where["path"]) > PATH_LONGEST or where["path"] not in {c["path"] for c in facts["changed_paths"]}:
             return "finding_not_on_change"
+        # GitHub refuses a review comment off the diff, but not an annotation: each is held to lines one hunk of its
+        # file holds on the head's side, as the Task's diff gave them to the model (decision 0146).
+        last = where.get("end_line", where["start_line"])
+        if not any(first <= where["start_line"] and last <= end for first, end in spans.get(where["path"], ())):
+            return "finding_not_in_hunk"
         # One adopted is adopted from a reviewer the configuration names advisory, and from that reviewer's thread on
         # this item: a surface the facts cannot show on this item is no Finding of this review.
         adopted = finding.get("adopted_from")
@@ -227,6 +235,53 @@ def _opened_by(thread: dict, lens: str) -> bool:
     """Whether a thread in the facts was opened by that Lens."""
     by = thread.get("opened_by")
     return isinstance(by, dict) and by.get("kind") == "lens" and by.get("name") == lens
+
+
+def hunks(task: dict) -> dict:
+    """`{path: [(first, last), ...]}`: the lines each hunk of a file holds on the head's side, from the Task's diff as
+    the model was given it (decision 0137), each file by its name at the head. A file the Task's diff leaves out, or
+    deletes, or changes with no line on the head's side, has none, and so does one whose name cannot be read."""
+    out = {}
+    for text in task["texts"]:
+        if not text["id"].startswith("diff:"):
+            continue
+        for part in task_.FILE_START.split(text["body"]):
+            path, named, spans = None, False, []
+            for row in task_.ROW.findall(part):
+                header = task_.HUNK.match(row)
+                if header:
+                    # A hunk that holds no line of the head's file is a span no line is in.
+                    first = int(header.group(2))
+                    spans.append((first, first + int(header.group(3) or 1) - 1))
+                # The head's name is read once, before the first hunk: a line in a hunk is led by its number or a mark.
+                elif row.startswith("+++ ") and not named and not spans:
+                    path, named = _head_name(row[4:].rstrip("\n")), True
+            if path is not None and spans:
+                out.setdefault(path, []).extend(spans)
+    return out
+
+
+# How git writes a name with a character it quotes: between double quotes, each such character escaped as C escapes it,
+# and each byte past ASCII as three octal digits.
+QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+ESCAPED = re.compile(r"\\([0-7]{3}|[abtnvfr\"\\])")
+ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _head_name(said: str):
+    """A file's name at the head from what follows `+++ `, or None: `/dev/null` for a file deleted, and a name git
+    quoted that is no UTF-8."""
+    # Git ends a name that holds a space with a tab, after the closing quote of one it quoted.
+    if said.endswith("\t"):
+        said = said[:-1]
+    quoted = QUOTED.fullmatch(said)
+    if quoted:
+        try:
+            said = ESCAPED.sub(lambda m: chr(int(m.group(1), 8) if len(m.group(1)) == 3 else ESCAPES[m.group(1)]),
+                               quoted.group(1)).encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return None
+    return said[2:] if said.startswith("b/") and len(said) > 2 else None
 
 
 def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: dict):
@@ -283,6 +338,10 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         return "superseded", moved
     if (result["run"], result["release"]) != (task["run"], task["release"]):
         return "item", "result_not_the_runs"
+    # A reason is one its status may give: the model's with `incomplete` or `refused`, the Harness's with `failed`, and
+    # none with `completed`.
+    if not engine.reason_given(result):
+        return "item", "reason_not_the_status"
     if result["status"] != "completed":
         reason = result["reason"] or result["status"]
         return ("item" if reason in THE_ROLES or result["status"] != "failed" else "environment"), reason
@@ -418,7 +477,9 @@ def taken(data: bytes, digest: str):
 
 
 def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
-    """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context)`;
+    """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, diff)`,
+    `diff()` its diff's bytes, read only for a Result that posts a Finding and once no change under the Run is told by
+    the facts, from which the Task's diff is built again as the Run was given it (decision 0146);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
     request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
@@ -426,7 +487,25 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
         record = {"schema": "applied/1", "run": admit["run"], "release": admit["release"], "effects": [],
                   "findings": [], "rulings": []}
         return record, _ended(admit, ("environment", "result_unreadable"))
-    facts, head, runs, context = read()
+    facts, head, runs, context, diff = read()
+    # A change under the Run is told first, by the facts alone and in refusal's own order: the diff is read again only
+    # once none is told, so no read of it can hide such a change.
+    moved = _superseded(admit, facts, runs, context, config["kernel"], now, config["github_run"])
+    if moved:
+        record = applied(admit, result, [], role, refused=moved)
+        return record, outcome(admit, record, ("superseded", moved))
+    # The Task's diff, built again from the bytes the Decision admitted and cut as the Run's was: the lines a posted
+    # Finding is held to (decision 0146), and so read only for a Result that posts one. Bytes that are not that content
+    # are a change under the Run.
+    texts = []
+    if result["status"] == "completed" and posts(result["effects"]):
+        try:
+            text, _ = task_.diff_of(diff(), facts, admit, config)
+        except task_.Refused:
+            record = applied(admit, result, [], role, refused="content_moved")
+            return record, outcome(admit, record, ("superseded", "content_moved"))
+        texts = [text]
+    admit = dict(admit, texts=texts)
     # When the Run began: its record's start, or, while it is listed before its name, its run's creation (decision
     # 0036). Neither read, a comment on the item cannot be recovered, and is refused as unreadable.
     since = next((r["started_at"] for r in runs if r["run"] == admit["run"]), None)

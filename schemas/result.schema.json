@@ -41,7 +41,22 @@
         "string",
         "null"
       ],
-      "pattern": "^[a-z_]+$"
+      "enum": [
+        null,
+        "change_not_reviewed_whole",
+        "task_not_a_review",
+        "credential_missing",
+        "engine_version",
+        "engine_model",
+        "task_too_large",
+        "engine_failed",
+        "engine_timeout",
+        "no_answer",
+        "result_invalid",
+        "diff_not_whole",
+        "head_unreadable",
+        "rubric_unreadable"
+      ]
     },
     "dispositions": {
       "type": "array",
