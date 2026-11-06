@@ -352,6 +352,10 @@ class Examples(unittest.TestCase):
             right = dict(wrong, status="incomplete" if wrong["status"] == "failed" else "failed")
             self.assertTrue(caught(check_examples.run(clone({"examples/invalid/" + name: json.dumps(right)})),
                                    "was accepted, and must be rejected"), name)
+        # And an example is held to it as a counter-example is.
+        failed = dict(json.loads((ROOT / "examples" / "result.failed.json").read_text()), reason="task_not_a_review")
+        self.assertTrue(caught(check_examples.run(clone({"examples/result.failed.json": json.dumps(failed)})),
+                               "result.failed.json: $.reason: not one its status may give"))
 
     def test_an_example_that_does_not_validate_is_caught(self):
         self.assertTrue(caught(check_examples.run(clone({"examples/decision.json": "{}"})), "decision.json: $: missing"))

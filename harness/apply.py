@@ -452,8 +452,8 @@ def taken(data: bytes, digest: str):
 
 def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
     """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, diff)`,
-    `diff()` its diff's bytes, read only once no change under the Run is told by the facts, from which the Task's diff is
-    built again as the Run was given it (decision NNNN);
+    `diff()` its diff's bytes, read only for a Result that posts a Finding and once no change under the Run is told by
+    the facts, from which the Task's diff is built again as the Run was given it (decision NNNN);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
     request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
@@ -469,13 +469,17 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
         record = applied(admit, result, [], role, refused=moved)
         return record, outcome(admit, record, ("superseded", moved))
     # The Task's diff, built again from the bytes the Decision admitted and cut as the Run's was: the lines a posted
-    # Finding is held to (decision NNNN). Bytes that are not that content are a change under the Run.
-    try:
-        text, _ = task_.diff_of(diff(), facts, admit, config)
-    except task_.Refused:
-        record = applied(admit, result, [], role, refused="content_moved")
-        return record, outcome(admit, record, ("superseded", "content_moved"))
-    admit = dict(admit, texts=[text])
+    # Finding is held to (decision NNNN), and so read only for a Result that posts one. Bytes that are not that content
+    # are a change under the Run.
+    texts = []
+    if result["status"] == "completed" and posts(result["effects"]):
+        try:
+            text, _ = task_.diff_of(diff(), facts, admit, config)
+        except task_.Refused:
+            record = applied(admit, result, [], role, refused="content_moved")
+            return record, outcome(admit, record, ("superseded", "content_moved"))
+        texts = [text]
+    admit = dict(admit, texts=texts)
     # When the Run began: its record's start, or, while it is listed before its name, its run's creation (decision
     # 0036). Neither read, a comment on the item cannot be recovered, and is refused as unreadable.
     since = next((r["started_at"] for r in runs if r["run"] == admit["run"]), None)

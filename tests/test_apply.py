@@ -1077,6 +1077,11 @@ class Job(unittest.TestCase):
             self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("superseded", want, 0), want)
         record, ended, calls = self.go(result())
         self.assertEqual(calls["diff"], 1)
+        # Only a Result that posts a Finding needs the diff: one that did not complete, or posts none, reads none.
+        for res in (result(status="incomplete", reason="change_not_reviewed_whole"),
+                    result(status="failed", reason="engine_failed"), result(findings=[], effects={}, coverage=[])):
+            record, ended, calls = self.go(res, change=None, config=dict(self.CONFIG, rubric=None))
+            self.assertEqual((calls["diff"], ended["reason"] == "content_moved"), (0, False), res["status"])
         # Cut where the Run's Task was cut: a file it left out holds no line, though the bytes hold it.
         short = dict(self.CONFIG, max_diff_characters=len(task_.numbered(PARTS[0])) + 2)
         record, ended, calls = self.go(result(), config=short)
