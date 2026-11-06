@@ -12,8 +12,8 @@ the change does not hold, or adopted from a reviewer the configuration does not 
 than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
 Run's Role may not make; a `security` Finding accepted before its author's proposal can be read; and last, unless asked
 to leave it out, a posted Finding on lines no hunk of its file holds on the head's side (decision 0146), the one check
-that needs the diff, so that `job` reads the diff only for a Result every other check let through (decision NNNN). Each is the Role's (`item`), but a
-failed Result for a reason not in
+that needs the diff, so that `job` reads the diff only for a Result every other check let through (decision NNNN). Each
+is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
@@ -248,9 +248,10 @@ def _opened_by(thread: dict, lens: str) -> bool:
 def hunks(task: dict) -> dict:
     """`{path: [(first, last), ...]}`: the lines each hunk of a file holds on the head's side, from the Task's diff as
     the model was given it (decision 0137), each file by its name at the head. A file the Task's diff leaves out, or
-    deletes, or changes with no line on the head's side, has none, and so does one whose name cannot be read."""
+    deletes, or changes with no line on the head's side, has none, and so does one whose name cannot be read; a Task
+    that holds no diff, as `admitted` gives one, holds no line (decision NNNN)."""
     out = {}
-    for text in task["texts"]:
+    for text in task.get("texts", ()):
         if not text["id"].startswith("diff:"):
             continue
         for part in task_.FILE_START.split(text["body"]):

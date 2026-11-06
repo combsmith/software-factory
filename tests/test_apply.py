@@ -403,7 +403,7 @@ class Apply(unittest.TestCase):
         handed = engine.handed(the_task())["properties"]["reason"]
         self.assertEqual(handed, {"type": ["string", "null"], "enum": [None] + [r for _, r in model]})
 
-    def test_a_findings_lines_are_held_last_and_only_when_asked(self):  # issue 573
+    def test_a_findings_lines_are_held_last_and_left_out_only_when_asked(self):  # issue 573
         # A Finding's lines are the last check, the one that needs the diff: a Result another check refuses is refused
         # for that, though its lines are off every hunk too; and refusal asked to leave the lines out leaves them out.
         off = result()
@@ -423,6 +423,10 @@ class Apply(unittest.TestCase):
         self.assertEqual(apply.refusal(the_task(), off, facts, runs(), support.context(active_runs=1), support.CONFIG,
                                        NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242), ("item", "finding_not_in_hunk"))
         self.assertEqual(apply.off_hunks(the_task(), off), "finding_not_in_hunk")
+        # A Task that holds no diff, as apply.admitted gives one, holds no line: a Result that posts a Finding is refused.
+        bare = {k: v for k, v in the_task().items() if k != "texts"}
+        self.assertEqual(apply.off_hunks(bare, result()), "finding_not_in_hunk")
+        self.assertIsNone(apply.off_hunks(bare, result(findings=[], effects={})))
         self.assertIsNone(apply.off_hunks(the_task(), result()))
 
     def test_a_findings_lines_are_on_one_hunk_of_its_file_on_the_heads_side(self):  # issue 567
