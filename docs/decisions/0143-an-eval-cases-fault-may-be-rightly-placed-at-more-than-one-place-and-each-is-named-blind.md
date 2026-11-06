@@ -11,10 +11,7 @@ Status: accepted. The Maintainer's choice of 2026-11-05, after a private audit o
 | What is unchanged | Category, severity and criterion are the case's one answer, whichever place the Finding is at. A Finding must still be the expected one in every respect | A place is where the fault can be read; what the fault is does not move with it |
 | A place unreadable | Every place a case gives must be readable: an entry of `also_at` whose end has no start, or comes before its start, makes the case `location_unreadable`, as its `location` does. One given without lines is the whole file | A place that cannot be read would be read as nowhere, and a case would pass or fail on what its key cannot say |
 | How places are added | By an audit of the private set that does not see the model's answers, to every case alike, each justified on its own diff in the private home. Never to the cases a run failed alone | A place added where the model put its Finding would mark the model's answer right because it was the model's |
-
-## The cost
-
-A looser key can only raise the score: a place added never fails a Finding that passed. So `also_at` moves the bar closer for every case it is given to, and the gate measures less than it did unless each place is one a careful reviewer would rightly choose. That is why places are added blind, to every case, and justified case by case where the cases are; it is not checked here, since no session here reads a case.
+| The cost | A looser key can only raise the score: a place added never fails a Finding that passed. So `also_at` moves the bar closer for every case it is given to, and the gate measures less than it did unless each place is one a careful reviewer would rightly choose. Whether each is, is not checked here, since no session here reads a case | Named so that it is not mistaken for a free gain. It is why places are added blind, to every case, and justified case by case where the cases are |
 
 ## Why
 

@@ -8009,6 +8009,12 @@ MUTANTS = ISSUE + [
     # Decision 0143: a fault may rightly be placed at more than one place, and a case may name each.
     ("a case's other places are not read", 'tools/eval_result.py',
      'return [expected["location"]] + expected.get("also_at", [])', 'return [expected["location"]]', ALSO_AT),
+    ("a case's places after its first other are not read", 'tools/eval_result.py',
+     'return any(_overlaps(place, raised) for place in _places(expected))', 'return any(_overlaps(place, raised) for place in _places(expected)[:2])', ALSO_AT),
+    ("an uncited Finding is in the file of the first two places alone", 'tools/eval_result.py',
+     'paths = {place["path"] for place in _places(expected)}', 'paths = {place["path"] for place in _places(expected)[:2]}', ALSO_AT),
+    ("a case's places after its first other need not be readable", 'tools/eval_result.py',
+     'any(_lines(place) is False for place in _places(want["finding"]))', 'any(_lines(place) is False for place in _places(want["finding"])[:2])', ALSO_AT),
     ("a case's first place alone is read", 'tools/eval_result.py',
      'return any(_overlaps(place, raised) for place in _places(expected))', 'return _overlaps(expected["location"], raised)', ALSO_AT),
     ("a citing Finding is held to the first place alone", 'tools/eval_result.py',

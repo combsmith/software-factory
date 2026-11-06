@@ -189,6 +189,12 @@ class Scoring(unittest.TestCase):
         self.assertEqual(went({"path": first["path"], "start_line": 200, "end_line": 201}), ["finding_elsewhere"])
         self.assertEqual(went({"path": "kernel/gate.py", "start_line": 12, "end_line": 2}), ["finding_not_raised"])
         self.assertEqual(went({"path": "kernel/state.py", "start_line": 11, "end_line": 11}), ["finding_not_raised"])
+        # Every entry is read, not the first alone (Muse's read of #561): a later one is a place as the first is.
+        apart["expected"]["finding"]["also_at"].append({"path": "kernel/state.py", "start_line": 5, "end_line": 6})
+        later = {"path": "kernel/state.py", "start_line": 6, "end_line": 6}
+        self.assertEqual(eval_result.score(apart, placed(later))["verdict"], "pass")
+        self.assertEqual(went(later), ["finding_uncited"])
+        self.assertEqual(went({"path": "kernel/state.py", "start_line": 11, "end_line": 11}), ["finding_elsewhere"])
         # Every place a case gives must be readable, whichever it is; one given without lines is the whole file.
         for lines in ({"end_line": 9}, {"start_line": 9, "end_line": 2}):
             for at in (0, 1):
