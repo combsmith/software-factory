@@ -570,7 +570,10 @@ def _held(text: str) -> str:
                 braces = _balanced(text, i + 2, "}")
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
-                i = len(text) if end < 0 else end
+                end = len(text) if end < 0 else end
+                if ticked and 0 <= text.find("`", i, end):
+                    end = text.find("`", i, end)    # a comment in a backtick ends where it does (the Claude review)
+                i = end
                 continue
             if i < braces and (c in PUNCTUATION or c == "`" or text.startswith("$(", i)):
                 # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs: ${x:-`cmd`}.
