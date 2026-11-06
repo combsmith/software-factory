@@ -1041,8 +1041,8 @@ class Head(unittest.TestCase):
         return head.unpack(data, sha, into), into
 
     def folder(self) -> str:
-        """A new folder, removed when the test ends."""
-        d = tempfile.mkdtemp()
+        """A new folder, by its real path, as the read step names one; removed when the test ends."""
+        d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, d, True)
         return d
 
@@ -1233,13 +1233,13 @@ class Head(unittest.TestCase):
             with self.assertRaises(head.Refused, msg=where) as refused:
                 head.held(where, {"files": {}, "links": set()})
             self.assertIn("not a folder", str(refused.exception))
-        # A link to the head is refused however it is written, with a trailing slash or a dot segment too, through
-        # which islink would follow it; and so is a head named other than as itself: empty, or by a `.` or `..` segment,
-        # which names another folder than the one walked (issue 559, Argon's and Claude's reads).
+        # A head is named by its real path, as the read step names it: a link to it is refused however it is written,
+        # and so is the head itself named other than so, empty, relative, with a trailing slash, a doubled slash or a
+        # `.` or `..` segment (issue 559, Argon's, Claude's and Muse's reads).
         linked = os.path.join(self.folder(), "head")
         os.symlink(into, linked)
         for where in (linked, linked + "/", linked + "//", linked + "/.", "", into + "/", into + "/.",
-                      os.path.join(into, "p2", "..")):
+                      os.path.join(into, "p2", ".."), os.path.relpath(into), "/" + into, "." + into):
             with self.assertRaises(head.Refused, msg=where) as refused:
                 head.held(where, tree)
             self.assertIn("not a folder", str(refused.exception))

@@ -266,9 +266,9 @@ def held(into: str, tree_: dict) -> None:
     or holds one that cannot be listed. Refused at the first file that differs."""
     def unreadable(err):
         raise Refused("a folder of the head cannot be listed") from None
-    # The head is named as itself: not empty, with no trailing slash, through which islink would follow the link it
-    # names, and no `.` or `..` segment, which would name another folder than the one walked. Any path normpath changes.
-    if os.path.normpath(into) != into or os.path.islink(into) or not os.path.isdir(into):
+    # The head is named by its real path, as the read step names it: absolute, through no link and none itself, with no
+    # empty, `.` or `..` segment and no trailing slash, so the folder checked is the folder walked.
+    if os.path.realpath(into) != into or not os.path.isdir(into):
         raise Refused("the head is not a folder")
     found = {}
     for folder, folders, names in os.walk(into, onerror=unreadable):
