@@ -240,7 +240,8 @@ def tree(transport, repo: str, sha: str) -> dict:
         if not isinstance(path, str) or path in seen:
             raise Refused("an entry of the commit's tree has no path, or one named twice")
         seen.add(path)
-        if "\0" in path or "\\" in path or path.startswith("/") or any(part in ("", ".", "..") for part in path.split("/")):
+        # One that starts with a slash has an empty first segment, and is refused by it.
+        if "\0" in path or "\\" in path or any(part in ("", ".", "..") for part in path.split("/")):
             raise Refused("an entry of the commit's tree is absolute, climbs, or holds an empty or a dot segment")
         kind, mode = entry.get("type"), entry.get("mode")
         if kind == "tree" and mode == "040000":
@@ -265,7 +266,9 @@ def held(into: str, tree_: dict) -> None:
     or holds one that cannot be listed. Refused at the first file that differs."""
     def unreadable(err):
         raise Refused("a folder of the head cannot be listed") from None
-    if os.path.islink(into) or not os.path.isdir(into):
+    # The head is named by its real path, as the read step names it: absolute, through no link and none itself, with no
+    # empty, `.` or `..` segment and no trailing slash, so the folder checked is the folder walked.
+    if os.path.realpath(into) != into or not os.path.isdir(into):
         raise Refused("the head is not a folder")
     found = {}
     for folder, folders, names in os.walk(into, onerror=unreadable):

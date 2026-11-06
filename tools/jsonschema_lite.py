@@ -11,7 +11,7 @@ import re
 ANNOTATIONS = {"$schema", "$id", "title", "description", "$defs", "$comment"}
 KEYWORDS = {
     "type", "properties", "required", "additionalProperties", "items", "enum", "const",
-    "minimum", "maximum", "minLength", "minItems", "uniqueItems", "pattern", "$ref",
+    "minimum", "maximum", "minLength", "minItems", "maxItems", "uniqueItems", "pattern", "$ref",
 }
 TYPES = {
     "object": dict, "array": list, "string": str, "boolean": bool,
@@ -100,6 +100,8 @@ def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: d
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
             errors.append("%s: fewer than %d items" % (path, schema["minItems"]))
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            errors.append("%s: more than %d items" % (path, schema["maxItems"]))
         if schema.get("uniqueItems") is True and len({json.dumps(item, sort_keys=True) for item in value}) < len(value):
             errors.append("%s: an item is given twice" % path)
         if "items" in schema:
