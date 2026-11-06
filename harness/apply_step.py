@@ -129,6 +129,7 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
         told = {"kernel": dict(config["kernel"], lifecycle=config["lifecycles"]["pull_request"]),
                 "rubric": steps.read_json(steps.ROOT, os.path.join("config", "rubric-%s.json" % parts["role"])),
                 "authority": steps.read_json(steps.ROOT, os.path.join("config", "authority.json")),
+                "advisory": steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))["advisory"],
                 "github_run": environ.get("GITHUB_RUN_ID"), "app": config["app"], "needs": config["needs"],
                 # The bound the Task's diff was cut at, so that it is built again as the Run was given it (issue 327).
                 "max_diff_characters": config["kernel"]["limits"]["max_diff_characters"]}

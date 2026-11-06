@@ -197,6 +197,7 @@ ROLE = json.loads((ROOT / "examples" / "role.owner.json").read_text())
 RUBRIC = json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())
 AUTHORITY = json.loads((ROOT / "config" / "authority.json").read_text())
 RESULT = json.loads((ROOT / "examples" / "result.json").read_text())
+ADVISORY = json.loads((ROOT / "config" / "harness.json").read_text())["advisory"]
 
 
 def part(name: str, *hunks, before=None) -> str:
@@ -244,16 +245,34 @@ def result(**over) -> dict:
     return r
 
 
+# The advisory reviewer's thread the example Result's first Finding adopts.
+ADOPTED = support.thread("PRRT_kw1", name="coderabbit", can_write=False, severity=None, category=None)
+
+
+def the_facts(**over) -> dict:
+    """support's facts of a change that holds the files the example Result's Findings name, with the advisory
+    reviewer's thread its first Finding adopts among the threads."""
+    over.setdefault("changed_paths", [support.changed(f["location"]["path"]) for f in RESULT["findings"]])
+    over["threads"] = [ADOPTED] + over.get("threads", [])
+    return support.facts(**over)
+
+
 def runs(status="in_progress") -> list:
     """The run records read again: this Run's own, still in progress, which the Kernel is asked without."""
     return [support.run(name=RUN, status=status, at="2026-10-11T12:58:00Z")]
 
 
+def covering(facts: dict) -> dict:
+    """A Task's diff whose hunks hold lines 1 to 500 of each file the facts say the change holds."""
+    return diff(*(part("b/" + c["path"], (1, ["+x"] * 500)) for c in facts.get("changed_paths") or ()))
+
+
 def refused(task=None, res=None, facts=None, records=None, context=None, rubric=RUBRIC, role=ROLE, github_run=4242):
-    return apply.refusal(task or the_task(), res or result(), facts or support.facts(),
+    facts = facts or the_facts()
+    return apply.refusal(task or the_task(texts=[covering(facts)]), res or result(), facts,
                          runs() if records is None else records,
                          support.context(active_runs=1) if context is None else context, support.CONFIG, NOW, role,
-                         rubric, AUTHORITY, github_run)
+                         rubric, AUTHORITY, ADVISORY, github_run)
 
 
 def read_back(task, res, **over) -> list:
@@ -310,12 +329,12 @@ class Apply(unittest.TestCase):
     def test_a_change_under_the_run_writes_nothing_and_is_superseded(self):  # ruling 5, I-21, I-38
         hold = support.labelled("factory:hold")
         other = support.run(name="r_01JA7Z", status="in_progress", at="2026-10-11T12:59:00Z")
-        for over, code in (({"facts": support.facts(state="closed")}, "item_closed"),
-                           ({"facts": support.facts(state="merged")}, "item_closed"),
-                           ({"facts": support.facts(content_id="sha256:bbbb")}, "content_moved"),
+        for over, code in (({"facts": the_facts(state="closed")}, "item_closed"),
+                           ({"facts": the_facts(state="merged")}, "item_closed"),
+                           ({"facts": the_facts(content_id="sha256:bbbb")}, "content_moved"),
                            ({"context": support.context(paused=True, active_runs=1)}, "paused"),
                            ({"context": support.context(paused=None, active_runs=1)}, "pause_unreadable"),
-                           ({"facts": support.facts(label_events=[hold])}, "item_held"),
+                           ({"facts": the_facts(label_events=[hold])}, "item_held"),
                            ({"records": runs() + [other]}, "not_admitted"),
                            ({"task": the_task(intent="adjudicate-findings")}, "not_admitted"),
                            ({"task": the_task(role="dev-lead")}, "not_admitted")):
@@ -396,7 +415,9 @@ class Apply(unittest.TestCase):
             if end is not None:
                 where["end_line"] = end
             task = the_task(texts=[diff(*parts)] if texts is None else texts)
-            return refused(task=task, res=res)
+            # On a path the change holds (decision 0145), so that only its lines are judged here.
+            return refused(task=task, res=res, facts=the_facts(changed_paths=[
+                support.changed(path), support.changed("tests/test_decide.py")]))
         whole = decide((86, [" a"] * 4 + ["-b", "+c"] + [" d"] * 6))
         # Lines 86 to 96 of the head's file: a removed line is none of them.
         for start, end in ((86, 96), (86, None), (96, None), (88, 94)):
@@ -459,7 +480,7 @@ class Apply(unittest.TestCase):
             self.assertIsNone(placed(1, None, name, part(written, (1, ["+a"])), tests), written)
         for written, name in (("b/with space\t", "with space\t"), ('"b/k\\303\\251.py"', "k\u00c3\u00a9.py"),
                               ('"b/q\\"t\\tx"', "q\"ttx"), ('"b/\\377.py"', "\ufffd.py"), ("a/x.py", "x.py"),
-                              ("x.py", "x.py"), ("b/", "")):
+                              ("x.py", "x.py")):
             self.assertEqual(placed(1, None, name, part(written, (1, ["+a"])), tests), ("item", "finding_not_in_hunk"),
                              (written, name))
 
@@ -467,7 +488,7 @@ class Apply(unittest.TestCase):
         short = result(coverage=result()["coverage"][1:])
         self.assertEqual(refused(res=short), ("item", "uncovered"))
         self.assertEqual(refused(rubric={"criteria": []}), ("environment", "coverage_unreadable"))
-        self.assertEqual(refused(facts=support.facts(changed_paths=None)), ("superseded", "not_admitted"))
+        self.assertEqual(refused(facts=the_facts(changed_paths=None)), ("superseded", "not_admitted"))
         self.assertIsNone(refused(res=short, rubric=None))      # an Intent that does not review has no rubric
         # A Finding that cites a criterion has the rubric's severity (section 3.14, issue 373). n1 cites PR-3, `major`
         # in the rubric: graded `minor` and posted as an annotation, it would pass the gate as a success. Refused.
@@ -533,10 +554,84 @@ class Apply(unittest.TestCase):
         self.assertEqual(record["findings"], [])
         self.assertEqual(apply.outcome(the_task(), record, ("item", "finding_gates"))["outcome"], "item")
 
+    def test_a_finding_names_a_place_in_the_change_and_is_adopted_only_from_an_advisory_thread_on_it(self):  # 0145
+        # A Finding names a place in the change: a place outside it, or a surface the facts cannot show on this item,
+        # is no Finding of this review. The place is a path the change holds on its head's side, as the facts name it.
+        base = result()
+        n1, n2 = base["findings"]
+        self.assertIsNone(refused(res=base))
+        moved = the_facts(changed_paths=[support.changed("kernel/decide.py"),
+                                         support.changed("tests/test_decided.py", previous="tests/test_decide.py")])
+        gone = the_facts(changed_paths=[support.changed("kernel/decide.py"), support.changed("tests/test_decide.py"),
+                                        support.changed("docs/gone.md")],
+                         diff={"files": 3, "lines": 40, "truncated": False, "characters": 1600})
+        at = lambda path: dict(n2, location=dict(n2["location"], path=path))
+        # A renamed file is named by its new name, never its old; a deleted file by the name the facts give it.
+        self.assertIsNone(refused(res=result(findings=[n1, at("tests/test_decided.py")]), facts=moved))
+        self.assertIsNone(refused(res=result(findings=[n1, at("docs/gone.md")]), facts=gone))
+        for path, facts in (("kernel/admission.py", None), ("tests/test_decide.py", moved), ("decide.py", None),
+                            ("kernel/decide.py/x", None), ("tests", None), ("/kernel/decide.py", None),
+                            ("tests/test_decide.py ", None), ("x" * 4096, None)):
+            self.assertEqual(refused(res=result(findings=[n1, at(path)]), facts=facts),
+                             ("item", "finding_not_on_change"), path[:40])
+        # An adopted Finding is held to the change as any other: its reviewer's thread on the item is no place.
+        self.assertEqual(refused(res=result(findings=[dict(n1, location=dict(n1["location"], path="kernel/admission.py")),
+                                                      n2])), ("item", "finding_not_on_change"))
+        self.assertEqual(refused(res=result(findings=[n1, n2]), facts=the_facts(changed_paths=[
+            support.changed("kernel/decide.py")], diff={"files": 1, "lines": 40, "truncated": False, "characters": 1600})),
+            ("item", "finding_not_on_change"))
+        # A Finding adopted is adopted from a reviewer the configuration names advisory, and from that reviewer's own
+        # thread on this item. Any other surface waits until the facts read it.
+        adopted = n1["adopted_from"]
+        self.assertEqual(adopted["lens"], ADVISORY[0])
+        surface = lambda **over: dict(n1, adopted_from=dict(adopted, surface=dict(adopted["surface"], **over)))
+        for lens in ("pr-review", "Coderabbit", "coderabbit-x", "muse"):
+            self.assertEqual(refused(res=result(findings=[dict(n1, adopted_from=dict(adopted, lens=lens)), n2])),
+                             ("item", "adopted_lens_not_advisory"), lens)
+        for kind in ("alert", "annotation", "check", "role"):
+            self.assertEqual(refused(res=result(findings=[surface(type=kind), n2])),
+                             ("item", "adopted_surface_not_on_item"), kind)
+        self.assertEqual(refused(res=result(findings=[surface(key="PRRT_kw2"), n2])),
+                         ("item", "adopted_surface_not_on_item"))
+        # A thread on this item that another opened is not the adopted reviewer's.
+        others = the_facts(threads=[support.thread("PRRT_kw3"),
+                                    support.thread("PRRT_kw4", kind="human", name="coderabbit"),
+                                    support.thread("PRRT_kw5", kind="app", name="coderabbit", can_write=False),
+                                    support.thread("PRRT_kw6", name="another-lens", can_write=False)])
+        for key in ("PRRT_kw3", "PRRT_kw4", "PRRT_kw5", "PRRT_kw6"):
+            self.assertEqual(refused(res=result(findings=[surface(key=key), n2]), facts=others),
+                             ("item", "adopted_surface_not_on_item"), key)
+        self.assertEqual(refused(res=base, facts=support.facts(changed_paths=the_facts()["changed_paths"])),
+                         ("item", "adopted_surface_not_on_item"))
+        # Nor is any reviewer advisory that the configuration does not name.
+        self.assertEqual(apply.refusal(the_task(), base, the_facts(), runs(), support.context(active_runs=1),
+                                       support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY, [], 4242),
+                         ("item", "adopted_lens_not_advisory"))
+        # Without an adoption, a Finding needs no thread.
+        plain = {k: v for k, v in n1.items() if k != "adopted_from"}
+        self.assertIsNone(refused(res=result(findings=[plain, n2]),
+                                  facts=support.facts(changed_paths=the_facts()["changed_paths"])))
+        # A path is of at most 4096 characters, however long a one the facts hold.
+        long_ = lambda n: the_facts(changed_paths=[support.changed("kernel/decide.py"), support.changed("p" * n)])
+        self.assertIsNone(refused(res=result(findings=[n1, at("p" * 4096)]), facts=long_(4096)))
+        self.assertEqual(refused(res=result(findings=[n1, at("p" * 4097)]), facts=long_(4097)),
+                         ("item", "finding_not_on_change"))
+        # result/1 bounds a line to nine digits, a reviewer's name and its surface's key to 64.
+        line = lambda **over: dict(n2, location=dict(n2["location"], **over))
+        for finding, ok in ((line(start_line=999999999, end_line=999999999), True),
+                            (line(start_line=1000000000), False),
+                            (line(end_line=1000000000), False),
+                            (dict(n1, adopted_from=dict(adopted, lens="c" * 64)), True),
+                            (dict(n1, adopted_from=dict(adopted, lens="c" * 65)), False),
+                            (surface(key="K" * 64), True), (surface(key="K" * 65), False)):
+            errors = shared.errors(result(findings=[n1, finding] if finding["ref"] == "n2" else [finding, n2]),
+                                   "result")
+            self.assertEqual(errors == [], ok, (ok, errors))
+
     def test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make(self):  # section 3.8
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
                    support.thread("PRRT_kw9", kind="human", name="don-petry")]
-        facts = support.facts(threads=threads)
+        facts = the_facts(threads=threads)
         fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
         task = the_task(permitted_effects=["submit_review", "create_check_run"],
                         findings=sorted([fid("PRRT_kw7"), fid("PRRT_kw8"), fid("PRRT_kw9", "don-petry")]))
@@ -598,7 +693,7 @@ class Apply(unittest.TestCase):
         # The owner's decisions are recorded in applied/1 as its rulings, each on the thread its Finding is on, which
         # the Kernel resolves the thread on, through the queue App. A refused Result rules on nothing.
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw6", severity="minor")]
-        facts = support.facts(threads=threads)
+        facts = the_facts(threads=threads)
         fid = lambda key: apply.finding_id("pr-review", {"type": "thread", "key": key})
         res = result(dispositions=[{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}},
                                    {"finding": fid("PRRT_kw6"), "decision": {"result": "rejected"}}])
@@ -1050,7 +1145,7 @@ class Opened(unittest.TestCase):
 
 
 class Job(unittest.TestCase):
-    CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "github_run": 4242,
+    CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "advisory": ADVISORY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"], "max_diff_characters": 60000}
 
     def test_the_tasks_diff_is_built_again_from_the_diff_read_again(self):  # issue 567
@@ -1107,7 +1202,7 @@ class Job(unittest.TestCase):
         given = facts
 
         def read():
-            facts = support.facts(state="closed") if refusing else given or support.facts()
+            facts = the_facts(state="closed") if refusing else given or the_facts()
             return (facts, HEAD, runs() if records is None else records,
                     support.context(active_runs=1) if context is None else context, diff)
 
@@ -1152,7 +1247,7 @@ class Job(unittest.TestCase):
         # The owner's ruling Run on the author's answer: its decision is recorded in applied/1, as the ruling the Kernel
         # resolves the thread on, whether it writes nothing or a comment beside it.
         fid = apply.finding_id("pr-review", {"type": "thread", "key": "PRRT_kw7"})
-        facts = support.facts(threads=[support.thread("PRRT_kw7")])
+        facts = the_facts(threads=[support.thread("PRRT_kw7")])
         records = [support.run(name="r_0REV1EW", at="2026-10-11T12:10:00Z"),
                    support.run(role=support.CONFIG["author_role"], intent="fix-findings", name="r_0F1X01",
                                at="2026-10-11T12:20:00Z"),
@@ -1189,7 +1284,7 @@ class Job(unittest.TestCase):
         entry["decision"]["admit"] = {"role": "pr-review", "intent": "review-change", "content_id": RAW_ID}
         admitted = apply.admitted(record, RUN, ROLE, [])
         self.assertNotIn("texts", admitted)
-        facts = support.facts(content_id=RAW_ID)
+        facts = the_facts(content_id=RAW_ID)
         record, ended, calls = self.go(result(), task=admitted, facts=facts)
         self.assertEqual([kind for _, kind, _ in calls["written"]], ["submit_review", "create_check_run"], ended)
         # Off every hunk of the diff read again, a Finding is refused there too.
@@ -1255,7 +1350,7 @@ class Job(unittest.TestCase):
                                              for c in result()["coverage"]],
                       effects={"comment": [{"id": "e1", "on": "PRRT_kw7", "body": "a"}, {"id": "e2", "on": "item", "body": "b"},
                                            {"id": "e3", "on": "item", "body": "c"}]})
-        facts_threads = support.facts(threads=[support.thread("PRRT_kw7")])
+        facts_threads = the_facts(threads=[support.thread("PRRT_kw7")])
         cases = ((runs(), support.context(active_runs=1), "2026-10-11T12:58:00Z"),
                  ([], support.context(active_runs=0, unidentified_runs=[
                      {"run": "4242", "created_at": "2026-10-11T12:57:00Z", "status": "in_progress"}]), "2026-10-11T12:57:00Z"))
@@ -1264,30 +1359,19 @@ class Job(unittest.TestCase):
             def note(kind, req):
                 got.append(req)
                 return {"state": "applied", "key": "IC_%d" % len(got), "surfaces": {}}
-            orig = support.facts
-            support.facts = lambda **over: orig(**dict({"threads": facts_threads["threads"]}, **over))
-            try:
-                record, ended, calls = self.go(said, write=note, task=talk, records=records, context=context)
-            finally:
-                support.facts = orig
+            record, ended, calls = self.go(said, write=note, task=talk, records=records, context=context,
+                                           facts=facts_threads)
             self.assertEqual([(r["on"], r["index"], r["since"]) for r in got],
                              [("PRRT_kw7", 0, since), ("item", 0, since), ("item", 1, since)], since)
         # A comment on the item whose Run's start was not read mints nothing and writes nothing (Codex's read).
-        support.facts = lambda **over: orig(**dict({"threads": facts_threads["threads"]}, **over))
-        try:
-            record, ended, calls = self.go(said, task=talk, records=[], context=support.context(active_runs=0))
-        finally:
-            support.facts = orig
+        record, ended, calls = self.go(said, task=talk, records=[], context=support.context(active_runs=0),
+                                       facts=facts_threads)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "run_start_unread", []))
         self.assertEqual({e["state"] for e in record["effects"]}, {"refused"})
         def first_fails(kind, req):
             return {"state": "failed", "reason": "write_refused"} if req["on"] == "item" else \
                 {"state": "failed", "reason": "not_built"}
-        support.facts = lambda **over: orig(**dict({"threads": facts_threads["threads"]}, **over))
-        try:
-            record, ended, calls = self.go(said, write=first_fails, task=talk)
-        finally:
-            support.facts = orig
+        record, ended, calls = self.go(said, write=first_fails, task=talk, facts=facts_threads)
         self.assertEqual([(e["id"], e["reason"]) for e in record["effects"]],
                          [("e1", "not_built"), ("e2", "write_refused"), ("e3", "earlier_comment_unwritten")])
         self.assertEqual(len(calls["written"]), 2)

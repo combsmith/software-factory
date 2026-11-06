@@ -784,6 +784,9 @@ There is no Effect that starts a Run. Only Admission does that.
   any other category, is reported as an annotation on its Lens's check run (`surface.type`
   `annotation`), never as a thread, and has no Disposition (§4.3). The Harness refuses a Result
   that posts one on a thread.
+- A Finding names a place in the change: `apply` refuses one whose path is not a file the change
+  holds on its head's side, and one adopted from a reviewer the configuration does not name
+  advisory, or from a surface other than that reviewer's thread on this item (decision 0145).
 - A Role raises a Finding in its Result as `{ref, location, category, severity, criterion, adopted_from}`,
   with `ref` local to that Result, `n1`, `n2` and so on, and no `id`, `source`, `surface` or
   `content_id`: its surface does not exist until `apply` posts it, and the rest is the Task's. The
