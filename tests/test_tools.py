@@ -5847,6 +5847,7 @@ exit 0
     def test_a_stop_while_an_answer_cut_inside_a_character_is_read_still_revokes_its_token(self):
         # Issue 502 (Argon): the same stop, with the answer cut inside a multibyte character and read where python
         # decodes stdin strictly. The trap finds the token all the same.
+        ReachScript.assertStrict(self)
         folder = self.stand_in()
         (folder / "mint.body").write_bytes(ReachScript.CUT.replace("TOKEN", self.TOKEN).encode()[:-1])
         real = os.path.realpath(sys.executable)
@@ -6174,6 +6175,11 @@ fi
                 self.assertIn("holds ..", told)
                 self.assertFalse((folder / "unsafe" / "new").exists(), "a directory was made")
                 self.assertFalse((folder / "ghost").exists(), "a directory was made")
+                # A newline in OUT, which would have the parents read short of where it names (the Claude review).
+                code, told = self.run_out(script, folder, folder / "n1\nn2" / "deep" / "out")
+                self.assertEqual(code, 2, told)
+                self.assertIn("OUT holds a newline", told)
+                self.assertEqual(sorted(p.name for p in folder.iterdir() if p.name.startswith("n1")), [], "a directory was made")
                 was = os.umask(0o002)
                 try:
                     code, told = self.run_out(script, folder, folder / "new" / "made" / "out")
@@ -6291,8 +6297,15 @@ data = sys.stdin.buffer.read()
 sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else "signature")
 '''
     MINTED = '{"token": "TOKEN", "expires_at": "2026-10-29T23:00:00Z", "permissions": {"metadata": "read"}}'
-    # A locale whose python reads stdin as UTF-8, strictly: under C, python reads it with surrogateescape (PEP 540).
-    UTF8 = "en_US.UTF-8" if sys.platform == "darwin" else "C.UTF-8"
+    # A locale whose python reads stdin as UTF-8, strictly. Under C, and under C.UTF-8 too, python reads it with
+    # surrogateescape (PEP 538, PEP 540), and a cut character raises nothing (the Claude review).
+    UTF8 = "en_US.UTF-8"
+
+    def assertStrict(self):
+        """python3 reads stdin strictly under UTF8 here, or a test of a cut character would pass with or without its fix."""
+        said = subprocess.run(["python3", "-I", "-c", "import sys; print(sys.stdin.errors)"], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], "LANG": ReachScript.UTF8})
+        self.assertEqual(said.stdout.strip(), "strict", "python3 does not read stdin strictly under %s here" % ReachScript.UTF8)
     # A 201 answer cut inside a character, after its token: the stand-in curl drops the last byte of the é.
     CUT = '{"token": "TOKEN", "expires_at": "2026-10", "note": "café'
 
@@ -6421,6 +6434,7 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
     def test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token(self):
         # Issue 502 (Argon): a 201 answer cut inside a multibyte character, read where python decodes stdin strictly.
         # Its token is found all the same and revoked, in every script that mints with curl; P-4 is in NarrowedToken.
+        self.assertStrict()
         for name, args in OutputMadeAlone.SCRIPTS.items():
             if name == "trial_p4_narrow.sh":
                 continue
