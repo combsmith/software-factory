@@ -1906,7 +1906,7 @@ class Repo(unittest.TestCase):
         self.assertEqual(said, {"claude-" * 64000 + "5"})
         # Nor a run of brackets that never close, after a run that names a model or one that names none (the Claude read
         # of 68f9468).
-        for near, want in (("x[y ", set()), ("a[", set()), ("claude-" + "5[", {"claude-" + "5"})):
+        for near, want in (("x[y ", set()), ("a[", set()), ("claude-" + "5[", {"claude-" + "5["})):
             said = support.linear(self, lambda n: check_repo.models_named(near * n), 64000, 0.5, near)
             self.assertEqual(said, want, near)
 
@@ -1925,10 +1925,15 @@ class Repo(unittest.TestCase):
         name, other = "claude-" + "opus-5-5", "gpt-" + "5"
         for text, want in (("usage['%s']" % name, {name}), ("x[%s]" % name, {name}), ("a.b[%s]" % other, {other}),
                            ("%s[1m] y" % name, {name + "[1m]"}), ("x[1m] %s" % name, {name}),
-                           ("%s[a[b]" % name, {name})):
+                           ("%s[a[b]" % name, {name + "["}), ("%s[[1m]]" % name, {name + "["})):
             self.assertEqual(check_repo.models_named(text), want, text)
         self.assertIn("harness/x.py: names a model by its full id",
                       check_repo.run(tree({"harness/x.py": "X = usage['%s']\n" % name})))
+        # A copy of the pin with a bracket that never closes, or holds another, is not the pin.
+        for joined in (name + "[[1m]]", name + "[a[1m]", name + "["):
+            listed = check_repo.run(tree({"config/harness.json": '{"engine": {"model": "%s"}}' % name,
+                                          "examples/invalid/harness.a-copy.json": '{"engine": {"model": "%s"}}' % joined}))
+            self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", listed, joined)
 
     def test_an_edited_secrets_baseline_is_caught(self):
         whole = (ROOT / ".gitignore").read_text()

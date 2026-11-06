@@ -169,7 +169,9 @@ def models_named(text: str) -> set:
     for m in RUN.finditer(text):
         if names_a_model(m.group(0)):
             suffix = BRACKET.match(text, m.end())
-            named.add(m.group(0) + (suffix.group(0) if suffix else ""))
+            # A `[` that opens no whole suffix is still joined to the name, so the pin with it is never the pin.
+            opened = "[" if suffix is None and text.startswith("[", m.end()) else ""
+            named.add(m.group(0) + (suffix.group(0) if suffix else opened))
     return named
 
 
