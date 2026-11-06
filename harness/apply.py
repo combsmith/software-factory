@@ -8,9 +8,9 @@ under the Run (`superseded`); then the Result: not this Run's or this Release's,
 give (decision NNNN), not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
-the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
-than that reviewer's thread on this item (decision 0145), or on lines no hunk of its file holds on the head's side
-(decision NNNN); a Disposition that gives neither half or both, or the half this Run's Role may not make; a `security`
+the change does not hold (decision 0145), on lines no hunk of its file holds on the head's side (decision NNNN), or
+adopted from a reviewer the configuration does not name advisory or from a surface other than that reviewer's thread on
+this item (decision 0145); a Disposition that gives neither half or both, or the half this Run's Role may not make; a `security`
 Finding accepted before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).

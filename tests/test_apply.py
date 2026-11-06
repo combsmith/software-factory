@@ -569,6 +569,12 @@ class Apply(unittest.TestCase):
         # A renamed file is named by its new name, never its old; a deleted file by the name the facts give it.
         self.assertIsNone(refused(res=result(findings=[n1, at("tests/test_decided.py")]), facts=moved))
         self.assertIsNone(refused(res=result(findings=[n1, at("docs/gone.md")]), facts=gone))
+        # Though a deleted file is on the change, it holds no line at the head, so no Finding sits on it (decision NNNN).
+        deletion = the_task(texts=[diff(part("b/kernel/decide.py", (1, ["+x"] * 500)),
+                                        part("b/tests/test_decide.py", (1, ["+x"] * 500)),
+                                        part("/dev/null", (1, ["-x"] * 3), before="a/docs/gone.md"))])
+        self.assertEqual(refused(task=deletion, res=result(findings=[n1, at("docs/gone.md")]), facts=gone),
+                         ("item", "finding_not_in_hunk"))
         for path, facts in (("kernel/admission.py", None), ("tests/test_decide.py", moved), ("decide.py", None),
                             ("kernel/decide.py/x", None), ("tests", None), ("/kernel/decide.py", None),
                             ("tests/test_decide.py ", None), ("x" * 4096, None)):
