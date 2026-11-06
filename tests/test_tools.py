@@ -1904,16 +1904,31 @@ class Repo(unittest.TestCase):
             self.assertEqual(said, set(), near)
         said = support.linear(self, lambda n: check_repo.models_named("claude-" * n + "5"), 64000, 0.5)
         self.assertEqual(said, {"claude-" * 64000 + "5"})
+        # Nor a run of brackets that never close, after a run that names a model or one that names none (the Claude read
+        # of 68f9468).
+        for near, want in (("x[y ", set()), ("a[", set()), ("claude-" + "5[", {"claude-" + "5"})):
+            said = support.linear(self, lambda n: check_repo.models_named(near * n), 64000, 0.5, near)
+            self.assertEqual(said, want, near)
 
     def test_a_run_names_a_model_exactly_as_the_models_pattern_reads_one(self):  # issue 576
         # The scan reads a run with string operations, and must read it as MODEL_ID does: a name of each form, joined to
         # anything on either side, and none where a part of one is all there is.
-        parts = ("claude-", "opus", "-", "5", ".", "x", "X", "_", "@", ":", "/", "gpt-", "gemini-", "4", "o", "claude")
+        parts = ("claude-", "opus", "-", "5", ".", "x", "X", "_", "@", ":", "/", "gpt-", "gemini-", "4", "o", "claude",
+                 "\u0665", "\uff15")
         runs = {""}
         for _ in range(4):
             runs |= {r + p for r in runs for p in parts}
         for run in sorted(runs - {""}):
             self.assertEqual(check_repo.names_a_model(run), bool(check_repo.MODEL_ID.search(run)), run)
+        # A model in brackets is read as any other, whatever the run before them; a suffix in brackets is the model's
+        # only when it is joined to one (the Claude read of 68f9468).
+        name, other = "claude-" + "opus-5-5", "gpt-" + "5"
+        for text, want in (("usage['%s']" % name, {name}), ("x[%s]" % name, {name}), ("a.b[%s]" % other, {other}),
+                           ("%s[1m] y" % name, {name + "[1m]"}), ("x[1m] %s" % name, {name}),
+                           ("%s[a[b]" % name, {name})):
+            self.assertEqual(check_repo.models_named(text), want, text)
+        self.assertIn("harness/x.py: names a model by its full id",
+                      check_repo.run(tree({"harness/x.py": "X = usage['%s']\n" % name})))
 
     def test_an_edited_secrets_baseline_is_caught(self):
         whole = (ROOT / ".gitignore").read_text()

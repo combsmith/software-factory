@@ -136,7 +136,11 @@ MODEL_ID = re.compile(r"claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*")
 # so that the pinned id with `[1m]`, `-latest` or a prefix, letters among them, is not the pin (Muse's and Argon's
 # reads). Each run is found once and tested with string operations, never by a pattern that can begin again inside it,
 # so no run, of whatever characters, is read more than once (issue 576).
-RUN = re.compile(r"(?<![\w.@:/-])([\w.@:/-]+)(?:\[[^\]\"]*\])?")
+RUN = re.compile(r"(?<![\w.@:/-])[\w.@:/-]+")
+# A suffix in brackets joined to a run that names a model. It holds no `[`, so no attempt to read one is begun again in
+# the text it has read, and a bracket after a run that names none is not read at all: what is inside it is read for a
+# model as any other text is (the Claude read of 68f9468).
+BRACKET = re.compile(r"\[[^\[\]\"]*\]")
 # Where a name of the Claude form can lie: a run of the characters `MODEL_ID` takes after `claude-`.
 CLAUDE_SPAN = re.compile(r"[a-z0-9.-]+")
 OTHER_MODEL = re.compile(r"gpt-\d|gemini-\d")
@@ -144,19 +148,29 @@ OTHER_MODEL = re.compile(r"gpt-\d|gemini-\d")
 
 def names_a_model(run: str) -> bool:
     """Whether `run` holds a model's name as `MODEL_ID` reads one, read once: `claude-` with a digit later in the same
-    span of `[a-z0-9.-]`, which the first `claude-` in the span begins, or `gpt-` or `gemini-` and a digit."""
+    span of `[a-z0-9.-]`, which the first `claude-` in the span begins, or just after the span, a digit of any script as
+    `\\d` reads one; or `gpt-` or `gemini-` and a digit."""
     if OTHER_MODEL.search(run):
         return True
     for span in CLAUDE_SPAN.finditer(run):
         at = span.group(0).find("claude-")
-        if at >= 0 and any(c.isdigit() for c in span.group(0)[at + len("claude-"):]):
+        if at < 0:
+            continue
+        if any(c.isdigit() for c in span.group(0)[at + len("claude-"):]):
+            return True
+        if span.end() < len(run) and run[span.end()].isdecimal():
             return True
     return False
 
 
 def models_named(text: str) -> set:
-    """Each run of `text` that names a model, with what is joined to it and any suffix in brackets."""
-    return {m.group(0) for m in RUN.finditer(text) if names_a_model(m.group(1))}
+    """Each run of `text` that names a model, with what is joined to it and any suffix in brackets joined to it."""
+    named = set()
+    for m in RUN.finditer(text):
+        if names_a_model(m.group(0)):
+            suffix = BRACKET.match(text, m.end())
+            named.add(m.group(0) + (suffix.group(0) if suffix else ""))
+    return named
 
 
 PIN = "config/harness.json"
