@@ -13,6 +13,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 from adapters import effects, github, identity
 from harness import apply, engine, shared
@@ -216,8 +217,12 @@ def diff(*parts) -> dict:
 
 
 # The example Result's Findings on lines of the change: kernel/decide.py's 86 to 96, tests/test_decide.py's 405 to 415.
-DIFF = diff(part("b/kernel/decide.py", (86, [" a"] * 4 + ["-b", "+c"] + [" d"] * 6)),
-            part("b/tests/test_decide.py", (405, ["+e"] * 11)))
+PARTS = (part("b/kernel/decide.py", (86, [" a"] * 4 + ["-b", "+c"] + [" d"] * 6)),
+         part("b/tests/test_decide.py", (405, ["+e"] * 11)))
+DIFF = diff(*PARTS)
+# The same diff's bytes as the item is read again, and their content id, for the Job, which builds the Task's diff again.
+RAW = "".join(PARTS).encode()
+RAW_ID = "sha256:" + hashlib.sha256(RAW).hexdigest()
 
 
 def the_task(**over) -> dict:
@@ -1036,17 +1041,41 @@ class Opened(unittest.TestCase):
 
 class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "github_run": 4242,
-              "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
+              "app": APPS["apps"]["pr-review"], "needs": APPS["needs"], "max_diff_characters": 60000}
+
+    def test_the_tasks_diff_is_built_again_from_the_diff_read_again(self):  # issue 567
+        # The lines a Finding is held to are the diff's as the item is read again, cut as the Run's Task was.
+        record, ended, calls = self.go(result())
+        self.assertEqual([kind for _, kind, _ in calls["written"]], ["submit_review", "create_check_run"])
+        moved = lambda *parts: "".join(parts).encode()
+        for change in (moved(PARTS[0]), RAW + b"\n", b"", None):
+            record, ended, calls = self.go(result(), change=change)
+            self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("superseded", "content_moved", []),
+                             change)
+        # Cut where the Run's Task was cut: a file it left out holds no line, though the bytes hold it.
+        short = dict(self.CONFIG, max_diff_characters=len(task_.numbered(PARTS[0])) + 2)
+        record, ended, calls = self.go(result(), config=short)
+        self.assertEqual((ended["outcome"], ended["reason"]), ("item", "finding_not_in_hunk"))
 
     def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None,
-           revoked=True, config=None, facts=None):
+           revoked=True, config=None, facts=None, change=RAW):
         calls = {"mint": [], "revoke": 0, "written": []}
         given = facts
 
         def read():
             facts = support.facts(state="closed") if refusing else given or support.facts()
             return (facts, HEAD, runs() if records is None else records,
-                    support.context(active_runs=1) if context is None else context)
+                    support.context(active_runs=1) if context is None else context, change)
+        real = task_.diff_of
+
+        def diff_of(change, facts, admit, config):
+            # That the bytes hash to the content admitted is task.py's to check (tests/test_harness.py): here the
+            # content the tests admit, sha256:aaaa, is RAW's.
+            if admit["content_id"] == "sha256:aaaa":
+                if change != RAW:
+                    raise task_.Refused("not the content admitted")
+                admit = dict(admit, content_id=RAW_ID)
+            return real(change, facts, admit, config)
 
         def mint(wanted):
             calls["mint"].append(wanted)
@@ -1063,7 +1092,8 @@ class Job(unittest.TestCase):
                 return write(kind, req)
             surfaces = {c["finding"]: "PRRT_kw7" for c in req.get("comments", ())}
             return {"state": "applied", "key": "PRR_kwDOA7", "surfaces": surfaces}
-        record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, config or self.CONFIG, NOW)
+        with unittest.mock.patch.object(apply.task_, "diff_of", diff_of):
+            record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, config or self.CONFIG, NOW)
         self.assertEqual(shared.errors(record, "applied"), [])
         self.assertEqual(shared.errors(ended, "outcome"), [])
         return record, ended, calls

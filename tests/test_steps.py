@@ -564,6 +564,9 @@ class Apply(unittest.TestCase):
         (admit, result, config), = calls["job"]
         self.assertEqual((admit["run"], admit["content_id"], result), (RUN, CONTENT, None))
         self.assertEqual((config["github_run"], config["app"]["name"]), ("4242", "combsmith-sf-pr-review"))
+        # The Task's diff is built again cut at the Kernel's own bound, as the read step's Task was (issue 327).
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(config["max_diff_characters"], defaults["limits"]["max_diff_characters"])
         # A read token GitHub did not revoke ends the Run the Factory's; a mint refused ends it so too, nothing read.
         self.assertEqual(self.go(revoked=False)[2]["reason"], "token_not_revoked")
         code, _, ended, calls = self.go(mint_refuses="read_not_granted")
@@ -601,6 +604,28 @@ class Apply(unittest.TestCase):
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"], calls["revoked"]),
                          ("superseded", "no_decision", [], 1))
 
+    def test_apply_reads_the_diff_again_at_the_head_its_facts_were_read_at(self):  # issue 567
+        asked = []
+        first = {"head": {"sha": HEAD}}
+
+        def read_pull(transport, repo, number):
+            asked.append(("read", transport, repo, number))
+            return first
+
+        def change(transport, pull_, base_head):
+            asked.append(("change", transport, pull_, base_head))
+            return b"the diff"
+        with unittest.mock.patch.object(apply_step.pull, "read", read_pull), \
+                unittest.mock.patch.object(apply_step.pull, "base", lambda t, p: {"head": "b" * 40}), \
+                unittest.mock.patch.object(apply_step.pull, "change", change):
+            self.assertEqual(apply_step.change_at("t", HOME, 42, HEAD), b"the diff")
+            self.assertEqual(asked, [("read", "t", HOME, 42), ("change", "t", first, "b" * 40)])
+            # A pull request whose head is not the facts' has moved under the Run: its diff is not read.
+            del asked[:]
+            with self.assertRaises(apply_step.Moved):
+                apply_step.change_at("t", HOME, 42, "c" * 40)
+            self.assertEqual(asked, [("read", "t", HOME, 42)])
+
     def test_apply_writes_through_its_roles_allowlist_on_the_item_read_again(self):
         # The job's callbacks, as `apply` calls them: the item read again through the read token; a write token minted
         # from the key with what the Effects need; and each write held to the Role's allowlist on the admitted item.
@@ -618,14 +643,22 @@ class Apply(unittest.TestCase):
             seen["reread"].append((transport, number))
             return facts, HEAD, [], support.context()
 
+        def change_at(transport, repo, number, head):
+            seen["change"].append((transport, repo, number, head))
+            return b"the diff"
+        seen["change"] = []
+
         def role_write(transport, item_, kind, req, login):
             seen["role_write"].append((transport, item_, kind, login))
             return {"state": "applied", "key": "IC_x"}
         with unittest.mock.patch.object(reread, "item", item), \
+                unittest.mock.patch.object(apply_step, "change_at", change_at), \
                 unittest.mock.patch.object(effects, "role_write", role_write):
             code, printed, ended, calls = self.go(job=None, a_job=a_job)
         self.assertEqual((code, ended["outcome"]), (0, None), printed)
         self.assertEqual(seen["reread"], [("the read transport", 42)])
+        # The diff is read again through the read token, at the head the facts were read at (issue 567).
+        self.assertEqual(seen["change"], [("the read transport", HOME, 42, HEAD)])
         self.assertEqual([wanted for _, wanted in calls["minted"]][1], {"pull_requests": "write"})
         (transport, item_, kind, login), = seen["role_write"]
         self.assertIsInstance(transport, effects.Allowed)
