@@ -249,6 +249,13 @@ def _uncovered(value, root: pathlib.Path) -> list:
     return [] if said == "covered" else ["$: %s %s" % (said, ", ".join(ids) or "against what it is judged by")]
 
 
+def _reason_unsuited(result: dict) -> list:
+    """What no schema here can say of a Result, an example's or a counter-example's: a reason its status may not give,
+    which harness/engine.py refuses (decision 0146)."""
+    from harness import engine
+    return [] if engine.reason_given(result) else ["$.reason: not one its status may give"]
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
 
@@ -285,6 +292,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
+        errors = errors or (_reason_unsuited(value) if kind == "result" else [])
         for err in errors:
             problems.append("%s: %s" % (path.name, err))
     for path in sorted((root / "examples" / "invalid").glob("*.json")):
@@ -308,6 +316,8 @@ def run(root: pathlib.Path = ROOT) -> list:
             # An item that says other than its own exchanges is tools/check_release.py's to refuse.
             from tools import check_release
             errors = check_release.fixture_problems(value, "invalid/" + path.name)
+        if kind == "result" and not errors:
+            errors = _reason_unsuited(value)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:

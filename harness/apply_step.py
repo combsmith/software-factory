@@ -9,7 +9,8 @@ results as the workflow gives them, and unless both succeeded nothing is read wi
 is written, and the Run ends `environment`, `run_failed` or `verify_failed`. Otherwise, with the pr-review App's key,
 `PR_REVIEW_APP_KEY`, it mints a token of reads alone for the home repo, finds the pass record by PASS, holds the Result
 to the Decision of the Run the run-name names and to the digest `run` reported, `RUN_DIGEST`, and hands `apply` the
-item read again through that token (`harness/reread.py`) and a mint of the write token its Effects need. Both tokens are
+item read again through that token (`harness/reread.py`), with its diff read again at the head the facts were read at,
+and a mint of the write token its Effects need. Both tokens are
 revoked before the step ends. OUT holds `applied.json` and `outcome.json`, which the job's last step uploads."""
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import os
 import sys
 import time
 
-from adapters import effects, identity, passes
+from adapters import effects, identity, passes, pull
 from adapters.facts import Moved
 from adapters.github import Live, Unanswered
 from controller import configuration
@@ -32,6 +33,16 @@ KEY = "PR_REVIEW_APP_KEY"
 def _ended(run: str, release: str, why: tuple) -> tuple:
     return ({"schema": "applied/1", "run": run, "release": release, "effects": [], "findings": [], "rulings": []},
             {"schema": "outcome/1", "run": run, "release": release, "outcome": why[0], "reason": why[1]})
+
+
+def change_at(transport, repo: str, number: int, head: str) -> bytes:
+    """The bytes of pull request `number`'s diff, read again as the read step reads them, at `head`, the commit its facts
+    were read at, or Moved: `apply` builds the Task's diff again from them, and holds a posted Finding to its lines
+    (decision 0146)."""
+    first = pull.read(transport, repo, number)
+    if str(first["head"]["sha"]) != head:
+        raise Moved("the pull request moved between its facts and its diff")
+    return pull.change(transport, first, pull.base(transport, first)["head"])
 
 
 def needs_met(needs) -> tuple:
@@ -101,7 +112,10 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
         held = {}
 
         def read():
-            held["item"] = reread.item(reading, config, parts["item"]["number"], utc(), utc)
+            facts, head, runs, context = reread.item(reading, config, parts["item"]["number"], utc(), utc)
+            # The diff is read when `apply` asks, once the facts tell no change under the Run (decision 0146).
+            diff = lambda: change_at(reading, config["controller"]["home"]["repo"], parts["item"]["number"], head)
+            held["item"] = (facts, head, runs, context, diff)
             return held["item"]
 
         def mint(wanted):
@@ -116,8 +130,9 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
                 "rubric": steps.read_json(steps.ROOT, os.path.join("config", "rubric-%s.json" % parts["role"])),
                 "authority": steps.read_json(steps.ROOT, os.path.join("config", "authority.json")),
                 "advisory": steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))["advisory"],
-                "github_run": environ.get("GITHUB_RUN_ID"),
-                "app": config["app"], "needs": config["needs"]}
+                "github_run": environ.get("GITHUB_RUN_ID"), "app": config["app"], "needs": config["needs"],
+                # The bound the Task's diff was cut at, so that it is built again as the Run was given it (issue 327).
+                "max_diff_characters": config["kernel"]["limits"]["max_diff_characters"]}
         if admit is not None:
             try:
                 done = apply.job(admit, result, read, write, mint, role, told, utc())

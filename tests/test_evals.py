@@ -126,7 +126,7 @@ class Scoring(unittest.TestCase):
                                                                      "reasons": ["location_unreadable"]}, lines)
         # A Result that did not complete is no review, whatever it raised.
         unfinished = copy.deepcopy(result)
-        unfinished["status"], unfinished["reason"] = "incomplete", "turns_exhausted"
+        unfinished["status"], unfinished["reason"] = "incomplete", "change_not_reviewed_whole"
         self.assertEqual(eval_result.score(case, unfinished)["reasons"], ["result_not_completed"])
 
     def test_a_finding_no_finding_cited_says_where_it_went(self):
@@ -1654,8 +1654,8 @@ class EvalJob(unittest.TestCase):
         # A healthy CLI's stderr stays out of a public log: only a failing one's is any use.
         self.assertNotIn("bubblewrap is required", said)
         # A model that refused or gave up has answered: that is the eval's matter, and the Engine is sound.
-        for status in ("incomplete", "refused"):
-            code, said = checked(Said(said=live.answer(live.judged(status=status, reason="too_large", findings=[], effects={}))))
+        for status, reason in (("incomplete", "change_not_reviewed_whole"), ("refused", "task_not_a_review")):
+            code, said = checked(Said(said=live.answer(live.judged(status=status, reason=reason, findings=[], effects={}))))
             self.assertEqual(code, 0, said)
             self.assertIn("status %s" % status, said)
         # A CLI that failed is red, and says the end of what it said, which names the cause, and no more of it.

@@ -13,9 +13,12 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 from adapters import effects, github, identity
-from harness import apply, shared
+from adapters.facts import Moved
+from harness import apply, engine, shared
+from harness import task as task_
 from tests import support
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -197,10 +200,38 @@ RESULT = json.loads((ROOT / "examples" / "result.json").read_text())
 ADVISORY = json.loads((ROOT / "config" / "harness.json").read_text())["advisory"]
 
 
+def part(name: str, *hunks, before=None) -> str:
+    """One file's part of a diff as git writes it, `name` as it follows `+++ `, each hunk `(first, rows)` on the head's
+    side, its rows as git writes them."""
+    head = ["diff --git a/x b/x\n", "--- %s\n" % (before or "a/x"), "+++ %s\n" % name]
+    for first, rows in hunks:
+        old = sum(r[:1] in " -" for r in rows)
+        new = sum(r[:1] in " +" for r in rows)
+        head.append("@@ -%d,%d +%d,%d @@\n" % (first, old, first, new))
+        head += [r + "\n" for r in rows]
+    return "".join(head)
+
+
+def diff(*parts) -> dict:
+    """The Task's diff, numbered as the model is given it (decision 0137)."""
+    return {"id": "diff:aaaa", "trust": "outside", "source": "a-person",
+            "body": "".join(task_.numbered(p) for p in parts)}
+
+
+# The example Result's Findings on lines of the change: kernel/decide.py's 86 to 96, tests/test_decide.py's 405 to 415.
+PARTS = (part("b/kernel/decide.py", (86, [" a"] * 4 + ["-b", "+c"] + [" d"] * 6)),
+         part("b/tests/test_decide.py", (405, ["+e"] * 11)))
+DIFF = diff(*PARTS)
+# The same diff's bytes as the item is read again, and their content id, for the Job, which builds the Task's diff again.
+RAW = "".join(PARTS).encode()
+RAW_ID = "sha256:" + hashlib.sha256(RAW).hexdigest()
+
+
 def the_task(**over) -> dict:
-    """The Task of Run RUN: the review Intent on the content the Kernel admits on support's facts."""
+    """The Task of Run RUN: the review Intent on the content the Kernel admits on support's facts, with a diff that
+    holds the example Result's Findings' lines."""
     t = {"schema": "task/1", "run": RUN, "release": RELEASE, "role": "pr-review", "intent": "review-change",
-         "item": dict(support.ITEM), "content_id": "sha256:aaaa", "findings": [], "texts": [],
+         "item": dict(support.ITEM), "content_id": "sha256:aaaa", "findings": [], "texts": [DIFF],
          "limits": {"turns": 8, "repair_turns": 1, "seconds": 600, "cost_ceiling_usd": 2.0}, "tier": "standard",
          "permitted_effects": ["submit_review", "create_check_run"], "result_schema": "result/1", "omitted": []}
     t.update(over)
@@ -231,8 +262,14 @@ def runs(status="in_progress") -> list:
     return [support.run(name=RUN, status=status, at="2026-10-11T12:58:00Z")]
 
 
+def covering(facts: dict) -> dict:
+    """A Task's diff whose hunks hold lines 1 to 500 of each file the facts say the change holds."""
+    return diff(*(part("b/" + c["path"], (1, ["+x"] * 500)) for c in facts.get("changed_paths") or ()))
+
+
 def refused(task=None, res=None, facts=None, records=None, context=None, rubric=RUBRIC, role=ROLE, github_run=4242):
-    return apply.refusal(task or the_task(), res or result(), facts or the_facts(),
+    facts = facts or the_facts()
+    return apply.refusal(task or the_task(texts=[covering(facts)]), res or result(), facts,
                          runs() if records is None else records,
                          support.context(active_runs=1) if context is None else context, support.CONFIG, NOW, role,
                          rubric, AUTHORITY, ADVISORY, github_run)
@@ -332,9 +369,120 @@ class Apply(unittest.TestCase):
                            # A timeout cannot tell a slow provider from a slow item (issue 433, until issue 314).
                            ({"status": "failed", "reason": "engine_timeout"}, ("environment", "engine_timeout")),
                            ({"status": "failed", "reason": "credential_missing"}, ("environment", "credential_missing")),
-                           ({"status": "incomplete", "reason": "turns_spent"}, ("item", "turns_spent")),
+                           ({"status": "incomplete", "reason": "change_not_reviewed_whole"},
+                            ("item", "change_not_reviewed_whole")),
                            ({"status": "refused", "reason": None}, ("item", "refused"))):
             self.assertEqual(refused(res=result(**over)), want, over)
+
+    def test_a_reason_is_one_of_the_engines_codes_and_one_its_status_may_give(self):  # issue 567
+        model = [(s, r) for s, rs in engine.MODEL_REASONS.items() for r in rs]
+        self.assertEqual(model, [("incomplete", "change_not_reviewed_whole"), ("refused", "task_not_a_review")])
+        for status, reason in model:
+            self.assertEqual(refused(res=result(status=status, reason=reason)), ("item", reason), reason)
+            self.assertEqual(refused(res=result(status=status, reason=None)), ("item", status), status)
+            # The model's code on a failed Result, or the Harness's on the model's status, is no reason it gives.
+            self.assertEqual(refused(res=result(status="failed", reason=reason)), ("item", "reason_not_the_status"))
+            for code in engine.HARNESS_REASONS:
+                self.assertEqual(refused(res=result(status=status, reason=code)), ("item", "reason_not_the_status"),
+                                 code)
+        other = [r for s, r in model if s != "incomplete"]
+        self.assertEqual(refused(res=result(status="incomplete", reason=other[0])), ("item", "reason_not_the_status"))
+        for code in engine.HARNESS_REASONS:
+            self.assertNotEqual(refused(res=result(status="failed", reason=code))[1], "reason_not_the_status", code)
+            self.assertEqual(refused(res=result(status="superseded", reason=code)), ("item", "reason_not_the_status"))
+        # A completed Result gives no reason, of anyone's: its Effects are not written.
+        for code in [r for _, r in model] + list(engine.HARNESS_REASONS):
+            self.assertEqual(refused(res=result(reason=code)), ("item", "reason_not_the_status"), code)
+        # result/1 holds a reason to these codes alone, or none, and the CLI is handed the model's alone.
+        schema = shared.SCHEMAS["result"]["properties"]["reason"]
+        self.assertEqual(schema["enum"], [None] + [r for _, r in model] + list(engine.HARNESS_REASONS))
+        for code in ("turns_spent", "no_rule_added", "", "Result_invalid", "result invalid"):
+            self.assertNotEqual(shared.errors(result(status="incomplete", reason=code), "result"), [], code)
+        for code in schema["enum"]:
+            self.assertEqual(shared.errors(result(status="failed", reason=code), "result"), [], code)
+        handed = engine.handed(the_task())["properties"]["reason"]
+        self.assertEqual(handed, {"type": ["string", "null"], "enum": [None] + [r for _, r in model]})
+
+    def test_a_findings_lines_are_on_one_hunk_of_its_file_on_the_heads_side(self):  # issue 567
+        decide = lambda *hunks, name="b/kernel/decide.py", before=None: part(name, *hunks, before=before)
+        tests = part("b/tests/test_decide.py", (405, ["+e"] * 11))
+
+        def placed(start, end=None, path="kernel/decide.py", *parts, texts=None):
+            res = result()
+            where = res["findings"][0]["location"]
+            where.update(path=path, start_line=start)
+            where.pop("end_line")
+            if end is not None:
+                where["end_line"] = end
+            task = the_task(texts=[diff(*parts)] if texts is None else texts)
+            # On a path the change holds (decision 0145), so that only its lines are judged here.
+            return refused(task=task, res=res, facts=the_facts(changed_paths=[
+                support.changed(path), support.changed("tests/test_decide.py")]))
+        whole = decide((86, [" a"] * 4 + ["-b", "+c"] + [" d"] * 6))
+        # Lines 86 to 96 of the head's file: a removed line is none of them.
+        for start, end in ((86, 96), (86, None), (96, None), (88, 94)):
+            self.assertIsNone(placed(start, end, "kernel/decide.py", whole, tests), (start, end))
+        for start, end in ((85, 96), (86, 97), (85, None), (97, None), (1, 1000)):
+            self.assertEqual(placed(start, end, "kernel/decide.py", whole, tests), ("item", "finding_not_in_hunk"),
+                             (start, end))
+        # Two hunks: a Finding is on one of them, never across the lines between.
+        two = decide((86, [" a"] * 5), (95, ["+b"] * 2))
+        for start, end in ((86, 90), (95, 96), (90, None)):
+            self.assertIsNone(placed(start, end, "kernel/decide.py", two, tests), (start, end))
+        for start, end in ((88, 95), (91, None), (94, None), (97, None)):
+            self.assertEqual(placed(start, end, "kernel/decide.py", two, tests), ("item", "finding_not_in_hunk"),
+                             (start, end))
+        # A hunk that only removes holds no line of the head's file, and a deleted file none.
+        self.assertEqual(placed(86, None, "kernel/decide.py", decide((86, ["-a"] * 3)), tests),
+                         ("item", "finding_not_in_hunk"))
+        self.assertEqual(placed(1, None, "kernel/decide.py", decide((1, ["-a"] * 3), name="/dev/null",
+                                                                  before="a/kernel/decide.py"), tests),
+                         ("item", "finding_not_in_hunk"))
+        # A file the Task's diff does not hold has no line of the change, and a Task with no diff has none.
+        self.assertEqual(placed(88, 94, "kernel/decide.py", tests), ("item", "finding_not_in_hunk"))
+        self.assertEqual(placed(88, 94, texts=[]), ("item", "finding_not_in_hunk"))
+        # The annotation is held as the review comment is.
+        self.assertEqual(placed(88, 94, "kernel/decide.py", whole, part("b/tests/test_decide.py", (411, ["+e"]))),
+                         ("item", "finding_not_in_hunk"))
+        # Only the Task's diff gives lines: another text's body, however it reads, gives none.
+        said = {"id": "comment:IC_1", "trust": "outside", "source": "a-person", "body": whole}
+        self.assertEqual(placed(88, 94, texts=[said, diff(tests)]), ("item", "finding_not_in_hunk"))
+        # A renamed file's lines are its new name's, at the head.
+        renamed = decide((86, [" a"] * 11), name="b/kernel/decided.py", before="a/kernel/decide.py")
+        self.assertIsNone(placed(88, 94, "kernel/decided.py", renamed, tests))
+        self.assertEqual(placed(88, 94, "kernel/decide.py", renamed, tests), ("item", "finding_not_in_hunk"))
+        # A line of the change that reads as a header or a file's name is a line, never either.
+        tricked = decide((86, [" a", "+@@ -1,1 +1,900 @@", "+++ b/elsewhere.py"] + [" d"] * 8))
+        self.assertIsNone(placed(88, None, "kernel/decide.py", tricked, tests))
+        for start, path in ((150, "kernel/decide.py"), (88, "elsewhere.py"), (1, "kernel/decide.py")):
+            self.assertEqual(placed(start, None, path, tricked, tests), ("item", "finding_not_in_hunk"), (start, path))
+        # A file's name is read once, before its first hunk, and never after it.
+        twice = "diff --git a/x b/x\n+++ b/first.py\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
+        deleted = "diff --git a/x b/x\n+++ /dev/null\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
+        unread = "diff --git a/x b/x\n+++ \"b/\\377.py\"\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
+        late = "diff --git a/x b/x\n@@ -1,0 +1,2 @@\n+a\n+b\n+++ b/kernel/decide.py\n"
+        self.assertIsNone(placed(1, 2, "first.py", twice, tests))
+        self.assertEqual(placed(1, 2, "kernel/decide.py", twice, tests), ("item", "finding_not_in_hunk"))
+        self.assertEqual(placed(1, 2, "kernel/decide.py", late, tests), ("item", "finding_not_in_hunk"))
+        # A deleted file's name, or one that cannot be read, is still its one name: no later line names it again.
+        self.assertEqual(placed(1, 2, "kernel/decide.py", deleted, tests), ("item", "finding_not_in_hunk"))
+        self.assertEqual(placed(1, 2, "kernel/decide.py", unread, tests), ("item", "finding_not_in_hunk"))
+        # A header as git writes one: a count of one left out, and the section's context after it.
+        written = ("diff --git a/x b/x\n+++ b/kernel/decide.py\n@@ -0,0 +1 @@\n+a\n"
+                   "@@ -10,3 +11 @@ def decide(facts):\n-x\n-y\n z\n")
+        for start, want in ((1, None), (11, None), (2, ("item", "finding_not_in_hunk")),
+                            (12, ("item", "finding_not_in_hunk"))):
+            self.assertEqual(placed(start, None, "kernel/decide.py", written, tests), want, start)
+        # A name as git writes it: one with a space ends with a tab; one git quotes, unescaped; one no UTF-8, none.
+        for written, name in (("b/with space\t", "with space"), ('"b/k\\303\\251.py"', "k\u00e9.py"),
+                              ('"b/q\\"t\\tx"', 'q"t\tx'), ('"b/a\\\\b"', "a\\b"),
+                              ('"b/sp caf\\303\\251.txt"\t', "sp caf\u00e9.txt")):
+            self.assertIsNone(placed(1, None, name, part(written, (1, ["+a"])), tests), written)
+        for written, name in (("b/with space\t", "with space\t"), ('"b/k\\303\\251.py"', "k\u00c3\u00a9.py"),
+                              ('"b/q\\"t\\tx"', "q\"ttx"), ('"b/\\377.py"', "\ufffd.py"), ("a/x.py", "x.py"),
+                              ("x.py", "x.py")):
+            self.assertEqual(placed(1, None, name, part(written, (1, ["+a"])), tests), ("item", "finding_not_in_hunk"),
+                             (written, name))
 
     def test_an_uncovered_result_writes_nothing(self):  # decision 0049
         short = result(coverage=result()["coverage"][1:])
@@ -421,6 +569,12 @@ class Apply(unittest.TestCase):
         # A renamed file is named by its new name, never its old; a deleted file by the name the facts give it.
         self.assertIsNone(refused(res=result(findings=[n1, at("tests/test_decided.py")]), facts=moved))
         self.assertIsNone(refused(res=result(findings=[n1, at("docs/gone.md")]), facts=gone))
+        # Though a deleted file is on the change, it holds no line at the head, so no Finding sits on it (decision 0146).
+        deletion = the_task(texts=[diff(part("b/kernel/decide.py", (1, ["+x"] * 500)),
+                                        part("b/tests/test_decide.py", (1, ["+x"] * 500)),
+                                        part("/dev/null", (1, ["-x"] * 3), before="a/docs/gone.md"))])
+        self.assertEqual(refused(task=deletion, res=result(findings=[n1, at("docs/gone.md")]), facts=gone),
+                         ("item", "finding_not_in_hunk"))
         for path, facts in (("kernel/admission.py", None), ("tests/test_decide.py", moved), ("decide.py", None),
                             ("kernel/decide.py/x", None), ("tests", None), ("/kernel/decide.py", None),
                             ("tests/test_decide.py ", None), ("x" * 4096, None)):
@@ -998,17 +1152,81 @@ class Opened(unittest.TestCase):
 
 class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "advisory": ADVISORY, "github_run": 4242,
-              "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
+              "app": APPS["apps"]["pr-review"], "needs": APPS["needs"], "max_diff_characters": 60000}
+
+    def test_the_tasks_diff_is_built_again_from_the_diff_read_again(self):  # issue 567
+        # The lines a Finding is held to are the diff's as the item is read again, cut as the Run's Task was.
+        record, ended, calls = self.go(result())
+        self.assertEqual([kind for _, kind, _ in calls["written"]], ["submit_review", "create_check_run"])
+        moved = lambda *parts: "".join(parts).encode()
+        for change in (moved(PARTS[0]), RAW + b"\n", b"", None):
+            record, ended, calls = self.go(result(), change=change)
+            self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("superseded", "content_moved", []),
+                             change)
+            # Each Effect the Result asked for is recorded refused for that reason, and none written.
+            self.assertEqual([(e["id"], e["state"], e["reason"]) for e in record["effects"]],
+                             [("e1", "refused", "content_moved"), ("e2", "refused", "content_moved")], change)
+        # A change under the Run is told by the facts first, in refusal's order, whatever the bytes: a closed item that
+        # moved is closed, and content that moved is told so with no diff read.
+        closed = support.facts(state="closed", content_id="sha256:bbbb")
+        for facts, change, want in ((closed, b"other", "item_closed"), (closed, None, "item_closed"),
+                                    (support.facts(content_id="sha256:bbbb"), None, "content_moved")):
+            record, ended, calls = self.go(result(), facts=facts, change=change)
+            self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("superseded", want, []), want)
+            self.assertEqual({e["reason"] for e in record["effects"]}, {want})
+        # No diff is read of an item the facts show closed, moved, held or paused, or the Pause unread, or the Kernel
+        # not admitting the Run: such a read can hide the change. Bytes of another content would say content_moved.
+        other = support.run(name="r_01JA7Z", status="in_progress", at="2026-10-11T12:59:00Z")
+        for over, want in (({"facts": closed}, "item_closed"),
+                           ({"facts": support.facts(content_id="sha256:bbbb")}, "content_moved"),
+                           ({"facts": support.facts(label_events=[support.labelled("factory:hold")])}, "item_held"),
+                           ({"context": support.context(paused=True, active_runs=1)}, "paused"),
+                           ({"context": support.context(paused=None, active_runs=1)}, "pause_unreadable"),
+                           ({"records": runs() + [other]}, "not_admitted")):
+            record, ended, calls = self.go(result(), change=b"other bytes", **over)
+            self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("superseded", want, 0), want)
+        record, ended, calls = self.go(result())
+        self.assertEqual(calls["diff"], 1)
+        # A pull request that moved while its diff was read, or a diff GitHub did not answer, is the step's to end, as
+        # head_moved or facts_unreadable: never taken for moved content.
+        for raised in (Moved("moved"), github.Unanswered("no answer")):
+            with self.assertRaises(type(raised)):
+                self.go(result(), change=raised)
+        # Only a Result that posts a Finding needs the diff: one that did not complete, or posts none, reads none.
+        for res in (result(status="incomplete", reason="change_not_reviewed_whole"),
+                    result(status="failed", reason="engine_failed"), result(findings=[], effects={}, coverage=[])):
+            record, ended, calls = self.go(res, change=None, config=dict(self.CONFIG, rubric=None))
+            self.assertEqual((calls["diff"], ended["reason"] == "content_moved"), (0, False), res["status"])
+        # Cut where the Run's Task was cut: a file it left out holds no line, though the bytes hold it.
+        short = dict(self.CONFIG, max_diff_characters=len(task_.numbered(PARTS[0])) + 2)
+        record, ended, calls = self.go(result(), config=short)
+        self.assertEqual((ended["outcome"], ended["reason"]), ("item", "finding_not_in_hunk"))
 
     def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None,
-           revoked=True, config=None, facts=None):
-        calls = {"mint": [], "revoke": 0, "written": []}
+           revoked=True, config=None, facts=None, change=RAW):
+        calls = {"mint": [], "revoke": 0, "written": [], "diff": 0}
         given = facts
 
         def read():
             facts = the_facts(state="closed") if refusing else given or the_facts()
             return (facts, HEAD, runs() if records is None else records,
-                    support.context(active_runs=1) if context is None else context)
+                    support.context(active_runs=1) if context is None else context, diff)
+
+        def diff():
+            calls["diff"] += 1
+            if isinstance(change, Exception):
+                raise change
+            return change
+        real = task_.diff_of
+
+        def diff_of(change, facts, admit, config):
+            # That the bytes hash to the content admitted is task.py's to check (tests/test_harness.py): here the
+            # content the tests admit, sha256:aaaa, is RAW's.
+            if admit["content_id"] == "sha256:aaaa":
+                if change != RAW:
+                    raise task_.Refused("not the content admitted")
+                admit = dict(admit, content_id=RAW_ID)
+            return real(change, facts, admit, config)
 
         def mint(wanted):
             calls["mint"].append(wanted)
@@ -1025,7 +1243,8 @@ class Job(unittest.TestCase):
                 return write(kind, req)
             surfaces = {c["finding"]: "PRRT_kw7" for c in req.get("comments", ())}
             return {"state": "applied", "key": "PRR_kwDOA7", "surfaces": surfaces}
-        record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, config or self.CONFIG, NOW)
+        with unittest.mock.patch.object(apply.task_, "diff_of", diff_of):
+            record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, config or self.CONFIG, NOW)
         self.assertEqual(shared.errors(record, "applied"), [])
         self.assertEqual(shared.errors(ended, "outcome"), [])
         return record, ended, calls
@@ -1059,6 +1278,29 @@ class Job(unittest.TestCase):
             self.assertIsNone(apply.taken(given, at))
         record, ended, calls = self.go(None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "result_unreadable", []))
+
+    def test_the_live_path_holds_a_result_to_what_was_admitted_and_the_diff_read_again(self):  # issue 567
+        # As the apply step runs it: what the Decision admitted, from the pass record, and no Task built by hand, so the
+        # Task's texts are none but the diff `apply` builds again (Muse's read of 3d2c333).
+        record = json.loads((ROOT / "examples" / "pass.json").read_text())
+        record["release"] = RELEASE
+        entry = record["pull_requests"][0]
+        entry["run"] = RUN
+        entry["decision"]["item"] = dict(support.ITEM)
+        entry["decision"]["admit"] = {"role": "pr-review", "intent": "review-change", "content_id": RAW_ID}
+        admitted = apply.admitted(record, RUN, ROLE, [])
+        self.assertNotIn("texts", admitted)
+        facts = the_facts(content_id=RAW_ID)
+        record, ended, calls = self.go(result(), task=admitted, facts=facts)
+        self.assertEqual([kind for _, kind, _ in calls["written"]], ["submit_review", "create_check_run"], ended)
+        # Off every hunk of the diff read again, a Finding is refused there too.
+        off = result()
+        off["findings"][0]["location"].update(start_line=1, end_line=2)
+        record, ended, calls = self.go(off, task=admitted, facts=facts)
+        self.assertEqual((ended["outcome"], ended["reason"], calls["written"]), ("item", "finding_not_in_hunk", []))
+        # And bytes of another content are a change under the Run.
+        record, ended, calls = self.go(result(), task=admitted, facts=facts, change=RAW + b"+x\n")
+        self.assertEqual((ended["outcome"], ended["reason"]), ("superseded", "content_moved"))
 
     def test_what_a_result_is_held_to_is_the_decision_that_admitted_its_run(self):  # section 3.5
         record = json.loads((ROOT / "examples" / "pass.json").read_text())

@@ -690,7 +690,9 @@ own estimate of what the Run has spent (decision 0136). It is not an input to Ad
 A Result holds what the Role judged, and only that (decision 0038). The Engine writes `schema`,
 `run`, `status`, `reason`, `dispositions`, `findings`, `effects` and `coverage`. `status` is
 `completed`, `incomplete` or `refused` from the Engine; `failed` and `superseded` are written only
-by the Harness or `apply`. `reason` is a code, null when the Run completed. The Harness fills
+by the Harness or `apply`. `reason` is a code, null when the Run completed: one of the model's with `incomplete` or
+`refused`, or the Harness's with `failed`, and no other; a `superseded` Result, which nothing writes yet, gives none
+(decision 0146). The Harness fills
 `release` and `usage`, the latter from the CLI's own answer: the engine and its version, the model,
 the session, each count of tokens as the CLI reports them (P-13: the input tokens alone are a
 fraction of what was read; the tokens written to and read from the cache are the rest), the turns,
@@ -789,7 +791,8 @@ There is no Effect that starts a Run. Only Admission does that.
   with `ref` local to that Result, `n1`, `n2` and so on, and no `id`, `source`, `surface` or
   `content_id`: its surface does not exist until `apply` posts it, and the rest is the Task's. The
   one Effect that posts it names its `ref`: a review comment for a Finding that gates, an
-  annotation for one that does not (§4.3). After `apply` reads the posted surface back, it writes
+  annotation for one that does not (§4.3), either on lines of one hunk of its file at the head, as
+  the Task's diff shows them (decision 0146). After `apply` reads the posted surface back, it writes
   this record whole into `applied.json`, its `id` from the source and the surface key, its `source`
   from the Task's Role and its App, and its `content_id` from the Task (decision 0038).
 - A thread's category and severity in the facts are read from this record, in `applied.json`,
