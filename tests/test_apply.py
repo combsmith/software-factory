@@ -1052,6 +1052,9 @@ class Job(unittest.TestCase):
             record, ended, calls = self.go(result(), change=change)
             self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("superseded", "content_moved", []),
                              change)
+            # Each Effect the Result asked for is recorded refused for that reason, and none written.
+            self.assertEqual([(e["id"], e["state"], e["reason"]) for e in record["effects"]],
+                             [("e1", "refused", "content_moved"), ("e2", "refused", "content_moved")], change)
         # Cut where the Run's Task was cut: a file it left out holds no line, though the bytes hold it.
         short = dict(self.CONFIG, max_diff_characters=len(task_.numbered(PARTS[0])) + 2)
         record, ended, calls = self.go(result(), config=short)
