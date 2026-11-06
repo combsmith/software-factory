@@ -6,9 +6,11 @@ None. In this order, so that each has its own code: the item closed, its content
 held, or the Kernel, asked again with this Run left out, not admitting this Run's Intent on this content, all a change
 under the Run (`superseded`); then the Result: not this Run's or this Release's, not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
-Finding that does not gate on a thread or one that gates on an annotation, or a Finding where it has no place; a
+Finding that does not gate on a thread or one that gates on an annotation, or a Finding where it has no place or
+on lines no hunk of its file holds on the head's side (decision NNNN); a
 Disposition that gives neither half or both, or the half this Run's Role may not make; a `security` Finding accepted
-before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
+before its author's proposal can be read. A Result that did not complete gives a reason its status may give, or
+none (decision NNNN). Each is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
@@ -30,7 +32,7 @@ import re
 from adapters import github, identity
 from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
-from harness import shared
+from harness import engine, shared
 from harness import task as task_
 from kernel import derive
 from kernel import terms as t
@@ -184,6 +186,7 @@ def _effects(task: dict, result: dict, facts: dict):
         return "finding_named_twice"
     posted = posts(effects)
     refs = [ref for _, _, ref in posted]
+    spans = hunks(task)
     if any(ref not in raised for ref in refs):
         return "finding_not_raised"
     if any(refs.count(ref) != 1 for ref in raised):
@@ -200,7 +203,58 @@ def _effects(task: dict, result: dict, facts: dict):
         where = finding.get("location", {})
         if "start_line" not in where or where.get("end_line", where["start_line"]) < where["start_line"]:
             return "finding_has_no_place"
+        # GitHub refuses a review comment off the diff, but not an annotation: each is held to lines one hunk of its
+        # file holds on the head's side, as the Task's diff gave them to the model (decision NNNN).
+        last = where.get("end_line", where["start_line"])
+        if not any(first <= where["start_line"] and last <= end for first, end in spans.get(where["path"], ())):
+            return "finding_not_in_hunk"
     return None
+
+
+def hunks(task: dict) -> dict:
+    """`{path: [(first, last), ...]}`: the lines each hunk of a file holds on the head's side, from the Task's diff as
+    the model was given it (decision 0137), each file by its name at the head. A file the Task's diff leaves out, or
+    deletes, or changes with no line on the head's side, has none, and so does one whose name cannot be read."""
+    out = {}
+    for text in task["texts"]:
+        if not text["id"].startswith("diff:"):
+            continue
+        for part in task_.FILE_START.split(text["body"]):
+            path, spans = None, []
+            for row in task_.ROW.findall(part):
+                header = task_.HUNK.match(row)
+                if header:
+                    # A hunk that holds no line of the head's file is a span no line is in.
+                    first = int(header.group(2))
+                    spans.append((first, first + int(header.group(3) or 1) - 1))
+                # The head's name is read once, before the first hunk: a line in a hunk is led by its number or a mark.
+                elif row.startswith("+++ ") and path is None and not spans:
+                    path = _head_name(row[4:].rstrip("\n"))
+            if path is not None and spans:
+                out.setdefault(path, []).extend(spans)
+    return out
+
+
+# How git writes a name with a character it quotes: between double quotes, each such character escaped as C escapes it,
+# and each byte past ASCII as three octal digits.
+QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+ESCAPED = re.compile(r"\\([0-7]{3}|[abtnvfr\"\\])")
+ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _head_name(said: str):
+    """A file's name at the head from what follows `+++ `, or None: `/dev/null` for a file deleted, and a name git
+    quoted that is no UTF-8. Git ends a name that holds a space with a tab."""
+    quoted = QUOTED.fullmatch(said)
+    if quoted:
+        try:
+            said = ESCAPED.sub(lambda m: chr(int(m.group(1), 8) if len(m.group(1)) == 3 else ESCAPES[m.group(1)]),
+                               quoted.group(1)).encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return None
+    elif said.endswith("\t"):
+        said = said[:-1]
+    return said[2:] if said.startswith("b/") and len(said) > 2 else None
 
 
 def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: dict):
@@ -258,6 +312,9 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
     if (result["run"], result["release"]) != (task["run"], task["release"]):
         return "item", "result_not_the_runs"
     if result["status"] != "completed":
+        # A reason is one its status may give: the model's with `incomplete` or `refused`, the Harness's with `failed`.
+        if result["reason"] is not None and result["reason"] not in engine.REASONS.get(result["status"], ()):
+            return "item", "reason_not_the_status"
         reason = result["reason"] or result["status"]
         return ("item" if reason in THE_ROLES or result["status"] != "failed" else "environment"), reason
     if rubric is not None:

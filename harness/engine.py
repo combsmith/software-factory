@@ -16,7 +16,8 @@ it, and as that trial hardened it:
   settings and instructions out (decision 0138). The scrub is set with no other tools: a call that sets it and names
   any other list, or leaves out one of these, is never made;
 - with `result/1` as the CLI is handed it: references resolved, the fields the Harness fills removed, `status` narrowed
-  to what the Engine may write and `effects` narrowed to the Task's `permitted_effects` (decision 0038).
+  to what the Engine may write, `reason` to the model's codes (decision NNNN), and `effects` to the Task's
+  `permitted_effects` (decision 0038).
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
 never kept, returned or logged. An answer that does not validate is no Result: the Harness writes the whole Result
 itself, `failed`, `result_invalid`, with empty lists and `usage`; a CLI that exited 0 with no answer to hold to the schema
@@ -46,6 +47,12 @@ PASSED = ("HOME", "TMPDIR")
 OPTIONS = ["--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
            "--permission-prompts", "none"]
 ENGINE_WRITES = ["completed", "incomplete", "refused"]
+# The reason a Result that did not complete gives, one of these codes and never another (decision NNNN): the model's,
+# by the status it writes, and the Harness's, with the `failed` Result it writes whole, here or in `harness/run.py`.
+MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task_not_a_review",)}
+HARNESS_REASONS = ("credential_missing", "engine_version", "task_too_large", "engine_failed", "engine_timeout",
+                   "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable")
+REASONS = dict(MODEL_REASONS, failed=HARNESS_REASONS)
 FILLED = ("release", "usage")
 COUNTS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 # The most bytes one argument may hold on the Linux runners (MAX_ARG_STRLEN, 131072), less room to spare: a Task
@@ -101,6 +108,8 @@ def handed(task: dict) -> dict:
         schema["properties"].pop(field)
     schema["required"] = [f for f in schema["required"] if f not in FILLED]
     schema["properties"]["status"] = {"enum": list(ENGINE_WRITES)}
+    schema["properties"]["reason"] = {"type": ["string", "null"],
+                                      "enum": [None] + [r for s in ENGINE_WRITES for r in MODEL_REASONS.get(s, ())]}
     schema["properties"]["run"] = {"const": task["run"]}
     effects = schema["properties"]["effects"]
     effects["properties"] = {k: v for k, v in effects["properties"].items() if k in task["permitted_effects"]}
