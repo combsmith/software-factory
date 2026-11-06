@@ -204,7 +204,11 @@ class Scoring(unittest.TestCase):
         both["findings"][-1].update(severity=both["findings"][0]["severity"], criterion=None)
         self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
         self.assertNotIn("at_alternate", eval_result.score(case, placed(other, criterion=None)))
-        self.assertNotIn("at_alternate", eval_result.score(load("examples/eval-case.met.json"), result))
+        # A clean case's pass is never marked: its Result's major Finding, which would hold it (decision NNNN), at minor.
+        clean = copy.deepcopy(result)
+        clean["findings"][0]["severity"] = "minor"
+        self.assertEqual(eval_result.score(load("examples/eval-case.met.json"), clean)["verdict"], "pass")
+        self.assertNotIn("at_alternate", eval_result.score(load("examples/eval-case.met.json"), clean))
         # Absent, the Finding has its one place, as before.
         alone = copy.deepcopy(case)
         del alone["expected"]["finding"]["also_at"]
@@ -310,7 +314,7 @@ class Scoring(unittest.TestCase):
         del wrong["coverage"][0]
         self.assertEqual(eval_result.score(case, wrong)["reasons"], ["criterion_not_met"])
 
-    def test_a_finding_that_would_hold_a_clean_change_fails_its_case(self):  # decision NNNN
+    def test_a_gating_finding_fails_a_clean_case(self):  # decision NNNN
         # A clean case holds no fault a gate should stop. A Finding that would hold its pull request, blocking or major or
         # a security Finding at any severity, as `kernel/gate.py` reads a required Lens's, fails the case whatever
         # criterion it cites or none, and even with the case's own criterion covered as met.

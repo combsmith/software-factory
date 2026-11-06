@@ -86,7 +86,7 @@ ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_
 SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails",
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
-CLEAN_CASE = ("tests.test_evals.Scoring.test_a_finding_that_would_hold_a_clean_change_fails_its_case",)
+CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)

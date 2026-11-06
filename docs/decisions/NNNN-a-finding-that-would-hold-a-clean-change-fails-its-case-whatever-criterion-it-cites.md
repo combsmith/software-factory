@@ -20,6 +20,6 @@ A clean case asked only whether the review raised a Finding against the one crit
 
 | Boundary | Check |
 |---|---|
-| On a clean case, a Finding fails it exactly where the gate would hold it, at every severity of every category, cited to another criterion or to none; one among others that would not still fails it, with one code; one citing the case's own criterion fails it at any severity; a case that expects a Finding is not failed by one elsewhere that would hold the change | `tests/test_evals.py::test_a_finding_that_would_hold_a_clean_change_fails_its_case` |
+| On a clean case, a Finding fails it exactly where the gate would hold it, at every severity of every category, cited to another criterion or to none; one among others that would not still fails it, with one code; one citing the case's own criterion fails it at any severity; a case that expects a Finding is not failed by one elsewhere that would hold the change | `tests/test_evals.py::test_a_gating_finding_fails_a_clean_case` |
 | A clean case whose Findings would hold nothing passes by its coverage, as before | `tests/test_evals.py::test_a_right_change_is_scored_by_its_coverage` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
