@@ -783,7 +783,8 @@ class Engine(unittest.TestCase):
                answer(result=judged(status="refused", reason="out_of_scope", findings=[], effects={})),
                answer(result=judged(status="incomplete", reason="no_answer", findings=[], effects={})),
                # And one its status may give: the model's code for refusing is no reason it is incomplete.
-               answer(result=judged(status="incomplete", reason="task_not_a_review", findings=[], effects={}))]
+               answer(result=judged(status="incomplete", reason="task_not_a_review", findings=[], effects={})),
+               answer(result=judged(status="refused", reason="change_not_reviewed_whole", findings=[], effects={}))]
         # A CLI that exited 0 and gave nothing to hold to the schema is told from an answer that fails it (decision 0121).
         none = ["", "not json", "[]", json.dumps(["x"]), json.dumps([{"type": "other"}]), "null", json.dumps({"is_error": False}),
                 answer(structured_output=None), answer(structured_output="{}"), answer(structured_output=[1])]

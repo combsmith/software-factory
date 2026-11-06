@@ -438,12 +438,20 @@ class Apply(unittest.TestCase):
         # A file's name is read once, before its first hunk, and never after it.
         twice = "diff --git a/x b/x\n+++ b/first.py\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
         deleted = "diff --git a/x b/x\n+++ /dev/null\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
+        unread = "diff --git a/x b/x\n+++ \"b/\\377.py\"\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
         late = "diff --git a/x b/x\n@@ -1,0 +1,2 @@\n+a\n+b\n+++ b/kernel/decide.py\n"
         self.assertIsNone(placed(1, 2, "first.py", twice, tests))
         self.assertEqual(placed(1, 2, "kernel/decide.py", twice, tests), ("item", "finding_not_in_hunk"))
         self.assertEqual(placed(1, 2, "kernel/decide.py", late, tests), ("item", "finding_not_in_hunk"))
         # A deleted file's name, or one that cannot be read, is still its one name: no later line names it again.
         self.assertEqual(placed(1, 2, "kernel/decide.py", deleted, tests), ("item", "finding_not_in_hunk"))
+        self.assertEqual(placed(1, 2, "kernel/decide.py", unread, tests), ("item", "finding_not_in_hunk"))
+        # A header as git writes one: a count of one left out, and the section's context after it.
+        written = ("diff --git a/x b/x\n+++ b/kernel/decide.py\n@@ -0,0 +1 @@\n+a\n"
+                   "@@ -10,3 +11 @@ def decide(facts):\n-x\n-y\n z\n")
+        for start, want in ((1, None), (11, None), (2, ("item", "finding_not_in_hunk")),
+                            (12, ("item", "finding_not_in_hunk"))):
+            self.assertEqual(placed(start, None, "kernel/decide.py", written, tests), want, start)
         # A name as git writes it: one with a space ends with a tab; one git quotes, unescaped; one no UTF-8, none.
         for written, name in (("b/with space\t", "with space"), ('"b/k\\303\\251.py"', "k\u00e9.py"),
                               ('"b/q\\"t\\tx"', 'q"t\tx'), ('"b/a\\\\b"', "a\\b"),

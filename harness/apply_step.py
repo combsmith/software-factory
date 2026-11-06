@@ -131,8 +131,7 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
                 "authority": steps.read_json(steps.ROOT, os.path.join("config", "authority.json")),
                 "github_run": environ.get("GITHUB_RUN_ID"), "app": config["app"], "needs": config["needs"],
                 # The bound the Task's diff was cut at, so that it is built again as the Run was given it (issue 327).
-                "max_diff_characters": steps.read_json(steps.ROOT, os.path.join("config", "defaults.json"))["limits"][
-                    "max_diff_characters"]}
+                "max_diff_characters": config["kernel"]["limits"]["max_diff_characters"]}
         if admit is not None:
             try:
                 done = apply.job(admit, result, read, write, mint, role, told, utc())

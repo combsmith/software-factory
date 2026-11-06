@@ -691,7 +691,8 @@ A Result holds what the Role judged, and only that (decision 0038). The Engine w
 `run`, `status`, `reason`, `dispositions`, `findings`, `effects` and `coverage`. `status` is
 `completed`, `incomplete` or `refused` from the Engine; `failed` and `superseded` are written only
 by the Harness or `apply`. `reason` is a code, null when the Run completed: one of the model's with `incomplete` or
-`refused`, or the Harness's with `failed`, and no other (decision NNNN). The Harness fills
+`refused`, or the Harness's with `failed`, and no other; a `superseded` Result, which nothing writes yet, gives none
+(decision NNNN). The Harness fills
 `release` and `usage`, the latter from the CLI's own answer: the engine and its version, the model,
 the session, each count of tokens as the CLI reports them (P-13: the input tokens alone are a
 fraction of what was read; the tokens written to and read from the cache are the rest), the turns,
