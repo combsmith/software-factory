@@ -328,6 +328,8 @@ class Apply(unittest.TestCase):
                            ({"status": "failed", "reason": "task_too_large"}, ("item", "task_too_large")),
                            # An attempt on its item: it can't be told from a model that gave none (decision 0121).
                            ({"status": "failed", "reason": "no_answer"}, ("item", "no_answer")),
+                           # So is one another model answered: an item's text can call a fallback (decision NNNN).
+                           ({"status": "failed", "reason": "engine_model"}, ("item", "engine_model")),
                            ({"status": "failed", "reason": "engine_failed"}, ("environment", "engine_failed")),
                            # A timeout cannot tell a slow provider from a slow item (issue 433, until issue 314).
                            ({"status": "failed", "reason": "engine_timeout"}, ("environment", "engine_timeout")),

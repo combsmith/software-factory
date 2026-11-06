@@ -58,7 +58,9 @@ THREAD = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 # How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's. A Run with no answer stays
 # an attempt on its item, as it can't be told from a model that gave none, whose text must not pause the Factory (decision 0121).
-THE_ROLES = ("result_invalid", "task_too_large", "no_answer")
+# So does one another model answered: an item's text can call a fallback model, by a refusal, and must not pause the
+# Factory either (decision NNNN).
+THE_ROLES = ("result_invalid", "task_too_large", "no_answer", "engine_model")
 # The branch a pull request the Factory opens stands on: the issue it serves and the count opened for it (decision 0068).
 WORK_BRANCH = re.compile(t.WORK_BRANCH)
 # A reason as applied/1 holds one: a code, never a sentence.

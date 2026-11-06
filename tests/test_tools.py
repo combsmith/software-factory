@@ -1870,6 +1870,14 @@ class Repo(unittest.TestCase):
         self.assertIn("tools/x.sh: names a model by its full id",
                       check_repo.run(tree({"config/harness.json": copy % name, "tools/x.sh": "claude --model %s\n" % name})))
 
+    def test_a_long_run_of_a_models_characters_is_read_in_linear_time(self):  # the Claude security read of 1762f89
+        # A model is read with what is joined to it, so a run of those characters with no model in it, a base64 blob or a
+        # minified line, must be read once and not again from each place in it, or one long run stalls every check.
+        name = "claude-" + "opus-5-5"
+        said = support.linear(self, lambda n: [m.group(0) for m in check_repo.MODEL_FORM.finditer(
+            "x " + "A" * n + " " + "b-" * n + name + "-latest y")], 64000, 0.5)
+        self.assertEqual(said, ["b-" * 64000 + name + "-latest"])
+
     def test_an_edited_secrets_baseline_is_caught(self):
         whole = (ROOT / ".gitignore").read_text()
         self.assertFalse(caught(check_repo.run(tree({".gitignore": whole})), "baseline"))
