@@ -16,7 +16,7 @@ it, and as that trial hardened it:
   settings and instructions out (decision 0138). The scrub is set with no other tools: a call that sets it and names
   any other list, or leaves out one of these, is never made;
 - with `result/1` as the CLI is handed it: references resolved, the fields the Harness fills removed, `status` narrowed
-  to what the Engine may write, `reason` to the model's codes (decision NNNN), and `effects` to the Task's
+  to what the Engine may write, `reason` to the model's codes (decision 0146), and `effects` to the Task's
   `permitted_effects` (decision 0038).
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
 never kept, returned or logged. An answer that does not validate is no Result: the Harness writes the whole Result
@@ -47,7 +47,7 @@ PASSED = ("HOME", "TMPDIR")
 OPTIONS = ["--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
            "--permission-prompts", "none"]
 ENGINE_WRITES = ["completed", "incomplete", "refused"]
-# The reason a Result that did not complete gives, one of these codes and never another (decision NNNN): the model's,
+# The reason a Result that did not complete gives, one of these codes and never another (decision 0146): the model's,
 # by the status it writes, and the Harness's, with the `failed` Result it writes whole, here or in `harness/run.py`.
 MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task_not_a_review",)}
 HARNESS_REASONS = ("credential_missing", "engine_version", "task_too_large", "engine_failed", "engine_timeout",
@@ -108,7 +108,7 @@ def handed(task: dict) -> dict:
         schema["properties"].pop(field)
     schema["required"] = [f for f in schema["required"] if f not in FILLED]
     schema["properties"]["status"] = {"enum": list(ENGINE_WRITES)}
-    # The model's codes as result/1 lists them: narrowed from it, never a copy of it that could drift (decision NNNN).
+    # The model's codes as result/1 lists them: narrowed from it, never a copy of it that could drift (decision 0146).
     model = {r for s in ENGINE_WRITES for r in MODEL_REASONS.get(s, ())}
     reason = schema["properties"]["reason"]
     schema["properties"]["reason"] = dict(reason, enum=[r for r in reason["enum"] if r is None or r in model])
@@ -280,12 +280,12 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
 
 def sound(result: dict, task: dict) -> bool:
     """What the schema cannot say of a Result: a reason goes with a status other than completed, and never with
-    completed (decision 0038), and is one its status may give (decision NNNN). That it is this Task's Run, the schema
+    completed (decision 0038), and is one its status may give (decision 0146). That it is this Task's Run, the schema
     the CLI was handed says."""
     return (result["reason"] is None) == (result["status"] == "completed") and reason_given(result)
 
 
 def reason_given(result: dict) -> bool:
     """A Result's reason is one its status may give, or none: the model's with `incomplete` or `refused`, the
-    Harness's with `failed`, and none with `completed` (decision NNNN)."""
+    Harness's with `failed`, and none with `completed` (decision 0146)."""
     return result["reason"] is None or result["reason"] in REASONS.get(result["status"], ())

@@ -5,10 +5,10 @@
 None. In this order, so that each has its own code: the item closed, its content moved, the Factory paused, the item
 held, or the Kernel, asked again with this Run left out, not admitting this Run's Intent on this content, all a change
 under the Run (`superseded`); then the Result: not this Run's or this Release's, giving a reason its status may not
-give (decision NNNN), not completed, uncovered (decision
+give (decision 0146), not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
-the change does not hold (decision 0145), on lines no hunk of its file holds on the head's side (decision NNNN), or
+the change does not hold (decision 0145), on lines no hunk of its file holds on the head's side (decision 0146), or
 adopted from a reviewer the configuration does not name advisory or from a surface other than that reviewer's thread on
 this item (decision 0145); a Disposition that gives neither half or both, or the half this Run's Role may not make; a `security`
 Finding accepted before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
@@ -212,7 +212,7 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
         if len(where["path"]) > PATH_LONGEST or where["path"] not in {c["path"] for c in facts["changed_paths"]}:
             return "finding_not_on_change"
         # GitHub refuses a review comment off the diff, but not an annotation: each is held to lines one hunk of its
-        # file holds on the head's side, as the Task's diff gave them to the model (decision NNNN).
+        # file holds on the head's side, as the Task's diff gave them to the model (decision 0146).
         last = where.get("end_line", where["start_line"])
         if not any(first <= where["start_line"] and last <= end for first, end in spans.get(where["path"], ())):
             return "finding_not_in_hunk"
@@ -477,7 +477,7 @@ def taken(data: bytes, digest: str):
 def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
     """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, diff)`,
     `diff()` its diff's bytes, read only for a Result that posts a Finding and once no change under the Run is told by
-    the facts, from which the Task's diff is built again as the Run was given it (decision NNNN);
+    the facts, from which the Task's diff is built again as the Run was given it (decision 0146);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
     request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
@@ -493,7 +493,7 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
         record = applied(admit, result, [], role, refused=moved)
         return record, outcome(admit, record, ("superseded", moved))
     # The Task's diff, built again from the bytes the Decision admitted and cut as the Run's was: the lines a posted
-    # Finding is held to (decision NNNN), and so read only for a Result that posts one. Bytes that are not that content
+    # Finding is held to (decision 0146), and so read only for a Result that posts one. Bytes that are not that content
     # are a change under the Run.
     texts = []
     if result["status"] == "completed" and posts(result["effects"]):

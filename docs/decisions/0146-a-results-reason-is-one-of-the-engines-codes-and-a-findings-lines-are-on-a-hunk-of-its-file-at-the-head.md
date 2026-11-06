@@ -1,4 +1,4 @@
-# NNNN. A Result's reason is one of the Engine's codes, and a Finding's lines are on a hunk of its file at the head
+# 0146. A Result's reason is one of the Engine's codes, and a Finding's lines are on a hunk of its file at the head
 
 Status: accepted. The Factory Builder's ruling of 2026-11-05 on the story that follows the harness review's, "A Result's reason is one of the Engine's codes, and a Finding's lines are on the head's side of the diff" (issue 567), before the first live Run, and of 2026-11-06 on its codes: the two the model may write, as proposed, with the prompt left as it is, a counter-example for each way a reason may not suit its status, and the schema handed to the CLI narrowed from `result/1`. It adds to decision 0038 a list of the codes a Result's `reason` may be, and to the reasons `apply` refuses a Result two more; and it reads the lines decision 0137 numbers as the hunks a Finding may sit on. Nothing else in either changes.
 

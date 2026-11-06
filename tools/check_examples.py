@@ -251,7 +251,7 @@ def _uncovered(value, root: pathlib.Path) -> list:
 
 def _reason_unsuited(result: dict) -> list:
     """What no schema here can say of a Result, an example's or a counter-example's: a reason its status may not give,
-    which harness/engine.py refuses (decision NNNN)."""
+    which harness/engine.py refuses (decision 0146)."""
     from harness import engine
     return [] if engine.reason_given(result) else ["$.reason: not one its status may give"]
 

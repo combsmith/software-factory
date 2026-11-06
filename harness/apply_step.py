@@ -38,7 +38,7 @@ def _ended(run: str, release: str, why: tuple) -> tuple:
 def change_at(transport, repo: str, number: int, head: str) -> bytes:
     """The bytes of pull request `number`'s diff, read again as the read step reads them, at `head`, the commit its facts
     were read at, or Moved: `apply` builds the Task's diff again from them, and holds a posted Finding to its lines
-    (decision NNNN)."""
+    (decision 0146)."""
     first = pull.read(transport, repo, number)
     if str(first["head"]["sha"]) != head:
         raise Moved("the pull request moved between its facts and its diff")
@@ -113,7 +113,7 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
 
         def read():
             facts, head, runs, context = reread.item(reading, config, parts["item"]["number"], utc(), utc)
-            # The diff is read when `apply` asks, once the facts tell no change under the Run (decision NNNN).
+            # The diff is read when `apply` asks, once the facts tell no change under the Run (decision 0146).
             diff = lambda: change_at(reading, config["controller"]["home"]["repo"], parts["item"]["number"], head)
             held["item"] = (facts, head, runs, context, diff)
             return held["item"]
