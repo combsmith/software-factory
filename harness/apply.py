@@ -4,13 +4,13 @@
 `refusal(...)` reads the item again and the Result, and gives the one reason, a code, why nothing may be written, or
 None. In this order, so that each has its own code: the item closed, its content moved, the Factory paused, the item
 held, or the Kernel, asked again with this Run left out, not admitting this Run's Intent on this content, all a change
-under the Run (`superseded`); then the Result: not this Run's or this Release's, not completed, uncovered (decision
+under the Run (`superseded`); then the Result: not this Run's or this Release's, giving a reason its status may not
+give (decision NNNN), not completed, uncovered (decision
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, or a Finding where it has no place or
 on lines no hunk of its file holds on the head's side (decision NNNN); a
 Disposition that gives neither half or both, or the half this Run's Role may not make; a `security` Finding accepted
-before its author's proposal can be read. A Result that did not complete gives a reason its status may give, or
-none (decision NNNN). Each is the Role's (`item`), but a failed Result for a reason not in
+before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
 
@@ -244,7 +244,10 @@ ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, 
 
 def _head_name(said: str):
     """A file's name at the head from what follows `+++ `, or None: `/dev/null` for a file deleted, and a name git
-    quoted that is no UTF-8. Git ends a name that holds a space with a tab."""
+    quoted that is no UTF-8."""
+    # Git ends a name that holds a space with a tab, after the closing quote of one it quoted.
+    if said.endswith("\t"):
+        said = said[:-1]
     quoted = QUOTED.fullmatch(said)
     if quoted:
         try:
@@ -252,8 +255,6 @@ def _head_name(said: str):
                                quoted.group(1)).encode("latin-1").decode("utf-8")
         except (UnicodeEncodeError, UnicodeDecodeError):
             return None
-    elif said.endswith("\t"):
-        said = said[:-1]
     return said[2:] if said.startswith("b/") and len(said) > 2 else None
 
 

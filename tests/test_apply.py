@@ -445,7 +445,8 @@ class Apply(unittest.TestCase):
         self.assertEqual(placed(1, 2, "kernel/decide.py", deleted, tests), ("item", "finding_not_in_hunk"))
         # A name as git writes it: one with a space ends with a tab; one git quotes, unescaped; one no UTF-8, none.
         for written, name in (("b/with space\t", "with space"), ('"b/k\\303\\251.py"', "k\u00e9.py"),
-                              ('"b/q\\"t\\tx"', 'q"t\tx'), ('"b/a\\\\b"', "a\\b")):
+                              ('"b/q\\"t\\tx"', 'q"t\tx'), ('"b/a\\\\b"', "a\\b"),
+                              ('"b/sp caf\\303\\251.txt"\t', "sp caf\u00e9.txt")):
             self.assertIsNone(placed(1, None, name, part(written, (1, ["+a"])), tests), written)
         for written, name in (("b/with space\t", "with space\t"), ('"b/k\\303\\251.py"', "k\u00c3\u00a9.py"),
                               ('"b/q\\"t\\tx"', "q\"ttx"), ('"b/\\377.py"', "\ufffd.py"), ("a/x.py", "x.py"),
