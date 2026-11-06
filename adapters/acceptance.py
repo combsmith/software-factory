@@ -195,9 +195,11 @@ def _serving(transport, pull: dict, opener, opened) -> tuple:
 def result_check(node: dict) -> dict:
     """The check that reported a result, as `facts/1` holds it: its name, App and workflow file, read as the checks port
     reads any check (`adapters/checks.py`). So a check of GitHub Actions' whose details are not its own job's has no
-    file, and a result it gave is foreign to the Lens that reports its criterion's kind, as the Kernel reads any result
-    whose file cannot be read. The results' port, not built yet, reads each result's check by this (decisions 0104 and
-    NNNN)."""
+    file, and a result it gave is foreign to the Lens that reports its criterion's kind: from its workflow, where a
+    workflow runs that Lens, and from its App where none does, since no Lens of GitHub Actions' runs with no workflow
+    (`tools/check_workflows.py`). The results' port, not built yet, reads each result's check by this (decisions 0104 and
+    NNNN). A check it cannot read is refused, as the checks port refuses one; whether the port then reads the results
+    short, so the Kernel defers, is that port's to decide."""
     found = checks.check(node)
     return {"name": found["name"], "app_id": found["app_id"], "workflow": found["workflow"]}
 
