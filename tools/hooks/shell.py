@@ -550,6 +550,7 @@ def _held(text: str) -> str:
     arithmetic = braces = 0
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
     opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
+    ticked = False  # an unquoted backtick has opened and not yet closed
     while i < len(text):
         c = text[i]
         if c == "\\" and quote != "'":
@@ -589,6 +590,12 @@ def _held(text: str) -> str:
             if c == "$" and text.startswith('$"', i):
                 i += 1
                 continue
+            if c == "`":
+                if not ticked and not starts:
+                    # A backtick that opens inside a word, ./`cmd`: the word is read up to it as ./$(cmd) is, ./$, a
+                    # word no hook can read, and not as ./, which names a folder (#410).
+                    out.append("$")
+                ticked = not ticked
             # A process substitution's or a command substitution's ( and ) stand in a word: after its ), the command
             # goes on where it was. Any other ) ends what it closed, and what follows is a command again.
             kept = None

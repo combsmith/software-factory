@@ -1506,6 +1506,14 @@ class Identity(unittest.TestCase):
         for command in ("echo `date`>kernel/gate.py", "echo `date`>>kernel/gate.py", "x=`date`>kernel/gate.py"):
             self.assertIn("kernel/gate.py", [t for _, targets in shell.commands(command) for _, t in targets], command)
         self.assertEqual(shell.commands("echo `date`>kernel/gate.py"), [(["echo"], []), (["date"], [("`>", "kernel/gate.py")])])
+        # A backtick that opens inside a word: the word is read up to it as up to a $(, a word no hook can read, so the
+        # write is asked about, and what the backtick runs is read whole (#410: ./ named a folder and was let through).
+        self.assertEqual(shell.commands("tee >./`echo kernel/gate.py`"),
+                         [(["tee"], [(">", "./$")]), (["echo", "kernel/gate.py"], [])])
+        self.assertEqual(shell.commands("tee >./$(echo kernel/gate.py)"), shell.commands("tee >./`echo kernel/gate.py`"))
+        self.assertEqual(shell.commands("x=`date`")[0], (["x=$"], []))
+        # One that begins a word is read as before.
+        self.assertEqual(shell.commands("echo `date` > notes.txt"), [(["echo"], []), (["date"], []), ([], [(">", "notes.txt")])])
         # A substitution in a ${...} inside a substitution of a here-document's body is read as at the top.
         for command in ('cat <<E\n$(echo ${x:-$(git push origin main)})\nE',
                         'cat <<E\n$(echo ${x:-$(printf "%s" "a (b)"; git push origin main)})\nE'):
