@@ -257,6 +257,17 @@ class Validator(unittest.TestCase):
         for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
             self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
 
+    def test_more_items_than_the_most_is_an_error(self):  # decision 0143
+        most = {"type": "array", "maxItems": 3}
+        for value in ([], [1], [1, 2, 3]):
+            self.assertEqual(validate(value, most), [], value)
+        self.assertEqual(validate([1, 2, 3, 4], most), ["$: more than 3 items"])
+        # A most of none is a bound, not an absent keyword: only the empty list keeps it.
+        self.assertEqual(validate([], {"type": "array", "maxItems": 0}), [])
+        self.assertEqual(validate([1], {"type": "array", "maxItems": 0}), ["$: more than 0 items"])
+        # The other side: without the keyword, a list may be as long as it is.
+        self.assertEqual(validate(list(range(100)), {"type": "array"}), [])
+
     def test_a_code_that_ends_in_a_newline_is_not_a_code(self):
         code = {"type": "string", "pattern": "^[a-z_]+$"}
         self.assertEqual(validate("empty_diff", code), [])
