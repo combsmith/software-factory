@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [ -f \"${d%/.git}/tools/hooks/identity.py\" ] || { echo '{\"systemMessage\": \"The identity hook did not run: no tools/hooks/identity.py was found in the main checkout of the project folder.\"}'; exit 0; }; python3 -I \"${d%/.git}/tools/hooks/identity.py\" || exit 2",
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n \"$d\" ] && [ -f \"$d/tools/hooks/identity.py\" ] || d=$CLAUDE_PROJECT_DIR; [ -f \"$d/tools/hooks/identity.py\" ] || { echo '{\"systemMessage\": \"The identity hook did not run: no tools/hooks/identity.py was found in the main checkout or the project folder.\"}'; exit 0; }; python3 -I \"$d/tools/hooks/identity.py\" || exit 2",
             "timeout": 60
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [ -f \"${d%/.git}/tools/hooks/protected.py\" ] || { echo '{\"systemMessage\": \"The protected hook did not run: no tools/hooks/protected.py was found in the main checkout of the project folder.\"}'; exit 0; }; python3 -I \"${d%/.git}/tools/hooks/protected.py\" || exit 2",
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n \"$d\" ] && [ -f \"$d/tools/hooks/protected.py\" ] || d=$CLAUDE_PROJECT_DIR; [ -f \"$d/tools/hooks/protected.py\" ] || { echo '{\"systemMessage\": \"The protected hook did not run: no tools/hooks/protected.py was found in the main checkout or the project folder.\"}'; exit 0; }; python3 -I \"$d/tools/hooks/protected.py\" || exit 2",
             "timeout": 30,
             "onFailure": "block"
           }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [ -f \"${d%/.git}/tools/hooks/after_edit.py\" ] || { echo '{\"systemMessage\": \"The after_edit hook did not run: no tools/hooks/after_edit.py was found in the main checkout of the project folder.\"}'; exit 0; }; python3 -I \"${d%/.git}/tools/hooks/after_edit.py\" || exit 2",
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n \"$d\" ] && [ -f \"$d/tools/hooks/after_edit.py\" ] || d=$CLAUDE_PROJECT_DIR; [ -f \"$d/tools/hooks/after_edit.py\" ] || { echo '{\"systemMessage\": \"The after_edit hook did not run: no tools/hooks/after_edit.py was found in the main checkout or the project folder.\"}'; exit 0; }; python3 -I \"$d/tools/hooks/after_edit.py\" || exit 2",
             "timeout": 120
           }
         ]
@@ -40,12 +40,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [ -f \"${d%/.git}/tools/hooks/before_stop.py\" ] || { echo '{\"systemMessage\": \"The before_stop hook did not run: no tools/hooks/before_stop.py was found in the main checkout of the project folder.\"}'; exit 0; }; python3 -I \"${d%/.git}/tools/hooks/before_stop.py\"",
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n \"$d\" ] && [ -f \"$d/tools/hooks/before_stop.py\" ] || d=$CLAUDE_PROJECT_DIR; [ -f \"$d/tools/hooks/before_stop.py\" ] || { echo '{\"systemMessage\": \"The before_stop hook did not run: no tools/hooks/before_stop.py was found in the main checkout or the project folder.\"}'; exit 0; }; python3 -I \"$d/tools/hooks/before_stop.py\"",
             "timeout": 600
           },
           {
             "type": "command",
-            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [ -f \"${d%/.git}/tools/hooks/rules_changed.py\" ] || { echo '{\"systemMessage\": \"The rules_changed hook did not run: no tools/hooks/rules_changed.py was found in the main checkout of the project folder.\"}'; exit 0; }; python3 -I \"${d%/.git}/tools/hooks/rules_changed.py\"",
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n \"$d\" ] && [ -f \"$d/tools/hooks/rules_changed.py\" ] || d=$CLAUDE_PROJECT_DIR; [ -f \"$d/tools/hooks/rules_changed.py\" ] || { echo '{\"systemMessage\": \"The rules_changed hook did not run: no tools/hooks/rules_changed.py was found in the main checkout or the project folder.\"}'; exit 0; }; python3 -I \"$d/tools/hooks/rules_changed.py\"",
             "timeout": 60
           }
         ]

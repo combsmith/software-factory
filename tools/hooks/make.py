@@ -10,6 +10,7 @@ given counts from when the hook asked, the sweep's time included.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import pathlib
 import re
@@ -18,6 +19,8 @@ import signal
 import subprocess
 import tempfile
 import time
+
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TAIL = 40   # lines of output shown; the end of a run is where it says what failed
@@ -144,20 +147,19 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.t
 
 
 PASSED = "sf-checks-passed"     # in the tree's git directory: the state its last `make checks` that passed was run at
-SKIPPED = "__pycache__"         # what tools/walk.py skips at any depth; the corpus it skips at the root
-GIT_SECONDS = 10
+GIT_SECONDS = 5
+AFTER = 5           # seconds of a run's time kept to read the state again once it has passed
 
 
-def _git(where: pathlib.Path, env: dict, args: list, stdin: str = None):
+def _git(where: pathlib.Path, env: dict, args: list):
     exe = shutil.which("git", path=env.get("PATH", os.defpath))
     if exe is None:
         return None
     try:
-        done = subprocess.run([exe] + args, cwd=str(where), env=env, input=stdin, capture_output=True, text=True,
-                              timeout=GIT_SECONDS)
+        done = subprocess.run([exe] + args, cwd=str(where), env=env, capture_output=True, timeout=GIT_SECONDS)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return done.stdout if done.returncode == 0 else None
+    return done.stdout.decode("utf-8", "surrogateescape") if done.returncode == 0 else None
 
 
 def gitdir(where: pathlib.Path, env: dict):
@@ -167,40 +169,36 @@ def gitdir(where: pathlib.Path, env: dict):
     return path if path is not None and path.is_dir() else None
 
 
-def state(where: pathlib.Path, env: dict, git_dir: pathlib.Path):
-    """What `make checks` reads in `where`, as one key: the tree of every file as it stands, those git ignores but the
-    walk reads among them, and the commits HEAD and origin's main name. None where any of it cannot be read. The tree is
-    written from a copy of git's index, so the index itself is never touched."""
-    try:
-        held = tempfile.mkdtemp(prefix=PREFIX, dir=temporary(env))
-    except OSError:
-        return None
-    try:
-        index = os.path.join(held, "index")
-        if (git_dir / "index").is_file():
-            shutil.copyfile(str(git_dir / "index"), index)
-        apart = dict(env, GIT_INDEX_FILE=index, GIT_LITERAL_PATHSPECS="1")
-        if _git(where, apart, ["add", "-A", "--", "."]) is None:
-            return None
-        ignored = _git(where, apart, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", "."])
-        if ignored is None:
-            return None
-        # A name ending in / is another working tree, which the walk does not read either.
-        walked = [p for p in ignored.split("\0") if p and not p.endswith("/") and not p.startswith("corpus/")
-                  and SKIPPED not in p.split("/")]
-        if walked and _git(where, apart, ["add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"],
-                           "\0".join(walked)) is None:
-            return None
-        tree = _git(where, apart, ["write-tree"])
-    except OSError:
-        return None
-    finally:
-        shutil.rmtree(held, ignore_errors=True)
+def state(where: pathlib.Path, env: dict):
+    """What `make checks` reads in `where`, as one key; None where any of it cannot be read: every entry of git's index,
+    the commits HEAD and origin's main name, and the folders at the top, the links and the files tools/walk.py lists,
+    each file's mode and bytes. Nothing is written, to git or elsewhere."""
+    held = _git(where, env, ["ls-files", "-s", "-z"])
     head = _git(where, env, ["rev-parse", "HEAD"])
     base = _git(where, env, ["for-each-ref", "--format=%(objectname)", "refs/remotes/origin/main"])
-    if not tree or not head or base is None:
+    if held is None or not head or base is None:
         return None
-    return " ".join([tree.strip(), head.strip(), base.strip() or "-"])
+    digest = hashlib.sha256("\0".join([held, head.strip(), base.strip()]).encode("utf-8", "surrogateescape"))
+
+    def name(kind: bytes, path: pathlib.Path, mode: int = 0):
+        at = path.relative_to(where).as_posix().encode("utf-8", "surrogateescape")
+        digest.update(b"\0%s %o " % (kind, mode) + at + b"\0")
+    try:
+        for path in walk.folders(where):
+            name(b"d", path)
+        for path in walk.links(where):
+            name(b"l", path)
+            digest.update(os.readlink(str(path)).encode("utf-8", "surrogateescape"))
+        for path in walk.files(where):
+            if path.is_symlink():
+                continue
+            name(b"f", path, path.stat().st_mode)
+            with open(str(path), "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(chunk)
+    except (OSError, ValueError):
+        return None
+    return digest.hexdigest()
 
 
 def ran_out(said: str, target: str, where: pathlib.Path) -> bool:
@@ -217,14 +215,14 @@ def checks(where: pathlib.Path, env: dict, timeout: int) -> tuple:
     asked = time.monotonic()
     git_dir = gitdir(where, env)
     record = git_dir / PASSED if git_dir is not None else None
-    key = state(where, env, git_dir) if git_dir is not None else None
+    key = state(where, env) if git_dir is not None else None
     try:
         if key is not None and record.read_text().strip() == key:
             return True, ""
     except OSError:
         pass
-    passed, said = make("checks", where, env, max(1, int(timeout - (time.monotonic() - asked))))
-    if passed and key is not None and state(where, env, git_dir) == key:
+    passed, said = make("checks", where, env, max(1, int(timeout - AFTER - (time.monotonic() - asked))))
+    if passed and key is not None and state(where, env) == key:
         try:
             record.write_text(key + "\n")
         except OSError:
