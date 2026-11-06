@@ -777,7 +777,9 @@ class EvalJob(unittest.TestCase):
         two = dict(copy.deepcopy(one), id="poc-alternate")
         two["expected"]["finding"].update(location={"path": "kernel/decide.py", "start_line": 87, "end_line": 88},
                                           also_at=[{"path": "kernel/decide.py", "start_line": 86}])
-        cases = {one["id"]: self.cases[one["id"]], two["id"]: (json.dumps(two, indent=2) + "\n").encode()}
+        # A case that names an alternate place but is passed at its `location` is not marked.
+        one["expected"]["finding"]["also_at"] = [{"path": "kernel/decide.py", "start_line": 88}]
+        cases = {c["id"]: (json.dumps(c, indent=2) + "\n").encode() for c in (one, two)}
         self.set(cases)
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))

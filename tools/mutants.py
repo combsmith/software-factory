@@ -4368,6 +4368,8 @@ MUTANTS = ISSUE + [
      'if schema.get("uniqueItems") is True and ', "if False and ", ("tests.test_tools.Validator",)),
     ("more items than the most are accepted", "tools/jsonschema_lite.py",
      'len(value) > schema["maxItems"]', 'len(value) > schema["maxItems"] + 1', ("tests.test_tools.Validator",)),
+    ("a most of none is no most", "tools/jsonschema_lite.py",
+     'if "maxItems" in schema and ', 'if schema.get("maxItems") and ', ("tests.test_tools.Validator",)),
     ("the most is not a keyword the validator reads", "tools/jsonschema_lite.py",
      '"minItems", "maxItems", ', '"minItems", ', ("tests.test_tools.Validator",)),
     # Decision 0038: a Result asks and names no one; what one Run carries holds codes.
@@ -7897,8 +7899,8 @@ MUTANTS = ISSUE + [
     # Decision 0120: the gate's bar, of the set and of each kind, and what closes it whatever the bar.
     ("a missed blocking case is left to the bar", 'harness/eval/__init__.py', ' \\\n            or blocking is False:', ':', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("a report that can't say of its blocking cases passes", 'harness/eval/__init__.py', ' or kinds is None or blocking is None:', ' or kinds is None:', ("tests.test_evals.EvalJob.test_the_gate_holds_its_bar_of_the_set_and_of_each_kind",)),
-    ("the report leaves the blocking word out", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     None, causes)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
-    ("the job always says the blocking cases passed", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     True, causes)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
+    ("the report leaves the blocking word out", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     None, causes, alternates)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
+    ("the job always says the blocking cases passed", 'harness/eval/__init__.py', '\n                     blocking_pass(found, place, assessed), causes, alternates)', '\n                     True, causes, alternates)', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("every severity must pass", 'harness/eval/__init__.py',
      'if isinstance(said.get("finding"), dict)\n            and (said["finding"].get("severity") == BLOCKING or said.get("criterion") in criteria)]',
      'if isinstance(said.get("finding"), dict)]', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
@@ -8083,6 +8085,8 @@ MUTANTS = ISSUE + [
     ("a right change is marked", 'tools/eval_result.py',
      'if said["verdict"] == PASS and want["verdict"] == "finding" and not any(', 'if said["verdict"] == PASS and not any(', ALSO_AT),
     ("the job keeps no mark", 'harness/eval/__init__.py', '            alternates.add(entry["id"])\n', '            pass\n', ALSO_AT_JOB),
+    ("the job marks every case that names an alternate place", 'harness/eval/__init__.py',
+     '        if said.get("at_alternate") is True:\n', '        if case["expected"].get("finding", {}).get("also_at"):\n', ALSO_AT_JOB),
     ("the report marks a case not passed", 'harness/eval/__init__.py',
      ' if e["id"] in alternates and assessed[e["id"]] == (PASS, []) else {}', ' if e["id"] in alternates else {}', ALSO_AT_JOB),
     ("the gate takes a mark on a case not passed", 'harness/eval/__init__.py',
