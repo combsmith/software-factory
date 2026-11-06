@@ -89,9 +89,23 @@ near=$(dirname -- "$1")
 until [[ -d "$near" || "$near" == . ]]; do near=$(dirname -- "$near"); done
 check_above "$(CDPATH= cd -- "$near" && pwd -P)"
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into. What this
-# made above it is its user's alone, and read too, and OUT is made where the check read, never through the path as given.
-(umask 077 && mkdir -p -- "$(dirname -- "$1")")
-parent=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)
+# makes above it is made one directory at a time inside the one the check read, never through the path as given, so a
+# link put in its way is refused, not followed (issue 502); each is its user's alone, and read too.
+here=$(CDPATH= cd -- "$near" && pwd -P)
+given=$(dirname -- "$1")
+case "$near" in
+    "$given") rest="" ;;
+    .) rest=$given ;;
+    /) rest=${given#/} ;;
+    *) rest=${given#"$near"/} ;;
+esac
+IFS=/ read -r -a parts <<< "$rest"
+for part in ${parts[@]+"${parts[@]}"}; do
+    [[ -n "$part" && "$part" != . ]] || continue
+    mkdir -m 700 -- "$here/$part" || refuse "$here/$part could not be made new by this run (made since, or refused); name a new directory"
+    here=$here/$part
+done
+parent=$(CDPATH= cd -- "$here" && pwd -P)
 check_above "$parent"
 target=$parent/$(basename -- "$1")
 mkdir -m 700 -- "$target" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
