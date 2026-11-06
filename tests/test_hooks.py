@@ -42,6 +42,11 @@ STAND_INS = {
             'echo "make $* in $(pwd -P)"\nexit "${FAKE_MAKE_EXIT:-0}"',
 }
 PATHS = {}     # made once: a new program's first run is slow on some systems
+# How .claude/settings.json runs each hook: the main checkout's copy, found from the project folder, or a note.
+WIRED = ('d=$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && '
+         '[ -f "${d%%/.git}/tools/hooks/%(name)s.py" ] || { echo \'{"systemMessage": "The %(name)s hook did not run: '
+         'no tools/hooks/%(name)s.py was found in the main checkout of the project folder."}\'; exit 0; }; '
+         'python3 -I "${d%%/.git}/tools/hooks/%(name)s.py"%(rest)s')
 # A substitution in double quotes inside another, to each depth, every level with quotes of its own (issue 376).
 NESTED = {1: '$(printf "%s" "hello (world)")'}
 for _depth in (2, 3):
@@ -2188,6 +2193,98 @@ class BeforeStop(unittest.TestCase):
         self.assertEqual(before_stop.respond(payload, env, clock=lambda: 3001.0)[0], 2)
 
 
+class SameTree(unittest.TestCase):
+    """make checks is not run again where it last passed at the state the tree is in now, after an edit or at a stop."""
+
+    def setUp(self):
+        self.where = repo(fresh=True)
+        git(self.where, "update-ref", "refs/remotes/origin/main", "HEAD")
+        (self.where / ".gitignore").write_text("*.pem\n__pycache__/\n/corpus/\n")
+        (self.where / "kernel").mkdir()
+        (self.where / "kernel" / "decide.py").write_text("x = 1\n")
+        bin_dir, self.runs = folder(), folder() / "runs"
+        (bin_dir / "git").symlink_to(shutil.which("git"))
+        # Each run is counted; one may change the tree while it runs, as an edit made meanwhile would.
+        (bin_dir / "make").write_text('#!/bin/sh\n[ "$1" = -n ] && exit 0\necho run >> "$RUNS"\n'
+                                      '[ -n "$MEANWHILE" ] && echo y >> "$MEANWHILE"\nexit "${FAKE_MAKE_EXIT:-0}"\n')
+        (bin_dir / "make").chmod(0o755)
+        self.env = environment(str(bin_dir), CLAUDE_PROJECT_DIR=str(self.where), RUNS=str(self.runs),
+                               TMPDIR=str(folder()))
+
+    def ran(self, **extra) -> bool:
+        before = self.runs.read_text().count("run") if self.runs.exists() else 0
+        passed, _ = make.checks(self.where, dict(self.env, **extra), 30)
+        self.assertTrue(passed or extra.get("FAKE_MAKE_EXIT"))
+        return self.runs.read_text().count("run") > before
+
+    def test_a_pass_at_the_same_state_is_not_run_again(self):
+        self.assertTrue(self.ran())
+        self.assertFalse(self.ran())
+        self.assertFalse(self.ran(FAKE_MAKE_EXIT="1"))      # skipped, so what make would say now is not heard
+
+    def test_any_change_the_checks_could_read_runs_them_again(self):
+        changes = [lambda: (self.where / "kernel" / "decide.py").write_text("x = 2\n"),   # a file git holds
+                   lambda: (self.where / "kernel" / "new.py").write_text(""),             # one it does not yet
+                   lambda: (self.where / "kernel" / "new.py").unlink(),
+                   lambda: (self.where / "key.pem").write_text("secret"),                 # one it ignores, the walk reads
+                   lambda: (self.where / "key.pem").write_text("other"),
+                   lambda: (self.where / "kernel" / "decide.py").chmod(0o755),
+                   lambda: git(self.where, "add", "-A") or git(self.where, "commit", "-q", "-m", "next"),
+                   lambda: git(self.where, "update-ref", "refs/remotes/origin/main", "HEAD")]
+        self.assertTrue(self.ran())
+        for change in changes:
+            change()
+            self.assertTrue(self.ran(), change)
+            self.assertFalse(self.ran(), change)
+        # What the walk does not read either, Python's caches and the corpus, changes nothing.
+        (self.where / "kernel" / "__pycache__").mkdir()
+        (self.where / "kernel" / "__pycache__" / "decide.pyc").write_text("x")
+        (self.where / "corpus").mkdir()
+        (self.where / "corpus" / "a.json").write_text("{}")
+        self.assertFalse(self.ran())
+
+    def test_only_a_pass_whose_state_held_through_the_run_is_written_down(self):
+        self.assertTrue(self.ran(FAKE_MAKE_EXIT="1"))
+        self.assertTrue(self.ran(FAKE_MAKE_EXIT="1"))       # a failure is never written down
+        self.assertTrue(self.ran(MEANWHILE=str(self.where / "kernel" / "decide.py")))
+        self.assertTrue(self.ran())                         # an edit made while it ran was not taken as checked
+        self.assertFalse(self.ran())
+
+    def test_a_record_or_a_state_that_cannot_be_read_skips_nothing(self):
+        self.assertTrue(self.ran())
+        record = make.gitdir(self.where, self.env) / make.PASSED
+        record.write_text("not a state\n")
+        self.assertTrue(self.ran())
+        self.assertFalse(self.ran())
+        record.unlink()
+        record.mkdir()                                      # a record that cannot be read or written
+        self.assertTrue(self.ran())
+        self.assertTrue(self.ran())
+        record.rmdir()
+        self.assertTrue(self.ran())
+        with unittest.mock.patch.object(make, "state", lambda *args: None):
+            self.assertTrue(self.ran())
+            self.assertTrue(self.ran())
+        only_make = folder()
+        (only_make / "make").symlink_to(pathlib.Path(self.env["PATH"]) / "make")
+        self.env["PATH"] = str(only_make)                  # no git to read the state with
+        self.assertTrue(self.ran())
+        self.assertTrue(self.ran())
+
+    def test_an_edit_and_the_stop_after_it_share_the_pass(self):
+        (self.where / "kernel" / "decide.py").write_text("x = 3\n")
+        edit = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": str(self.where),
+                "tool_input": {"file_path": str(self.where / "kernel" / "decide.py")}}
+        self.assertEqual(after_edit.respond(edit, self.env), (0, "", ""))
+        self.assertEqual(self.runs.read_text().count("run"), 1)
+        stop = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(self.where)}
+        self.assertEqual(before_stop.respond(stop, dict(self.env, FAKE_MAKE_EXIT="2")), (0, "", ""))
+        self.assertEqual(self.runs.read_text().count("run"), 1)
+        (self.where / "kernel" / "decide.py").write_text("x = 4\n")
+        self.assertEqual(before_stop.respond(stop, dict(self.env, FAKE_MAKE_EXIT="2"))[0], 2)
+        self.assertEqual(self.runs.read_text().count("run"), 2)
+
+
 class MakeLeavesNothing(unittest.TestCase):
     """A make run for a hook leaves nothing behind it, killed or not (issue 344)."""
 
@@ -3581,9 +3678,10 @@ class Settings(unittest.TestCase):
         for event, groups in settings["hooks"].items():
             for group in groups:
                 for handler in group["hooks"]:
-                    found = re.match(r'^python3 -I "\$CLAUDE_PROJECT_DIR/tools/hooks/(\w+)\.py"( \|\| exit 2)?$',
-                                     handler["command"])
+                    found = re.search(r'python3 -I "\$\{d%/\.git\}/tools/hooks/(\w+)\.py"( \|\| exit 2)?$',
+                                      handler["command"])
                     self.assertTrue(found, handler["command"])
+                    self.assertEqual(handler["command"], WIRED % {"name": found.group(1), "rest": found.group(2) or ""})
                     wired[found.group(1)] = (event, group.get("matcher"))
                     # A hook that cannot start is shown to the agent, never let through. Not on Stop, which would loop.
                     self.assertEqual(bool(found.group(2)), event != "Stop", handler["command"])
@@ -3593,6 +3691,49 @@ class Settings(unittest.TestCase):
                                  "rules_changed": ("Stop", None)})
         entries = {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
         self.assertEqual(entries, set(wired))
+
+    def test_every_hook_runs_the_main_checkouts_copy_wherever_the_session_started(self):
+        # A session started in an old worktree ran that worktree's copy of the hooks, however stale (the stop-hook
+        # review, 2026-11-05). Each command finds the main checkout from the project folder's git common directory.
+        main = folder() / "main"
+        git(SCRATCH.name, "init", "-q", str(main))
+        (main / "tools" / "hooks").mkdir(parents=True)
+        for name in ("after_edit", "before_stop", "identity", "protected", "rules_changed"):
+            (main / "tools" / "hooks" / (name + ".py")).write_text(
+                "import os, sys\nprint(__file__)\nsys.exit(int(os.environ.get('EXIT', '0')))\n")
+        git(main, "add", "-A")
+        git(main, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "hooks")
+        old = main / ".claude" / "worktrees" / "old"
+        git(main, "worktree", "add", "-q", "--detach", str(old))
+        bin_dir = folder()
+        (bin_dir / "git").symlink_to(shutil.which("git"))
+        (bin_dir / "python3").symlink_to(sys.executable)
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        handlers = [(event, h) for event, groups in settings["hooks"].items() for g in groups for h in g["hooks"]]
+        self.assertEqual(len(handlers), 5)
+        for event, handler in handlers:
+            name = re.search(r"tools/hooks/(\w+)\.py", handler["command"]).group(1)
+
+            def run(project, **extra):
+                env = environment(str(bin_dir), CLAUDE_PROJECT_DIR=str(project), **extra)
+                return subprocess.run(["/bin/sh", "-c", handler["command"]], cwd=str(folder()), input="{}",
+                                      capture_output=True, text=True, timeout=30, env=env)
+            for project in (old, old / "tools", main):
+                done = run(project)
+                self.assertEqual((done.returncode, done.stdout.strip()),
+                                 (0, str(main.resolve() / "tools" / "hooks" / (name + ".py"))), (name, project))
+            # A hook that fails is shown to the agent, as before; not on Stop, which would loop.
+            self.assertEqual(run(old, EXIT="1").returncode, 1 if event == "Stop" else 2, name)
+            # Where no main checkout's copy is found, nothing runs, and the person is told in one line.
+            for nowhere in (folder(), main / "absent"):
+                done = run(nowhere)
+                self.assertEqual(done.returncode, 0, name)
+                self.assertIn("The %s hook did not run" % name, json.loads(done.stdout)["systemMessage"])
+            (main / "tools" / "hooks" / (name + ".py")).rename(main / "gone.py")
+            done = run(old)
+            (main / "gone.py").rename(main / "tools" / "hooks" / (name + ".py"))
+            self.assertEqual(done.returncode, 0, name)
+            self.assertIn("The %s hook did not run" % name, json.loads(done.stdout)["systemMessage"])
 
 
 class ShellReading(unittest.TestCase):

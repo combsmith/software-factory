@@ -143,6 +143,95 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.t
             signal.signal(sig, handler)
 
 
+PASSED = "sf-checks-passed"     # in the tree's git directory: the state its last `make checks` that passed was run at
+SKIPPED = "__pycache__"         # what tools/walk.py skips at any depth; the corpus it skips at the root
+GIT_SECONDS = 10
+
+
+def _git(where: pathlib.Path, env: dict, args: list, stdin: str = None):
+    exe = shutil.which("git", path=env.get("PATH", os.defpath))
+    if exe is None:
+        return None
+    try:
+        done = subprocess.run([exe] + args, cwd=str(where), env=env, input=stdin, capture_output=True, text=True,
+                              timeout=GIT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def gitdir(where: pathlib.Path, env: dict):
+    """The git directory of the tree at `where`, a worktree's own; None where it cannot be read."""
+    found = _git(where, env, ["rev-parse", "--absolute-git-dir"])
+    path = pathlib.Path(found.strip()) if found and found.strip() else None
+    return path if path is not None and path.is_dir() else None
+
+
+def state(where: pathlib.Path, env: dict, git_dir: pathlib.Path):
+    """What `make checks` reads in `where`, as one key: the tree of every file as it stands, those git ignores but the
+    walk reads among them, and the commits HEAD and origin's main name. None where any of it cannot be read. The tree is
+    written from a copy of git's index, so the index itself is never touched."""
+    try:
+        held = tempfile.mkdtemp(prefix=PREFIX, dir=temporary(env))
+    except OSError:
+        return None
+    try:
+        index = os.path.join(held, "index")
+        if (git_dir / "index").is_file():
+            shutil.copyfile(str(git_dir / "index"), index)
+        apart = dict(env, GIT_INDEX_FILE=index, GIT_LITERAL_PATHSPECS="1")
+        if _git(where, apart, ["add", "-A", "--", "."]) is None:
+            return None
+        ignored = _git(where, apart, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", "."])
+        if ignored is None:
+            return None
+        # A name ending in / is another working tree, which the walk does not read either.
+        walked = [p for p in ignored.split("\0") if p and not p.endswith("/") and not p.startswith("corpus/")
+                  and SKIPPED not in p.split("/")]
+        if walked and _git(where, apart, ["add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"],
+                           "\0".join(walked)) is None:
+            return None
+        tree = _git(where, apart, ["write-tree"])
+    except OSError:
+        return None
+    finally:
+        shutil.rmtree(held, ignore_errors=True)
+    head = _git(where, env, ["rev-parse", "HEAD"])
+    base = _git(where, env, ["for-each-ref", "--format=%(objectname)", "refs/remotes/origin/main"])
+    if not tree or not head or base is None:
+        return None
+    return " ".join([tree.strip(), head.strip(), base.strip() or "-"])
+
+
+def ran_out(said: str, target: str, where: pathlib.Path) -> bool:
+    """Whether what a run said is that it did not finish in its time."""
+    before, after = UNFINISHED.split("%d")
+    start, end = before % target, after % where
+    return said.startswith(start) and said.endswith(end) and said[len(start):len(said) - len(end)].isdigit()
+
+
+def checks(where: pathlib.Path, env: dict, timeout: int) -> tuple:
+    """make("checks"), skipped where its last pass was at the state `where` is in now. A pass is written down only when
+    the state read before the run is the state read after it, so an edit made while it ran is never taken as checked.
+    A state that cannot be read skips nothing and is not written down."""
+    asked = time.monotonic()
+    git_dir = gitdir(where, env)
+    record = git_dir / PASSED if git_dir is not None else None
+    key = state(where, env, git_dir) if git_dir is not None else None
+    try:
+        if key is not None and record.read_text().strip() == key:
+            return True, ""
+    except OSError:
+        pass
+    passed, said = make("checks", where, env, max(1, int(timeout - (time.monotonic() - asked))))
+    if passed and key is not None and state(where, env, git_dir) == key:
+        try:
+            record.write_text(key + "\n")
+        except OSError:
+            pass
+    return passed, said
+
+
 def lacks(target: str, where: pathlib.Path, env: dict) -> bool:
     """Whether make is there and the Makefile in `where` has no such target, as on a branch older than it. A Makefile that
     cannot be read, or a target whose own needs are missing, has the target, and running it says what is wrong."""
