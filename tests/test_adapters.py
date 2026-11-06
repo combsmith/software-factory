@@ -3989,6 +3989,13 @@ class Contract(unittest.TestCase):
             self.assertEqual(derive.foreign_results(given_by(n), facts_, given), ["AC-1:from_workflow:unreadable"])
         for n in real:
             self.assertEqual(derive.foreign_results(given_by(n), facts_, given), [])
+        # Where no workflow runs the reporting Lens, which only another App's may be (tools/check_workflows.py), a created
+        # check's result is foreign from its App.
+        other = {"lens": "b-lens", "check": "p35-gated-lens", "app_id": 57789, "workflow": None}
+        elsewhere = dict(config, acceptance_reporters={"test": "b-lens"},
+                         required_lenses=dict(config["required_lenses"], deterministic=[other]))
+        for n in forged:
+            self.assertEqual(derive.foreign_results(given_by(n), facts_, elsewhere), ["AC-1:from_app:15368"])
 
     def test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids(self):
         # Issue 439: the job's form, whole, its run's id and its own. That is what one forging attempt showed and no promise
