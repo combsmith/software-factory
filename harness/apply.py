@@ -8,7 +8,7 @@ under the Run (`superseded`); then the Result: not this Run's or this Release's,
 0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
 the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
-than that reviewer's thread on this item (decision NNNN); a Disposition that gives neither half or both, or the half this
+than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
 Run's Role may not make; a `security` Finding accepted before its author's proposal can be read. Each is the Role's (`item`), but a failed Result for a reason not in
 `THE_ROLES`, and an uncovered Result whose rubric cannot be read, are the Factory's (`environment`). No Result resolves a thread: the owner's decisions are recorded as `applied/1`'s
 rulings, on which the Kernel resolves a Lens's thread as its own act, through the queue App (issue 389).
@@ -63,7 +63,7 @@ THE_ROLES = ("result_invalid", "task_too_large", "no_answer")
 WORK_BRANCH = re.compile(t.WORK_BRANCH)
 # A reason as applied/1 holds one: a code, never a sentence.
 CODE = re.compile(r"[a-z_]+")
-# The longest path a posted Finding may name (decision NNNN).
+# The longest path a posted Finding may name (decision 0145).
 PATH_LONGEST = 4096
 
 
@@ -205,7 +205,7 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
             return "finding_has_no_place"
         # A Finding names a place in the change: a place outside it is no Finding of this review. The place is a path
         # the change holds on its head's side, a renamed file by its new name, as the facts name it, and of at most
-        # PATH_LONGEST characters, however long a path the facts hold (decision NNNN).
+        # PATH_LONGEST characters, however long a path the facts hold (decision 0145).
         if len(where["path"]) > PATH_LONGEST or where["path"] not in {c["path"] for c in facts["changed_paths"]}:
             return "finding_not_on_change"
         # One adopted is adopted from a reviewer the configuration names advisory, and from that reviewer's thread on

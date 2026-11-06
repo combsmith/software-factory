@@ -1,4 +1,4 @@
-# NNNN. A Finding names a place in the change, and is adopted only from an advisory reviewer's thread on the item
+# 0145. A Finding names a place in the change, and is adopted only from an advisory reviewer's thread on the item
 
 Status: accepted. The Factory Builder's ruling of 2026-11-05 on the harness review's story that a Finding's place and its adoption are held to the item. It adds to decision 0038's sentence "A raised Finding's path and an adopted surface's key admit no space and no control character" a bound on each, on its lines and on the reviewer's name, and a check of each against the facts, and to the reasons `apply` refuses a Result three more. Nothing else in 0038 changes.
 

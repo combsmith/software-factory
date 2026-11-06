@@ -564,7 +564,7 @@ class Apply(unittest.TestCase):
         (admit, result, config), = calls["job"]
         self.assertEqual((admit["run"], admit["content_id"], result), (RUN, CONTENT, None))
         self.assertEqual((config["github_run"], config["app"]["name"]), ("4242", "combsmith-sf-pr-review"))
-        # The reviewers a Finding may be adopted from are the ones the configuration names advisory (decision NNNN).
+        # The reviewers a Finding may be adopted from are the ones the configuration names advisory (decision 0145).
         self.assertEqual(config["advisory"], json.loads((ROOT / "config" / "harness.json").read_text())["advisory"])
         self.assertTrue(config["advisory"])
         # A read token GitHub did not revoke ends the Run the Factory's; a mint refused ends it so too, nothing read.

@@ -406,7 +406,7 @@ class Apply(unittest.TestCase):
         self.assertEqual(record["findings"], [])
         self.assertEqual(apply.outcome(the_task(), record, ("item", "finding_gates"))["outcome"], "item")
 
-    def test_a_finding_names_a_place_in_the_change_and_is_adopted_only_from_an_advisory_thread_on_it(self):  # NNNN
+    def test_a_finding_names_a_place_in_the_change_and_is_adopted_only_from_an_advisory_thread_on_it(self):  # 0145
         # A Finding names a place in the change: a place outside it, or a surface the facts cannot show on this item,
         # is no Finding of this review. The place is a path the change holds on its head's side, as the facts name it.
         base = result()
