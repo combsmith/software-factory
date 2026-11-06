@@ -423,10 +423,23 @@ class Apply(unittest.TestCase):
         self.assertEqual(apply.refusal(the_task(), off, facts, runs(), support.context(active_runs=1), support.CONFIG,
                                        NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242), ("item", "finding_not_in_hunk"))
         self.assertEqual(apply.off_hunks(the_task(), off), "finding_not_in_hunk")
-        # A Task that holds no diff, as apply.admitted gives one, holds no line: a Result that posts a Finding is refused.
+        # A Task that carries no diff, as apply.admitted gives one, holds no line; asked to hold the lines of one,
+        # refusal refuses it as the Factory's slip, whatever the Result posts, and the Role is never charged for it.
         bare = {k: v for k, v in the_task().items() if k != "texts"}
         self.assertEqual(apply.off_hunks(bare, result()), "finding_not_in_hunk")
         self.assertIsNone(apply.off_hunks(bare, result(findings=[], effects={})))
+        for res in (result(), off, result(findings=[], effects={}, coverage=[])):
+            self.assertEqual(apply.refusal(bare, res, facts, runs(), support.context(active_runs=1), support.CONFIG, NOW,
+                                           ROLE, None, AUTHORITY, ADVISORY, 4242), ("environment", "diff_not_given"))
+        # Left out, the lines need no diff, and what the other checks let through is let through.
+        self.assertIsNone(apply.refusal(bare, result(), facts, runs(), support.context(active_runs=1), support.CONFIG,
+                                        NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242, lines=False))
+        # The other checks come first: a Result refused for itself is refused for that, diff or none.
+        self.assertEqual(apply.refusal(bare, result(run="r_01JA7Z"), facts, runs(), support.context(active_runs=1),
+                                       support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY, ADVISORY, 4242),
+                         ("item", "result_not_the_runs"))
+        self.assertEqual(shared.errors(json.loads((ROOT / "examples" / "outcome.diff-not-given.json").read_text()),
+                                       "outcome"), [])
         self.assertIsNone(apply.off_hunks(the_task(), result()))
 
     def test_a_findings_lines_are_on_one_hunk_of_its_file_on_the_heads_side(self):  # issue 567

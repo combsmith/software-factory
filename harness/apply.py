@@ -343,7 +343,8 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
     """`(fault, reason)` why nothing may be written, or None. `rubric` is the Intent's when it reviews, else None;
     `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. With
     `lines` false, every check but a Finding's lines is made, which needs no diff; by default that one is made too, of
-    the Task's diff, so a caller that forgets fails closed (decision NNNN)."""
+    the Task's diff, so a caller that forgets fails closed: of a Task that carries no diff, as `admitted` gives one,
+    the refusal is the Factory's, `diff_not_given` (decision NNNN)."""
     moved = _superseded(task, facts, runs, context, kernel, now, github_run)
     if moved:
         return "superseded", moved
@@ -362,6 +363,10 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
             return ("item", "uncovered") if said == "uncovered" else ("environment", "coverage_unreadable")
     why = _effects(task, result, facts, advisory) or _dispositions(task, result, facts, role, authority)
     if why is None and lines:
+        # A Finding's lines are held of the Task's diff: a Task that carries none was handed in without it, which is
+        # the Factory's slip, never the Role's, and nothing is written (decision NNNN).
+        if "texts" not in task:
+            return "environment", "diff_not_given"
         why = off_hunks(task, result)
     return ("item", why) if why else None
 
