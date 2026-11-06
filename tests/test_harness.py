@@ -1233,11 +1233,13 @@ class Head(unittest.TestCase):
             with self.assertRaises(head.Refused, msg=where) as refused:
                 head.held(where, {"files": {}, "links": set()})
             self.assertIn("not a folder", str(refused.exception))
-        # A link to the head is refused however it is written, with a trailing slash too, through which islink would
-        # follow it (issue 559).
+        # A link to the head is refused however it is written, with a trailing slash or a dot segment too, through
+        # which islink would follow it; and so is a head named other than as itself: empty, or by a `.` or `..` segment,
+        # which names another folder than the one walked (issue 559, Argon's and Claude's reads).
         linked = os.path.join(self.folder(), "head")
         os.symlink(into, linked)
-        for where in (linked, linked + "/", linked + "//"):
+        for where in (linked, linked + "/", linked + "//", linked + "/.", "", into + "/", into + "/.",
+                      os.path.join(into, "p2", "..")):
             with self.assertRaises(head.Refused, msg=where) as refused:
                 head.held(where, tree)
             self.assertIn("not a folder", str(refused.exception))
