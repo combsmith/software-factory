@@ -7974,6 +7974,9 @@ MUTANTS = ISSUE + [
     ('a change under the Run is told after the diff', 'harness/apply.py',
      '    if moved:\n        record = applied(admit, result, [], role, refused=moved)\n',
      '    if False:\n        record = applied(admit, result, [], role, refused=moved)\n', ('tests.test_apply.Job.test_the_tasks_diff_is_built_again_from_the_diff_read_again',)),
+    ('the diff is read before a Run the Kernel no longer admits is told', 'harness/apply.py',
+     '    if moved:\n        record = applied(admit, result, [], role, refused=moved)\n',
+     '    if moved and moved not in ("not_admitted", "pause_unreadable"):\n        record = applied(admit, result, [], role, refused=moved)\n', ('tests.test_apply.Job.test_the_tasks_diff_is_built_again_from_the_diff_read_again',)),
     # Decision 0120: the gate's bar, of the set and of each kind, and what closes it whatever the bar.
     ("a missed blocking case is left to the bar", 'harness/eval/__init__.py', ' \\\n            or blocking is False:', ':', ("tests.test_evals.EvalJob.test_a_case_that_expects_a_blocking_finding_must_pass",)),
     ("a report that can't say of its blocking cases passes", 'harness/eval/__init__.py', ' or kinds is None or blocking is None:', ' or kinds is None:', ("tests.test_evals.EvalJob.test_the_gate_holds_its_bar_of_the_set_and_of_each_kind",)),

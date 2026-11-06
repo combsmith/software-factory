@@ -1064,12 +1064,17 @@ class Job(unittest.TestCase):
             record, ended, calls = self.go(result(), facts=facts, change=change)
             self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("superseded", want, []), want)
             self.assertEqual({e["reason"] for e in record["effects"]}, {want})
-        # No diff is read of an item the facts show closed, moved, held or paused: such a read can hide the change.
-        for over in ({"facts": closed}, {"facts": support.facts(content_id="sha256:bbbb")},
-                     {"facts": support.facts(label_events=[support.labelled("factory:hold")])},
-                     {"context": support.context(paused=True, active_runs=1)}):
-            record, ended, calls = self.go(result(), change=None, **over)
-            self.assertEqual((ended["outcome"], calls["diff"]), ("superseded", 0), over)
+        # No diff is read of an item the facts show closed, moved, held or paused, or the Pause unread, or the Kernel
+        # not admitting the Run: such a read can hide the change. Bytes of another content would say content_moved.
+        other = support.run(name="r_01JA7Z", status="in_progress", at="2026-10-11T12:59:00Z")
+        for over, want in (({"facts": closed}, "item_closed"),
+                           ({"facts": support.facts(content_id="sha256:bbbb")}, "content_moved"),
+                           ({"facts": support.facts(label_events=[support.labelled("factory:hold")])}, "item_held"),
+                           ({"context": support.context(paused=True, active_runs=1)}, "paused"),
+                           ({"context": support.context(paused=None, active_runs=1)}, "pause_unreadable"),
+                           ({"records": runs() + [other]}, "not_admitted")):
+            record, ended, calls = self.go(result(), change=b"other bytes", **over)
+            self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("superseded", want, 0), want)
         record, ended, calls = self.go(result())
         self.assertEqual(calls["diff"], 1)
         # Cut where the Run's Task was cut: a file it left out holds no line, though the bytes hold it.
