@@ -1517,6 +1517,9 @@ class Identity(unittest.TestCase):
             self.assertIn((["tee"], [(">", "./$")]), shell.commands(before + "tee >./`echo kernel/gate.py`"), before)
         self.assertIn(["git", "push", "origin", "HEAD:main"],
                       [w for w, _ in shell.commands("echo `date #x`\necho `git push origin HEAD:main`") if w])
+        # A backslash holds a backtick in such a comment: the backtick ends after it, and the rm is a command (Codex).
+        self.assertIn(["rm", "kernel/gate.py"],
+                      [w for w, _ in shell.commands("echo `date #\\` '\n`\nrm kernel/gate.py\n# '") if w])
         # One that begins a word is read as before.
         self.assertEqual(shell.commands("echo `date` > notes.txt"), [(["echo"], []), (["date"], []), ([], [(">", "notes.txt")])])
         # A substitution in a ${...} inside a substitution of a here-document's body is read as at the top.

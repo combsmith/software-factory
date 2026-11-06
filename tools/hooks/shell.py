@@ -571,8 +571,13 @@ def _held(text: str) -> str:
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
                 end = len(text) if end < 0 else end
-                if ticked and 0 <= text.find("`", i, end):
-                    end = text.find("`", i, end)    # a comment in a backtick ends where it does (the Claude review)
+                if ticked:
+                    # A comment in a backtick ends where the backtick does (the Claude review), at the first one no
+                    # backslash holds: \` in it is a backtick, not the end (Codex's read).
+                    j = i
+                    while j < end and text[j] != "`":
+                        j += 2 if text[j] == "\\" else 1
+                    end = min(j, end)
                 i = end
                 continue
             if i < braces and (c in PUNCTUATION or c == "`" or text.startswith("$(", i)):
