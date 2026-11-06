@@ -631,7 +631,7 @@ def _held(text: str) -> str:
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
-            comments = c in COMMENTS_AFTER
+            comments = c in COMMENTS_AFTER or (c == "`" and ticked)    # a backtick's script may begin with one (Codex)
         elif c == quote:
             quote, comments = None, False
             out.append(c)
