@@ -46,25 +46,35 @@ def _overlaps(expected: dict, raised: dict) -> bool:
     return theirs[0] <= ours[1] and ours[0] <= theirs[1]
 
 
+def _places(expected: dict) -> list:
+    """Each place the expected Finding may rightly be put: its `location`, then each of `also_at` (decision 0143)."""
+    return [expected["location"]] + expected.get("also_at", [])
+
+
+def _at(expected: dict, raised: dict) -> bool:
+    """Whether a raised Finding's location is at any place the expected Finding may rightly be put."""
+    return any(_overlaps(place, raised) for place in _places(expected))
+
+
 def _misses(expected: dict, raised: dict) -> list:
     """The codes of what a raised Finding has otherwise than the expected one."""
     return [code for ok, code in ((raised["category"] == expected["category"], MISSES[0]),
                                   (raised["severity"] == expected["severity"], MISSES[1]),
-                                  (_overlaps(expected["location"], raised.get("location", {})), MISSES[2])) if not ok]
+                                  (_at(expected, raised.get("location", {})), MISSES[2])) if not ok]
 
 
 def _where_it_went(expected: dict, raised: list) -> list:
     """The codes of what became of an expected Finding that no Finding cited its criterion for: each fails the case alike,
-    and tells a miss from a Finding that was raised and not cited. At the expected place, cited to no criterion, or to
-    another, with what the nearest has otherwise; in the file but elsewhere; or nowhere in it."""
-    there = [f for f in raised if _overlaps(expected["location"], f.get("location", {}))]
+    and tells a miss from a Finding that was raised and not cited. At a place the case gives, cited to no criterion, or
+    to another, with what the nearest has otherwise; in a file of one of them but elsewhere; or in none of them."""
+    there = [f for f in raised if _at(expected, f.get("location", {}))]
     if there:
         return ([WENT[2]] if any(f["criterion"] is None for f in there) else []) + \
                ([WENT[3]] if any(f["criterion"] is not None for f in there) else []) + \
                min((_misses(expected, f) for f in there), key=len)
     # A location whose lines cannot be read is nowhere, as `_overlaps` reads it.
-    in_file = any(f.get("location", {}).get("path") == expected["location"]["path"] and _lines(f["location"]) is not False
-                  for f in raised)
+    paths = {place["path"] for place in _places(expected)}
+    in_file = any(f.get("location", {}).get("path") in paths and _lines(f["location"]) is not False for f in raised)
     return [WENT[1] if in_file else WENT[0]]
 
 
@@ -110,7 +120,8 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     want = case["expected"]
     if (want["verdict"] == "finding") != (want["finding"] is not None):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_disagrees_with_verdict"]}
-    if want["finding"] is not None and _lines(want["finding"]["location"]) is False:
+    # Every place a case gives must be readable, `also_at`'s as its `location` (decision 0143).
+    if want["finding"] is not None and any(_lines(place) is False for place in _places(want["finding"])):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["location_unreadable"]}
     # A case asks about one criterion of the rubric its Role reviews by; one the rubric lacks is nobody's to pass.
     criteria = _criteria(case["role"])

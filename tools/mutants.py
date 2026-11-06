@@ -82,6 +82,7 @@ WIRE_PASSES = ("tests.test_adapters.EffectsRecorded.test_each_pass_in_the_window
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
 WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
+ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
@@ -7988,9 +7989,9 @@ MUTANTS = ISSUE + [
      ("tests.test_steps.Reader.test_the_reader_writes_the_tasks_inputs",)),
     # Run 41315433150: what became of a Finding no Finding cited.
     ("a Finding of no location breaks the scorer", 'tools/eval_result.py',
-     'there = [f for f in raised if _overlaps(expected["location"], f.get("location", {}))]', 'there = [f for f in raised if _overlaps(expected["location"], f["location"])]', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
+     'there = [f for f in raised if _at(expected, f.get("location", {}))]', 'there = [f for f in raised if _at(expected, f["location"])]', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
     ("a Finding of no location breaks the file's reading", 'tools/eval_result.py',
-     'f.get("location", {}).get("path") == expected', 'f["location"]["path"] == expected', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
+     'f.get("location", {}).get("path") in paths', 'f["location"]["path"] in paths', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
     ("a citing Finding of no location breaks the scorer", 'tools/eval_result.py',
      'raised.get("location", {})), MISSES[2])', 'raised["location"]), MISSES[2])', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
     ("a Finding whose lines cannot be read is elsewhere", 'tools/eval_result.py',
@@ -8005,6 +8006,29 @@ MUTANTS = ISSUE + [
     ("the farthest's differences are said", 'tools/eval_result.py', 'min((_misses(expected, f) for f in there), key=len)', 'max((_misses(expected, f) for f in there), key=len)', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
     ("a Finding elsewhere in the file reads as a miss", 'tools/eval_result.py', 'return [WENT[1] if in_file else WENT[0]]', 'return [WENT[0]]', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
     ("a Finding in another file reads as elsewhere", 'tools/eval_result.py', 'return [WENT[1] if in_file else WENT[0]]', 'return [WENT[1]]', ("tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went",)),
+    # Decision 0143: a fault may rightly be placed at more than one place, and a case may name each.
+    ("a case's other places are not read", 'tools/eval_result.py',
+     'return [expected["location"]] + expected.get("also_at", [])', 'return [expected["location"]]', ALSO_AT),
+    ("a case's first place alone is read", 'tools/eval_result.py',
+     'return any(_overlaps(place, raised) for place in _places(expected))', 'return _overlaps(expected["location"], raised)', ALSO_AT),
+    ("a citing Finding is held to the first place alone", 'tools/eval_result.py',
+     '(_at(expected, raised.get("location", {})), MISSES[2])', '(_overlaps(expected["location"], raised.get("location", {})), MISSES[2])', ALSO_AT),
+    ("an uncited Finding is there at the first place alone", 'tools/eval_result.py',
+     'there = [f for f in raised if _at(expected, f.get("location", {}))]',
+     'there = [f for f in raised if _overlaps(expected["location"], f.get("location", {}))]', ALSO_AT),
+    ("an uncited Finding is in the file of the first place alone", 'tools/eval_result.py',
+     'paths = {place["path"] for place in _places(expected)}', 'paths = {expected["location"]["path"]}', ALSO_AT),
+    ("a case's other places need not be readable", 'tools/eval_result.py',
+     'any(_lines(place) is False for place in _places(want["finding"]))', '_lines(want["finding"]["location"]) is False', ALSO_AT),
+    ("a case is unreadable only when no place is readable", 'tools/eval_result.py',
+     'any(_lines(place) is False for place in', 'all(_lines(place) is False for place in', ALSO_AT),
+    ("a case's other places may be none", 'schemas/eval-case.schema.json',
+     '              "type": "array",\n              "minItems": 1,\n              "items": {\n                "$ref": "#/$defs/location"',
+     '              "type": "array",\n              "items": {\n                "$ref": "#/$defs/location"',
+     ("tests.test_evals.TheSet.test_a_case_dropped_under_evals_in_any_file_is_caught", ALSO_AT[0])),
+    ("a case's other place need be no location", 'schemas/eval-case.schema.json',
+     '              "items": {\n                "$ref": "#/$defs/location"\n              }', '              "items": {}',
+     ("tests.test_evals.TheSet.test_a_case_dropped_under_evals_in_any_file_is_caught", ALSO_AT[0])),
     ("a code of where it went is no code of the report", 'schemas/eval-report.schema.json',
      '"finding_uncited",\n', '"finding_uncitedd",\n', ("tests.test_evals.EvalJob.test_every_code_the_scorer_gives_is_one_the_report_may_carry",)),
     # Decision 0111: the scorer's codes are the report's and the log's.

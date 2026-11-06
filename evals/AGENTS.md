@@ -13,6 +13,7 @@ and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Main
 | Nothing lives here but a manifest in `LIVE` and these rules, and no file here, of any name, holds a case or a diff | `tests/test_evals.py::test_a_case_dropped_under_evals_in_any_file_is_caught` |
 | A new file here is added to `LIVE` in `tools/check_examples.py`, with its schema | `tools/check_examples.py` |
 | A Result passes a case by raising the Finding it expects, in its category, severity and place, with the coverage agreeing | `tests/test_evals.py::test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails` |
+| A case may name each place its fault is rightly put, in `also_at`; a Finding at any of them is at the place, and every place must be readable (decision 0143) | `tests/test_evals.py::test_a_finding_at_any_place_the_case_gives_is_at_the_place` |
 | A right change passes by covering its criterion as met and raising nothing against it | `tests/test_evals.py::test_a_right_change_is_scored_by_its_coverage` |
 | A case or a Result that cannot be read scores nothing, a case whose criterion its Role's rubric lacks among them | `tests/test_evals.py::test_a_case_or_a_result_that_cannot_be_read_scores_nothing` |
 | A case expects a Finding in the Finding's own categories and severities | `tests/test_evals.py::test_a_cases_categories_are_the_findings` |

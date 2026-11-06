@@ -153,6 +153,61 @@ class Scoring(unittest.TestCase):
         extra = dict(at, ref="n9", criterion=None)
         self.assertEqual(eval_result.score(case, dict(right, findings=[at, extra]))["verdict"], "pass")
 
+    def test_a_finding_at_any_place_the_case_gives_is_at_the_place(self):  # decision 0143
+        # A fault that spans several changed lines is rightly placed on any of them: a case may name each such place
+        # beside its `location`, in `also_at`. One fault, several places: what else a Finding must be is unchanged.
+        case, result = load("examples/eval-case.also-at.json"), load("examples/result.json")
+        first, other = case["expected"]["finding"]["location"], case["expected"]["finding"]["also_at"][0]
+        self.assertNotEqual(eval_result._lines(first), eval_result._lines(other))
+
+        def placed(location, **given):
+            made = copy.deepcopy(result)
+            made["findings"][0].update(dict(given, location=location))
+            return made
+        for location in (first, other, {"path": first["path"]}, dict(other, end_line=other["end_line"] + 40)):
+            self.assertEqual(eval_result.score(case, placed(location))["verdict"], "pass", location)
+        for location in ({"path": "kernel/gate.py"}, dict(first, start_line=89, end_line=94)):
+            self.assertEqual(eval_result.score(case, placed(location))["reasons"], ["location_differs"], location)
+        self.assertEqual(eval_result.score(case, placed(other, severity="minor"))["reasons"], ["severity_differs"])
+        self.assertEqual(eval_result.score(case, placed(other, category="architecture"))["reasons"], ["category_differs"])
+        # Absent, the Finding has its one place, as before.
+        alone = copy.deepcopy(case)
+        del alone["expected"]["finding"]["also_at"]
+        self.assertEqual(eval_result.score(alone, placed(first))["verdict"], "pass")
+        self.assertEqual(eval_result.score(alone, placed(other))["reasons"], ["location_differs"])
+        # Where it went, when nothing cited the criterion: at any place given, or in a file of one of them but
+        # elsewhere, or in none of them; each in a file of its own.
+        apart = copy.deepcopy(case)
+        apart["expected"]["finding"]["also_at"] = [{"path": "kernel/gate.py", "start_line": 10, "end_line": 12}]
+
+        def went(location):
+            scored = eval_result.score(apart, placed(location, criterion=None))
+            return [r for r in scored["reasons"] if r != "coverage_disagrees"]
+        self.assertEqual(went({"path": "kernel/gate.py", "start_line": 11, "end_line": 11}), ["finding_uncited"])
+        self.assertEqual(went(first), ["finding_uncited"])
+        self.assertEqual(went({"path": "kernel/gate.py", "start_line": 40, "end_line": 41}), ["finding_elsewhere"])
+        self.assertEqual(went({"path": first["path"], "start_line": 200, "end_line": 201}), ["finding_elsewhere"])
+        self.assertEqual(went({"path": "kernel/gate.py", "start_line": 12, "end_line": 2}), ["finding_not_raised"])
+        self.assertEqual(went({"path": "kernel/state.py", "start_line": 11, "end_line": 11}), ["finding_not_raised"])
+        # Every place a case gives must be readable, whichever it is; one given without lines is the whole file.
+        for lines in ({"end_line": 9}, {"start_line": 9, "end_line": 2}):
+            for at in (0, 1):
+                unreadable = copy.deepcopy(case)
+                places = [other, {"path": "kernel/gate.py"}]
+                places[at] = dict(places[at], **lines) if "start_line" in lines else {"path": "kernel/gate.py", **lines}
+                unreadable["expected"]["finding"]["also_at"] = places
+                self.assertEqual(eval_result.score(unreadable, placed(first)),
+                                 {"case": case["id"], "verdict": "unreadable", "reasons": ["location_unreadable"]}, places)
+        whole = copy.deepcopy(case)
+        whole["expected"]["finding"]["also_at"] = [{"path": "kernel/gate.py"}]
+        self.assertEqual(eval_result.score(whole, placed({"path": "kernel/gate.py", "start_line": 500}))["verdict"], "pass")
+        # The schema holds a case to it: `also_at`, where given, names at least one place, each a location of its own.
+        self.assertEqual(validate(case, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [])
+        for places in ([], [{"start_line": 86}], [dict(other, at="x")], other):
+            bad = copy.deepcopy(case)
+            bad["expected"]["finding"]["also_at"] = places
+            self.assertNotEqual(validate(bad, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [], places)
+
     def test_a_right_change_is_scored_by_its_coverage(self):
         case, result = load("examples/eval-case.met.json"), load("examples/result.json")
         self.assertEqual(eval_result.score(case, result)["verdict"], "pass")
