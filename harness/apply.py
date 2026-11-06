@@ -338,10 +338,11 @@ def _findings_of(facts: dict, thread: str) -> list:
 
 
 def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, kernel: dict, now: str, role: dict,
-            rubric, authority: dict, advisory, github_run=None, lines: bool = True) -> tuple:
+            rubric, authority: dict, advisory, github_run=None, lines: bool = False) -> tuple:
     """`(fault, reason)` why nothing may be written, or None. `rubric` is the Intent's when it reviews, else None;
-    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. With
-    `lines` false, every check but a Finding's lines is made, which needs no diff (decision NNNN)."""
+    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. Every check
+    but a Finding's lines needs no diff, and is all that is made unless `lines` asks for that one too, of a Task that
+    holds its diff (decision NNNN)."""
     moved = _superseded(task, facts, runs, context, kernel, now, github_run)
     if moved:
         return "superseded", moved
@@ -489,8 +490,8 @@ def taken(data: bytes, digest: str):
 
 def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
     """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, diff)`,
-    `diff()` its diff's bytes, read only for a Result that posts a Finding and once no change under the Run is told by
-    the facts, from which the Task's diff is built again as the Run was given it (decision 0146);
+    `diff()` its diff's bytes, read only for a completed Result that posts a Finding and that every check needing no diff
+    let through, from which the Task's diff is built again as the Run was given it (decisions 0146 and NNNN);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
     request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""

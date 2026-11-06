@@ -272,7 +272,7 @@ def refused(task=None, res=None, facts=None, records=None, context=None, rubric=
     return apply.refusal(task or the_task(texts=[covering(facts)]), res or result(), facts,
                          runs() if records is None else records,
                          support.context(active_runs=1) if context is None else context, support.CONFIG, NOW, role,
-                         rubric, AUTHORITY, ADVISORY, github_run)
+                         rubric, AUTHORITY, ADVISORY, github_run, lines=True)
 
 
 def read_back(task, res, **over) -> list:
@@ -412,6 +412,9 @@ class Apply(unittest.TestCase):
         n1 = off["findings"][0]
         stranger = dict(off, findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse"))] + off["findings"][1:])
         self.assertEqual(refused(task=the_task(), res=stranger), ("item", "adopted_lens_not_advisory"))
+        # After the Dispositions too: a Result with a Disposition on no Finding of the Task is refused for that.
+        astray = dict(off, dispositions=[{"finding": "f_1234567890abcdef", "decision": {"result": "accepted"}}])
+        self.assertEqual(refused(task=the_task(), res=astray), ("item", "disposition_of_no_finding"))
         facts = the_facts()
         self.assertIsNone(apply.refusal(the_task(), off, facts, runs(),
                                         support.context(active_runs=1), support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY,
@@ -1174,23 +1177,28 @@ class Job(unittest.TestCase):
         # Every check that needs no diff is made before the diff is read: a Result one refuses spends no read, and is
         # refused for itself, never for a read that failed (bytes that are not the content would say content_moved).
         n1, n2 = result()["findings"]
-        for res, over, want in ((result(run="r_01JA7Z"), {}, "result_not_the_runs"),
-                                (result(status="incomplete", reason="no_answer"), {}, "reason_not_the_status"),
-                                (result(reason="change_not_reviewed_whole"), {}, "reason_not_the_status"),
-                                (result(coverage=result()["coverage"][1:]), {}, "uncovered"),
+        unread = dict(self.CONFIG, rubric={"criteria": []})
+        for res, over, want in ((result(run="r_01JA7Z"), {}, ("item", "result_not_the_runs")),
+                                (result(status="incomplete", reason="change_not_reviewed_whole"), {},
+                                 ("item", "change_not_reviewed_whole")),
+                                (result(reason="change_not_reviewed_whole"), {}, ("item", "reason_not_the_status")),
+                                (result(coverage=result()["coverage"][1:]), {}, ("item", "uncovered")),
+                                (result(), {"config": unread}, ("environment", "coverage_unreadable")),
                                 (result(), {"task": the_task(permitted_effects=["submit_review"])},
-                                 "effect_not_permitted"),
-                                (result(findings=[n1, n2, dict(n2, ref="n3")]), {}, "finding_not_posted_once"),
+                                 ("item", "effect_not_permitted")),
+                                (result(findings=[n1, n2, dict(n2, ref="n3")]), {}, ("item", "finding_not_posted_once")),
                                 (result(findings=[dict(n1, location=dict(n1["location"], path="kernel/admission.py")),
-                                                  n2]), {}, "finding_not_on_change"),
+                                                  n2]), {}, ("item", "finding_not_on_change")),
                                 (result(findings=[dict(n1, adopted_from=dict(n1["adopted_from"], lens="muse")), n2]),
-                                 {}, "adopted_lens_not_advisory")):
+                                 {}, ("item", "adopted_lens_not_advisory")),
+                                (result(dispositions=[{"finding": "f_1234567890abcdef", "decision": {"result": "accepted"}}]),
+                                 {}, ("item", "disposition_of_no_finding"))):
             record, ended, calls = self.go(res, change=None, facts=the_facts(), **over)
-            self.assertEqual((ended["outcome"], ended["reason"], calls["diff"], calls["mint"]), ("item", want, 0, []),
-                             want)
-        # A read that would fail is never made for such a Result, so its refusal is its own.
-        record, ended, calls = self.go(result(run="r_01JA7Z"), change=github.Unanswered("no answer"), facts=the_facts())
-        self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("item", "result_not_the_runs", 0))
+            self.assertEqual(((ended["outcome"], ended["reason"]), calls["diff"], calls["mint"]), (want, 0, []), want)
+        # A read that would fail, or find the head moved, is never made for such a Result, so its refusal is its own.
+        for raised in (github.Unanswered("no answer"), Moved("moved")):
+            record, ended, calls = self.go(result(run="r_01JA7Z"), change=raised, facts=the_facts())
+            self.assertEqual((ended["outcome"], ended["reason"], calls["diff"]), ("item", "result_not_the_runs", 0))
 
     def test_the_tasks_diff_is_built_again_from_the_diff_read_again(self):  # issue 567
         # The lines a Finding is held to are the diff's as the item is read again, cut as the Run's Task was.
