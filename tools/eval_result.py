@@ -116,7 +116,7 @@ def _where_it_went(expected: dict, raised: list) -> list:
 
 def _gates(raised: dict) -> bool:
     """Whether a raised Finding would hold a pull request, as `kernel/gate.py` reads a required Lens's: blocking or major,
-    or a security Finding at any severity (decision NNNN)."""
+    or a security Finding at any severity (decision 0144)."""
     return raised["severity"] in GATING_SEVERITIES or raised["category"] == SECURITY
 
 
@@ -190,7 +190,7 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
             reasons.append("coverage_disagrees")
     else:
         # A clean case holds no fault a gate should stop, so a Finding that would hold it fails the case, whatever
-        # criterion it cites or none, as one that cites the case's own criterion does at any severity (decision NNNN).
+        # criterion it cites or none, as one that cites the case's own criterion does at any severity (decision 0144).
         if citing or any(_gates(f) for f in result["findings"]):
             reasons.append("finding_raised_wrongly")
         if covered != ["met"]:

@@ -204,7 +204,7 @@ class Scoring(unittest.TestCase):
         both["findings"][-1].update(severity=both["findings"][0]["severity"], criterion=None)
         self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
         self.assertNotIn("at_alternate", eval_result.score(case, placed(other, criterion=None)))
-        # A clean case's pass is never marked: its Result's major Finding, which would hold it (decision NNNN), at minor.
+        # A clean case's pass is never marked: its Result's major Finding, which would hold it (decision 0144), at minor.
         clean = copy.deepcopy(result)
         clean["findings"][0]["severity"] = "minor"
         self.assertEqual(eval_result.score(load("examples/eval-case.met.json"), clean)["verdict"], "pass")
@@ -301,7 +301,7 @@ class Scoring(unittest.TestCase):
             self.assertNotEqual(validate(bad, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [], places)
     def test_a_right_change_is_scored_by_its_coverage(self):
         case, result = load("examples/eval-case.met.json"), load("examples/result.json")
-        # The example's major Finding would hold a pull request, which a clean case fails (decision NNNN): at minor, it
+        # The example's major Finding would hold a pull request, which a clean case fails (decision 0144): at minor, it
         # holds none.
         result["findings"][0]["severity"] = "minor"
         self.assertEqual(eval_result.score(case, result)["verdict"], "pass")
@@ -314,7 +314,7 @@ class Scoring(unittest.TestCase):
         del wrong["coverage"][0]
         self.assertEqual(eval_result.score(case, wrong)["reasons"], ["criterion_not_met"])
 
-    def test_a_gating_finding_fails_a_clean_case(self):  # decision NNNN
+    def test_a_gating_finding_fails_a_clean_case(self):  # decision 0144
         # A clean case holds no fault a gate should stop. A Finding that would hold its pull request, blocking or major or
         # a security Finding at any severity, as `kernel/gate.py` reads a required Lens's, fails the case whatever
         # criterion it cites or none, and even with the case's own criterion covered as met.

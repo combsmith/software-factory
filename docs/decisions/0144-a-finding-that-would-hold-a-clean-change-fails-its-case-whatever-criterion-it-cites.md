@@ -1,4 +1,4 @@
-# NNNN. A Finding that would hold a clean change fails its case, whatever criterion it cites
+# 0144. A Finding that would hold a clean change fails its case, whatever criterion it cites
 
 Status: accepted. The Maintainer's ruling, restated to this lane by the Builder on 2026-11-06: a gating Finding raised on a clean case fails that case, even where its criterion is covered as met. It changes `tools/eval_result.py` alone. The codes, `eval-report/1`, the gate, its bar and each kind's bar (decision 0120) do not change.
 
