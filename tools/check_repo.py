@@ -132,11 +132,14 @@ FOREIGN = ".github-" + "private"
 # A model is named in one place, the Engine's pin, and nowhere else but the documents. The pin's file names that model and
 # no other, and the counter-examples of its schema copy it and name no other either (L-34).
 MODEL_ID = re.compile(r"\b(claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*)")
-# A model as a file names it, with any suffix in brackets, so that the pinned id with `[1m]` is not the pin (Muse's read).
-MODEL_FORM = re.compile(r"(?:%s)(?:\[[^\]\"]*\])?" % MODEL_ID.pattern)
+# A model as a file names it, with what is joined to it on either side and any suffix in brackets, so that the pinned id
+# with `[1m]`, `-latest` or a prefix is not the pin (Muse's and Argon's reads).
+MODEL_FORM = re.compile(r"[\w.@:/-]*(?:%s)[\w.@:/-]*(?:\[[^\]\"]*\])?" % MODEL_ID.pattern)
 PIN = "config/harness.json"
+# A pin is a full id, as `schemas/harness.schema.json` holds it; any other string pins nothing.
+PIN_FORM = re.compile(r"claude-[a-z]+(-[0-9]+)+")
 PIN_COPIES = re.compile(r"\A(config/harness|examples/invalid/harness\.[a-z0-9-]+)\.json\Z")
-TEXT = {".py", ".json", ".md", ".yml", ".yaml", ".txt", ".toml", ".cfg", ""}
+TEXT = {".py", ".json", ".md", ".yml", ".yaml", ".txt", ".toml", ".cfg", ".sh", ""}
 # The shape of a credential. A secret is referred to by its name, never by its value. This is a
 # net with wide holes; the org's push protection is the real one.
 SECRETS = [re.compile(p) for p in (
@@ -235,7 +238,7 @@ def _pinned(root: pathlib.Path):
         model = json.loads((root / PIN).read_text())["engine"]["model"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    return model if isinstance(model, str) else None
+    return model if isinstance(model, str) and PIN_FORM.fullmatch(model) else None
 
 
 def run(root: pathlib.Path = ROOT) -> list:

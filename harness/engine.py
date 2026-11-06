@@ -272,13 +272,18 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     # The version is read again after the call: an engine that changed under the Run is not the one pinned.
     if version(cli, env, call) != engine["version"]:
         return failed(task, "engine_version", usage)
+    # A Run the CLI says another model took part in is the Engine's, whatever else befell it: one that erred or ran out
+    # by a fallback model is not the reviewer's. One that names no model keeps its own reason (decision NNNN).
+    if isinstance(said, dict) and said.get("modelUsage") not in (None, {}) and usage["answering_model"] != engine["model"]:
+        return failed(task, "engine_model", usage)
     if reason is not None:
         return failed(task, reason, usage)
     found = said.get("structured_output") if isinstance(said, dict) else None
     # A CLI that exited 0 and gave no answer to hold to a schema is told from an answer that fails it (decision 0121).
     if not isinstance(found, dict):
         return failed(task, "no_answer", usage)
-    # An answer is kept only from the pinned model, as the CLI names the one that answered (decision NNNN).
+    # An answer is kept only from the pinned model, as the CLI names the one that answered, and that is decided before
+    # the answer is held to any schema: another model's answer that fails one is still the Engine's (decision NNNN).
     if usage["answering_model"] != engine["model"]:
         return failed(task, "engine_model", usage)
     result = dict(found, release=task["release"], usage=usage)

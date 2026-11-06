@@ -736,6 +736,23 @@ class Engine(unittest.TestCase):
         del erred["modelUsage"]
         self.assertEqual(engined(CLI(said=json.dumps(erred)))["reason"], "engine_failed")
         self.assertEqual(engined()["usage"]["answering_model"], MODEL)
+        # One that erred or ran out with another model taking part is the Engine's, not its own reason, which is the
+        # reviewer's in the eval; with the pin alone it keeps its own (Argon's read of be7743a).
+        for subtype, own in (("error_during_execution", "engine_failed"), ("error_max_turns", "no_answer"),
+                             ("error_max_structured_output_retries", "no_answer")):
+            for named, reason in (({other: {}}, "engine_model"), ({MODEL: {}, other: {}}, "engine_model"),
+                                  ({MODEL: {}}, own), ({}, own)):
+                ended = json.loads(answer(is_error=True, subtype=subtype, modelUsage=named))
+                self.assertEqual(engined(CLI(said=json.dumps(ended)))["reason"], reason, (subtype, named))
+        # Another model's answer is the Engine's before it is held to any schema: one that fails the schema it was handed
+        # is not the reviewer's `result_invalid` (the Claude read of be7743a).
+        for broken in (judged(status="maybe"), judged(effects={"merge": True}), {}):
+            said = json.loads(answer(broken, modelUsage={other: {}}))
+            self.assertEqual(engined(CLI(said=json.dumps(said)))["reason"], "engine_model", broken)
+            del said["modelUsage"]
+            self.assertEqual(engined(CLI(said=json.dumps(said)))["reason"], "engine_model", broken)
+            said["modelUsage"] = {MODEL: {}}
+            self.assertEqual(engined(CLI(said=json.dumps(said)))["reason"], "result_invalid", broken)
 
     def test_the_version_is_held_before_and_after_the_call(self):  # L-35
         for versions, asked in (((PIN, "2.1.307"), 1), (("2.1.305", PIN), 0), ((None, PIN), 0), ((PIN, None), 1),

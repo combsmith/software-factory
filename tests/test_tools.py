@@ -1854,6 +1854,21 @@ class Repo(unittest.TestCase):
             listed = check_repo.run(tree({"config/harness.json": '{"engine": {"model": %s}}' % odd,
                                           "examples/invalid/harness.a-copy.json": copy % name}))
             self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", listed, odd)
+        # Nor does a string that is no full id, as the schema holds a pin: the pin and its copy are each a model named
+        # (Argon's read of be7743a). The form is the schema's own.
+        for odd in ("gpt-" + "4o-mini", name + "[1m]", "claude-opus"):
+            listed = check_repo.run(tree({"config/harness.json": copy % odd, "examples/invalid/harness.a-copy.json": copy % odd}))
+            self.assertEqual("examples/invalid/harness.a-copy.json: names a model by its full id" in listed, odd != "claude-opus", odd)
+        pattern = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())["properties"]["engine"]["properties"]["model"]["pattern"]
+        self.assertEqual("^%s$" % check_repo.PIN_FORM.pattern, pattern)
+        # A copy names the pinned id and nothing joined to it on either side (Argon's read of be7743a).
+        for joined in (name + "-latest", name + "@20250514", name + ":0", "not-" + name, "anthropic/" + name):
+            listed = check_repo.run(tree({"config/harness.json": copy % name, "examples/invalid/harness.a-copy.json": copy % joined}))
+            self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", listed, joined)
+            self.assertNotIn("config/harness.json: names a model by its full id", listed, joined)
+        # A shell script is read as any other file is (Muse's read of be7743a).
+        self.assertIn("tools/x.sh: names a model by its full id",
+                      check_repo.run(tree({"config/harness.json": copy % name, "tools/x.sh": "claude --model %s\n" % name})))
 
     def test_an_edited_secrets_baseline_is_caught(self):
         whole = (ROOT / ".gitignore").read_text()
