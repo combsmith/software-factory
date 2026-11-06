@@ -2234,10 +2234,11 @@ class SameTree(unittest.TestCase):
                    lambda: (self.where / "key.pem").write_text("other"),
                    lambda: (self.where / "kernel" / "decide.py").chmod(0o755),
                    lambda: (self.where / "notes").mkdir(),                                # an empty folder (the review)
-                   lambda: (self.where / "a.pyc").write_text("x") or git(self.where, "add", "-f", "a.pyc")
-                   or (self.where / "a.pyc").unlink(),                                    # what only the index holds
+                   lambda: [(self.where / "a.pyc").write_text("x"), git(self.where, "add", "-f", "a.pyc"),
+                            (self.where / "a.pyc").unlink()],                             # what only the index holds
                    lambda: os.symlink("kernel", str(self.where / "link")),
                    lambda: git(self.where, "add", "-A") or git(self.where, "commit", "-q", "-m", "next"),
+                   lambda: git(self.where, "commit", "-q", "--allow-empty", "-m", "only HEAD moves"),
                    lambda: git(self.where, "update-ref", "refs/remotes/origin/main", "HEAD")]
         self.assertTrue(self.ran())
         for change in changes:
@@ -3710,7 +3711,8 @@ class Settings(unittest.TestCase):
                     self.assertTrue(found, handler["command"])
                     self.assertEqual(handler["command"], WIRED % {"name": found.group(1), "rest": found.group(2) or ""})
                     wired[found.group(1)] = (event, group.get("matcher"))
-                    # A hook that cannot start is shown to the agent, never let through. Not on Stop, which would loop.
+                    # A hook that starts and fails is shown to the agent, never let through. Not on Stop, which would
+                    # loop. One with no copy to start runs nothing, with a line that says so.
                     self.assertEqual(bool(found.group(2)), event != "Stop", handler["command"])
         self.assertEqual(wired, {"after_edit": ("PostToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
                                  "before_stop": ("Stop", None), "identity": ("PreToolUse", "Bash"),
