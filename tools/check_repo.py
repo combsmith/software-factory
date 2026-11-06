@@ -132,11 +132,49 @@ FOREIGN = ".github-" + "private"
 # A model is named in one place, the Engine's pin, and nowhere else but the documents. The pin's file names that model and
 # no other, and the counter-examples of its schema copy it and name no other either (L-34).
 MODEL_ID = re.compile(r"claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*")
-# A model as a file names it, with what is joined to it on either side and any suffix in brackets, so that the pinned id
-# with `[1m]`, `-latest` or a prefix, letters among them, is not the pin (Muse's and Argon's reads). A match begins only
-# where a run of those characters does, so a long run with no model's name begun in it is read once and not again from
-# each place in it (the Claude security read); a run of many near-names is not yet (issue 576).
-MODEL_FORM = re.compile(r"(?<![\w.@:/-])[\w.@:/-]*?(?:%s)[\w.@:/-]*(?:\[[^\]\"]*\])?" % MODEL_ID.pattern)
+# A model as a file names it: a run of the characters a name is joined to on either side, with any suffix in brackets,
+# so that the pinned id with `[1m]`, `-latest` or a prefix, letters among them, is not the pin (Muse's and Argon's
+# reads). Each run is found once and tested with string operations, never by a pattern that can begin again inside it,
+# so no run, of whatever characters, is read more than once (issue 576).
+RUN = re.compile(r"(?<![\w.@:/-])[\w.@:/-]+")
+# A suffix in brackets joined to a run that names a model. It holds no `[`, so no attempt to read one is begun again in
+# the text it has read, and a bracket after a run that names none is not read at all: what is inside it is read for a
+# model as any other text is (the Claude read of 68f9468).
+BRACKET = re.compile(r"\[[^\[\]\"]*\]")
+# Where a name of the Claude form can lie: a run of the characters `MODEL_ID` takes after `claude-`.
+CLAUDE_SPAN = re.compile(r"[a-z0-9.-]+")
+OTHER_MODEL = re.compile(r"gpt-\d|gemini-\d")
+
+
+def names_a_model(run: str) -> bool:
+    """Whether `run` holds a model's name as `MODEL_ID` reads one, read once: `claude-` with a digit later in the same
+    span of `[a-z0-9.-]`, which the first `claude-` in the span begins, or just after the span, a digit of any script as
+    `\\d` reads one; or `gpt-` or `gemini-` and a digit."""
+    if OTHER_MODEL.search(run):
+        return True
+    for span in CLAUDE_SPAN.finditer(run):
+        at = span.group(0).find("claude-")
+        if at < 0:
+            continue
+        if any(c.isdigit() for c in span.group(0)[at + len("claude-"):]):
+            return True
+        if span.end() < len(run) and run[span.end()].isdecimal():
+            return True
+    return False
+
+
+def models_named(text: str) -> set:
+    """Each run of `text` that names a model, with what is joined to it and any suffix in brackets joined to it."""
+    named = set()
+    for m in RUN.finditer(text):
+        if names_a_model(m.group(0)):
+            suffix = BRACKET.match(text, m.end())
+            # A `[` that opens no whole suffix is still joined to the name, so the pin with it is never the pin.
+            opened = "[" if suffix is None and text.startswith("[", m.end()) else ""
+            named.add(m.group(0) + (suffix.group(0) if suffix else opened))
+    return named
+
+
 PIN = "config/harness.json"
 # A pin is a full id, as `schemas/harness.schema.json` holds it; any other string pins nothing.
 PIN_FORM = re.compile(r"claude-[a-z]+(-[0-9]+)+")
@@ -307,9 +345,10 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: a test below tests/ is never found; keep tests in tests/ itself" % rel)
         # A fixture keeps what GitHub said, which may name either. check_trials.py keeps all else out of trials/.
         recorded = len(rel.parts) == 2 and rel.parts[0] == "trials" and path.suffix == ".json"
-        # A model is read for in every file, whatever it is called, as a credential is (Muse's read of 1762f89).
-        named = {m.group(0) for m in MODEL_FORM.finditer(text)} - ({pinned} if PIN_COPIES.match(rel.as_posix()) else set())
-        if rel.parts[0] != "docs" and named and not recorded:
+        # A model is read for in every file, whatever it is called, as a credential is (Muse's read of 1762f89), but
+        # not in docs/ or a fixture, which may name one, so neither is read for it at all (Argon's read of 1762f89).
+        if rel.parts[0] != "docs" and not recorded and \
+                models_named(text) - ({pinned} if PIN_COPIES.match(rel.as_posix()) else set()):
             problems.append("%s: names a model by its full id" % rel)
         if path.suffix not in TEXT:
             continue
