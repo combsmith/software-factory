@@ -406,7 +406,7 @@ class Apply(unittest.TestCase):
         self.assertEqual(record["findings"], [])
         self.assertEqual(apply.outcome(the_task(), record, ("item", "finding_gates"))["outcome"], "item")
 
-    def test_a_finding_names_a_place_in_the_change_and_is_adopted_only_from_an_advisory_thread_on_it(self):  # 0143
+    def test_a_finding_names_a_place_in_the_change_and_is_adopted_only_from_an_advisory_thread_on_it(self):  # NNNN
         # A Finding names a place in the change: a place outside it, or a surface the facts cannot show on this item,
         # is no Finding of this review. The place is a path the change holds on its head's side, as the facts name it.
         base = result()
@@ -426,6 +426,9 @@ class Apply(unittest.TestCase):
                             ("tests/test_decide.py ", None), ("x" * 4096, None)):
             self.assertEqual(refused(res=result(findings=[n1, at(path)]), facts=facts),
                              ("item", "finding_not_on_change"), path[:40])
+        # An adopted Finding is held to the change as any other: its reviewer's thread on the item is no place.
+        self.assertEqual(refused(res=result(findings=[dict(n1, location=dict(n1["location"], path="kernel/admission.py")),
+                                                      n2])), ("item", "finding_not_on_change"))
         self.assertEqual(refused(res=result(findings=[n1, n2]), facts=the_facts(changed_paths=[
             support.changed("kernel/decide.py")], diff={"files": 1, "lines": 40, "truncated": False, "characters": 1600})),
             ("item", "finding_not_on_change"))
@@ -443,9 +446,11 @@ class Apply(unittest.TestCase):
         self.assertEqual(refused(res=result(findings=[surface(key="PRRT_kw2"), n2])),
                          ("item", "adopted_surface_not_on_item"))
         # A thread on this item that another opened is not the adopted reviewer's.
-        others = the_facts(threads=[support.thread("PRRT_kw3"), support.thread("PRRT_kw4", kind="human",
-                                                                               name="coderabbit")])
-        for key in ("PRRT_kw3", "PRRT_kw4"):
+        others = the_facts(threads=[support.thread("PRRT_kw3"),
+                                    support.thread("PRRT_kw4", kind="human", name="coderabbit"),
+                                    support.thread("PRRT_kw5", kind="app", name="coderabbit", can_write=False),
+                                    support.thread("PRRT_kw6", name="another-lens", can_write=False)])
+        for key in ("PRRT_kw3", "PRRT_kw4", "PRRT_kw5", "PRRT_kw6"):
             self.assertEqual(refused(res=result(findings=[surface(key=key), n2]), facts=others),
                              ("item", "adopted_surface_not_on_item"), key)
         self.assertEqual(refused(res=base, facts=support.facts(changed_paths=the_facts()["changed_paths"])),
@@ -458,8 +463,16 @@ class Apply(unittest.TestCase):
         plain = {k: v for k, v in n1.items() if k != "adopted_from"}
         self.assertIsNone(refused(res=result(findings=[plain, n2]),
                                   facts=support.facts(changed_paths=the_facts()["changed_paths"])))
-        # result/1 bounds each: a path to 4096 characters, a reviewer's name and its surface's key to 64.
-        for finding, ok in ((at("p" * 4096), True), (at("p" * 4097), False),
+        # A path is of at most 4096 characters, however long a one the facts hold.
+        long_ = lambda n: the_facts(changed_paths=[support.changed("kernel/decide.py"), support.changed("p" * n)])
+        self.assertIsNone(refused(res=result(findings=[n1, at("p" * 4096)]), facts=long_(4096)))
+        self.assertEqual(refused(res=result(findings=[n1, at("p" * 4097)]), facts=long_(4097)),
+                         ("item", "finding_not_on_change"))
+        # result/1 bounds a line to nine digits, a reviewer's name and its surface's key to 64.
+        line = lambda **over: dict(n2, location=dict(n2["location"], **over))
+        for finding, ok in ((line(start_line=999999999, end_line=999999999), True),
+                            (line(start_line=1000000000, end_line=1000000000), False),
+                            (line(end_line=1000000000), False),
                             (dict(n1, adopted_from=dict(adopted, lens="c" * 64)), True),
                             (dict(n1, adopted_from=dict(adopted, lens="c" * 65)), False),
                             (surface(key="K" * 64), True), (surface(key="K" * 65), False)):
