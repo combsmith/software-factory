@@ -82,17 +82,29 @@ class Scoring(unittest.TestCase):
         self.assertEqual(eval_result.score(case, wrong)["reasons"], ["finding_not_raised", "coverage_disagrees"])
         for field, value, reason in (("category", "architecture", "category_differs"), ("severity", "minor", "severity_differs"),
                                      ("location", {"path": "kernel/gate.py"}, "location_differs"),
+                                     ("location", {"path": "kernel/gate.py", "start_line": 86, "end_line": 94}, "location_differs"),
                                      ("location", {"path": "kernel/decide.py", "start_line": 1, "end_line": 85}, "location_differs")):
             wrong = copy.deepcopy(result)
             wrong["findings"][0][field] = value
             self.assertEqual(eval_result.score(case, wrong), {"case": case["id"], "verdict": "fail", "reasons": [reason]}, reason)
-        # A location given without lines is the whole file; one with lines must overlap the expected ones.
-        whole = copy.deepcopy(result)
-        whole["findings"][0]["location"] = {"path": "kernel/decide.py"}
-        self.assertEqual(eval_result.score(case, whole)["verdict"], "pass")
-        edge = copy.deepcopy(result)
-        edge["findings"][0]["location"] = {"path": "kernel/decide.py", "start_line": 94, "end_line": 120}
-        self.assertEqual(eval_result.score(case, edge)["verdict"], "pass")
+        # A Finding's lines must overlap the expected ones, and span no more than fifteen lines beyond them; one given
+        # without lines could be at any place, and is at none (decision 0143). The expected place is 86 to 94, nine lines.
+        self.assertEqual(eval_result.SPAN_BEYOND, 15)
+        for lines, verdict in (({"start_line": 94, "end_line": 117}, "pass"), ({"start_line": 94, "end_line": 118}, "fail"),
+                               ({"start_line": 63, "end_line": 86}, "pass"), ({"start_line": 62, "end_line": 86}, "fail"),
+                               ({"start_line": 94}, "pass"), ({}, "fail")):
+            edge = copy.deepcopy(result)
+            edge["findings"][0]["location"] = dict(lines, path="kernel/decide.py")
+            scored = eval_result.score(case, edge)
+            self.assertEqual((scored["verdict"], scored["reasons"]), (verdict, [] if verdict == "pass" else ["location_differs"]), lines)
+        # A case's place given without lines is the whole file: any Finding there with lines is at it, however wide.
+        anywhere = copy.deepcopy(case)
+        anywhere["expected"]["finding"]["location"] = {"path": "kernel/decide.py"}
+        wide = copy.deepcopy(result)
+        wide["findings"][0]["location"] = {"path": "kernel/decide.py", "start_line": 1, "end_line": 900}
+        self.assertEqual(eval_result.score(anywhere, wide)["verdict"], "pass")
+        wide["findings"][0]["location"] = {"path": "kernel/decide.py"}
+        self.assertEqual(eval_result.score(anywhere, wide)["reasons"], ["location_differs"])
         # One Finding must be the expected one in every respect: two that are each right in part are no match, and the
         # nearest of them says what it missed.
         split = copy.deepcopy(result)
@@ -102,7 +114,7 @@ class Scoring(unittest.TestCase):
         split["findings"][0]["location"] = {"path": "kernel/gate.py"}
         self.assertEqual(eval_result.score(case, split)["reasons"], ["category_differs"])
         # Lines are read whole: an end with no start, or before its start, is nowhere in a Result, and unreadable in
-        # a case; a Result's location given without lines is the whole file.
+        # a case.
         for lines in ({"path": "kernel/decide.py", "end_line": 94}, {"path": "kernel/decide.py", "start_line": 94, "end_line": 86}):
             nowhere = copy.deepcopy(result)
             nowhere["findings"][0]["location"] = lines
@@ -138,10 +150,15 @@ class Scoring(unittest.TestCase):
         self.assertEqual(said(dict(criterion=None, category="security")), ["finding_uncited", "category_differs"])
         self.assertEqual(said(dict(criterion=None, severity="minor"), dict(criterion=None)), ["finding_uncited"])
         self.assertEqual(said(dict(criterion="PR-1", severity="minor")), ["finding_cites_another", "severity_differs"])
-        # In the file, on other lines; a Finding of the whole file is there; in another file, or none, is not raised.
+        # In the file, on other lines, or with no lines or too many, which is no place (decision 0143); in another
+        # file, or none, is not raised.
         away = dict(place, start_line=place["end_line"] + 1, end_line=place["end_line"] + 5)
         self.assertEqual(said(dict(criterion=None, location=away)), ["finding_elsewhere"])
-        self.assertEqual(said(dict(criterion=None, location={"path": place["path"]})), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion=None, location={"path": place["path"]})), ["finding_elsewhere"])
+        key = case["expected"]["finding"]["location"]
+        wide = dict(key, end_line=key["end_line"] + eval_result.SPAN_BEYOND)
+        self.assertEqual(said(dict(criterion=None, location=wide)), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion=None, location=dict(wide, end_line=wide["end_line"] + 1))), ["finding_elsewhere"])
         self.assertEqual(said(dict(criterion=None, location={"path": "kernel/gate.py"})), ["finding_not_raised"])
         self.assertEqual(said(), ["finding_not_raised"])
         # A Finding of no location, which result/1 allows, is nowhere; so is one whose lines cannot be read, in the file or not.
@@ -154,8 +171,9 @@ class Scoring(unittest.TestCase):
         self.assertEqual(eval_result.score(case, dict(right, findings=[at, extra]))["verdict"], "pass")
 
     def test_a_finding_at_any_place_the_case_gives_is_at_the_place(self):  # decision 0143
-        # A fault that spans several changed lines is rightly placed on any of them: a case may name each such place
-        # beside its `location`, in `also_at`. One fault, several places: what else a Finding must be is unchanged.
+        # A fault that spans several changed lines is rightly placed on any of them: a case may name up to three such
+        # places beside its `location`, in `also_at`, each on lines a hunk of its own diff holds on the head's side. One
+        # fault, several places: what else a Finding must be is unchanged.
         case, result = load("examples/eval-case.also-at.json"), load("examples/result.json")
         first, other = case["expected"]["finding"]["location"], case["expected"]["finding"]["also_at"][0]
         self.assertNotEqual(eval_result._lines(first), eval_result._lines(other))
@@ -164,20 +182,40 @@ class Scoring(unittest.TestCase):
             made = copy.deepcopy(result)
             made["findings"][0].update(dict(given, location=location))
             return made
-        for location in (first, other, {"path": first["path"]}, dict(other, end_line=other["end_line"] + 40)):
-            self.assertEqual(eval_result.score(case, placed(location))["verdict"], "pass", location)
-        for location in ({"path": "kernel/gate.py"}, dict(first, start_line=89, end_line=94)):
+        # At its `location`, a pass as before; at an alternate place alone, a pass the report can count.
+        self.assertEqual(eval_result.score(case, placed(first)), {"case": case["id"], "verdict": "pass", "reasons": []})
+        self.assertEqual(eval_result.score(case, placed(other)),
+                         {"case": case["id"], "verdict": "pass", "reasons": [], "at_alternate": True})
+        # One that overlaps the `location` too is at it.
+        self.assertNotIn("at_alternate", eval_result.score(case, placed(dict(other, end_line=other["end_line"] + 40))))
+        for location in ({"path": "kernel/gate.py"}, {"path": first["path"]}, dict(first, start_line=89, end_line=94)):
             self.assertEqual(eval_result.score(case, placed(location))["reasons"], ["location_differs"], location)
         self.assertEqual(eval_result.score(case, placed(other, severity="minor"))["reasons"], ["severity_differs"])
         self.assertEqual(eval_result.score(case, placed(other, category="architecture"))["reasons"], ["category_differs"])
+        # A right Finding at the `location` beside one at an alternate place is no alternate pass; nor is a fail.
+        both = placed(other)
+        both["findings"].append(dict(both["findings"][0], ref="n9", location=first))
+        self.assertEqual(eval_result.score(case, both), {"case": case["id"], "verdict": "pass", "reasons": []})
+        # One at the `location` that is not the expected Finding leaves the pass at the alternate place alone.
+        both["findings"][-1]["severity"] = "minor"
+        self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
+        self.assertNotIn("at_alternate", eval_result.score(case, placed(other, criterion=None)))
+        self.assertNotIn("at_alternate", eval_result.score(load("examples/eval-case.met.json"), result))
         # Absent, the Finding has its one place, as before.
         alone = copy.deepcopy(case)
         del alone["expected"]["finding"]["also_at"]
         self.assertEqual(eval_result.score(alone, placed(first))["verdict"], "pass")
         self.assertEqual(eval_result.score(alone, placed(other))["reasons"], ["location_differs"])
         # Where it went, when nothing cited the criterion: at any place given, or in a file of one of them but
-        # elsewhere, or in none of them; each in a file of its own.
+        # elsewhere, or in none of them; each in a file of its own, the diff changing each.
         apart = copy.deepcopy(case)
+        # The example's hunk claims more lines than it holds, so a file after it would be read inside it: its own
+        # hunk is given its true counts here.
+        apart["diff"] = (case["diff"].replace("@@ -86,9 +86,9 @@", "@@ -86,4 +86,4 @@")
+                         + "--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -10,2 +10,3 @@\n a\n+b\n c\n"
+                         + "--- a/kernel/state.py\n+++ b/kernel/state.py\n@@ -5,1 +5,2 @@\n x\n+y\n")
+        self.assertEqual(eval_result._head_lines(apart["diff"]),
+                         {"kernel/decide.py": {86, 87, 88, 89}, "kernel/gate.py": {10, 11, 12}, "kernel/state.py": {5, 6}})
         apart["expected"]["finding"]["also_at"] = [{"path": "kernel/gate.py", "start_line": 10, "end_line": 12}]
 
         def went(location):
@@ -189,31 +227,61 @@ class Scoring(unittest.TestCase):
         self.assertEqual(went({"path": first["path"], "start_line": 200, "end_line": 201}), ["finding_elsewhere"])
         self.assertEqual(went({"path": "kernel/gate.py", "start_line": 12, "end_line": 2}), ["finding_not_raised"])
         self.assertEqual(went({"path": "kernel/state.py", "start_line": 11, "end_line": 11}), ["finding_not_raised"])
+        # An alternate place holds a Finding to its span as `location` does: three lines and fifteen more, or none.
+        self.assertEqual(eval_result.score(apart, placed({"path": "kernel/gate.py", "start_line": 10, "end_line": 27}))["at_alternate"], True)
+        self.assertEqual(eval_result.score(apart, placed({"path": "kernel/gate.py", "start_line": 10, "end_line": 28}))["reasons"],
+                         ["location_differs"])
+        self.assertEqual(went({"path": "kernel/gate.py", "start_line": 10, "end_line": 27}), ["finding_uncited"])
+        self.assertEqual(went({"path": "kernel/gate.py", "start_line": 10, "end_line": 28}), ["finding_elsewhere"])
+        self.assertEqual(went({"path": "kernel/gate.py"}), ["finding_elsewhere"])
         # Every entry is read, not the first alone (Muse's read of #561): a later one is a place as the first is.
         apart["expected"]["finding"]["also_at"].append({"path": "kernel/state.py", "start_line": 5, "end_line": 6})
         later = {"path": "kernel/state.py", "start_line": 6, "end_line": 6}
         self.assertEqual(eval_result.score(apart, placed(later))["verdict"], "pass")
         self.assertEqual(went(later), ["finding_uncited"])
         self.assertEqual(went({"path": "kernel/state.py", "start_line": 11, "end_line": 11}), ["finding_elsewhere"])
-        # Every place a case gives must be readable, whichever it is; one given without lines is the whole file.
-        for lines in ({"end_line": 9}, {"start_line": 9, "end_line": 2}):
+
+        def unreadable(places, diff=None):
+            made = copy.deepcopy(apart)
+            made["expected"]["finding"]["also_at"] = places
+            made["diff"] = made["diff"] if diff is None else diff
+            return eval_result.score(made, placed(first))
+        gone = {"case": case["id"], "verdict": "unreadable", "reasons": ["location_unreadable"]}
+        # Every place a case gives must be readable, whichever it is.
+        for lines in ({"start_line": 12, "end_line": 10}, {"start_line": 6, "end_line": 5}):
             for at in (0, 1):
-                unreadable = copy.deepcopy(case)
-                places = [other, {"path": "kernel/gate.py"}]
-                places[at] = dict(places[at], **lines) if "start_line" in lines else {"path": "kernel/gate.py", **lines}
-                unreadable["expected"]["finding"]["also_at"] = places
-                self.assertEqual(eval_result.score(unreadable, placed(first)),
-                                 {"case": case["id"], "verdict": "unreadable", "reasons": ["location_unreadable"]}, places)
-        whole = copy.deepcopy(case)
-        whole["expected"]["finding"]["also_at"] = [{"path": "kernel/gate.py"}]
-        self.assertEqual(eval_result.score(whole, placed({"path": "kernel/gate.py", "start_line": 500}))["verdict"], "pass")
-        # The schema holds a case to it: `also_at`, where given, names at least one place, each a location of its own.
+                places = [{"path": "kernel/gate.py", "start_line": 10, "end_line": 12}, {"path": "kernel/state.py", "start_line": 5}]
+                places[at] = dict(places[at], **lines)
+                self.assertEqual(unreadable(places), gone, places)
+        # And each inside a hunk of the case's own diff, on the head's side, in its own file: not on a line the head's
+        # side does not hold, not across the gap between two hunks, not in a file the diff does not change, and not in
+        # a file's hunks once its header names another prefix, whichever entry it is.
+        inside = {"path": "kernel/gate.py", "start_line": 10, "end_line": 12}
+        self.assertEqual(unreadable([inside, {"path": "kernel/state.py", "start_line": 5, "end_line": 6}])["verdict"], "pass")
+        for outside in ({"path": "kernel/gate.py", "start_line": 13}, {"path": "kernel/gate.py", "start_line": 9, "end_line": 10},
+                        {"path": "kernel/gate.py", "start_line": 12, "end_line": 13}, {"path": "kernel/state.py", "start_line": 7},
+                        {"path": "kernel/other.py", "start_line": 5}, {"path": first["path"], "start_line": 90},
+                        {"path": "kernel/gate.py", "start_line": 10, "end_line": 1000000000}):
+            for places in ([outside], [inside, outside], [inside, inside, outside]):
+                self.assertEqual(unreadable(places), gone, places)
+        two = apart["diff"] + "--- a/kernel/far.py\n+++ b/kernel/far.py\n@@ -1,1 +1,1 @@\n a\n@@ -9,1 +9,1 @@\n z\n"
+        self.assertEqual(unreadable([{"path": "kernel/far.py", "start_line": 9}], two)["verdict"], "pass")
+        self.assertEqual(unreadable([{"path": "kernel/far.py", "start_line": 1, "end_line": 9}], two), gone)
+        for header in ("+++ kernel/gate.py", "+++ c/kernel/gate.py"):
+            self.assertEqual(unreadable([inside], apart["diff"].replace("+++ b/kernel/gate.py", header)), gone, header)
+        # A removed line is no line of the head's side: the base's line 10 of a hunk that only removes is not held.
+        removed = apart["diff"] + "--- a/kernel/cut.py\n+++ b/kernel/cut.py\n@@ -10,1 +9,0 @@\n-gone\n"
+        self.assertEqual(unreadable([{"path": "kernel/cut.py", "start_line": 9}], removed), gone)
+        # The schema holds a case to it: `also_at`, where given, names one to three places, each with its path and lines.
         self.assertEqual(validate(case, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [])
-        for places in ([], [{"start_line": 86}], [dict(other, at="x")], other):
+        three = [other, other, other]
+        self.assertEqual(validate(dict(case, expected=dict(case["expected"], finding=dict(case["expected"]["finding"], also_at=three))),
+                                  eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [])
+        for places in ([], three + [other], [{"start_line": 86}], [{"path": first["path"]}], [{"path": first["path"], "end_line": 86}],
+                       [dict(other, at="x")], other):
             bad = copy.deepcopy(case)
             bad["expected"]["finding"]["also_at"] = places
             self.assertNotEqual(validate(bad, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [], places)
-
     def test_a_right_change_is_scored_by_its_coverage(self):
         case, result = load("examples/eval-case.met.json"), load("examples/result.json")
         self.assertEqual(eval_result.score(case, result)["verdict"], "pass")
@@ -688,6 +756,37 @@ class EvalJob(unittest.TestCase):
         self.assertEqual((written["passed"], written["commit"], written["release"]), (2, "a" * 40, "factory/v0.1.0"))
         self.assertNotIn("diff", (self.work / job.REPORT).read_text())
         self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
+
+    def test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted(self):  # decision 0143
+        # How much of a score `also_at` gave can be counted from the report, by a mark that says no place.
+        from harness import eval as job
+        one = json.loads(next(iter(self.cases.values())))
+        two = dict(copy.deepcopy(one), id="poc-alternate")
+        two["expected"]["finding"].update(location={"path": "kernel/decide.py", "start_line": 87, "end_line": 88},
+                                          also_at=[{"path": "kernel/decide.py", "start_line": 86}])
+        cases = {one["id"]: self.cases[one["id"]], two["id"]: (json.dumps(two, indent=2) + "\n").encode()}
+        self.set(cases)
+        self.step(job.plan)
+        self.step(job.fetch, self.home(cases))
+        result = load("examples/result.json")
+        result["findings"][0]["location"] = {"path": "kernel/decide.py", "start_line": 86, "end_line": 86}
+        self.assertEqual(self.step(job.score, lambda case: result), "scored 2 of 2 cases, 2 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual({c["id"]: c.get("at_alternate") for c in written["cases"]}, {one["id"]: None, two["id"]: True})
+        self.assertEqual(self.step(job.judge), "2 of 2 passed, 1 at an alternate place; no code")
+        # Only a pass is marked: the job writes no mark on any other, and the gate refuses a report that holds one.
+        found, digest = job.manifest(self.root)
+        kept = {"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}}
+        assessed = {one["id"]: ("pass", []), two["id"]: ("fail", ["location_differs"])}
+        unmarked = job.report(kept, found, assessed, True, {"finding": True, "met": True}, True, None, {one["id"], two["id"]})
+        self.assertEqual([c.get("at_alternate") for c in unmarked["cases"]], [True, None])
+        marked = copy.deepcopy(unmarked)
+        marked["cases"][1]["at_alternate"] = True
+        self.assertEqual(job.verdict(marked, found, digest, "a" * 40, "factory/v0.1.0"), "count_differs")
+        self.assertEqual(job.verdict(unmarked, found, digest, "a" * 40, "factory/v0.1.0"), "case_failed")
+        self.assertNotEqual(validate(dict(unmarked, cases=[dict(unmarked["cases"][0], at_alternate=False), unmarked["cases"][1]]),
+                                     load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
         # Decision 0120: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short

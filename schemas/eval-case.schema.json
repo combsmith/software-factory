@@ -3,6 +3,29 @@
   "title": "eval-case/1: one held-out case for a reviewing Intent, as a file in the private home and never in this repo: the facts a Run would be given, the diff it would read, and the answer a reviewer should have given, the Finding it should have raised against one criterion of the rubric, or that criterion met. The diff is text, and goes to the model as data; the answer is codes.",
   "type": "object",
   "$defs": {
+    "alternate": {
+      "description": "A place of also_at: a location that names its lines, since a path alone is the whole file (decision 0143).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "start_line"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$"
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "location": {
       "type": "object",
       "additionalProperties": false,
@@ -130,11 +153,12 @@
               "$ref": "#/$defs/location"
             },
             "also_at": {
-              "description": "Every other place a careful reviewer could rightly put the same fault, each a location of its own, added to every case blind by an audit that does not see the model's answers (decision 0143). Absent, the Finding has one place, its location.",
+              "description": "Every other place a careful reviewer could rightly put the same fault, three at most, each with its own path and lines inside a hunk of the case's diff on the head's side, added to every case blind by an audit that does not see the model's answers (decision 0143). Absent, the Finding has one place, its location.",
               "type": "array",
               "minItems": 1,
+              "maxItems": 3,
               "items": {
-                "$ref": "#/$defs/location"
+                "$ref": "#/$defs/alternate"
               }
             }
           }

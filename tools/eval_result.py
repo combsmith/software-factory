@@ -6,8 +6,10 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
 
+from harness import task
 from kernel.coverage import readable_rubric
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -20,6 +22,9 @@ def schemas(root: pathlib.Path = ROOT) -> dict:
     return {p.name[: -len(".schema.json")]: json.loads(p.read_text()) for p in sorted((root / "schemas").glob("*.schema.json"))}
 
 
+# The most lines a raised Finding may span beyond the place it is at: a wider one, or one with no lines, could be at any
+# place, and a Role drifting toward broad Findings would score higher while being less use (decision 0143).
+SPAN_BEYOND = 15
 MISSES = ("category_differs", "severity_differs", "location_differs")
 WENT = ("finding_not_raised", "finding_elsewhere", "finding_uncited", "finding_cites_another")
 
@@ -34,16 +39,17 @@ def _lines(location: dict):
 
 
 def _overlaps(expected: dict, raised: dict) -> bool:
-    """Whether a raised Finding's location is the expected one: the same path, and its lines, where both give them,
-    overlapping; a location given without lines is the whole file, and one whose lines cannot be read is nowhere."""
+    """Whether a raised Finding's location is at a place the case gives: the same path, and its lines given, spanning no
+    more than SPAN_BEYOND lines beyond the place's own, and overlapping them; a place given without lines is the whole
+    file. A Finding given without lines, or whose lines cannot be read, is at no place (decision 0143)."""
     if raised.get("path") != expected["path"]:
         return False
     theirs, ours = _lines(raised), _lines(expected)
-    if theirs is False:
+    if not theirs:
         return False
-    if theirs is None or ours is None:
+    if ours is None:
         return True
-    return theirs[0] <= ours[1] and ours[0] <= theirs[1]
+    return theirs[1] - theirs[0] <= ours[1] - ours[0] + SPAN_BEYOND and theirs[0] <= ours[1] and ours[0] <= theirs[1]
 
 
 def _places(expected: dict) -> list:
@@ -54,6 +60,36 @@ def _places(expected: dict) -> list:
 def _at(expected: dict, raised: dict) -> bool:
     """Whether a raised Finding's location is at any place the expected Finding may rightly be put."""
     return any(_overlaps(place, raised) for place in _places(expected))
+
+
+# A row the Task numbers for the model: a head line's number, the separator, and its line (decision 0137).
+NUMBERED = re.compile(r"(\d+)\%s[ +\r\n]" % task.SEPARATOR)
+
+
+def _head_lines(diff: str) -> dict:
+    """`{path: lines}`: each file's lines that a hunk of the diff holds on the head's side, by the path its `+++ b/`
+    header names, read by the Task's own numbering, so they are the lines the model was given numbered."""
+    held, path = {}, None
+    for row in task.ROW.findall(task.numbered(diff)):
+        number = NUMBERED.match(row)
+        if number:
+            held.setdefault(path, set()).add(int(number.group(1)))
+        elif row.startswith("+++ "):
+            name = row[len("+++ "):].rstrip("\r\n")
+            path = name[len("b/"):] if name.startswith("b/") else None
+    return held
+
+
+def _in_hunks(places: list, diff: str) -> bool:
+    """Whether each place's lines, all of them, are lines a hunk of the diff holds on the head's side, in its file
+    (decision 0143): an alternate place names a changed line the reviewer was shown, never anywhere else, and one whose
+    lines cannot be read names none."""
+    held = _head_lines(diff)
+    for place in places:
+        lines, shown = _lines(place), held.get(place["path"], set())
+        if not lines or lines[1] - lines[0] + 1 > len(shown) or not all(n in shown for n in range(lines[0], lines[1] + 1)):
+            return False
+    return True
 
 
 def _misses(expected: dict, raised: dict) -> list:
@@ -109,7 +145,8 @@ def off_rubric(case: dict, root: pathlib.Path = ROOT) -> bool:
 
 def score(case: dict, result: dict, known: dict = None) -> dict:
     """{case, verdict, reasons}: `pass`, `fail` with the codes that say why, or `unreadable` when the case or the
-    Result is not what its schema says, or the case's answer does not match its verdict."""
+    Result is not what its schema says, or the case's answer does not match its verdict; and `at_alternate`, true, on a
+    pass whose Finding was at a place of `also_at` alone (decision 0143)."""
     known = schemas() if known is None else known
     try:
         wrong = validate(case, known["eval-case"], schemas=known) + validate(result, known["result"], schemas=known)
@@ -120,8 +157,10 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     want = case["expected"]
     if (want["verdict"] == "finding") != (want["finding"] is not None):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_disagrees_with_verdict"]}
-    # Every place a case gives must be readable, `also_at`'s as its `location` (decision 0143).
-    if want["finding"] is not None and any(_lines(place) is False for place in _places(want["finding"])):
+    # Every place a case gives must be readable: its `location`, and each of `also_at` read inside a hunk of the case's
+    # own diff on the head's side, which lines that cannot be read never are (decision 0143).
+    if want["finding"] is not None and (_lines(want["finding"]["location"]) is False
+                                        or not _in_hunks(want["finding"].get("also_at", []), case["diff"])):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["location_unreadable"]}
     # A case asks about one criterion of the rubric its Role reviews by; one the rubric lacks is nobody's to pass.
     criteria = _criteria(case["role"])
@@ -148,7 +187,13 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
             reasons.append("finding_raised_wrongly")
         if covered != ["met"]:
             reasons.append("criterion_not_met")
-    return {"case": case["id"], "verdict": PASS if not reasons else FAIL, "reasons": reasons}
+    said = {"case": case["id"], "verdict": PASS if not reasons else FAIL, "reasons": reasons}
+    # A pass whose Finding was at an alternate place alone, never its `location`, is marked, so a report can count how
+    # much of its score `also_at` gave (decision 0143).
+    if said["verdict"] == PASS and want["verdict"] == "finding" and not any(
+            not _misses(want["finding"], f) and _overlaps(want["finding"]["location"], f.get("location", {})) for f in citing):
+        said["at_alternate"] = True
+    return said
 
 
 def main(argv: list = None, base: pathlib.Path = None) -> int:
