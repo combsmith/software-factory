@@ -220,7 +220,7 @@ def hunks(task: dict) -> dict:
         if not text["id"].startswith("diff:"):
             continue
         for part in task_.FILE_START.split(text["body"]):
-            path, spans = None, []
+            path, named, spans = None, False, []
             for row in task_.ROW.findall(part):
                 header = task_.HUNK.match(row)
                 if header:
@@ -228,8 +228,8 @@ def hunks(task: dict) -> dict:
                     first = int(header.group(2))
                     spans.append((first, first + int(header.group(3) or 1) - 1))
                 # The head's name is read once, before the first hunk: a line in a hunk is led by its number or a mark.
-                elif row.startswith("+++ ") and path is None and not spans:
-                    path = _head_name(row[4:].rstrip("\n"))
+                elif row.startswith("+++ ") and not named and not spans:
+                    path, named = _head_name(row[4:].rstrip("\n")), True
             if path is not None and spans:
                 out.setdefault(path, []).extend(spans)
     return out
@@ -311,10 +311,11 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         return "superseded", moved
     if (result["run"], result["release"]) != (task["run"], task["release"]):
         return "item", "result_not_the_runs"
+    # A reason is one its status may give: the model's with `incomplete` or `refused`, the Harness's with `failed`, and
+    # none with `completed`.
+    if not engine.reason_given(result):
+        return "item", "reason_not_the_status"
     if result["status"] != "completed":
-        # A reason is one its status may give: the model's with `incomplete` or `refused`, the Harness's with `failed`.
-        if not engine.reason_given(result):
-            return "item", "reason_not_the_status"
         reason = result["reason"] or result["status"]
         return ("item" if reason in THE_ROLES or result["status"] != "failed" else "environment"), reason
     if rubric is not None:

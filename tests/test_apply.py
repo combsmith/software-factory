@@ -365,6 +365,9 @@ class Apply(unittest.TestCase):
         for code in engine.HARNESS_REASONS:
             self.assertNotEqual(refused(res=result(status="failed", reason=code))[1], "reason_not_the_status", code)
             self.assertEqual(refused(res=result(status="superseded", reason=code)), ("item", "reason_not_the_status"))
+        # A completed Result gives no reason, of anyone's: its Effects are not written.
+        for code in [r for _, r in model] + list(engine.HARNESS_REASONS):
+            self.assertEqual(refused(res=result(reason=code)), ("item", "reason_not_the_status"), code)
         # result/1 holds a reason to these codes alone, or none, and the CLI is handed the model's alone.
         schema = shared.SCHEMAS["result"]["properties"]["reason"]
         self.assertEqual(schema["enum"], [None] + [r for _, r in model] + list(engine.HARNESS_REASONS))
@@ -428,10 +431,13 @@ class Apply(unittest.TestCase):
             self.assertEqual(placed(start, None, path, tricked, tests), ("item", "finding_not_in_hunk"), (start, path))
         # A file's name is read once, before its first hunk, and never after it.
         twice = "diff --git a/x b/x\n+++ b/first.py\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
-        late = "diff --git a/x b/x\n+++ /dev/null\n@@ -1,0 +1,2 @@\n+a\n+b\n+++ b/kernel/decide.py\n"
+        deleted = "diff --git a/x b/x\n+++ /dev/null\n+++ b/kernel/decide.py\n@@ -1,0 +1,2 @@\n+a\n+b\n"
+        late = "diff --git a/x b/x\n@@ -1,0 +1,2 @@\n+a\n+b\n+++ b/kernel/decide.py\n"
         self.assertIsNone(placed(1, 2, "first.py", twice, tests))
         self.assertEqual(placed(1, 2, "kernel/decide.py", twice, tests), ("item", "finding_not_in_hunk"))
         self.assertEqual(placed(1, 2, "kernel/decide.py", late, tests), ("item", "finding_not_in_hunk"))
+        # A deleted file's name, or one that cannot be read, is still its one name: no later line names it again.
+        self.assertEqual(placed(1, 2, "kernel/decide.py", deleted, tests), ("item", "finding_not_in_hunk"))
         # A name as git writes it: one with a space ends with a tab; one git quotes, unescaped; one no UTF-8, none.
         for written, name in (("b/with space\t", "with space"), ('"b/k\\303\\251.py"', "k\u00e9.py"),
                               ('"b/q\\"t\\tx"', 'q"t\tx'), ('"b/a\\\\b"', "a\\b")):
