@@ -1845,6 +1845,59 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(check_repo.run(tree({"config/x.json": '"gpt-' + '4o-mini"'})), "names a model"))
         self.assertFalse(caught(check_repo.run(tree({"docs/notes.md": name})), "names a model"))
 
+    def test_a_model_is_named_by_the_engines_pin_and_its_counter_examples_alone(self):
+        name, other = "claude-" + "opus-5-5", "claude-" + "sonnet-5-5"
+        copy = '{"engine": {"model": "%s"}}'
+        problems = check_repo.run(tree({"config/harness.json": copy % name, "examples/invalid/harness.a-copy.json": copy % name,
+                                        "examples/invalid/harness.another.json": copy % other,
+                                        "examples/invalid/harness.both.json": copy % name + other,
+                                        "examples/invalid/harness.a-copy.json.md": copy % name,
+                                        "examples/invalid/result.x.json": copy % name, "examples/harness.json": copy % name,
+                                        "other/config/harness.json": copy % name}))
+        for where in ("config/harness.json", "examples/invalid/harness.a-copy.json"):
+            self.assertNotIn(where + ": names a model by its full id", problems)
+        for where in ("examples/invalid/harness.another.json", "examples/invalid/harness.both.json",
+                      "examples/invalid/harness.a-copy.json.md", "examples/invalid/result.x.json", "examples/harness.json",
+                      "other/config/harness.json"):
+            self.assertIn(where + ": names a model by its full id", problems)
+        unpinned = check_repo.run(tree({"examples/invalid/harness.a-copy.json": copy % name}))
+        self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", unpinned)
+        # The pin's own file names no second model, and a copy names no other form of the pinned one (Argon's and Muse's
+        # reads). A pin whose model is no id pins nothing, and the check still runs.
+        second = check_repo.run(tree({"config/harness.json": '{"engine": {"model": "%s"}, "x": "%s"}' % (name, other),
+                                      "examples/invalid/harness.wide.json": copy % (name + "[1m]")}))
+        for where in ("config/harness.json", "examples/invalid/harness.wide.json"):
+            self.assertIn(where + ": names a model by its full id", second)
+        for odd in ("[]", "{}", "5"):
+            listed = check_repo.run(tree({"config/harness.json": '{"engine": {"model": %s}}' % odd,
+                                          "examples/invalid/harness.a-copy.json": copy % name}))
+            self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", listed, odd)
+        # Nor does a string that is no full id, as the schema holds a pin: the pin and its copy are each a model named
+        # (Argon's read of be7743a). The form is the schema's own.
+        for odd in ("gpt-" + "4o-mini", name + "[1m]", "claude-opus"):
+            listed = check_repo.run(tree({"config/harness.json": copy % odd, "examples/invalid/harness.a-copy.json": copy % odd}))
+            self.assertEqual("examples/invalid/harness.a-copy.json: names a model by its full id" in listed, odd != "claude-opus", odd)
+        pattern = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())["properties"]["engine"]["properties"]["model"]["pattern"]
+        self.assertEqual("^%s$" % check_repo.PIN_FORM.pattern, pattern)
+        # A copy names the pinned id and nothing joined to it on either side (Argon's read of be7743a).
+        for joined in (name + "-latest", name + "@20250514", name + ":0", "not-" + name, "anthropic/" + name, "my_" + name, "x" + name):
+            listed = check_repo.run(tree({"config/harness.json": copy % name, "examples/invalid/harness.a-copy.json": copy % joined}))
+            self.assertIn("examples/invalid/harness.a-copy.json: names a model by its full id", listed, joined)
+            self.assertNotIn("config/harness.json: names a model by its full id", listed, joined)
+        # A shell script, and a file of any other kind, is read as any other file is (Muse's reads of be7743a and 1762f89).
+        for where in ("tools/x.sh", "tools/x.bash", "tools/x.js", "x.properties", "tools/x"):
+            self.assertIn(where + ": names a model by its full id",
+                          check_repo.run(tree({"config/harness.json": copy % name, where: "claude --model %s\n" % name})), where)
+
+    @support.wall_clock
+    def test_a_long_run_of_a_models_characters_is_read_in_linear_time(self):  # the Claude security read of 1762f89
+        # A model is read with what is joined to it, so a run of those characters with no model in it, a base64 blob or a
+        # minified line, must be read once and not again from each place in it, or one long run stalls every check.
+        name = "claude-" + "opus-5-5"
+        said = support.linear(self, lambda n: [m.group(0) for m in check_repo.MODEL_FORM.finditer(
+            "x " + "A" * n + " " + "b-" * n + name + "-latest y")], 64000, 0.5)
+        self.assertEqual(said, ["b-" * 64000 + name + "-latest"])
+
     def test_an_edited_secrets_baseline_is_caught(self):
         whole = (ROOT / ".gitignore").read_text()
         self.assertFalse(caught(check_repo.run(tree({".gitignore": whole})), "baseline"))

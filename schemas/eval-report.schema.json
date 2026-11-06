@@ -103,6 +103,7 @@
                 "issue_unreadable",
                 "credential_missing",
                 "engine_version",
+                "engine_model",
                 "engine_failed",
                 "no_answer",
                 "engine_timeout",

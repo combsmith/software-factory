@@ -5,8 +5,12 @@ it, and as that trial hardened it:
 - at the pinned version, asked before and after the call, its exit read (L-35);
 - in an environment of exactly the names below, the one key from the job's environment the CLI needs among them, under
   the one name the CLI's scrub removes from what a tool is handed, and the scrub set (issue 287);
-- with the Task's limits: its turns as `--max-turns`, its seconds as the call's timeout, and its `cost_ceiling_usd` as
-  `--max-budget-usd`, which the pin accepts and holds its own estimate of spend to (decision 0136);
+- with the Task's limits: its turns as `--max-turns`, its seconds as the call's timeout, its `cost_ceiling_usd` as
+  `--max-budget-usd`, which the pin accepts and holds its own estimate of spend to (decision 0136), and its `effort` as
+  `--effort`, so that the effort a Run is given is the tier's and never the CLI's default of the day (decision 0147);
+- with the model by its full id, and an answer kept only from that model: the one model the CLI's `modelUsage` names,
+  which `usage` records, must be the pinned one, or the Run is `failed`, `engine_model`, as one at another version is
+  (decision 0147);
 - with no tool at all, `--tools ""`, whatever the Task holds; structured output still works with none (P-13 at
   2.1.306). On a Linux runner at 2.1.306, with the scrub on, a sandboxed tool wrote anywhere the runner's user can,
   and with it off a tool is handed the credential (P-50, P-51, issue 312; P-26), so no Run has a tool that runs;
@@ -29,6 +33,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import subprocess
 
 from harness import shared
@@ -42,7 +47,8 @@ MODEL_ENDED = ("error_max_budget_usd", "error_max_structured_output_retries", "e
 CREDENTIAL_NAME = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 # Every name the CLI is given, and its value where it is fixed. Nothing else of the job's environment reaches it.
-FIXED = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DISABLE_AUTOUPDATER": "1", SCRUB: "1"}
+# The CLI neither updates itself nor offers to, with either name it reads (decision 0147).
+FIXED = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DISABLE_UPDATES": "1", "DISABLE_AUTOUPDATER": "1", SCRUB: "1"}
 PASSED = ("HOME", "TMPDIR")
 OPTIONS = ["--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
            "--permission-prompts", "none"]
@@ -50,11 +56,12 @@ ENGINE_WRITES = ["completed", "incomplete", "refused"]
 # The reason a Result that did not complete gives, one of these codes and never another (decision 0146): the model's,
 # by the status it writes, and the Harness's, with the `failed` Result it writes whole, here or in `harness/run.py`.
 MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task_not_a_review",)}
-HARNESS_REASONS = ("credential_missing", "engine_version", "task_too_large", "engine_failed", "engine_timeout",
-                   "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable")
+HARNESS_REASONS = ("credential_missing", "engine_version", "engine_model", "task_too_large", "engine_failed",
+                   "engine_timeout", "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable")
 REASONS = dict(MODEL_REASONS, failed=HARNESS_REASONS)
 FILLED = ("release", "usage")
 COUNTS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+MODEL_ID = re.compile(r"[a-z0-9.-]+")      # a model's id as result/1 holds it; any other the CLI names is none
 # The most bytes one argument may hold on the Linux runners (MAX_ARG_STRLEN, 131072), less room to spare: a Task
 # longer than this is refused before the CLI is started, never failed by the system (the Claude review).
 LONGEST = 120000
@@ -134,7 +141,9 @@ def argv(cli: str, task: dict, model: str, session: str, instructions: str = "",
              json.dumps(handed(task)),
              "--model", model, "--session-id", session, "--max-turns", str(task["limits"]["turns"]),
              # The tier's ceiling, which the CLI holds the Run's estimated spend to (decision 0136)
-             "--max-budget-usd", str(task["limits"]["cost_ceiling_usd"])]
+             "--max-budget-usd", str(task["limits"]["cost_ceiling_usd"]),
+             # The tier's effort, never the CLI's default (decision 0147)
+             "--effort", task["limits"]["effort"]]
             + OPTIONS + (READ if read is True else ["--tools", ""]))
 
 
@@ -181,7 +190,17 @@ def no_tool(args: list) -> bool:
     return "--" not in args and _given(args, "--tools") == "" and not any(_flag(a) in WIDER for a in args)
 
 
-def _usage(config: dict, session: str, seconds: float, said=None) -> dict:
+def answering(said) -> str:
+    """The one model the CLI says answered, as its `modelUsage` names it, or None where it names none, more than one,
+    or one in no form result/1 holds (decision 0147)."""
+    named = said.get("modelUsage") if isinstance(said, dict) else None
+    if not isinstance(named, dict) or len(named) != 1:
+        return None
+    model = next(iter(named))
+    return model if MODEL_ID.fullmatch(model) else None
+
+
+def _usage(task: dict, config: dict, session: str, seconds: float, said=None) -> dict:
     usage = said.get("usage") if isinstance(said, dict) and isinstance(said.get("usage"), dict) else {}
 
     def count(value):
@@ -190,14 +209,14 @@ def _usage(config: dict, session: str, seconds: float, said=None) -> dict:
     cost = cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) and 0 <= cost < float("inf") else None
     turns = said.get("num_turns") if isinstance(said, dict) else None
     return {"engine": ENGINE, "engine_version": config["engine"]["version"], "model": config["engine"]["model"],
-            "session": session, **{k: count(usage.get(k)) for k in COUNTS}, "turns": count(turns),
+            "answering_model": answering(said), "effort": task["limits"]["effort"], "session": session, **{k: count(usage.get(k)) for k in COUNTS}, "turns": count(turns),
             "cost_usd": cost,
             "seconds": round(max(seconds, 0.0), 3)}
 
 
-def usage_of(config: dict, session: str) -> dict:
-    """`usage` for a Run the CLI was never asked: the model and the session named, and nothing counted."""
-    return _usage(config, session, 0.0)
+def usage_of(task: dict, config: dict, session: str) -> dict:
+    """`usage` for a Run the CLI was never asked: the model, the effort and the session named, and nothing counted."""
+    return _usage(task, config, session, 0.0)
 
 
 def failed(task: dict, reason: str, usage: dict) -> dict:
@@ -234,17 +253,17 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     """The Result of one Task, `result/1`, validated: the Engine's, with what the Harness fills, or a failed one."""
     engine = config["engine"]
     if not isinstance(job_env.get(CREDENTIAL_NAME), str) or job_env[CREDENTIAL_NAME] == "":
-        return failed(task, "credential_missing", _usage(config, session, 0.0))
+        return failed(task, "credential_missing", _usage(task, config, session, 0.0))
     env = environment(job_env)
     if version(cli, env, call) != engine["version"]:
-        return failed(task, "engine_version", _usage(config, session, 0.0))
+        return failed(task, "engine_version", _usage(task, config, session, 0.0))
     args = argv(cli, task, engine["model"], session, instructions, read)
     if max(len(a.encode()) for a in args) > LONGEST:
-        return failed(task, "task_too_large", _usage(config, session, 0.0))
+        return failed(task, "task_too_large", _usage(task, config, session, 0.0))
     # With the scrub on, a tool that runs can write outside its directory (P-50): the CLI is started with it only with no
     # tool, or with the read tools alone, held to the head, where the head is asked for (decision 0138).
     if env.get(SCRUB) == "1" and not (no_tool(args) or (read is True and read_alone(args))):
-        return failed(task, "engine_failed", _usage(config, session, 0.0))
+        return failed(task, "engine_failed", _usage(task, config, session, 0.0))
     began = clock()
     said, reason = None, None
     try:
@@ -260,16 +279,25 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     except (OSError, ValueError):       # a call that cannot be made, as an argument Python refuses, is the Engine's fault
         reason = "engine_failed"
     seconds = clock() - began
-    usage = _usage(config, session, seconds, said)
+    usage = _usage(task, config, session, seconds, said)
     # The version is read again after the call: an engine that changed under the Run is not the one pinned.
     if version(cli, env, call) != engine["version"]:
         return failed(task, "engine_version", usage)
+    # A Run the CLI says another model took part in is the Engine's, whatever else befell it: one that erred or ran out
+    # by a fallback model is not the reviewer's. One that names no model, in any empty form, keeps its own reason
+    # (decision 0147).
+    if isinstance(said, dict) and said.get("modelUsage") and usage["answering_model"] != engine["model"]:
+        return failed(task, "engine_model", usage)
     if reason is not None:
         return failed(task, reason, usage)
     found = said.get("structured_output") if isinstance(said, dict) else None
     # A CLI that exited 0 and gave no answer to hold to a schema is told from an answer that fails it (decision 0121).
     if not isinstance(found, dict):
         return failed(task, "no_answer", usage)
+    # An answer is kept only from the pinned model, as the CLI names the one that answered, and that is decided before
+    # the answer is held to any schema: another model's answer that fails one is still the Engine's (decision 0147).
+    if usage["answering_model"] != engine["model"]:
+        return failed(task, "engine_model", usage)
     result = dict(found, release=task["release"], usage=usage)
     # Held to the schema the CLI was handed, so an Effect the Task does not permit is no Result; then to result/1 whole.
     if (validate(found, handed(task), schemas=shared.SCHEMAS) or shared.errors(result, "result")
