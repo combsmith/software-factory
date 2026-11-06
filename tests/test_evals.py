@@ -92,6 +92,7 @@ class Scoring(unittest.TestCase):
         self.assertEqual(eval_result.SPAN_BEYOND, 15)
         for lines, verdict in (({"start_line": 94, "end_line": 117}, "pass"), ({"start_line": 94, "end_line": 118}, "fail"),
                                ({"start_line": 63, "end_line": 86}, "pass"), ({"start_line": 62, "end_line": 86}, "fail"),
+                               ({"start_line": 70, "end_line": 85}, "fail"),
                                ({"start_line": 94}, "pass"), ({}, "fail")):
             edge = copy.deepcopy(result)
             edge["findings"][0]["location"] = dict(lines, path="kernel/decide.py")
@@ -199,6 +200,9 @@ class Scoring(unittest.TestCase):
         # One at the `location` that is not the expected Finding leaves the pass at the alternate place alone.
         both["findings"][-1]["severity"] = "minor"
         self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
+        # Nor does one at the `location` that cites no criterion: the pass is the citing Finding's, at the alternate.
+        both["findings"][-1].update(severity=both["findings"][0]["severity"], criterion=None)
+        self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
         self.assertNotIn("at_alternate", eval_result.score(case, placed(other, criterion=None)))
         self.assertNotIn("at_alternate", eval_result.score(load("examples/eval-case.met.json"), result))
         # Absent, the Finding has its one place, as before.
@@ -214,8 +218,8 @@ class Scoring(unittest.TestCase):
         apart["diff"] = (case["diff"].replace("@@ -86,9 +86,9 @@", "@@ -86,4 +86,4 @@")
                          + "--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -10,2 +10,3 @@\n a\n+b\n c\n"
                          + "--- a/kernel/state.py\n+++ b/kernel/state.py\n@@ -5,1 +5,2 @@\n x\n+y\n")
-        self.assertEqual(eval_result._head_lines(apart["diff"]),
-                         {"kernel/decide.py": {86, 87, 88, 89}, "kernel/gate.py": {10, 11, 12}, "kernel/state.py": {5, 6}})
+        self.assertEqual(eval_result._hunks(apart["diff"]),
+                         {"kernel/decide.py": [{86, 87, 88, 89}], "kernel/gate.py": [{10, 11, 12}], "kernel/state.py": [{5, 6}]})
         apart["expected"]["finding"]["also_at"] = [{"path": "kernel/gate.py", "start_line": 10, "end_line": 12}]
 
         def went(location):
@@ -267,7 +271,16 @@ class Scoring(unittest.TestCase):
         two = apart["diff"] + "--- a/kernel/far.py\n+++ b/kernel/far.py\n@@ -1,1 +1,1 @@\n a\n@@ -9,1 +9,1 @@\n z\n"
         self.assertEqual(unreadable([{"path": "kernel/far.py", "start_line": 9}], two)["verdict"], "pass")
         self.assertEqual(unreadable([{"path": "kernel/far.py", "start_line": 1, "end_line": 9}], two), gone)
-        for header in ("+++ kernel/gate.py", "+++ c/kernel/gate.py"):
+        # Inside one hunk, not two that meet (Muse's read of #561): lines 10 to 13 are held, but by no one hunk.
+        near = apart["diff"] + "--- a/kernel/near.py\n+++ b/kernel/near.py\n@@ -10,2 +10,2 @@\n a\n b\n@@ -12,2 +12,2 @@\n c\n d\n"
+        self.assertEqual(unreadable([{"path": "kernel/near.py", "start_line": 12, "end_line": 13}], near)["verdict"], "pass")
+        self.assertEqual(unreadable([{"path": "kernel/near.py", "start_line": 10, "end_line": 13}], near), gone)
+        # A line is one the Task numbered: a row outside every hunk that reads as numbered is none (Muse's read of #561).
+        stray = apart["diff"].replace(" c\n--- a/kernel/state.py", " c\n999| stray\n--- a/kernel/state.py")
+        self.assertNotEqual(stray, apart["diff"])
+        self.assertEqual(unreadable([{"path": "kernel/gate.py", "start_line": 999}], stray), gone)
+        # A header git quotes, as it does a path of other than plain characters, is none either: the key never loosens.
+        for header in ("+++ kernel/gate.py", "+++ c/kernel/gate.py", '+++ "b/kernel/gate.py"'):
             self.assertEqual(unreadable([inside], apart["diff"].replace("+++ b/kernel/gate.py", header)), gone, header)
         # A removed line is no line of the head's side: the base's line 10 of a hunk that only removes is not held.
         removed = apart["diff"] + "--- a/kernel/cut.py\n+++ b/kernel/cut.py\n@@ -10,1 +9,0 @@\n-gone\n"
@@ -784,9 +797,11 @@ class EvalJob(unittest.TestCase):
         marked = copy.deepcopy(unmarked)
         marked["cases"][1]["at_alternate"] = True
         self.assertEqual(job.verdict(marked, found, digest, "a" * 40, "factory/v0.1.0"), "count_differs")
+        self.assertIn(", 1 at an alternate place;", job.tally(marked))
         self.assertEqual(job.verdict(unmarked, found, digest, "a" * 40, "factory/v0.1.0"), "case_failed")
-        self.assertNotEqual(validate(dict(unmarked, cases=[dict(unmarked["cases"][0], at_alternate=False), unmarked["cases"][1]]),
-                                     load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        for mark in (False, 1):
+            self.assertNotEqual(validate(dict(unmarked, cases=[dict(unmarked["cases"][0], at_alternate=mark), unmarked["cases"][1]]),
+                                         load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [], mark)
 
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
         # Decision 0120: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short

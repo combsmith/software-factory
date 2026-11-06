@@ -570,7 +570,7 @@ def tally(document: dict) -> str:
     words closed the gate, as a share alone may not say why, and how many passed at an alternate place alone (decision
     0143)."""
     codes = [code for case in document["cases"] for code in case["reasons"]]
-    alternate = len([case for case in document["cases"] if case.get("at_alternate")])
+    alternate = len([case for case in document["cases"] if case.get("at_alternate") and case["verdict"] == PASS])
     closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
     closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
     # Each cause by what it says, held to its schema like the rest, with how many cases gave it.

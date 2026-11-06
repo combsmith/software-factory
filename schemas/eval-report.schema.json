@@ -128,10 +128,11 @@
             }
           },
           "at_alternate": {
-      "description": "A pass whose Finding was at a place of the case's also_at alone, not its location (decision 0143): a mark the report can count, saying no place.",
-      "const": true
-     },
-     "cause": {
+            "description": "A pass whose Finding was at a place of the case's also_at alone, not its location (decision 0143): a mark the report can count, saying no place.",
+            "type": "boolean",
+            "const": true
+          },
+          "cause": {
             "description": "Why a case was unanswered or stopped by the Engine, where the job found it: an exception's class and the last line of this repo's code it passed, a step's code, the CLI's subtype and exit, or that it timed out. Never a message.",
             "type": "object",
             "additionalProperties": false,

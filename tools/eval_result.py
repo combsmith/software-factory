@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-import re
 import sys
 
 from harness import task
@@ -62,32 +61,32 @@ def _at(expected: dict, raised: dict) -> bool:
     return any(_overlaps(place, raised) for place in _places(expected))
 
 
-# A row the Task numbers for the model: a head line's number, the separator, and its line (decision 0137).
-NUMBERED = re.compile(r"(\d+)\%s[ +\r\n]" % task.SEPARATOR)
-
-
-def _head_lines(diff: str) -> dict:
-    """`{path: lines}`: each file's lines that a hunk of the diff holds on the head's side, by the path its `+++ b/`
-    header names, read by the Task's own numbering, so they are the lines the model was given numbered."""
-    held, path = {}, None
-    for row in task.ROW.findall(task.numbered(diff)):
-        number = NUMBERED.match(row)
-        if number:
-            held.setdefault(path, set()).add(int(number.group(1)))
+def _hunks(diff: str) -> dict:
+    """`{path: [lines of each hunk]}`: the lines each hunk of the diff holds on the head's side, by the path its file's
+    `+++ b/` header names. A line is one the Task numbered for the model (decision 0137): its row is the diff's own row
+    led by its number, so a row that already reads as numbered, outside any hunk, is no line."""
+    held, path, hunk = {}, None, set()
+    for row, given in zip(task.ROW.findall(diff), task.ROW.findall(task.numbered(diff))):
+        if given != row:
+            hunk.add(int(given.split(task.SEPARATOR, 1)[0]))
         elif row.startswith("+++ "):
             name = row[len("+++ "):].rstrip("\r\n")
             path = name[len("b/"):] if name.startswith("b/") else None
+        elif task.HUNK.match(row):
+            hunk = set()
+            held.setdefault(path, []).append(hunk)
     return held
 
 
 def _in_hunks(places: list, diff: str) -> bool:
-    """Whether each place's lines, all of them, are lines a hunk of the diff holds on the head's side, in its file
+    """Whether each place's lines, all of them, are lines one hunk of the diff holds on the head's side, in its file
     (decision 0143): an alternate place names a changed line the reviewer was shown, never anywhere else, and one whose
     lines cannot be read names none."""
-    held = _head_lines(diff)
+    held = _hunks(diff)
     for place in places:
-        lines, shown = _lines(place), held.get(place["path"], set())
-        if not lines or lines[1] - lines[0] + 1 > len(shown) or not all(n in shown for n in range(lines[0], lines[1] + 1)):
+        lines = _lines(place)
+        if not lines or not any(lines[1] - lines[0] < len(hunk) and all(n in hunk for n in range(lines[0], lines[1] + 1))
+                                for hunk in held.get(place["path"], [])):
             return False
     return True
 
