@@ -108,8 +108,10 @@ def handed(task: dict) -> dict:
         schema["properties"].pop(field)
     schema["required"] = [f for f in schema["required"] if f not in FILLED]
     schema["properties"]["status"] = {"enum": list(ENGINE_WRITES)}
-    schema["properties"]["reason"] = {"type": ["string", "null"],
-                                      "enum": [None] + [r for s in ENGINE_WRITES for r in MODEL_REASONS.get(s, ())]}
+    # The model's codes as result/1 lists them: narrowed from it, never a copy of it that could drift (decision NNNN).
+    model = {r for s in ENGINE_WRITES for r in MODEL_REASONS.get(s, ())}
+    reason = schema["properties"]["reason"]
+    schema["properties"]["reason"] = dict(reason, enum=[r for r in reason["enum"] if r is None or r in model])
     schema["properties"]["run"] = {"const": task["run"]}
     effects = schema["properties"]["effects"]
     effects["properties"] = {k: v for k, v in effects["properties"].items() if k in task["permitted_effects"]}
@@ -278,5 +280,12 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
 
 def sound(result: dict, task: dict) -> bool:
     """What the schema cannot say of a Result: a reason goes with a status other than completed, and never with
-    completed (decision 0038). That it is this Task's Run, the schema the CLI was handed says."""
-    return (result["reason"] is None) == (result["status"] == "completed")
+    completed (decision 0038), and is one its status may give (decision NNNN). That it is this Task's Run, the schema
+    the CLI was handed says."""
+    return (result["reason"] is None) == (result["status"] == "completed") and reason_given(result)
+
+
+def reason_given(result: dict) -> bool:
+    """A Result's reason is one its status may give, or none: the model's with `incomplete` or `refused`, the
+    Harness's with `failed`, and none with `completed` (decision NNNN)."""
+    return result["reason"] is None or result["reason"] in REASONS.get(result["status"], ())

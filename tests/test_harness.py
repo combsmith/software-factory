@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import zlib
 
 from harness import engine, head, run, shared, task
@@ -706,6 +707,27 @@ class Engine(unittest.TestCase):
         self.assertEqual(schema["properties"]["run"], {"const": RUN})
         self.assertEqual(sorted(schema["properties"]["effects"]["properties"]), ["comment"])
 
+    def test_the_schema_handed_is_result_1_narrowed_and_never_a_copy_of_it(self):  # issue 567
+        task_ = built()
+        whole = engine.resolved(copy.deepcopy(shared.SCHEMAS["result"]), shared.SCHEMAS, shared.SCHEMAS["result"])
+        handed = engine.handed(task_)
+        self.assertEqual(set(handed["properties"]), set(whole["properties"]) - set(engine.FILLED))
+        for key, value in handed["properties"].items():
+            if key not in ("status", "reason", "run", "effects"):
+                self.assertEqual(value, whole["properties"][key], key)
+        for key in ("status", "reason"):
+            self.assertLess(set(handed["properties"][key]["enum"]), set(whole["properties"][key]["enum"]), key)
+        self.assertEqual({k: v for k, v in handed["properties"]["reason"].items() if k != "enum"},
+                         {k: v for k, v in whole["properties"]["reason"].items() if k != "enum"})
+        effects = handed["properties"]["effects"]["properties"]
+        self.assertEqual(effects, {k: whole["properties"]["effects"]["properties"][k] for k in effects})
+        # A code result/1 no longer lists is no longer handed: the CLI's list is read from it, not kept beside it.
+        fewer = [r for r in whole["properties"]["reason"]["enum"] if r != "task_not_a_review"]
+        with unittest.mock.patch.dict(shared.SCHEMAS["result"]["properties"]["reason"], {"enum": fewer}):
+            self.assertEqual(engine.handed(task_)["properties"]["reason"]["enum"], [None, "change_not_reviewed_whole"])
+        self.assertEqual(engine.handed(task_)["properties"]["reason"]["enum"],
+                         [None, "change_not_reviewed_whole", "task_not_a_review"])
+
     def test_the_version_is_held_before_and_after_the_call(self):  # L-35
         for versions, asked in (((PIN, "2.1.307"), 1), (("2.1.305", PIN), 0), ((None, PIN), 0), ((PIN, None), 1),
                                 (((PIN, 1), PIN), 0)):
@@ -759,7 +781,9 @@ class Engine(unittest.TestCase):
                answer(result=judged(findings=[{"ref": "n1"}])),
                # A reason is one of the model's codes: any other, the Harness's among them, is no Result (issue 567).
                answer(result=judged(status="refused", reason="out_of_scope", findings=[], effects={})),
-               answer(result=judged(status="incomplete", reason="no_answer", findings=[], effects={}))]
+               answer(result=judged(status="incomplete", reason="no_answer", findings=[], effects={})),
+               # And one its status may give: the model's code for refusing is no reason it is incomplete.
+               answer(result=judged(status="incomplete", reason="task_not_a_review", findings=[], effects={}))]
         # A CLI that exited 0 and gave nothing to hold to the schema is told from an answer that fails it (decision 0121).
         none = ["", "not json", "[]", json.dumps(["x"]), json.dumps([{"type": "other"}]), "null", json.dumps({"is_error": False}),
                 answer(structured_output=None), answer(structured_output="{}"), answer(structured_output=[1])]

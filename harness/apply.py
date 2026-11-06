@@ -313,7 +313,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         return "item", "result_not_the_runs"
     if result["status"] != "completed":
         # A reason is one its status may give: the model's with `incomplete` or `refused`, the Harness's with `failed`.
-        if result["reason"] is not None and result["reason"] not in engine.REASONS.get(result["status"], ()):
+        if not engine.reason_given(result):
             return "item", "reason_not_the_status"
         reason = result["reason"] or result["status"]
         return ("item" if reason in THE_ROLES or result["status"] != "failed" else "environment"), reason

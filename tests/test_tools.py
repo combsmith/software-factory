@@ -30,6 +30,7 @@ import urllib.parse
 import zlib
 from unittest import mock
 
+from harness import engine, shared
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
@@ -338,6 +339,19 @@ class Examples(unittest.TestCase):
         facts["schema"] = "facts/2"
         root = clone({"examples/invalid/facts.carries-prose.json": json.dumps(facts)})
         self.assertTrue(caught(check_examples.run(root), "is wrong in 2 ways"))
+
+    def test_a_results_reason_its_status_may_not_give_is_caught(self):  # issue 567
+        # Each way, a counter-example its schema takes and harness/engine.py refuses: the model's code on a failed Result,
+        # and the Harness's on the model's status.
+        for name in ("result.a-models-reason-on-a-failed-result.json",
+                     "result.the-harnesss-reason-on-a-refused-result.json"):
+            wrong = json.loads((ROOT / "examples" / "invalid" / name).read_text())
+            self.assertEqual(shared.errors(wrong, "result"), [], name)
+            self.assertFalse(engine.reason_given(wrong), name)
+            self.assertEqual([p for p in check_examples.run() if name in p], [], name)
+            right = dict(wrong, status="incomplete" if wrong["status"] == "failed" else "failed")
+            self.assertTrue(caught(check_examples.run(clone({"examples/invalid/" + name: json.dumps(right)})),
+                                   "was accepted, and must be rejected"), name)
 
     def test_an_example_that_does_not_validate_is_caught(self):
         self.assertTrue(caught(check_examples.run(clone({"examples/decision.json": "{}"})), "decision.json: $: missing"))

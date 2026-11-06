@@ -308,6 +308,10 @@ def run(root: pathlib.Path = ROOT) -> list:
             # An item that says other than its own exchanges is tools/check_release.py's to refuse.
             from tools import check_release
             errors = check_release.fixture_problems(value, "invalid/" + path.name)
+        if kind == "result" and not errors:
+            # A reason its status may not give is harness/engine.py's to refuse: no schema here can say it (decision NNNN).
+            from harness import engine
+            errors = [] if engine.reason_given(value) else ["$.reason: not one its status may give"]
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:
