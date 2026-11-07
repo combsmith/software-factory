@@ -7,8 +7,8 @@ answer and on a recorded one.
 never from the environment, sets a timeout on every request, bounds every answer, and keeps no body anywhere but in the
 answer it returns. Two redirects are followed, each from one endpoint alone, once, over HTTPS, with no token sent on:
 an artifact's download, `download(path)`, to GitHub's artifact storage alone (decision 0045, the Maintainer's ruling on
-#192), its body bounded far tighter, 64 KiB, or 1 MiB for a pass record, the one artifact its reader asks the wider
-bound for (decision 0045's row of #196); and a commit's tarball, `tarball(path)`, to codeload.github.com alone, at the
+#192, and its accounts, decision 0151), its body bounded far tighter, 64 KiB, or 1 MiB for a pass record, the one
+artifact its reader asks the wider bound for (decision 0045's row of #196); and a commit's tarball, `tarball(path)`, to codeload.github.com alone, at the
 archive of that repo and that commit (decision 0138, the Maintainer's "Tarball, allow codeload", 2026-11-04; P-60),
 bounded at 32 MiB. A redirect from either is refused: there is no second hop. The address it is sent to can carry a
 signature, and is never put in an error or kept. `Live.anonymous()` sends no token, and a commit's tarball alone. A body
@@ -38,8 +38,9 @@ LARGEST = 64 * 1024 * 1024      # bytes an answer may hold; one larger is refuse
 CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no more memory than the answer
 # The one redirect followed: an artifact's download, to the storage GitHub keeps Actions' artifacts in, its v4 store.
 ARTIFACT = re.compile(r"/repos/[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}/actions/artifacts/[1-9][0-9]{0,18}/zip")
-# GitHub names twenty such accounts, sa0 to sa19, among the hosts a runner must reach; no other is GitHub's.
-STORAGE = re.compile(r"productionresultssa(?:[0-9]|1[0-9])\.blob\.core\.windows\.net")
+# Its accounts are productionresultssa and a number of one to three digits, written without a leading zero: GitHub
+# serves from sa32, past the twenty it once named, and now names only *.blob.core.windows.net (decision 0151).
+STORAGE = re.compile(r"productionresultssa(?:[0-9]|[1-9][0-9]{1,2})\.blob\.core\.windows\.net")
 # The path an artifact's storage serves it under (the Maintainer's answer of 2026-10-21 on #192).
 STORED_UNDER = "/actions-results/"
 STORED = 64 * 1024              # bytes an artifact's download may hold: an outcome is a few bytes, zipped
