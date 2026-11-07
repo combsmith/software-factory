@@ -8886,6 +8886,8 @@ class Writes(unittest.TestCase):
             # override of the same name.
             "harness/nestedparam.py": "from adapters.effects import role_write" + go + "    def unused(role_write):\n"
                                       "        return None\n" + role % "role_write",
+            "harness/nestedassign.py": "from adapters.effects import role_write" + go + "    def unused():\n"
+                                       "        role_write = None\n        return role_write\n" + role % "role_write",
             "adapters/nested.py": "from adapters.effects import role_write\n\nTABLE = {'review': {}}\nTABLE['review']['write'] = role_write\n",
             "harness/usenested.py": "from adapters.nested import TABLE" + go + role % "TABLE['review']['write']",
             "adapters/inherit.py": "from adapters.github import request\n\n\nclass Base:\n    @classmethod\n    def act(cls, t):\n"
@@ -8936,7 +8938,7 @@ class Writes(unittest.TestCase):
         for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py", "harness/usezz.py", "harness/usesteps.py",
                     "harness/useact.py"):
             self.unlisted(problems, rel, "adapters.effects:approve")
-        for rel in ("harness/deep.py", "harness/usecondw.py", "harness/nestedparam.py", "harness/usenested.py"):
+        for rel in ("harness/deep.py", "harness/usecondw.py", "harness/nestedparam.py", "harness/nestedassign.py", "harness/usenested.py"):
             self.unlisted(problems, rel)
         for rel in ("harness/usebases.py",):
             self.unlisted(problems, rel, "adapters.bases:Base._write")
