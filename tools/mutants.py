@@ -8542,6 +8542,9 @@ MUTANTS = ISSUE + [
      '    placed = [raised[ref] for _, _, ref in apply.posts(result.get("effects", {}))\n'
      '              if ref in raised and _lines(raised[ref].get("location", {}))]\n',
      '    placed = [f for f in result["findings"] if _lines(f.get("location", {}))]\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("the front door takes the example Result that posts off the example case's hunk", 'tools/eval_result.py',
+     '    if result["status"] == "completed" and _off_hunks(case, result):\n', '    if result["status"] == "completed" and False:\n',
+     ('tests.test_evals.Scoring.test_the_front_door_scores_two_files_and_says_so_in_its_exit',)),
     ("the report holds no code for a Finding off every hunk", 'schemas/eval-report.schema.json',
      '                "finding_not_in_hunk",\n', '', ('tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it',)),
     ("the review is not told a Finding off every hunk refuses the Result", 'roles/pr-review/prompt.md',

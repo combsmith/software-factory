@@ -473,8 +473,9 @@ class Scoring(unittest.TestCase):
         swapped["effects"]["submit_review"][0]["comments"][0]["finding"] = "n2"
         swapped["effects"]["create_check_run"][0]["annotations"][0]["finding"] = "n1"
         self.assertEqual(eval_result.score(case, swapped)["reasons"], ["finding_not_in_hunk"])
+        self.assertEqual(eval_result.score(load("examples/eval-case.met.json"), swapped)["reasons"], ["finding_not_in_hunk"])
         # A fault of the case is told first, as before: it is the case owner's, never the reviewer's.
-        for over, code in (({"criterion": "PR-99"}, "criterion_unknown"),
+        for over, code in (({"criterion": "PR-99"}, "criterion_unknown"), ({"finding": None}, "answer_disagrees_with_verdict"),
                            ({"finding": dict(case["expected"]["finding"], severity="minor")}, "answer_off_rubric"),
                            ({"finding": dict(case["expected"]["finding"], also_at=[{"path": "kernel/decide.py",
                                                                                     "start_line": 1, "end_line": 1}])},
