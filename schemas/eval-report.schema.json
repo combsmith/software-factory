@@ -154,7 +154,7 @@
       "minimum": 0
     },
     "blocking_pass": {
-      "description": "Whether every case that expects a blocking Finding passed (decision 0120): one word, never how many. Null where a case was not read or its answer is no kind.",
+      "description": "Whether every case that expects a blocking Finding passed (decision 0120): one word, never how many, which closes nothing by itself (decision 0150). Null where a case was not read or its answer is no kind.",
       "type": ["boolean", "null"]
     },
     "kinds_pass": {
