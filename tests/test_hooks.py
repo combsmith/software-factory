@@ -1536,13 +1536,18 @@ class Identity(unittest.TestCase):
                      "echo \"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"",
                      # Astra: a single quote that runs past its backtick, and the nested spelling in an outer ${...}.
                      "echo `echo '`\nrm kernel/gate.py\necho '`",
-                     "echo ${?+\"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"}"):
+                     "echo ${?+\"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"}",
+                     # Astra on the last head: the same in a backtick double quotes hold, and after a quoted word.
+                     "echo \"`echo \"${?+'$(rm kernel/gate.py)'}\"`\"",
+                     "echo \"$(echo \"a\" \"${x:-'y'}\")\""):
             with self.assertRaises(ValueError, msg=text):
                 shell.commands(text)
         self.assertEqual(shell.commands("echo `echo \"a b\"` > notes.txt"),
                          [(["echo"], []), (["echo", "a b"], []), ([], [(">", "notes.txt")])])
         self.assertEqual(shell.commands("echo \"${x:-default}\" > notes.txt"), [(["echo", "${x:-default}"], [(">", "notes.txt")])])
         self.assertEqual(shell.commands("echo \"$x\" ${y:-'z'}"), [(["echo", "$x", "${y:-z}"], [])])
+        # A ${...} in a substitution, which no double quote of its own holds, has quotes of its own (Astra).
+        self.assertEqual(len(shell.commands("echo \"$(echo ${x:-'default'})\"")), 2)
         self.assertEqual(shell.commands("git commit -m \"msg\" && echo ${FOO:-'x'}"),
                          [(["git", "commit", "-m", "msg"], []), (["echo", "${FOO:-x}"], [])])
         # A substitution in a ${...} inside a substitution of a here-document's body is read as at the top.

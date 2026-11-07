@@ -647,7 +647,8 @@ def _held(text: str) -> str:
         elif c == quote:
             quote, comments = None, False
             out.append(c)
-        elif quote == '"' and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")]:
+        elif quote == '"' and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")] \
+                and _inside(text, held, i) is not False:     # in a substitution, double quotes of its own hold it
             # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
             raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
@@ -815,10 +816,18 @@ CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 
 
-def _inside(text: str, held: list, i: int) -> bool:
-    """Whether `i` is inside one of the $( or backticks that open at `held`."""
-    return any(start < i < (_balanced(text, start + 2, ")") if text[start] == "$" else _balanced(text, start + 1, "`"))
-               for start in held if start < i)
+def _inside(text: str, held: list, i: int):
+    """None where `i` is in none of the $( or backticks that open at `held`; else whether a double quote of the
+    innermost one's own holds it: an odd count of them, since it opened, before `i`."""
+    inner = max((start for start in held if start < i < (_balanced(text, start + 2, ")") if text[start] == "$"
+                                                         else _balanced(text, start + 1, "`"))), default=None)
+    if inner is None:
+        return None
+    quotes, j = 0, inner
+    while j < i:
+        quotes += text[j] == '"'
+        j += 2 if text[j] == "\\" else 1
+    return quotes % 2 == 1
 
 
 def _past_tick(text: str, i: int, quote: str) -> bool:
