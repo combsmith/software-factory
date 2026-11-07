@@ -80,7 +80,7 @@ class Module:
         self.rel, self.name, self.tree = rel, _name(rel), tree
         package = self.name if rel.endswith("__init__.py") else self.name.rpartition(".")[0]
         self.bindings, self.texts, self.functions, self.classes, self.values, self.stored = {}, {}, {}, {}, {}, set()
-        self.conflicts, self.formatted = set(), set()       # names bound two ways; texts made by a `%` format
+        self.conflicts, self.formatted, self.stars = set(), set(), []     # names bound two ways; `%` formats; import *
         self.nodes = list(ast.walk(tree))
         for node in self.nodes:     # an import anywhere, for one made inside a function binds as well
             bound = []
@@ -92,6 +92,8 @@ class Module:
                 base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
                 source = ".".join(base + ([node.module] if node.module else [])) if node.level else node.module
                 for alias in node.names:
+                    if alias.name == "*":
+                        self.stars.append((node.lineno, source))
                     whole = "%s.%s" % (source, alias.name)
                     bound.append((alias.asname or alias.name, ("module", whole) if whole in known else ("attr", source, alias.name)))
             for local, target in bound:
@@ -211,7 +213,7 @@ def _resolve(mods: dict, mod: Module, node, cls: str = None):
         if own and cls:
             above = isinstance(node.value, ast.Call)        # super(): the bases' method, never the class's own
             found = [m for m in _methods(mods, mod.name, cls, set()) if m[1].rpartition(".")[2] == node.attr
-                     and not (above and m[1].startswith(cls + "."))]
+                     and not (above and m[0] == mod.name and m[1].startswith(cls + "."))]
             return ("def",) + found[0] if found else None
         base = _resolve(mods, mod, node.value, cls)
         if base and base[0] == "module":
@@ -231,7 +233,8 @@ def _scope(fn) -> set:
     names |= {a.arg for a in ast.walk(fn.args) if isinstance(a, ast.arg)}
     names |= {n.name for n in ast.walk(fn) if n is not fn and isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
               and id(n) not in nested}
-    return names - {g for n in own if isinstance(n, (ast.Global, ast.Nonlocal)) for g in n.names}
+    imported = {(a.asname or a.name.split(".")[0]) for n in own if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+    return names - imported - {g for n in own if isinstance(n, (ast.Global, ast.Nonlocal)) for g in n.names}
 
 
 def _methods(mods: dict, module: str, cls: str, seen: set) -> list:
@@ -292,8 +295,7 @@ class Reading:
                                      % (mod.rel, node.lineno, got[2], got[1]))
         if qual == "<module>":
             self.problems += ["%s:%d imports * from %s, so what it reaches cannot be read; name what it imports"
-                              % (mod.rel, n.lineno, n.module) for n in mod.nodes if isinstance(n, ast.ImportFrom)
-                              and any(a.name == "*" for a in n.names) and _bound(self.mods, ("module", n.module or ""))]
+                              % (mod.rel, line, source) for line, source in mod.stars if source in self.mods]
         return out
 
     def sends(self, mod: Module, nodes: list) -> list:

@@ -8892,6 +8892,16 @@ class Writes(unittest.TestCase):
                                    "        return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n\n\nclass Sub(Base):\n"
                                    "    @classmethod\n    def act(cls, t):\n        return super().act(t)\n",
             "harness/useinherit.py": "from adapters.inherit import Sub\n\n\ndef go(t):\n    return Sub.act(t)\n",
+            # Astra on the last head: super() in a class named as its base, from another module; and a parameter a local
+            # import fills when none is given.
+            "adapters/pbase.py": "from adapters.github import request\n\n\nclass Client:\n    @classmethod\n    def act(cls, t):\n"
+                                 "        return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "adapters/pchild.py": "from adapters.pbase import Client as BaseClient\n\n\nclass Client(BaseClient):\n    @classmethod\n"
+                                  "    def act(cls, t):\n        return super().act(t)\n",
+            "harness/usepchild.py": "from adapters.pchild import Client\n\n\ndef go(t):\n    return Client.act(t)\n",
+            "adapters/inject.py": "def go(t, item, req, write=None):\n    if write is None:\n"
+                                  "        from adapters.effects import role_write as write\n    return write(t, item, 'review', req, 'me')\n",
+            "harness/useinject.py": "from adapters.inject import go\n\n\ndef run(t):\n    return go(t, {}, {})\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
@@ -8905,6 +8915,8 @@ class Writes(unittest.TestCase):
         for rel in ("harness/usebases.py",):
             self.unlisted(problems, rel, "adapters.bases:Base._write")
         self.unlisted(problems, "harness/useinherit.py", "adapters.inherit:Base.act")
+        self.unlisted(problems, "harness/usepchild.py", "adapters.pbase:Client.act")
+        self.unlisted(problems, "harness/useinject.py")
         for rel in ():
             self.unlisted(problems, rel, "adapters.effects:approve")
 
@@ -8948,6 +8960,9 @@ class Writes(unittest.TestCase):
             "harness/usecyc.py": "from adapters.cyc1 import x\n\n\ndef go():\n    return x()\n",
             # Astra's second read: an adapter's namespace imported, __import__ imported from builtins, and a request bound
             # by an annotation and changed through an alias.
+            "adapters/pwrite.py": "from adapters.github import request\n\n\ndef drop(t):\n"
+                                  "    return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "adapters/prelay.py": "from .pwrite import *\n\n\ndef go(t):\n    return drop(t)\n",
             "harness/namespace.py": "from adapters.effects import __dict__ as namespace\n\n\ndef go(t):\n    return namespace['role_write'](t)\n",
             "harness/builtinsload.py": "from builtins import __import__ as load\n\n\ndef go():\n    return load('adapters.effects')\n",
             "adapters/annotated.py": "from adapters.github import request\n\n\ndef drop(t):\n"
@@ -8977,6 +8992,7 @@ class Writes(unittest.TestCase):
                           ("adapters/positional.py:6", "changes a request after it is built"),
                           ("harness/usecyc.py:5", "names x, which adapters.cyc"),
                           ("harness/namespace.py:5", "uses the module adapters.effects as a value"),
+                          ("adapters/prelay.py:1", "imports * from adapters.pwrite"),
                           ("harness/builtinsload.py:1", "loads a module by its name"),
                           ("adapters/annotated.py:7", "changes a request after it is built"),
                           ("harness/plainvalue.py:5", "uses the module adapters.items as a value"),
