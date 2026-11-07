@@ -9,7 +9,7 @@
     "sha256": "05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f"
   },
   "models": [
-    "claude-opus-5-5"
+    "claude-opus"
   ],
   "prompt_sha256": "949bbf884f01502f1731e378fdcd03b8b58fe2de722280d0524e57ccdf430f38",
   "rubric_sha256": "1c498cea34af0d2c80f0cf726ae37f33f1ccd30323eab74192b7eec25620a715",
