@@ -13526,6 +13526,15 @@ MUTANTS = ISSUE + [
      'rest += [target for _, target in redirected] + ([] if at in quiet else [_bare(w) for w in marked])', 'rest += [target for _, target in redirected] + ([] if at in quiet else [shell.unmarked(w) for w in marked])', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
     ("every reason goes with the script's", 'tools/hooks/identity.py',
      'for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]', 'for why in dict.fromkeys(blind) if names]', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    # Issue 579: a quote past its backtick's end, and a ' in a "${...}", cannot be read.
+    ('a quote that runs past its backtick is read on', 'tools/hooks/shell.py',
+     '            if c in "\'\\"" and ticked and _past_tick(text, i, c):\n', '            if False:\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('a quote that closes in its backtick is read as one that runs past it', 'tools/hooks/shell.py',
+     '    return tick < len(text) and tick < end\n', '    return tick < len(text)\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ' in a double-quoted ${...} is read", 'tools/hooks/shell.py',
+     '        elif quote == \'"\' and text.startswith("${", i) and "\'" in text[i:_balanced(text, i + 2, "}")]:\n', '        elif False:\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ' in a ${...} a substitution in double quotes holds is read", 'tools/hooks/shell.py',
+     '                if "\'" in text[i:braces] and \'"\' in text[:i]:\n', '                if False:\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
     # Issue 410: a backtick glued to a redirection, a nested ${...}, and what only prints beside a script.
     ("a backtick inside a word leaves the word read as what came before it", 'tools/hooks/shell.py',
      '                    out.append("$")\n', '                    pass\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),

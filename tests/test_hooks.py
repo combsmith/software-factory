@@ -1527,6 +1527,17 @@ class Identity(unittest.TestCase):
         self.assertIn((["#x"], [(">", "kernel/gate.py")]), shell.commands("echo `date`#x > kernel/gate.py"))
         # One that begins a word is read as before.
         self.assertEqual(shell.commands("echo `date` > notes.txt"), [(["echo"], []), (["date"], []), ([], [(">", "notes.txt")])])
+        # Issue 579: a quote that runs past where its backtick ends, which bash reads apart from it, and a ' in a "${...}",
+        # which bash reads as a quote and zsh as a character, cannot be read, so the hooks ask. A quote that closes in its
+        # backtick, and a "${...}" with no ', are read as before.
+        for text in ("echo `echo x #\"`echo x`\"`\"`echo x`\"\nrm kernel/gate.py\n# \"",
+                     "echo \"${x:-'default'}\" > notes.txt",
+                     "echo \"$(echo \"${?+'$(rm kernel/gate.py)'}\")\""):
+            with self.assertRaises(ValueError, msg=text):
+                shell.commands(text)
+        self.assertEqual(shell.commands("echo `echo \"a b\"` > notes.txt"),
+                         [(["echo"], []), (["echo", "a b"], []), ([], [(">", "notes.txt")])])
+        self.assertEqual(shell.commands("echo \"${x:-default}\" > notes.txt"), [(["echo", "${x:-default}"], [(">", "notes.txt")])])
         # A substitution in a ${...} inside a substitution of a here-document's body is read as at the top.
         for command in ('cat <<E\n$(echo ${x:-$(git push origin main)})\nE',
                         'cat <<E\n$(echo ${x:-$(printf "%s" "a (b)"; git push origin main)})\nE'):

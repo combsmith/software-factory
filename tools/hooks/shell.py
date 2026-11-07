@@ -568,6 +568,10 @@ def _held(text: str) -> str:
         if quote is None:
             if c == "$" and i >= braces and text.startswith("${", i):
                 braces = _balanced(text, i + 2, "}")
+                if "'" in text[i:braces] and '"' in text[:i]:
+                    # A "${...}" in a substitution in double quotes reads here as unquoted, though it is not: its ' is
+                    # a quote to bash and a character to zsh, so no one reading fits both (#579).
+                    raise ValueError("a ' in a ${...} that double quotes may hold is read one way by bash and another by zsh")
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
                 end = len(text) if end < 0 else end
@@ -628,6 +632,10 @@ def _held(text: str) -> str:
                     words, first = 0, None
                 elif c not in " \t\r<>":
                     word = grown(word, c)
+            if c in "'\"" and ticked and _past_tick(text, i, c):
+                # bash ends a backtick at its next backtick before it reads the quotes in it: a quote that runs past
+                # that is an error there, and bash runs what follows the backtick (#579).
+                raise ValueError("a quote in a backtick runs past where the backtick ends")
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
@@ -635,6 +643,9 @@ def _held(text: str) -> str:
         elif c == quote:
             quote, comments = None, False
             out.append(c)
+        elif quote == '"' and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")]:
+            # In "${...}", bash reads a ' as a quote and zsh as a character, so no one reading fits both (#579).
+            raise ValueError("a ' in a ${...} in double quotes is read one way by bash and another by zsh")
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
             out.append(LIVE[c])
         else:
@@ -797,6 +808,17 @@ _CONNECTOR = re.compile(r"&&|\|\||[;&|\n]")
 # A command substitution that names the branch the shell is on: where it runs, it is HEAD.
 CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s+--abbrev-ref\s+HEAD|"
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
+
+
+def _past_tick(text: str, i: int, quote: str) -> bool:
+    """Whether a quote that opens at `i`, in a backtick, closes after the backtick's next backtick, or never."""
+    tick = i + 1
+    while tick < len(text) and text[tick] != "`":
+        tick += 2 if text[tick] == "\\" else 1
+    end = i + 1
+    while end < len(text) and text[end] != quote:
+        end += 2 if text[end] == "\\" and quote == '"' else 1
+    return tick < len(text) and tick < end
 
 
 def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
