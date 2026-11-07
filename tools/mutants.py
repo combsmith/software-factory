@@ -10880,7 +10880,7 @@ MUTANTS = ISSUE + [
     ('a constant filled two keys deep holds nothing of it', 'tools/check_writes.py',
      "        while isinstance(target, (ast.Subscript, ast.Attribute)):     # TABLE['a']['b'] = w fills TABLE\n            target = target.value\n", '', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("a module's namespace is read as nothing", 'tools/check_writes.py',
-     '    if name in NAMESPACES:\n        return ("module", module)\n', '', ('tests.test_tools.Writes.test_what_cannot_be_read_fails',)),
+     '    if name in NAMESPACES:\n        return ("module", module, "")\n', '', ('tests.test_tools.Writes.test_what_cannot_be_read_fails',)),
     ("super() reaches the class's own method", 'tools/check_writes.py',
      '\n                     and not (above and m[1].startswith(cls + "."))]', ']', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("a nested function's names shadow the outer's", 'tools/check_writes.py',

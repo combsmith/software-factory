@@ -160,7 +160,7 @@ def _filled_names(node) -> set:
 
 
 def _lookup(mods: dict, module: str, name: str, seen: frozenset = frozenset()):
-    """What `name` is in `module`: ("def"|"class"|"value", module, name), ("module", name), ("unknown", module, name),
+    """What `name` is in `module`: ("def"|"class"|"value", module, name), ("module", name, ""), ("unknown", module, name),
     or None for what this check does not read: a module outside the repo, or a name its top level stores some other way."""
     other = mods.get(module)
     if other is None:
@@ -179,9 +179,9 @@ def _lookup(mods: dict, module: str, name: str, seen: frozenset = frozenset()):
     if name in other.bindings:
         return _bound(mods, other.bindings[name], seen)
     if "%s.%s" % (module, name) in mods:
-        return ("module", "%s.%s" % (module, name))
+        return ("module", "%s.%s" % (module, name), "")
     if name in NAMESPACES:
-        return ("module", module)
+        return ("module", module, "")
     if name.startswith("__") and name.endswith("__"):
         return None
     if name in other.stored:    # stored some other way, by an if, a tuple or a loop: whatever the top level reaches
@@ -191,7 +191,7 @@ def _lookup(mods: dict, module: str, name: str, seen: frozenset = frozenset()):
 
 def _bound(mods: dict, bound: tuple, seen: frozenset = frozenset()):
     if bound[0] == "module":
-        return ("module", bound[1]) if bound[1] in mods else None
+        return ("module", bound[1], "") if bound[1] in mods else None
     return _lookup(mods, bound[1], bound[2], seen)
 
 
