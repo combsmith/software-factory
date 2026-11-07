@@ -1019,19 +1019,20 @@ def approval_anchor(review: dict, runs):
     the latest made at or before it, as the act reads the description after that (issue 195); else, where a record of
     this item started before it or in its second, the approval's own time, as a person approving in the browser reads
     as they approve (decision 0046); else "", before every time, as nothing shows when it read. So too where an act on
-    its content started after it with no dispatch read, which may be a re-run of the act that read, and where a
-    record's time cannot be read. Records expire oldest first, and an act's Run is made before its approval: it is not
+    its content started after it with no dispatch read, a re-run or one whose attempt cannot be read, which may be the
+    act that read, and where a record's start, or both its times, cannot be read: an unreadable fact holds. Records expire oldest first, and an act's Run is made before its approval: it is not
     gone while a record made before it stays. A Run made while the act ran waits in the item's lane, but its record's
     start is when it was made (trials/P-44.json), so it may reach back once the act's Run is past retention: a residual
     the record names. With no records given, the approval's own time (`description_anchor`)."""
     at = review["submitted_at"]
     if runs is None:
         return at
-    if any(made_at(r) is None for r in runs):
+    if any(made_at(r) is None or not is_time(r["started_at"]) for r in runs):
         return ""
     mine = [r for r in runs if r["intent"] == t.ISSUE_APPROVAL and r["content_id"] == review["content_id"]]
-    # An act started after it with no dispatch read may be a re-run of the one that read, made before it: unknown.
-    if any(made_at(r) > at and not is_time(r.get("dispatched_at")) for r in mine):
+    # An act started after it with no dispatch read, which is a re-run or whose attempt cannot be read, may be the one
+    # that read, made before it: unknown. A first attempt's start is its own.
+    if any(made_at(r) > at and not is_time(r.get("dispatched_at")) and "rerun_by_dispatcher" in r for r in mine):
         return ""
     acts = [made_at(r) for r in mine if made_at(r) <= at]
     if acts:

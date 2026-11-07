@@ -1859,13 +1859,18 @@ class Convergence(unittest.TestCase):
         d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [rerun])
         self.assertEqual(d["reason"], "description_edited_after_approval")
         # A re-run whose dispatch was not read may be the act that read, made before it: nothing shows when, so it holds.
-        unread = dict(act, started_at="2026-10-11T12:30:00Z")
+        unread = dict(act, started_at="2026-10-11T12:30:00Z", rerun_by_dispatcher=False)
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=REVIEWED + [unread]), "")
         d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), REVIEWED + [unread])
         self.assertEqual(d["reason"], "description_edited_after_approval")
+        # A first attempt's start is its own: a later act with no dispatch read, not a re-run, is a later act.
+        later_act = dict(act, run="r3", started_at="2026-10-11T12:30:00Z")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=acted + [later_act]),
+                         "2026-10-11T12:14:00Z")
         # So too a re-run whose dispatch is no time, and a record whose time cannot be read at all, which never raises.
-        for odd in (dict(act, started_at="2026-10-11T12:30:00Z", dispatched_at="2026-02-30T12:14:00Z"),
-                    dict(run(at="2026-02-30T12:00:00Z"), run="r9")):
+        for odd in (dict(act, started_at="2026-10-11T12:30:00Z", dispatched_at="2026-02-30T12:14:00Z", rerun_by_dispatcher=None),
+                    dict(run(at="2026-02-30T12:00:00Z"), run="r9"),
+                    dict(run(at="2026-02-30T12:00:00Z"), run="r9", dispatched_at="2026-10-11T12:20:00Z")):
             self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=acted + [odd]), "", odd)
             d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), acted + [odd])
             self.assertEqual(d["reason"], "description_edited_after_approval", odd)
