@@ -3866,11 +3866,21 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(held("the reviewers, see `docs/`", "rule", root, root), "names no check"))
 
     def test_a_check_names_a_test_never_a_file_of_tests(self):  # issue 590
-        root = tree({"tests/test_x.py": "class T:\n    def test_y(self):\n        pass\n", "tools/check_x.py": ""})
+        root = tree({"tests/test_x.py": "class T:\n    def test_y(self):\n        pass\n\n\ndef helper():\n    pass\n",
+                     "tools/check_x.py": "", "docs/a.md": ""})
         held = check_context._held
-        for cell in ("`tests/test_x.py`", "`tools/check_x.py`, `tests/test_x.py`", "`tests/test_x.py:12`"):
+        # A function of a test file that is not a test holds nothing either.
+        self.assertTrue(caught(held("`tests/test_x.py::helper`", "rule", root, root), "which is not a test"))
+        # A test that is not there, beside a check that is, is named as missing.
+        cell = "`tools/check_x.py`, `tests/test_x.py::test_gone`"
+        self.assertTrue(caught(check_context._references(root / "docs/a.md", cell, root),
+                               "names tests/test_x.py::test_gone, which is not in this repo"))
+        for cell in ("`tests/test_x.py`", "`tools/check_x.py`, `tests/test_x.py`", "`tests/test_x.py:12`",
+                     "`./tests/test_x.py`", "`tests/test_x.py::`"):
             with self.subTest(cell):
                 self.assertTrue(caught(held(cell, "rule", root, root), ", a file of tests; name the test"))
+        # A path read from the folder of the file that names it is the file it resolves to.
+        self.assertTrue(caught(held("`test_x.py`", "rule", root, root / "tests"), ", a file of tests; name the test"))
         for cell in ("`tests/test_x.py::test_y`", "`tests/test_x.py::T.test_y`", "`tools/check_x.py`"):
             with self.subTest(cell):
                 self.assertEqual(held(cell, "rule", root, root), [])
@@ -4075,15 +4085,25 @@ RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one th
           "| One thing | %s |\n") % ('`tools/check_x.py`, `tests/test_x.py::test_y`, mutant: "one thing is undone"')
 ONE_ROW = '| One thing | `tools/check_x.py`, `tests/test_x.py::test_y`, mutant: "one thing is undone" |'
 # The mutants the records above may name, as `tools/mutants.py` holds them: a description, the file it changes, the old
-# text and the new, and the tests that kill it (issue 590).
-MUTANTS = ('MUTANTS = [\n'
-           '    ("one thing is undone", "tools/check_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
-           '    ("another thing is undone", "tools/check_x.py", "a", "b", ("tests.test_x.T.test_z",)),\n'
-           '    ("elsewhere is undone", "tools/check_w.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
-           '    ("a test is undone", "tests/test_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
-           '    ("the module undoes it", "tools/check_x.py", "a", "b", ("tests.test_x",)),\n'
-           '    ("the class undoes it", "tools/check_x.py", "a", "b", ("tests.test_x.T",)),\n'
-           ']\n')
+# text and the new, and the tests it is run against (issue 590).
+RECORD_MUTANTS = ('MUTANTS = [\n'
+                  '    ("one thing is undone", "tools/check_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
+                  '    ("another thing is undone", "tools/check_x.py", "a", "b", ("tests.test_x.T.test_z",)),\n'
+                  '    ("elsewhere is undone", "tools/check_w.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
+                  '    ("a test is undone", "tests/test_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
+                  '    ("the module undoes it", "tools/check_x.py", "a", "b", ("tests.test_x",)),\n'
+                  '    ("the class undoes it", "tools/check_x.py", "a", "b", ("tests.test_x.T",)),\n'
+                  '    ("two tests undo it", "tools/check_x.py", "a", "b", ("tests.test_x.T.test_y", "tests.test_x.T.test_z")),\n'
+                  '    ("nothing undoes it", "tools/check_x.py", "a", "b", ()),\n'
+                  '    ("another module undoes it", "tools/check_x.py", "a", "b", ("tests.test_other.T.test_z",)),\n'
+                  '    ("a deeper class undoes it", "tools/check_x.py", "a", "b", ("tests.test_x.T.U.test_z",)),\n'
+                  '    ("a class named for the test undoes it", "tools/check_x.py", "a", "b", ("tests.test_x.test_y",)),\n'
+                  '    ("a test undone another way", "./tests/test_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
+                  '    ("one thing undone another way", "./tools/check_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
+                  ']\n')
+# The tests the records above may name: two that run and one marked @pending.
+RECORD_TESTS = ("class T:\n    def test_y(self):\n        pass\n\n    def test_z(self):\n        pass\n\n"
+                "    @pending\n    def test_later(self):\n        pass\n")
 FIRST = "docs/decisions/0001-one-thing.md"
 LATER = "docs/decisions/0002-two-things.md"
 REPLACED = RECORD.replace("Status: accepted.", "Status: replaced by `%s`, which holds\nthe rule in force." % LATER)
@@ -4094,7 +4114,7 @@ EDITED = "title, Decision or Why changed"
 
 def history(files: dict = None) -> pathlib.Path:
     """A repo whose main, on origin, holds decision 0001 and `files`; the working tree is main, unchanged."""
-    root = tree(dict({FIRST: RECORD, "tools/mutants.py": MUTANTS}, **(files or {})))
+    root = tree(dict({FIRST: RECORD, "tools/mutants.py": RECORD_MUTANTS, "tests/test_x.py": RECORD_TESTS}, **(files or {})))
     git(root, "init", "-q", "-b", "main")
     committed(root, "main")
     return root
@@ -4241,7 +4261,7 @@ class Decisions(unittest.TestCase):
                 self.assertTrue(refused(files, words, base=base), name)
 
     def test_a_boundary_row_added_is_allowed(self):
-        added = RECORD + '| Another thing | `tests/test_x.py::test_z`, mutant: "another thing is undone" |\n'
+        added = RECORD + '| Another thing | `tools/check_x.py`, `tests/test_x.py::test_z`, mutant: "another thing is undone" |\n'
         moved = added.replace(ONE_ROW, ONE_ROW.replace("test_y", "test_z").replace('"one', '"another'))
         for text in (added, moved, added.replace("| One thing |", "|  One  thing |")):
             with self.subTest(text=text):
@@ -4256,39 +4276,71 @@ class Decisions(unittest.TestCase):
     def test_a_new_or_changed_row_names_the_mutant_its_test_kills(self):  # issue 590
         def row(check):
             return RECORD + "| Another thing | %s |\n" % check
+        x = "`tools/check_x.py`, "
         refusals = {
-            "no mutant": ("`tests/test_x.py::test_z`", "boundary 2: a new or changed row names no mutant"),
-            "a mutant mutants.py does not hold": ('`tests/test_x.py::test_z`, mutant: "nothing is undone"',
+            "no mutant": (x + "`tests/test_x.py::test_z`", "boundary 2: a new or changed row names no mutant"),
+            "a mutant mutants.py does not hold": (x + '`tests/test_x.py::test_z`, mutant: "nothing is undone"',
                                                   'mutant "nothing is undone", which tools/mutants.py does not hold'),
-            "no test": ('`tools/check_x.py`, mutant: "another thing is undone"', "names no test for its mutant"),
-            "a test the mutant is not killed by": ('`tests/test_x.py::test_y`, mutant: "another thing is undone"',
-                                                   'mutant "another thing is undone" is killed by no test this row names'),
-            "a module that kills it": ('`tests/test_x.py::test_y`, mutant: "the module undoes it"', "killed by no test"),
-            "a class that kills it": ('`tests/test_x.py::test_y`, mutant: "the class undoes it"', "killed by no test"),
-            "another class's test": ('`tests/test_x.py::U.test_z`, mutant: "another thing is undone"', "killed by no test"),
-            "a file the record does not name": ('`tests/test_x.py::test_y`, mutant: "elsewhere is undone"',
-                                                "changes tools/check_w.py, which this record does not name"),
+            "no test": (x + 'mutant: "another thing is undone"', "names no test for its mutant"),
+            "a test the row does not name": (x + '`tests/test_x.py::test_y`, mutant: "another thing is undone"',
+                                             'mutant "another thing is undone" lists a test this row does not name'),
+            "one of its tests the row does not name": (x + '`tests/test_x.py::test_y`, mutant: "two tests undo it"',
+                                                       "lists a test this row does not name"),
+            "no test listed": (x + '`tests/test_x.py::test_y`, mutant: "nothing undoes it"',
+                               "lists a test this row does not name, or none"),
+            "a module": (x + '`tests/test_x.py::test_y`, mutant: "the module undoes it"', "lists a test this row"),
+            "a class": (x + '`tests/test_x.py::test_y`, mutant: "the class undoes it"', "lists a test this row"),
+            "another class's test": (x + '`tests/test_x.py::U.test_z`, mutant: "another thing is undone"',
+                                     "lists a test this row"),
+            "another module's test": (x + '`tests/test_x.py::test_z`, mutant: "another module undoes it"',
+                                      "lists a test this row"),
+            "a test a class deeper": (x + '`tests/test_x.py::test_z`, mutant: "a deeper class undoes it"',
+                                      "lists a test this row"),
+            "a class named for the test": (x + '`tests/test_x.py::test_y`, mutant: "a class named for the test undoes it"',
+                                           "lists a test this row"),
+            "a test file named another way": ('`tests/test_x.py::test_y`, mutant: "a test undone another way"',
+                                              "changes tests/test_x.py, which this row does not name"),
+            "a file no row names": ('`tests/test_x.py::test_y`, mutant: "elsewhere is undone"',
+                                    "changes tools/check_w.py, which this row does not name"),
+            # The record names tools/check_x.py in its first row; this row is about something else.
+            "a file another row names": ('`tests/test_x.py::test_z`, mutant: "another thing is undone"',
+                                         "changes tools/check_x.py, which this row does not name"),
             "a mutant of a test": ('`tests/test_x.py::test_y`, `tests/test_x.py`, mutant: "a test is undone"',
-                                   "changes tests/test_x.py, which this record does not name"),
+                                   "changes tests/test_x.py, which this row does not name"),
+            # A test that runs, beside a wait or a test not held yet, is a test that can kill a mutant.
+            "a held test beside a pending one": ("`tests/test_x.py::test_y`, `tests/test_x.py::test_later`, not held yet",
+                                                 "names no mutant"),
+            "a held test beside a wait": ("`tests/test_x.py::test_y`, waiting on `roles/x.py`", "names no mutant"),
         }
         for name, (check, words) in refusals.items():
             with self.subTest(name):
                 self.assertTrue(refused({FIRST: row(check)}, words), name)
-        allowed = ('`tests/test_x.py::test_z`, mutant: "another thing is undone"',
-                   '`tests/test_x.py::T.test_z`, mutant: "another thing is undone"',
-                   '`tests/test_x.py::test_y`, `tests/test_x.py::test_z`, mutant: "one thing is undone", '
-                   'mutant: "another thing is undone"',
-                   # A row that waits on a planned part, or whose test is not held yet, has no mutant to name.
+        allowed = (x + '`tests/test_x.py::test_z`, mutant: "another thing is undone"',
+                   x + '`tests/test_x.py::test_y`, mutant: "one thing undone another way"',
+                   x + '`tests/test_x.py::T.test_z`, mutant: "another thing is undone"',
+                   x + '`tests/test_x.py::test_y`, `tests/test_x.py::test_z`, mutant: "one thing is undone", '
+                   'mutant: "another thing is undone", mutant: "two tests undo it"',
+                   # A row that waits on a planned part, or whose test is not held yet, has no test to kill a mutant.
                    "waiting on `roles/x.py`", "not held yet: `tests/test_x.py::test_later`")
         for check in allowed:
             with self.subTest(check):
                 self.assertEqual(check_decisions.run(edited(history(), {FIRST: row(check)}, commit=True)), [])
+        # A record that cannot be read has no rows to hold: it is refused as it is.
+        self.assertEqual(check_decisions.boundaries(RECORD.replace("Status: accepted.\n\n", "") + "\nStatus: accepted.\n"), [])
         # A new record's rows are new.
         bare = REPLACING.replace("Replaces", "Adds to").replace(ONE_ROW, "| One thing | `tools/check_x.py` |")
         self.assertTrue(refused({LATER: bare}, "0002-two-things.md, boundary 1: a new or changed row names no mutant"))
-        # Mutants that cannot be read hold no row.
-        self.assertTrue(refused({FIRST: row('`tests/test_x.py::test_z`, mutant: "another thing is undone"'),
-                                 "tools/mutants.py": "MUTANTS = [\n"}, "tools/mutants.py cannot be read"))
+        # Mutants that cannot be read, or that share a description, hold no row.
+        for broken, words in (("MUTANTS = [\n", "tools/mutants.py cannot be read"),
+                              (RECORD_MUTANTS.replace("]\n", '    ("one thing is undone", "tools/check_x.py", "c", "d", '
+                                                              '("tests.test_x.T.test_y",)),\n]\n'), "share a description")):
+            with self.subTest(words):
+                self.assertTrue(refused({"tools/mutants.py": broken}, words))
+        # They are not read where no row needs them.
+        plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
+        self.assertEqual(check_decisions.run(edited(history({FIRST: plain}), {
+            FIRST: plain + "| Another thing | waiting on `roles/x.py` |\n", "tools/mutants.py": "MUTANTS = [\n"},
+            commit=True)), [])
 
     def test_a_row_main_holds_names_no_mutant_until_its_check_changes(self):  # issue 590
         plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
@@ -4303,13 +4355,34 @@ class Decisions(unittest.TestCase):
             with self.subTest(check):
                 self.assertTrue(refused({FIRST: plain.replace("`tests/test_x.py`", check)}, "boundary 1: a new or changed",
                                         base={FIRST: plain}))
+        named = plain.replace("`tests/test_x.py`", "`tests/test_x.py::test_y`")
+        self.assertTrue(refused({FIRST: named.replace("::test_y", "::test_z")}, "boundary 1: a new or changed",
+                                base={FIRST: named}))
         self.assertTrue(refused({FIRST: RECORD.replace("one thing is undone", "another thing is undone")},
                                 "boundary 1: mutant"))
-        # verify counts the rows that name none.
+        # A mutant taken off a row is a change to it too.
+        self.assertTrue(refused({FIRST: RECORD.replace(', mutant: "one thing is undone"', "")},
+                                "boundary 1: a new or changed row names no mutant"))
+        # So is a rule that stops waiting, or stops being not held yet.
+        for was in ("`tests/test_x.py::test_later`, not held yet", "waiting on `roles/x.py`, `tests/test_x.py::test_later`"):
+            with self.subTest(was):
+                held = plain.replace("`tests/test_x.py`", was)
+                self.assertTrue(refused({FIRST: plain.replace("`tests/test_x.py`", "`tests/test_x.py::test_later`")},
+                                        "boundary 1: a new or changed row names no mutant", base={FIRST: held}))
+        # A row main holds that names a mutant is read again on every run: its mutant cannot be taken away, nor its
+        # tests moved off the row's.
+        for mutants in (RECORD_MUTANTS.replace('    ("one thing is undone"', '    ("one thing was undone"'),
+                        RECORD_MUTANTS.replace('"b", ("tests.test_x.T.test_y",)),\n    ("another',
+                                               '"b", ("tests.test_x.T.test_z",)),\n    ("another')):
+            with self.subTest(mutants):
+                self.assertTrue(refused({"tools/mutants.py": mutants}, "0001-one-thing.md, boundary 1: "))
+        # verify counts the rows that could name a mutant and name none.
         third = plain.replace("# 0001. One thing", "# 0003. Three things")
-        self.assertEqual(check_decisions.unnamed(history({FIRST: plain, LATER: REPLACING.replace("Replaces", "Adds to"),
+        waits = plain + "| Another thing | waiting on `roles/x.py` |\n"
+        self.assertEqual(check_decisions.unnamed(history({FIRST: waits, LATER: REPLACING.replace("Replaces", "Adds to"),
                                                           "docs/decisions/0003-three-things.md": third})),
                          "2 of 3 boundary rows name no mutant")
+        self.assertIn("%-22s %s" % ("boundary mutants", check_decisions.unnamed()), verify.notes())
 
     def test_a_new_record_is_allowed(self):
         self.assertEqual(check_decisions.run(edited(history(), {LATER: REPLACING.replace("Replaces", "Adds to")},
@@ -9238,6 +9311,20 @@ class Mutants(unittest.TestCase):
         alone = {"only": "tests.test_x.T.test_x"}
         self.assertEqual(calls, [{"first": ("tests.test_x.T.test_b",)}, alone, alone, {}, alone, alone],
                          "the test that failed ran alone on the mutant and on the unbroken code")
+
+    def test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone(self):  # issue 590
+        # One a decision's row names is killed by the tests it lists or by none: the whole suite never runs after them.
+        calls = []
+
+        def run(work, **given):
+            calls.append(given)
+            return (0, "OK\n")
+        record = RECORD.replace("one thing is undone", "named")
+        root = tree({"k.py": "rule\n", FIRST: record})
+        for mutant in (("named", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_y",)),
+                       ("plain", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_y",))):
+            self.assertEqual(mutants.attempt(mutant, root, run)[0], "SURVIVED")
+        self.assertEqual(calls, [{"only": ("tests.test_x.T.test_y",)}, {"first": ("tests.test_x.T.test_y",)}])
 
     def test_the_summary_counts_only_the_mutants_killed(self):
         stale = [("gone", "k.py", "not there\n", "x\n")]

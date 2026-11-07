@@ -91,6 +91,7 @@ CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
+RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
@@ -4009,51 +4010,84 @@ MUTANTS = ISSUE + [
     ('a directory plans no file', 'tools/check_context.py',
      '    return {word for word in words if "." in word}\n',
      '    return set()\n', ('tests.test_tools.Context',)),
-    # Issue 590: a check names a test, never a file of tests, and a new or changed boundary names the mutant its test kills.
+    # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a file of tests holds a rule', 'tools/check_context.py',
-     '        if token.split("/")[0] == "tests" and "::" not in token:\n',
-     '        if token.split("/")[0] == "tests" and False:\n', BARE_TESTS),
+     '        if not test:\n            problems.append(', '        if False:\n            problems.append(', BARE_TESTS),
+    ('a test file written another way holds a rule', 'tools/check_context.py',
+     '        if rel.parts[0] != "tests":\n', '        if token.split("/")[0] != "tests":\n', BARE_TESTS),
+    ('an empty test name is a test', 'tools/check_context.py',
+     '        if not test:\n', '        if "::" not in token:\n', BARE_TESTS),
+    ('a helper is a test', 'tools/check_context.py',
+     '        elif not test.split(".")[-1].startswith("test"):\n', '        elif False:\n', BARE_TESTS),
+    ('a record that cannot be read has its rows', 'tools/check_decisions.py',
+     '    if len(heads) != 1 or isinstance(parse(text), str):\n', '    if len(heads) != 1:\n', NAMED_MUTANTS),
     ('a new or changed row names no mutant', 'tools/check_decisions.py',
      '    if not named:\n', '    if False:\n', NAMED_MUTANTS),
     ('a row may name a mutant mutants.py does not hold', 'tools/check_decisions.py',
      '''            problems.append('%s: names mutant "%s", which tools/mutants.py does not hold' % (where, name))\n''',
      '', NAMED_MUTANTS),
     ('a row may name no test for its mutant', 'tools/check_decisions.py',
-     '    if not tests:\n', '    if False:\n', NAMED_MUTANTS),
-    ("a mutant any test kills is the row's", 'tools/check_decisions.py',
-     '        if not any(_kills(k, module, test) for k in killers for module, test in tests):\n',
-     '        if not killers:\n', NAMED_MUTANTS),
+     '    if not tests:\n        return ["%s: names no test', '    if False:\n        return ["%s: names no test',
+     NAMED_MUTANTS),
+    ('a mutant may list a test the row does not name', 'tools/check_decisions.py',
+     'not all(any(_is_test(k, module, test) for module, test in tests) for k in killers)',
+     'not any(_is_test(k, module, test) for k in killers for module, test in tests)', NAMED_MUTANTS),
+    ('a mutant that lists no test holds a row', 'tools/check_decisions.py',
+     '        if not killers or not all(', '        if not all(', NAMED_MUTANTS),
     ("a module or a class that kills a mutant is the row's test", 'tools/check_decisions.py',
-     '    if killer == module + "." + name:\n', '    if killer.startswith(module):\n', NAMED_MUTANTS),
+     ' or len(parts) != module.count(".") + 3:\n', ':\n', NAMED_MUTANTS),
     ("a test of another class is the row's", 'tools/check_decisions.py',
-     '    if killer == module + "." + name:\n',
-     '    if killer.split(".")[-1] == name.split(".")[-1]:\n', NAMED_MUTANTS),
-    ('a mutant may change a file its record does not name', 'tools/check_decisions.py',
-     '        if changed.startswith("tests/") or not any(t == changed or t.startswith(changed + "::") for t in record):\n',
-     '        if changed.startswith("tests/"):\n', NAMED_MUTANTS),
+     '    return ".".join(parts[-2:]) == name if "." in name else parts[-1] == name\n',
+     '    return parts[-1] == name.split(".")[-1]\n', NAMED_MUTANTS),
+    ("a test a class deeper is the row's", 'tools/check_decisions.py',
+     ' or len(parts) != module.count(".") + 3:\n', ' or len(parts) < module.count(".") + 3:\n', NAMED_MUTANTS),
+    ("a test of another module is the row's", 'tools/check_decisions.py',
+     '    if not killer.startswith(module + ".") or len(', '    if len(', NAMED_MUTANTS),
+    ('a mutant may change a file its row does not name', 'tools/check_decisions.py',
+     ' or changed not in names:\n', ':\n', NAMED_MUTANTS),
     ('a mutant of a test holds a row', 'tools/check_decisions.py',
-     '        if changed.startswith("tests/") or not any(', '        if not any(', NAMED_MUTANTS),
+     '        if changed.split("/")[0] == "tests" or changed', '        if changed', NAMED_MUTANTS),
+    ('a mutant named another way is the file it names', 'tools/check_decisions.py',
+     '        changed = _path(changed)\n', '', NAMED_MUTANTS),
     ('a waiting row names its mutant', 'tools/check_decisions.py',
-     '    if WAITING.search(cell) or PENDING in cell:\n', '    if PENDING in cell:\n', NAMED_MUTANTS),
+     '    return bool(WAITING.search(cell) or PENDING in cell) and', '    return bool(PENDING in cell) and', NAMED_MUTANTS),
     ('a row whose test is pending names its mutant', 'tools/check_decisions.py',
-     '    if WAITING.search(cell) or PENDING in cell:\n', '    if WAITING.search(cell):\n', NAMED_MUTANTS),
+     '    return bool(WAITING.search(cell) or PENDING in cell) and', '    return bool(WAITING.search(cell)) and',
+     NAMED_MUTANTS),
+    ('a held test beside a pending one excuses its row', 'tools/check_decisions.py',
+     '        all(_is_pending(', '        any(_is_pending(', NAMED_MUTANTS),
     ("a new record's rows are not new", 'tools/check_decisions.py',
-     ' if rel in before else list(enumerate(rows, 1))\n', ' if rel in before else []\n', NAMED_MUTANTS),
+     ' if rel in before else enumerate(rows, 1))\n', ' if rel in before else [])\n', NAMED_MUTANTS),
+    ('mutants that cannot be read hold a row', 'tools/check_decisions.py',
+     '                    return problems + ["%s, boundary %d: %s, so no mutant it names can be read" % (rel, at, err)]\n',
+     '                    return problems\n', NAMED_MUTANTS),
+    ('two mutants may share a description', 'tools/check_decisions.py',
+     '        if len({name for name, _ in read}) != len(read):\n', '        if False:\n', NAMED_MUTANTS),
+    ('the mutants are read for rows that need none', 'tools/check_decisions.py',
+     '            if mutants is None and not _exempt(row[1], root):\n', '            if mutants is None:\n', NAMED_MUTANTS),
     ('every row main holds names its mutant', 'tools/check_decisions.py',
-     '        fresh = _changed(boundaries(before[rel]), rows) if rel in before', '        fresh = list(enumerate(rows, 1)) if True',
-     MAIN_ROWS),
+     '            if at not in fresh and not MUTANT.search(row[1]):\n', '            if False:\n', MAIN_ROWS),
+    ('a row main holds that names a mutant is not read again', 'tools/check_decisions.py',
+     '            if at not in fresh and not MUTANT.search(row[1]):\n', '            if at not in fresh:\n', MAIN_ROWS),
     ('a bare test file named by its test is a changed row', 'tools/check_decisions.py',
      '    now = {t.partition("::")[0] if "::" in t and t.partition("::")[0] in was else t for t in _tokens(new)}\n',
      '    now = _tokens(new)\n', MAIN_ROWS),
     ("a row's Check that changes is the one it was", 'tools/check_decisions.py',
-     '    return now == was and MUTANT.findall(old) == MUTANT.findall(new)\n', '    return True\n', MAIN_ROWS),
+     '    return (now == was and MUTANT.findall(old) == MUTANT.findall(new)\n',
+     '    return (MUTANT.findall(old) == MUTANT.findall(new)\n', MAIN_ROWS),
     ('a row whose mutant changed is the row it was', 'tools/check_decisions.py',
-     '    return now == was and MUTANT.findall(old) == MUTANT.findall(new)\n', '    return now == was\n', MAIN_ROWS),
-    ('mutants that cannot be read hold a row', 'tools/check_decisions.py',
-     '                    return problems + ["%s, boundary %d: %s, so no mutant it names can be read" % (rel, at, err)]\n',
-     '                    return problems\n', NAMED_MUTANTS),
+     '    return (now == was and MUTANT.findall(old) == MUTANT.findall(new)\n', '    return (now == was\n', MAIN_ROWS),
+    ('a rule that stops waiting is the row it was', 'tools/check_decisions.py',
+     '\n            and WAITING.findall(old) == WAITING.findall(new) and (PENDING in old) == (PENDING in new))\n',
+     ')\n', MAIN_ROWS),
     ('verify counts the rows that name a mutant', 'tools/check_decisions.py',
      'sum(1 for c in rows if not MUTANT.search(c))', 'sum(1 for c in rows if MUTANT.search(c))', MAIN_ROWS),
+    ('verify counts a waiting row', 'tools/check_decisions.py',
+     ' if not _exempt(cell, root)]\n    return "%d of %d', ']\n    return "%d of %d', MAIN_ROWS),
+    ('verify says nothing of the mutants', 'tools/verify.py',
+     ',\n            "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]\n', ']\n', MAIN_ROWS),
+    ('a mutant a row names is killed by any test', 'tools/mutants.py',
+     '({"only": first[0]} if name in _held_by_rows(root) ' 'else {"first": first[0]})', '{"first": first[0]}', RUN_ALONE),
     ("the impostor workflow posts from the Lens's own file", "sim/world.py",
      '"workflow": IMPOSTOR_WORKFLOW,', '"workflow": WORKFLOWS[lens],', ("tests.test_simulator.Simulation.test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause",)),
     ("a neutral check is read as passing", "config/defaults.json",
@@ -12514,7 +12548,7 @@ MUTANTS = ISSUE + [
     ("make checks runs the tests", "tools/verify.py",
      '    if "--checks" in argv:\n', '    if False:\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
     ("make checks passes whatever the checks found", "tools/verify.py",
-     '        return 1 if checks_failed else 0\n    print', '        return 0\n    print', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+     '        return 1 if checks_failed else 0\n    for line', '        return 0\n    for line', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
     ("with no make the checks' own command is not named", "tools/hooks/make.py",
      '"" if target == "verify" else " --" + target', '""', ('tests.test_hooks.AfterEdit.test_with_no_make_the_agent_is_told_the_checks_did_not_run',)),
     # The stop-hook review, 2026-11-05: each hook runs the main checkout's copy, and checks are not run twice at one state.
@@ -14120,7 +14154,9 @@ def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tupl
             put(original, stamp)
         broken()
         try:
-            named = {"first": first[0]} if first else {}
+            # A mutant a decision's Boundary row names is held to the tests it lists, alone: one any other test kills
+            # would let the row's test look like the one that notices the break (issue 590).
+            named = ({"only": first[0]} if name in _held_by_rows(root) else {"first": first[0]}) if first else {}
             for _ in range(2):
                 status, output = run(work, **named)
                 outcome, why = verdict(status, output)
@@ -14132,6 +14168,18 @@ def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tupl
             return "FLAKY", why
         finally:
             unbroken()
+
+
+def _held_by_rows(root: pathlib.Path) -> set:
+    """The mutants the decision records in `root` name, read once for each root."""
+    key = str(root)
+    if key not in _ROWS:
+        from tools import check_decisions
+        _ROWS[key] = check_decisions.held_by_rows(root)
+    return _ROWS[key]
+
+
+_ROWS = {}
 
 
 def guarded(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:

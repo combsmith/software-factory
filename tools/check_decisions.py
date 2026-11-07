@@ -27,7 +27,7 @@ import re
 import shutil
 import subprocess
 
-from tools.check_context import PENDING, WAITING, _cells
+from tools.check_context import PENDING, WAITING, _cells, _is_pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = "refs/remotes/origin/main"
@@ -146,7 +146,7 @@ def boundaries(text: str) -> list:
     record it cannot read."""
     lines = [line.rstrip() for line in text.splitlines()]
     heads = [i for i, line in enumerate(lines) if line == BOUNDARIES]
-    if len(heads) != 1:
+    if len(heads) != 1 or isinstance(parse(text), str):
         return []
     region = lines[heads[0]:]
     rows = [[" ".join(cell.split()) for cell in _cells(region[i])] for i in _body(region)]
@@ -157,12 +157,26 @@ def _tokens(cell: str) -> set:
     return set(TICKED.findall(cell))
 
 
+def _tests(cell: str) -> list:
+    """(module, name) of each test a cell names as path::name."""
+    return [("tests." + path[len("tests/"):-len(".py")].replace("/", "."), name) for path, name in TEST.findall(cell)]
+
+
+def _exempt(cell: str, root: pathlib.Path) -> bool:
+    """Whether a row has no test that can kill a mutant yet: it waits on a planned part, or says it is not held yet,
+    and every test it names is marked @pending (issue 590)."""
+    return bool(WAITING.search(cell) or PENDING in cell) and \
+        all(_is_pending("%s::%s" % (path, name), root, root) for path, name in TEST.findall(cell))
+
+
 def _same_check(old: str, new: str) -> bool:
     """Whether a row's Check is the one it was: the same names, but that a test file the old one named bare may now be
-    named as a test of that file, and the same mutants (issue 590)."""
+    named as a test of that file; the same mutants; and the same wait or the same word that it is not held yet, so a
+    rule that stops waiting is a changed row (issue 590)."""
     was = _tokens(old)
     now = {t.partition("::")[0] if "::" in t and t.partition("::")[0] in was else t for t in _tokens(new)}
-    return now == was and MUTANT.findall(old) == MUTANT.findall(new)
+    return (now == was and MUTANT.findall(old) == MUTANT.findall(new)
+            and WAITING.findall(old) == WAITING.findall(new) and (PENDING in old) == (PENDING in new))
 
 
 def _changed(old: list, new: list) -> list:
@@ -181,8 +195,8 @@ def _changed(old: list, new: list) -> list:
 
 
 def _mutants(root: pathlib.Path) -> dict:
-    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once per root.
-    Raises Unreadable."""
+    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once per root. Two
+    that share a description name no one mutant. Raises Unreadable."""
     key = str(root.resolve())
     if key not in _READ:
         try:
@@ -192,57 +206,72 @@ def _mutants(root: pathlib.Path) -> dict:
                 spec = importlib.util.spec_from_file_location("_mutants_of_%d" % len(_READ), str(root / "tools" / "mutants.py"))
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-            _READ[key] = {m[0]: (m[1], tuple(m[4])) for m in module.MUTANTS}
+            read = [(m[0], (m[1], tuple(m[4]))) for m in module.MUTANTS]
         except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
             raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+        if len({name for name, _ in read}) != len(read):
+            raise Unreadable("two mutants in tools/mutants.py share a description, so a row cannot name one of them")
+        _READ[key] = dict(read)
     return _READ[key]
 
 
 _READ = {}
 
 
-def _kills(killer: str, module: str, name: str) -> bool:
-    """Whether a mutant's killer is the test `name` of `module`: by its whole id, or, where the row names it with no
-    class, by its module and its own name. A module or a class is not a test."""
-    if killer == module + "." + name:
-        return True
+def _is_test(killer: str, module: str, name: str) -> bool:
+    """Whether a mutant's killer is the test `name` of `module`: a test of one class, by its module, its class and its
+    own name, which the row gives as `Class.name`, or as `name` alone. A module or a class is not a test, whatever it
+    is called (issue 590)."""
     parts = killer.split(".")
-    return "." not in name and killer.startswith(module + ".") and len(parts) == module.count(".") + 3 \
-        and parts[-1] == name
+    if not killer.startswith(module + ".") or len(parts) != module.count(".") + 3:
+        return False
+    return ".".join(parts[-2:]) == name if "." in name else parts[-1] == name
 
 
-def _named_mutant(rel: str, at: int, cell: str, text: str, mutants: dict) -> list:
-    """Why a new or changed row at boundary `at` does not name the mutant its test kills, or [] (issue 590)."""
-    where = "%s, boundary %d" % (rel, at)
-    if WAITING.search(cell) or PENDING in cell:
+def _path(name: str) -> str:
+    """A path as the repo holds it, so that `./tests/x.py` is `tests/x.py`."""
+    return pathlib.PurePosixPath(name).as_posix()
+
+
+def _named_mutant(rel: str, at: int, row: tuple, root: pathlib.Path, mutants: dict) -> list:
+    """Why the row at boundary `at` does not name the mutant its test kills, or [] (issue 590)."""
+    where, cell = "%s, boundary %d" % (rel, at), row[1]
+    if _exempt(cell, root):
         return []
     named = MUTANT.findall(cell)
     if not named:
         return ['%s: a new or changed row names no mutant; name one as mutant: "<its description in tools/mutants.py>"'
                 % where]
-    tests = [("tests." + path[len("tests/"):-len(".py")].replace("/", "."), name) for path, name in TEST.findall(cell)]
+    tests = _tests(cell)
     if not tests:
         return ["%s: names no test for its mutant to be killed by; name it as path::name" % where]
-    record = _tokens(text)
+    names = {_path(t.partition("::")[0]) for t in _tokens(" ".join(row[0]) + " " + cell)}
     problems = []
     for name in named:
         if name not in mutants:
             problems.append('%s: names mutant "%s", which tools/mutants.py does not hold' % (where, name))
             continue
         changed, killers = mutants[name]
-        if changed.startswith("tests/") or not any(t == changed or t.startswith(changed + "::") for t in record):
-            problems.append('%s: mutant "%s" changes %s, which this record does not name' % (where, name, changed))
-        if not any(_kills(k, module, test) for k in killers for module, test in tests):
-            problems.append('%s: mutant "%s" is killed by no test this row names' % (where, name))
+        changed = _path(changed)
+        if changed.split("/")[0] == "tests" or changed not in names:
+            problems.append('%s: mutant "%s" changes %s, which this row does not name' % (where, name, changed))
+        # The mutant is run against the tests it lists alone (tools/mutants.py), so each is one this row names.
+        if not killers or not all(any(_is_test(k, module, test) for module, test in tests) for k in killers):
+            problems.append('%s: mutant "%s" lists a test this row does not name, or none' % (where, name))
     return problems
 
 
 def unnamed(root: pathlib.Path = ROOT) -> str:
-    """How many Boundary rows name no mutant, of how many, for `verify` to print (issue 590)."""
+    """How many Boundary rows name no mutant, of how many that could, for `verify` to print (issue 590)."""
     rows = [cell for path in sorted((root / FOLDER).glob("*.md"))
-            for _, cell in boundaries(path.read_text(encoding="utf-8", errors="replace"))
-            if not WAITING.search(cell)]
+            for _, cell in boundaries(path.read_text(encoding="utf-8", errors="replace")) if not _exempt(cell, root)]
     return "%d of %d boundary rows name no mutant" % (sum(1 for c in rows if not MUTANT.search(c)), len(rows))
+
+
+def held_by_rows(root: pathlib.Path = ROOT) -> set:
+    """The description of each mutant a Boundary row names, which `tools/mutants.py` runs against its own tests alone."""
+    return {name for path in sorted((root / FOLDER).glob("*.md"))
+            for _, cell in boundaries(path.read_text(encoding="utf-8", errors="replace")) for name in MUTANT.findall(cell)}
 
 
 def _declared(pattern, status: str):
@@ -329,19 +358,21 @@ def _linked(root: pathlib.Path) -> list:
 
 
 def _mutants_named(root: pathlib.Path, before: dict, texts: dict) -> list:
-    """Why each Boundary row new in this change, or whose Check changed, does not name the mutant its test kills: rows
-    main holds are left as they are (issue 590)."""
+    """Why each Boundary row new in this change, or whose Check changed, or that names a mutant, does not name the
+    mutant its test kills. Rows main holds that name none are left as they are (issue 590)."""
     problems, mutants = [], None
     for rel, text in sorted(texts.items()):
         rows = boundaries(text)
-        fresh = _changed(boundaries(before[rel]), rows) if rel in before else list(enumerate(rows, 1))
-        for at, row in fresh:
-            if mutants is None and not (WAITING.search(row[1]) or PENDING in row[1]):
+        fresh = dict(_changed(boundaries(before[rel]), rows) if rel in before else enumerate(rows, 1))
+        for at, row in enumerate(rows, 1):
+            if at not in fresh and not MUTANT.search(row[1]):
+                continue
+            if mutants is None and not _exempt(row[1], root):
                 try:
                     mutants = _mutants(root)
                 except Unreadable as err:
                     return problems + ["%s, boundary %d: %s, so no mutant it names can be read" % (rel, at, err)]
-            problems += _named_mutant(rel, at, row[1], text, mutants or {})
+            problems += _named_mutant(rel, at, row, root, mutants or {})
     return problems
 
 
