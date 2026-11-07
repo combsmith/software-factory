@@ -5,7 +5,9 @@ functions, and nothing else. That is narrower than Python, on purpose. It assign
 no module changes another's names. The brakes and the gate, each a protected path alone, import
 only what CONFINED allows, and no module binds a name either of them owns but as its own. It calls
 no function it is given but the parameters CALLABLE_PARAMETERS names, and on a value only the built-in
-types' methods BUILTIN_METHODS names, so that no function handed in can read the world for it.
+types' methods BUILTIN_METHODS names, so that no function handed in can read the world for it. It calls a module only
+at a function the module defines or imports, raises nothing and names no special name, and where Python would
+import another module than the one it reads, it refuses that (issue 593).
 """
 from __future__ import annotations
 
@@ -49,7 +51,27 @@ BUILTIN_CALLS = frozenset({"abs", "all", "any", "bool", "dict", "enumerate", "fi
 # sentinel calls its first argument too, and is forbidden with `callable`.
 CALLING_BUILTINS = frozenset({"map", "filter"})
 KEYED_BUILTINS = frozenset({"map", "filter", "sorted", "max", "min"})
+# The builtins never handed to be called: each calls what it is then given, `type` given three as a class's bases, so
+# `map(map, [f], [xs])` would call f unread (issue 593).
+UNHANDED_BUILTINS = frozenset({"map", "filter", "type"})
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _special(node) -> list:
+    """The special names, written `__x__`, that a node holds: any name in it, but a constant's value. Through one a
+    module's names are rewritten, as by `__dict__`, or a name is handed back that no module binds, as by a module's
+    `__getattr__`; the Kernel names none (issue 593). An import's names are read with it, so that a problem has its
+    line, and `__future__`, the module `from __future__ import` names, is the one allowed."""
+    if isinstance(node, (ast.Constant, ast.alias)):
+        return []
+    words = []
+    for field, value in ast.iter_fields(node):
+        for part in value if isinstance(value, list) else [value]:
+            if isinstance(part, ast.alias):
+                part = part.name + "." + (part.asname or "")
+            if isinstance(part, str) and not (field == "module" and part == "__future__"):
+                words += part.split(".")
+    return [w for w in words if len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
 
 def _constant(node) -> bool:
@@ -231,6 +253,9 @@ def _names(name: str, scope, trees: dict) -> dict:
     if isinstance(scope, ast.Module):
         own = list(scope.body)
         own += [n for top in scope.body if not isinstance(top, FUNCTIONS) for n in ast.walk(top)]
+        # What Python reads of a function where it is defined binds in the module: a walrus in a default, say.
+        own += [n for top in scope.body if isinstance(top, FUNCTIONS)
+                for part in top.decorator_list + [top.args] + ([top.returns] if top.returns else []) for n in ast.walk(part)]
     else:
         given = scope.args
         for arg in given.posonlyargs + given.args + given.kwonlyargs + [a for a in (given.vararg, given.kwarg) if a]:
@@ -341,9 +366,14 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             return False
         if isinstance(node, ast.Name):
             kind = resolve(node.id, chain)[0]
-            return kind in ("parameter", "value") or (kind == "builtin" and node.id not in BUILTIN_CALLS)
+            if kind == "import":
+                return kernel_function(node, chain) is None
+            return kind in ("parameter", "value") or (kind == "builtin" and (node.id not in BUILTIN_CALLS or
+                                                                            node.id in UNHANDED_BUILTINS))
         if isinstance(node, ast.Attribute):
-            return not (module(node.value, chain) or node.attr in BUILTIN_METHODS)
+            if module(node.value, chain):
+                return kernel_function(node, chain) is None
+            return node.attr not in BUILTIN_METHODS
         return True
 
     def call(node, chain):
@@ -363,8 +393,15 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             elif kind == "builtin" and f.id not in BUILTIN_CALLS:
                 problems.append("%s:%d calls %s, a builtin BUILTIN_CALLS does not name; a builtin may call what it is "
                                 "handed or reach past the Kernel" % (name, line, f.id))
+            elif kind == "builtin" and f.id == "type" and not (len(node.args) == 1 and not node.keywords and
+                                                                not isinstance(node.args[0], ast.Starred)):
+                problems.append("%s:%d calls type with other than one argument written out, which makes a class and "
+                                "calls what it is given as a base; the Kernel asks type of one value only" % (name, line))
         elif isinstance(f, ast.Attribute):
-            if not module(f.value, chain) and f.attr not in BUILTIN_METHODS:
+            if module(f.value, chain) and kernel_function(f, chain) is None:
+                problems.append("%s:%d calls %s, which is no function of that module's; a module of the Kernel's is "
+                                "called into only at a function it defines or imports" % (name, line, ast.unparse(f)))
+            elif not module(f.value, chain) and f.attr not in BUILTIN_METHODS:
                 problems.append("%s:%d calls the method %s, which is not a built-in type's that BUILTIN_METHODS names; "
                                 "a value's own method may do anything" % (name, line, f.attr))
         else:
@@ -393,10 +430,9 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
                     any(kw.arg is None for kw in node.keywords)
                 value = said[0] if said else node.args[place] if place is not None and place < len(node.args) and \
                     not spread else None
-                if value is None or isinstance(value, ast.Starred):
-                    if spread or not said:
-                        problems.append("%s:%d calls %s, which takes %s, and how it is filled cannot be read; it is "
-                                        "given by its name or its place" % (name, line, target[1], word))
+                if value is None:
+                    problems.append("%s:%d calls %s, which takes %s, and how it is filled cannot be read; it is given "
+                                    "by its name or its place" % (name, line, target[1], word))
                     continue
                 own = isinstance(value, ast.Name) and value.id == word and resolve(word, chain)[0] == "parameter"
                 if not own and kernel_function(value, chain) is None:
@@ -455,6 +491,26 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
     return problems
 
 
+def _packages(trees: dict, tops: dict) -> list:
+    """Where the check would read another module than Python imports: a module beside a package of its name, which
+    Python passes over for the package, and a name a package binds that also names a module in it, which Python's `from`
+    import takes as the package's binding. A package that binds the name to that very module is read alike."""
+    problems = []
+    for key in sorted(trees):
+        if not key.endswith("__init__.py"):
+            continue
+        folder = key[:-len("__init__.py")]
+        if folder and folder.rstrip("/") + ".py" in trees:
+            problems.append("%s and %s are both kernel.%s; Python imports the package, so one of them is not what the "
+                            "check reads" % (folder.rstrip("/") + ".py", key, folder.rstrip("/").replace("/", ".")))
+        for word, kind in sorted(tops[key].items()):
+            module = _file(".".join(["kernel"] + folder.split("/")[:-1] + [word]), trees)
+            if module and kind != ("import", (module, None)):
+                problems.append("%s binds %s, which also names the module %s; Python's `from` import takes the "
+                                "binding, so the module is not what the check reads" % (key, word, module))
+    return problems
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
     files = [p for p in walk.files(root, "kernel") if p.suffix == ".py"]
@@ -470,6 +526,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     owned = {name: _defined(name, tree) for name, tree in trees.items() if name in CONFINED}
     takers = _takers(trees)
     tops = {name: _names(name, tree, trees) for name, tree in trees.items()}
+    problems += _packages(trees, tops)
     for name, tree in trees.items():
         problems += _confined(name, tree, owned)
         problems += _calls(name, tree, trees, takers, tops)
@@ -500,6 +557,12 @@ def run(root: pathlib.Path = ROOT) -> list:
                                     % (name, line))
             if isinstance(node, ast.ClassDef):
                 problems.append("%s:%d defines a class; the Kernel is functions and constants" % (name, line))
+            if isinstance(node, ast.Raise):
+                problems.append("%s:%d raises, which calls what it raises if that is a class; the Kernel raises "
+                                "nothing, and what it cannot read is a deferral or a Hold" % (name, line))
+            for word in _special(node):
+                problems.append("%s:%d names %s, a special name, through which a module's names can be changed or a "
+                                "value's workings reached; the Kernel names none" % (name, line, word))
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)):
                 problems.append("%s:%d assigns an attribute, %s; the Kernel changes no module's names and no object "
                                 "it did not make" % (name, line, node.attr))
