@@ -1546,6 +1546,8 @@ class Identity(unittest.TestCase):
                          [(["echo"], []), (["echo", "a b"], []), ([], [(">", "notes.txt")])])
         self.assertEqual(shell.commands("echo \"${x:-default}\" > notes.txt"), [(["echo", "${x:-default}"], [(">", "notes.txt")])])
         self.assertEqual(shell.commands("echo \"$x\" ${y:-'z'}"), [(["echo", "$x", "${y:-z}"], [])])
+        # A backtick that closes in double quotes is no new substitution, so what follows them is unquoted (Codex).
+        self.assertEqual(shell.commands("echo \"`date`\"; echo ${y:-'z'}")[-1], (["echo", "${y:-z}"], []))
         # A ${...} in a substitution, which no double quote of its own holds, has quotes of its own (Astra).
         self.assertEqual(len(shell.commands("echo \"$(echo ${x:-'default'})\"")), 2)
         self.assertEqual(shell.commands("git commit -m \"msg\" && echo ${FOO:-'x'}"),
@@ -1740,7 +1742,9 @@ class Identity(unittest.TestCase):
                                  (lambda n: "cat <<EOF\n$(echo " + "${x:-" * n + "y" + "}" * n + ")\nEOF\ngit push", 400,
                                   "command_unreadable"),
                                  # Substitutions in double quotes, each escaping a ", each level read once (Astra on #520).
-                                 (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, "")):
+                                 (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, ""),
+                                 # Quoted words in a backtick, each read up to its close alone (Codex on #604).
+                                 (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 8000, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
 
