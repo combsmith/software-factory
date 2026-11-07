@@ -88,6 +88,7 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
+CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
@@ -4034,6 +4035,11 @@ MUTANTS = ISSUE + [
     ('a directory plans no file', 'tools/check_context.py',
      '    return {word for word in words if "." in word}\n',
      '    return set()\n', ('tests.test_tools.Context',)),
+    # The first cut's fixture: the ruleset that keeps a Release tag immutable, read after the cut (records 0071, 0120).
+    ('a Release tag may be moved', 'release/fixtures/cut.v0-1-0.json',
+     '"enforcement": "active"', '"enforcement": "evaluate"', CUT_FIXTURE),
+    ('an admin may force a Release tag to another commit', 'release/fixtures/cut.v0-1-0.json',
+     '"status": 422', '"status": 200', CUT_FIXTURE),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a file of tests holds a rule', 'tools/check_context.py',
      '        if not test:\n            problems.append(', '        if False:\n            problems.append(', BARE_TESTS),

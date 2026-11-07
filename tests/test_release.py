@@ -316,14 +316,15 @@ class Fixture(unittest.TestCase):
     """`release/fixtures/gate.v0-1-0.json`: each release.yml run's outcome and what can be read from outside it (#197's
     ruling 9′, as amended on 2026-11-03), read through the Maintainer's login."""
     PATH = ROOT / "release" / "fixtures" / "gate.v0-1-0.json"
+    CUT = ROOT / "release" / "fixtures" / "cut.v0-1-0.json"
 
     def item(self, fixture, name):
         found = [item for item in fixture["items"] if item["item"] == name]
         self.assertEqual(len(found), 1, name)
         return found[0]
 
-    def answered(self, item, path):
-        found = [e["response"] for e in item["exchanges"] if e["request"]["call"].split(" ")[:2] == ["GET", path]]
+    def answered(self, item, path, method="GET"):
+        found = [e["response"] for e in item["exchanges"] if e["request"]["call"].split(" ")[:2] == [method, path]]
         self.assertEqual(len(found), 1, path)
         return found[0]
 
@@ -341,6 +342,43 @@ class Fixture(unittest.TestCase):
                 self.assertEqual(self.answered(first, "/repos/%s/git/ref/tags/%s" % (REPO, tag))["status"], 404)
         deployed = self.answered(first, "/repos/%s/deployments?environment=factory-next" % REPO)
         self.assertEqual((deployed["status"], deployed["body"]), (200, []))
+
+    def test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again(self):
+        # Run 42348605675 cut factory/v0.1.0 at the commit its eval passed, moved `next` to it and recorded one Deployment
+        # of `next`; run 42348650504 asked the same cut again, was refused, and wrote nothing. The Maintainer's admin
+        # PATCH, forcing factory/v0.1.0 to an older commit, was refused, and the tag read after it still names the cut.
+        # The tag ruleset keeps every Release tag from being updated or deleted, by anyone (records 0071 and 0120).
+        fixture = json.loads(self.CUT.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, "cut.v0-1-0.json"), [])
+        made = self.item(fixture, "cut_and_move_of_next")
+        commit, channel = made["asked"]["cut_commit"], move.next_channel(json.loads(move.RINGS.read_text()))
+        self.assertEqual((made["conclusion"], made["printed"]["writes"]),
+                         ("success", [["create", fixture["version"], commit], ["move", channel, commit]]))
+        for tag in (fixture["version"], channel):
+            with self.subTest(tag=tag):
+                ref = self.answered(made, "/repos/%s/git/ref/tags/%s" % (REPO, tag))
+                self.assertEqual((ref["status"], ref["body"]["object"]["sha"]), (200, commit))
+        deployed = self.answered(made, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
+                         [(made["printed"]["deployments"][0], commit, fixture["version"])])
+        statuses = self.answered(made, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))["body"]
+        self.assertEqual([s["state"] for s in statuses], ["success"])
+        again = self.item(fixture, "refused_move_of_the_release")
+        self.assertEqual((again["conclusion"], again["printed"]),
+                         ("failure", {"writes": [], "deployments": [], "refused": cut.ALREADY_RELEASED}))
+        self.assertEqual(len(self.answered(again, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]), 1)
+        forced = self.answered(again, "/repos/%s/git/refs/tags/%s" % (REPO, fixture["version"]), "PATCH")
+        self.assertEqual((forced["status"], forced["body"]["message"].split("\n")[0]),
+                         (422, "Repository rule violations found"))
+        calls = [e["request"]["call"].split(" ")[:2] for e in again["exchanges"]]
+        read = ["GET", "/repos/%s/git/ref/tags/%s" % (REPO, fixture["version"])]
+        self.assertLess(calls.index(["PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, fixture["version"])]),
+                        calls.index(read))
+        self.assertEqual(self.answered(again, read[1])["body"]["object"]["sha"], commit)
+        rules =self.answered(again, "/repos/%s/rulesets/25996980" % REPO)["body"]
+        self.assertEqual((rules["target"], rules["enforcement"], rules["bypass_actors"]), ("tag", "active", []))
+        self.assertLessEqual({"update", "deletion"}, {rule["type"] for rule in rules["rules"]})
+        self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
 
     def test_an_item_that_says_other_than_its_own_exchanges_is_refused(self):
         fixture = json.loads(self.PATH.read_text())
