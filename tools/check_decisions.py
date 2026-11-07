@@ -20,8 +20,8 @@ skipped; `verify` says so. In GitHub Actions a missing `.git` fails, so CI canno
 """
 from __future__ import annotations
 
+import ast
 import hashlib
-import importlib.util
 import os
 import pathlib
 import re
@@ -222,12 +222,12 @@ def _mutants(root: pathlib.Path) -> dict:
     if key not in _READ:
         try:
             if root.resolve() == ROOT.resolve():
-                from tools import mutants as module
+                from tools import mutants
+                listed = mutants.MUTANTS
             else:
-                spec = importlib.util.spec_from_file_location("_mutants_of_%d" % len(_READ), str(root / "tools" / "mutants.py"))
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-            read = [(m[0], (m[1], tuple(m[4]))) for m in module.MUTANTS]
+                # Another tree's list is read as a literal, never run: nothing is loaded by a name (tools/check_writes.py).
+                listed = _literal_mutants((root / "tools" / "mutants.py").read_text(encoding="utf-8"))
+            read = [(m[0], (m[1], tuple(m[4]))) for m in listed]
         except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
             raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
         if len({name for name, _ in read}) != len(read):
@@ -237,6 +237,14 @@ def _mutants(root: pathlib.Path) -> dict:
 
 
 _READ = {}
+
+
+def _literal_mutants(source: str) -> list:
+    """The `MUTANTS = [...]` of a file that writes it as a literal, which a tree other than this one holds in a test."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["MUTANTS"]:
+            return ast.literal_eval(node.value)
+    raise ValueError("no MUTANTS")
 
 
 def _is_test(killer: str, module: str, name: str) -> bool:
