@@ -4100,6 +4100,7 @@ RECORD_MUTANTS = ('MUTANTS = [\n'
                   '    ("a class named for the test undoes it", "tools/check_x.py", "a", "b", ("tests.test_x.test_y",)),\n'
                   '    ("a test undone another way", "./tests/test_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
                   '    ("one thing undone another way", "./tools/check_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
+                  '    ("a test undone through a parent", "tools/../tests/test_x.py", "a", "b", ("tests.test_x.T.test_y",)),\n'
                   ']\n')
 # The tests the records above may name: two that run and one marked @pending.
 RECORD_TESTS = ("class T:\n    def test_y(self):\n        pass\n\n    def test_z(self):\n        pass\n\n"
@@ -4301,6 +4302,9 @@ class Decisions(unittest.TestCase):
                                            "lists a test this row"),
             "a test file named another way": ('`tests/test_x.py::test_y`, mutant: "a test undone another way"',
                                               "changes tests/test_x.py, which this row does not name"),
+            "a test file named through a parent": (
+                '`tests/test_x.py::test_y`, `tools/../tests/test_x.py::test_y`, mutant: "a test undone through a parent"',
+                "changes tests/test_x.py, which this row does not name"),
             "a file no row names": ('`tests/test_x.py::test_y`, mutant: "elsewhere is undone"',
                                     "changes tools/check_w.py, which this row does not name"),
             # The record names tools/check_x.py in its first row; this row is about something else.

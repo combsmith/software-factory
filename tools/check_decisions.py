@@ -250,8 +250,17 @@ def _is_test(killer: str, module: str, name: str) -> bool:
 
 
 def _path(name: str) -> str:
-    """A path as the repo holds it, so that `./tests/x.py` is `tests/x.py`."""
-    return pathlib.PurePosixPath(name).as_posix()
+    """A path as the repo holds it, so that `./tests/x.py` and `tools/../tests/x.py` are `tests/x.py`. One that climbs
+    out of the repo keeps its `..`, and so names nothing here."""
+    parts = []
+    for part in name.split("/"):
+        if part in ("", "."):
+            continue
+        if part == ".." and parts and parts[-1] != "..":
+            parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
 
 
 def _named_mutant(rel: str, at: int, row: tuple, root: pathlib.Path, mutants: dict) -> list:

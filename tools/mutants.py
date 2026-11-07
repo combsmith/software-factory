@@ -4069,6 +4069,8 @@ MUTANTS = ISSUE + [
     ('a linked test is not read', 'tools/check_decisions.py',
      '    return TOKEN.findall(cell) + [m for m in LINK.findall(cell)', '    return TOKEN.findall(cell) + [m for m in []',
      NAMED_MUTANTS),
+    ('a path through a parent is not the file it reaches', 'tools/check_decisions.py',
+     '        if part == ".." and parts and parts[-1] != "..":\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read once whatever the file holds', 'tools/check_decisions.py',
      '        key = (str(root.resolve()), hashlib.sha256(', '        key = (str(root.resolve()), len(', NAMED_MUTANTS),
     ('two mutants may share a description', 'tools/check_decisions.py',
