@@ -1539,9 +1539,14 @@ class Identity(unittest.TestCase):
                      "echo ${?+\"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"}",
                      # Astra on the last head: the same in a backtick double quotes hold, and after a quoted word.
                      "echo \"`echo \"${?+'$(rm kernel/gate.py)'}\"`\"",
-                     "echo \"$(echo \"a\" \"${x:-'y'}\")\""):
+                     "echo \"$(echo \"a\" \"${x:-'y'}\")\"",
+                     # Codex: one after a "${...}" with no ', which is not read again, nor what it holds.
+                     "echo \"${x:-a}\" \"${y:-'z'}\" > notes.txt"):
             with self.assertRaises(ValueError, msg=text):
                 shell.commands(text)
+        # What the shell runs and the reader cannot read is no here-document's data, as a script the shell fails is (Codex).
+        with self.assertRaises(shell.Unread):
+            shell.without_heredocs("cat <<EOF\n$(echo \"${x:-'default'}\"; rm kernel/gate.py)\nEOF")
         self.assertEqual(shell.commands("echo `echo \"a b\"` > notes.txt"),
                          [(["echo"], []), (["echo", "a b"], []), ([], [(">", "notes.txt")])])
         self.assertEqual(shell.commands("echo \"${x:-default}\" > notes.txt"), [(["echo", "${x:-default}"], [(">", "notes.txt")])])
@@ -1745,7 +1750,8 @@ class Identity(unittest.TestCase):
                                  (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, ""),
                                  # Quoted words in a backtick, each read up to its close alone (Codex on #604).
                                  (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 8000, ""),
-                                 (lambda n: 'echo "$(echo ' + "${x:-'y'} " * n + ')"; git push', 8000, "")):
+                                 (lambda n: 'echo "$(echo ' + "${x:-'y'} " * n + ')"; git push', 8000, ""),
+                                 (lambda n: 'echo "' + ("${x:-" + "a " * 20) * n + "}" * n + '"; git push', 800, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
         # Codex on PR 604: a ${...} after each of many closed substitutions. The check reads each substitution's calls

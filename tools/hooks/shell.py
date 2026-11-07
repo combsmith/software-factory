@@ -227,6 +227,8 @@ def _readable(script: str) -> bool:
     """Whether the reader splits `script` into simple commands at all: no quote left open, no ( in a word."""
     try:
         simple_commands(script)
+    except Unread:
+        raise
     except ValueError:
         return False
     return True
@@ -266,6 +268,11 @@ def simple_commands(text: str) -> list:
     into words, such as an unclosed quote.
     """
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
+
+
+class Unread(ValueError):
+    """What the shell runs that the reader cannot read as the shell does (#579). Unlike a script the shell fails, it is
+    never left as a here-document's data: the hook asks or refuses (Codex on #604)."""
 
 
 class _Token:
@@ -548,6 +555,8 @@ def _held(text: str) -> str:
     comments = True     # and a # there begins a comment
     # Where an arithmetic command or expansion, (( or $((, and a ${...}, that began ends: what they hold is their own.
     arithmetic = braces = 0
+    braced = False      # whether the unquoted ${...} that ends at braces holds a '
+    clean = 0       # where a ${...} double quotes hold, with no ', ends: none in it holds one either, nor is read again
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
     opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
     ticked = False  # an unquoted backtick has opened and not yet closed
@@ -570,15 +579,16 @@ def _held(text: str) -> str:
             i += 2
             continue
         if quote is None:
-            if c == "$" and i < braces and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")] \
-                    and _inside(text, held, i, seen):
-                raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
+            if c == "$" and i < braces and braced and text.startswith("${", i) and _inside(text, held, i, seen) \
+                    and "'" in text[i:_balanced(text, i + 2, "}")]:
+                raise Unread("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "$" and i >= braces and text.startswith("${", i):
                 braces = _balanced(text, i + 2, "}")
-                if "'" in text[i:braces] and _inside(text, held, i, seen):
+                braced = "'" in text[i:braces]
+                if braced and _inside(text, held, i, seen):
                     # A "${...}" in a substitution double quotes hold is read here as unquoted, though it is not: its '
                     # is a character to the shell and would be a quote to this reading (#579).
-                    raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
+                    raise Unread("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
                 end = len(text) if end < 0 else end
@@ -643,7 +653,7 @@ def _held(text: str) -> str:
             if c in "'\"" and ticked and _past_tick(text, i, c, tick_end):
                 # bash ends a backtick at its next backtick before it reads the quotes in it: a quote that runs past
                 # that is an error there, and bash runs what follows the backtick (#579).
-                raise ValueError("a quote in a backtick runs past where the backtick ends")
+                raise Unread("a quote in a backtick runs past where the backtick ends")
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
@@ -651,10 +661,14 @@ def _held(text: str) -> str:
         elif c == quote:
             quote, comments = None, False
             out.append(c)
-        elif quote == '"' and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")] \
-                and _inside(text, held, i, seen) is not False:     # in a substitution, double quotes of its own hold it
-            # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
-            raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
+        elif quote == '"' and text.startswith("${", i) and i >= clean:
+            end = _balanced(text, i + 2, "}")
+            if "'" not in text[i:end]:
+                clean = end     # so a ${...} inside it is not read again (Codex)
+            elif _inside(text, held, i, seen) is not False:     # in a substitution, double quotes of its own hold it
+                # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
+                raise Unread("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
+            out.append(c)
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
             if c == "$" or not held_tick:
                 held.append(i)      # where it ends is read only if a ${...} with a ' needs it: most commands hold none
