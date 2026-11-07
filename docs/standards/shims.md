@@ -62,8 +62,13 @@ started wakes nothing when it ends (trial P-55); and `lane`, the calling job in 
 since a called job can be granted no more than its caller. Each id is those files' alone. Every shim's job holds a group of its own that waits,
 never cancelling the run in progress.
 
+poller.yml is held word for word as `POLLER_SHIM` in `tools/check_workflows.py` gives it, and by its hash in `SHIMS`.
+It is live: a pass runs at each tick and at each end of `factory` or `ci`. Under a Pause, a pass reads, decides every item
+`paused`, uploads its record, and dispatches nothing, its successor neither. It still writes an item's status and the tracking
+issue, which are no act, so that a person sees why nothing moves.
+
 Org standard: none; the org's workflows do not wake on another's end.
-Held by: `examples/workflows/invalid/wake.reads-the-run-that-woke-it.yml`, `examples/workflows/invalid/wake.woken-by-its-own-end.yml`, `examples/workflows/invalid/wake.a-poller-that-takes-inputs.yml`, `examples/workflows/invalid/wake.on-every-stage-of-a-run.yml`, `examples/workflows/invalid/permissions.actions-write-beyond-the-pass.yml`, `tests/test_tools.py::test_only_the_poller_runs_on_workflow_run`, `tests/test_tools.py::test_the_pass_job_alone_is_granted_a_write`
+Held by: `examples/workflows/invalid/wake.reads-the-run-that-woke-it.yml`, `examples/workflows/invalid/wake.woken-by-its-own-end.yml`, `examples/workflows/invalid/wake.a-poller-that-takes-inputs.yml`, `examples/workflows/invalid/wake.on-every-stage-of-a-run.yml`, `examples/workflows/invalid/permissions.actions-write-beyond-the-pass.yml`, `tests/test_tools.py::test_only_the_poller_runs_on_workflow_run`, `tests/test_tools.py::test_the_pass_job_alone_is_granted_a_write`, `tests/test_tools.py::test_the_pollers_shim_stands_as_its_template_and_its_hash`
 
 ## The Run's shim
 
