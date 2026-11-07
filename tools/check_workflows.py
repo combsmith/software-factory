@@ -48,8 +48,8 @@ RULES = {
                   "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output",
     "model": "no step sets the CLI's environment scrub, which only the Engine sets, beside --tools \"\", and a step that "
              "holds the model's credential is handed no tool list",
-    "lane": "a job that calls the Run's jobs holds its item's lane: its own concurrency group, ${{ inputs.item }}, that "
-            "never cancels the Run in progress",
+    "lane": "a job that calls the Run's jobs, or an act's, holds its item's lane: its own concurrency group, "
+            "${{ inputs.item }}, that never cancels the Run in progress",
     "length": "a run: block is at most ten lines",
     "install": "a run: line is `make <target>` or `python3 -m <module>` and nothing else, so nothing is "
                "installed, fetched or decided in a workflow",
@@ -77,8 +77,11 @@ SHIM_SECRETS = "    secrets: inherit"
 # The one channel every shim calls (decision 0006), the Release's tag, never a local path, which would run main's copy.
 RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.yml@factory/v0-next$")
 # Each shim, held word for word by a hash taken with the pins left out, as EXEMPT holds ci.yml: a change to one fails
-# until the same pull request records its new hash, and `.github/` is the Maintainer's to approve. None is live yet.
-SHIMS = {}
+# until the same pull request records its new hash, and `.github/` is the Maintainer's to approve. The three that
+# dispatch a Run are live, and inert while nothing dispatches them; the poller's is not yet (issue 196's plan).
+SHIMS = {"run.yml": "28b19e2e05b527f1acf4c03e92cd8c89dc2f78c194b74f45f9165a1966bd99e8",
+         "approve.yml": "6ebd528ac85520930f5cf29277e87a95e40a36e588d571221a4fe740dfcd2742",
+         "queue.yml": "9a18fb4019cd916e5727f224f14786c8cfc2fbd598ea934997fd42eae8409a19"}
 # A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
 # commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309); and the Run's
 # jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196); and the approving
@@ -133,6 +136,78 @@ jobs:
       item: ${{ inputs.item }}
       pass: ${{ inputs.pass }}
 """
+# The approving act's shim and the queue act's (issue 196's plan, its PR A): each the Run's shim but for its name and
+# the file it calls, so each act's Run is named by the run-name the pass gave it, as the records port reads a Run, holds
+# its item's lane beside the Run's, and starts only from the pass's own token, on a first attempt, never under a Pause
+# (decisions 0055 and 0128).
+APPROVE_SHIM = """name: sf-approve
+run-name: ${{ inputs.name }}
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  lane:
+    if: github.actor_id == '%d' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: ${{ inputs.item }}
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/approve-job.yml@factory/v0-next
+    secrets: inherit
+    with:
+      name: ${{ inputs.name }}
+      item: ${{ inputs.item }}
+      pass: ${{ inputs.pass }}
+"""
+QUEUE_SHIM = """name: sf-queue
+run-name: ${{ inputs.name }}
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  lane:
+    if: github.actor_id == '%d' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: ${{ inputs.item }}
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/queue-job.yml@factory/v0-next
+    secrets: inherit
+    with:
+      name: ${{ inputs.name }}
+      item: ${{ inputs.item }}
+      pass: ${{ inputs.pass }}
+"""
+# Each shim that dispatches a Run, by its file: its text, and what it is. Each names its run, and each calls its one
+# file of the Release, which no other file calls.
+LANE_SHIMS = {"run.yml": (RUN_SHIM, "the Run's shim"), "approve.yml": (APPROVE_SHIM, "the approving act's shim"),
+              "queue.yml": (QUEUE_SHIM, "the queue act's shim")}
+CALLERS = {RUN_JOBS: ("run.yml", "the Run's jobs"), APPROVE_JOB: ("approve.yml", "the approving act's job"),
+           QUEUE_JOB: ("queue.yml", "the queue act's job")}
 # The github context named in any form an expression can write it, by a dot, an index, a bracket, an argument or whole,
 # in any case, but its token, which is the pass job's own; outside comments. A path such as .github/workflows/ is no
 # read of it. The poller and the pass it calls read nothing of the run that woke them.
@@ -941,10 +1016,11 @@ def lint(text: str) -> list:
     for job in jobs:
         inside = {e["key"]: e for e in under("jobs", job["key"])}
         calls = inside.get("uses", {}).get("value", "")
-        if calls.split("@")[0].endswith("/" + RUN_JOBS):
+        if _calls_a_lane(calls):
             lane = {e["key"]: e["value"] for e in under("jobs", job["key"], "concurrency")}
             if lane != {"group": LANE, "cancel-in-progress": "false"}:
-                found.append(("lane", "job %s calls the Run's jobs outside its item's lane, or cancels a Run" % job["key"]))
+                found.append(("lane", "job %s calls a Run's jobs or an act's outside its item's lane, or cancels a Run"
+                              % job["key"]))
     if "workflow_run" in events:
         found += [("wake", why) for why in _wake(text, entries, top)]
 
@@ -974,6 +1050,11 @@ def _uncommented(text: str) -> str:
     return "\n".join("" if line.lstrip().startswith("#") else line for line in text.split("\n"))
 
 
+def _calls_a_lane(uses: str) -> bool:
+    """Whether a job's `uses:` calls a file that runs in its item's lane: the Run's jobs, or an act's job."""
+    return any(uses.split("@")[0].endswith("/" + called) for called in CALLERS)
+
+
 def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
     """Why a workflow on a shim's events is not a shim: something above its jobs but the name, the events, the grant
     and a run's name; or a job that holds anything but its call, its grant, its concurrency group, `secrets: inherit`, an
@@ -988,7 +1069,7 @@ def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
         if "secrets" in inside and inside["secrets"]["value"] != "inherit":
             whys.append("job %s hands on secrets by name, not with secrets: inherit" % job["key"])
         held = {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", job["key"], "concurrency"]}
-        calls_run = inside.get("uses", {}).get("value", "").split("@")[0].endswith("/" + RUN_JOBS)
+        calls_run = _calls_a_lane(inside.get("uses", {}).get("value", ""))
         if "concurrency" in inside and not calls_run and (set(held) != {"group", "cancel-in-progress"} or not held["group"]
                                         or held["cancel-in-progress"] != "false"):
             whys.append("job %s holds no group of its own that waits, never cancelling the run in progress" % job["key"])
@@ -1476,9 +1557,11 @@ def _scalar_items(text: str, entries: list, job: str, steps_only: bool = False) 
     return found
 
 
-def run_problems(text: str, root: pathlib.Path = ROOT) -> list:
-    """What is wrong with run.yml: anything but the Run's shim as the ruling gives it, its dispatcher the account that
-    config/controller.json names for the pass's own token. While it names none, no run.yml is right."""
+def lane_shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
+    """What is wrong with run.yml, approve.yml or queue.yml: anything but its shim in LANE_SHIMS, word for word but for
+    its comments, its dispatcher the account that config/controller.json names for the pass's own token. While it names
+    none, no such file is right."""
+    shim, what = LANE_SHIMS[name]
     try:
         account = json.loads((root / "config" / "controller.json").read_text())["accounts"]["workflow_token"]
     except (OSError, ValueError, KeyError, TypeError):
@@ -1486,8 +1569,8 @@ def run_problems(text: str, root: pathlib.Path = ROOT) -> list:
     if not isinstance(account, dict) or type(account.get("id")) is not int:
         return ["config/controller.json names no account for the pass's own token, so no Run's dispatcher can be held"]
     lines = [line for line in text.split("\n") if line.strip() and not line.lstrip().startswith("#")]
-    if lines != (RUN_SHIM % account["id"]).strip("\n").split("\n"):
-        return ["it is not the Run's shim, word for word, its dispatcher %d and a Pause starting nothing" % account["id"]]
+    if lines != (shim % account["id"]).strip("\n").split("\n"):
+        return ["it is not %s, word for word, its dispatcher %d and a Pause starting nothing" % (what, account["id"])]
     return []
 
 
@@ -1552,10 +1635,11 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
                             "is meant, record its new hash in SHIMS")
     if "workflow_run" in events and name != WAKES:
         problems.append("only %s wakes on another workflow's end" % WAKES)
-    if name == "run.yml":
-        problems += run_problems(text, root)
-    elif any(e["key"] == "uses" and e["value"].split("@")[0].endswith("/" + RUN_JOBS) for e in entries):
-        problems.append("only run.yml calls the Run's jobs, from the pass's own token and never under a Pause")
+    if name in LANE_SHIMS:
+        problems += lane_shim_problems(name, text, root)
+    for called, (caller, what) in CALLERS.items():
+        if name != caller and any(e["key"] == "uses" and e["value"].split("@")[0].endswith("/" + called) for e in entries):
+            problems.append("only %s calls %s, from the pass's own token and never under a Pause" % (caller, what))
     if name == RUN_JOBS:
         problems += run_jobs_problems(text, root)
     if name == APPROVE_JOB:
@@ -1567,8 +1651,9 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
     for owner, named in KEYED.items():
         if name != owner and named.search(_uncommented(text)):
             problems.append("it names a key or the environment that holds it, which only %s names" % owner)
-    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":
-        problems.append("only run.yml names its run, by the run-name the pass gave it")
+    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name not in LANE_SHIMS:
+        problems.append("only a shim that dispatches a Run, %s, names its run, by the run-name the pass gave it"
+                        % ", ".join(LANE_SHIMS))
     if name in PASS_FILES and EVENT_READ.search(_uncommented(text)):
         problems.append("it reads the run that woke the poller, which says nothing a fork could not write")
     if any(e["path"] == ["jobs"] and e["key"] == PASS_JOB for e in entries) and name not in PASS_FILES:

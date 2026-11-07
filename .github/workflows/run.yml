@@ -1,0 +1,33 @@
+# A Run's shim, frozen: it calls the Run's jobs at the channel, in its item's lane, only when the pass's own token
+# dispatched it, on a first attempt, with no Pause set. tools/check_workflows.py holds it word for word, as RUN_SHIM,
+# and by its hash in SHIMS (issue 196; decisions 0057 and 0115).
+name: sf-run
+run-name: ${{ inputs.name }}
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  lane:
+    if: github.actor_id == '41898282' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: ${{ inputs.item }}
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/run-jobs.yml@factory/v0-next
+    secrets: inherit
+    with:
+      name: ${{ inputs.name }}
+      item: ${{ inputs.item }}
+      pass: ${{ inputs.pass }}

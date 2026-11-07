@@ -27,8 +27,9 @@ job that names an environment reads its secrets only with `secrets: inherit` on 
 can then name any secret of the repo or the org, and an environment's where its job names that environment. The branch
 policy is met by the caller's `main`, whatever commit the channel names, so the tag's ruleset guards every key. It calls one file of this repo at the channel,
 `factory/v0-next`, never a local path, which would run main's copy; and a `with:` value is `${{ inputs.<the same
-name> }}`. Above its jobs it holds `name`, `on`, `permissions`, `jobs` and, for the Run's shim alone, `run-name`. Only
-a workflow on `workflow_call` alone names an environment, so no shim, push or pull request's job is handed a key. Each
+name> }}`. Above its jobs it holds `name`, `on`, `permissions`, `jobs` and, for a shim that dispatches a Run alone,
+the Run's or an act's, `run-name`. Only a workflow on `workflow_call` alone names an environment, so no shim, push or
+pull request's job is handed a key. Each
 shim is held word for word by its hash in `SHIMS`, as `.github/workflows/ci.yml` is in `EXEMPT`. The eval job runs main's own file on a
 dispatch, since it judges main's commit, and is spared this rule for its own shape, `eval_problems` (decision 0053).
 
@@ -85,5 +86,11 @@ a name written in, and a newer Run waits: it never cancels the one in progress. 
 job, so it holds from `run` to `apply`. An expression may stand whole as the run's name, `${{ inputs.name }}`, the lane,
 `${{ inputs.item }}`, or a job's output of one of its steps, and in no other new place.
 
+approve.yml and queue.yml, the approving act's shim and the queue act's, are the Run's shim but for their names,
+`sf-approve` and `sf-queue`, and the file each calls, approve-job.yml and queue-job.yml: `APPROVE_SHIM` and `QUEUE_SHIM`
+hold each word for word. So each act's Run is named by the run-name the pass gave it, as the records port reads a Run,
+holds its item's lane beside the Run's, and starts only from the pass's own token, on a first attempt, with no Pause set
+(decisions 0055 and 0128). No file but its own shim calls an act's job, and a job that calls one holds its item's lane.
+
 Org standard: none; the org's workflows run no Run.
-Held by: `examples/workflows/invalid/lane.cancels-the-run-in-progress.yml`, `examples/workflows/invalid/lane.one-lane-for-every-item.yml`, `examples/workflows/invalid/lane.a-run-with-no-group.yml`, `examples/workflows/invalid/expression.text-around-the-run-name.yml`, `tests/test_tools.py::test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running`, `tests/test_tools.py::test_every_run_dispatch_carries_an_item_and_the_poller_takes_none`, `tests/test_tools.py::test_a_run_starts_only_from_the_poller_and_never_under_a_pause`
+Held by: `examples/workflows/invalid/lane.cancels-the-run-in-progress.yml`, `examples/workflows/invalid/lane.one-lane-for-every-item.yml`, `examples/workflows/invalid/lane.a-run-with-no-group.yml`, `examples/workflows/invalid/expression.text-around-the-run-name.yml`, `tests/test_tools.py::test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running`, `tests/test_tools.py::test_every_run_dispatch_carries_an_item_and_the_poller_takes_none`, `tests/test_tools.py::test_a_run_starts_only_from_the_poller_and_never_under_a_pause`, `examples/workflows/invalid/lane.an-act-outside-its-items-lane.yml`, `tests/test_tools.py::test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls`, `tests/test_tools.py::test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes`
