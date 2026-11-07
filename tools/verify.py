@@ -72,6 +72,7 @@ def main(argv: list) -> int:
     if "--checks" in argv:
         return 1 if checks_failed else 0
     print("%-22s %s" % ("decision base", check_decisions.described()))
+    print("%-22s %s" % ("boundary mutants", check_decisions.unnamed()))
     unverified(check_trials.unverified())
     result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv))
     return 1 if checks_failed or not result.wasSuccessful() else 0

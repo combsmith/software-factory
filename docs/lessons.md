@@ -144,7 +144,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-25 Controls that nothing read, and validators that passed on nothing
 **Failure.** A declared stop marker was read by no code. A validator passed because the file it validated did not exist. A canary had to be built to catch a gate that resolved its input to nothing while CI stayed green.
 **Rule.** Every check has a test in which it fails, and every rule in the Kernel has a deliberate break that a test must notice.
-**Check.** `tests/test_tools.py`, `tools/mutants.py`
+**Check.** `tests/test_tools.py::test_every_check_has_a_test_in_which_it_fails`, `tools/mutants.py`
 
 ### L-26 Test files that no workflow ran
 **Failure.** Four test files ran nowhere. The list was kept by hand, and a file named in it but missing was skipped with a warning.

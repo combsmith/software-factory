@@ -88,6 +88,9 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
+BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
+NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
+MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
@@ -4006,6 +4009,51 @@ MUTANTS = ISSUE + [
     ('a directory plans no file', 'tools/check_context.py',
      '    return {word for word in words if "." in word}\n',
      '    return set()\n', ('tests.test_tools.Context',)),
+    # Issue 590: a check names a test, never a file of tests, and a new or changed boundary names the mutant its test kills.
+    ('a file of tests holds a rule', 'tools/check_context.py',
+     '        if token.split("/")[0] == "tests" and "::" not in token:\n',
+     '        if token.split("/")[0] == "tests" and False:\n', BARE_TESTS),
+    ('a new or changed row names no mutant', 'tools/check_decisions.py',
+     '    if not named:\n', '    if False:\n', NAMED_MUTANTS),
+    ('a row may name a mutant mutants.py does not hold', 'tools/check_decisions.py',
+     '''            problems.append('%s: names mutant "%s", which tools/mutants.py does not hold' % (where, name))\n''',
+     '', NAMED_MUTANTS),
+    ('a row may name no test for its mutant', 'tools/check_decisions.py',
+     '    if not tests:\n', '    if False:\n', NAMED_MUTANTS),
+    ("a mutant any test kills is the row's", 'tools/check_decisions.py',
+     '        if not any(_kills(k, module, test) for k in killers for module, test in tests):\n',
+     '        if not killers:\n', NAMED_MUTANTS),
+    ("a module or a class that kills a mutant is the row's test", 'tools/check_decisions.py',
+     '    if killer == module + "." + name:\n', '    if killer.startswith(module):\n', NAMED_MUTANTS),
+    ("a test of another class is the row's", 'tools/check_decisions.py',
+     '    if killer == module + "." + name:\n',
+     '    if killer.split(".")[-1] == name.split(".")[-1]:\n', NAMED_MUTANTS),
+    ('a mutant may change a file its record does not name', 'tools/check_decisions.py',
+     '        if changed.startswith("tests/") or not any(t == changed or t.startswith(changed + "::") for t in record):\n',
+     '        if changed.startswith("tests/"):\n', NAMED_MUTANTS),
+    ('a mutant of a test holds a row', 'tools/check_decisions.py',
+     '        if changed.startswith("tests/") or not any(', '        if not any(', NAMED_MUTANTS),
+    ('a waiting row names its mutant', 'tools/check_decisions.py',
+     '    if WAITING.search(cell) or PENDING in cell:\n', '    if PENDING in cell:\n', NAMED_MUTANTS),
+    ('a row whose test is pending names its mutant', 'tools/check_decisions.py',
+     '    if WAITING.search(cell) or PENDING in cell:\n', '    if WAITING.search(cell):\n', NAMED_MUTANTS),
+    ("a new record's rows are not new", 'tools/check_decisions.py',
+     ' if rel in before else list(enumerate(rows, 1))\n', ' if rel in before else []\n', NAMED_MUTANTS),
+    ('every row main holds names its mutant', 'tools/check_decisions.py',
+     '        fresh = _changed(boundaries(before[rel]), rows) if rel in before', '        fresh = list(enumerate(rows, 1)) if True',
+     MAIN_ROWS),
+    ('a bare test file named by its test is a changed row', 'tools/check_decisions.py',
+     '    now = {t.partition("::")[0] if "::" in t and t.partition("::")[0] in was else t for t in _tokens(new)}\n',
+     '    now = _tokens(new)\n', MAIN_ROWS),
+    ("a row's Check that changes is the one it was", 'tools/check_decisions.py',
+     '    return now == was and MUTANT.findall(old) == MUTANT.findall(new)\n', '    return True\n', MAIN_ROWS),
+    ('a row whose mutant changed is the row it was', 'tools/check_decisions.py',
+     '    return now == was and MUTANT.findall(old) == MUTANT.findall(new)\n', '    return now == was\n', MAIN_ROWS),
+    ('mutants that cannot be read hold a row', 'tools/check_decisions.py',
+     '                    return problems + ["%s, boundary %d: %s, so no mutant it names can be read" % (rel, at, err)]\n',
+     '                    return problems\n', NAMED_MUTANTS),
+    ('verify counts the rows that name a mutant', 'tools/check_decisions.py',
+     'sum(1 for c in rows if not MUTANT.search(c))', 'sum(1 for c in rows if MUTANT.search(c))', MAIN_ROWS),
     ("the impostor workflow posts from the Lens's own file", "sim/world.py",
      '"workflow": IMPOSTOR_WORKFLOW,', '"workflow": WORKFLOWS[lens],', ("tests.test_simulator.Simulation.test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause",)),
     ("a neutral check is read as passing", "config/defaults.json",

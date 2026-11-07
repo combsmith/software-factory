@@ -141,6 +141,10 @@ def _held(cell: str, where: str, root: pathlib.Path, here: pathlib.Path) -> list
     checks = [token for token, ok, rel in named if ok and rel.parts[:1] and rel.parts[0] in CHECKS]
     if not waits and not checks:
         problems.append("%s: names no check; a check is a file or a test under %s" % (where, ", ".join(CHECKS)))
+    # A test file holds every rule its tests hold and none in particular: a test is named as one (issue 590).
+    for token in checks:
+        if token.split("/")[0] == "tests" and "::" not in token:
+            problems.append("%s: names %s, a file of tests; name the test that holds it, as path::name" % (where, token))
     # A test marked @pending is expected to fail: it holds nothing yet, and the rule must say so.
     unheld = [token for token in checks if _is_pending(token, root, here)]
     if unheld and PENDING not in cell:
