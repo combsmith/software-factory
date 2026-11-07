@@ -86,9 +86,29 @@ check_above() {
 uid=$(id -u)
 near=$(dirname -- "$1")
 until [[ -d "$near" || "$near" == . ]]; do near=$(dirname -- "$near"); done
-here=$(CDPATH= cd -- "$near" && pwd -P)
+# A relative one as ./ names it, so that a directory called - is not cd's - (the Claude review).
+case "$near" in /*) here=$(CDPATH= cd -- "$near" && pwd -P) ;; *) here=$(CDPATH= cd -- "./$near" && pwd -P) ;; esac
 here=${here%/}       # / as nothing, so what is made in it is /NAME; read once, by the check and by what is made
 check_above "${here:-/}"
+# The cd above follows a link, so one another user put in OUT's path before the run would take OUT elsewhere, and the
+# check would read only where it leads (issue 602). What it reached must be the path as named, from where the run
+# stands, without . or a doubled /: a link that took it elsewhere is refused, whoever owns it, since a hard link keeps
+# its owner wherever it is put; a system's own, such as a /home that leads to /var/home, is refused too. macOS's /tmp,
+# /var and /etc lead to /private: that is taken where the one at / itself leads there, and nowhere else (Astra). What is
+# compared is what the cd reached, and what is made is made in it, so a link put or taken away since changes neither.
+case "$near" in /*) named=$near ;; *) named=$(pwd -P)/$near ;; esac
+plain=""
+IFS=/ read -r -a steps <<< "$named"
+for step in ${steps[@]+"${steps[@]}"}; do
+    [[ -z "$step" || "$step" == . ]] || plain=$plain/$step
+done
+case "$plain" in
+    /tmp | /tmp/* | /var | /var/* | /etc | /etc/*)
+        top=${plain#/}
+        top=${top%%/*}
+        [[ "$here" != "/private$plain" || "$(CDPATH= cd -- "/$top" && pwd -P)" != "/private/$top" ]] || plain=/private$plain ;;
+esac
+[[ "$here" == "$plain" ]] || refuse "$near leads to ${here:-/} by a link, which another user may have put there; name OUT under ${here:-/} itself"
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into. What this
 # makes above it is made one directory at a time inside the one the check read, never through the path as given, so a
 # link put in its way is refused, not followed (issue 502); each is its user's alone, and read too.
