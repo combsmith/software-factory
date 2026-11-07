@@ -21,7 +21,7 @@ Status: accepted. The Factory Builder's story of 2026-11-07, issue 593, "check_p
 
 ## Why
 
-Issue 593 listed the ways the reads of decision 0152 found, none used on `main`. A module's attribute was taken on trust whatever it named. An imported name was handed to be called unread. A builtin that calls what it is given could itself be handed. A top-level function's defaults bound names the check did not read. A package could be read as a module Python never imports. Each is a plain slip a new Kernel module could make, and the check now refuses it. The reads of this change found that `type(*parts)`, an imported `__dict__` and a package's `__getattr__` passed. Refusing every special name closes the last two, and the Kernel uses none. What remains needs the code to be written against the check, and that is the review Role's to read.
+The issue listed the ways the reads of decision 0152 found, none used on `main`. A module's attribute was taken on trust whatever it named. An imported name was handed to be called unread. A builtin that calls what it is given could itself be handed. A top-level function's defaults bound names the check did not read. A package could be read as a module Python never imports. Each is a plain slip a new Kernel module could make, and the check now refuses it. The reads of this change found that `type(*parts)`, an imported `__dict__` and a package's `__getattr__` passed. Refusing every special name closes the last two, and the Kernel uses none. What remains needs the code to be written against the check, and that is the review Role's to read.
 
 ## Boundaries
 
