@@ -65,19 +65,24 @@ class Module:
         self.rel, self.name, self.tree = rel, _name(rel), tree
         package = self.name if rel.endswith("__init__.py") else self.name.rpartition(".")[0]
         self.bindings, self.texts, self.functions, self.classes, self.values, self.stored = {}, {}, {}, {}, {}, set()
+        self.conflicts, self.formatted = set(), set()       # names bound two ways; texts made by a `%` format
         self.nodes = list(ast.walk(tree))
         for node in self.nodes:     # an import anywhere, for one made inside a function binds as well
+            bound = []
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local = alias.asname or alias.name.split(".")[0]
-                    self.bindings[local] = ("module", alias.name if alias.asname else local)
+                    bound.append((local, ("module", alias.name if alias.asname else local)))
             elif isinstance(node, ast.ImportFrom):
                 base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
                 source = ".".join(base + ([node.module] if node.module else [])) if node.level else node.module
                 for alias in node.names:
                     whole = "%s.%s" % (source, alias.name)
-                    self.bindings[alias.asname or alias.name] = ("module", whole) if whole in known else \
-                        ("attr", source, alias.name)
+                    bound.append((alias.asname or alias.name, ("module", whole) if whole in known else ("attr", source, alias.name)))
+            for local, target in bound:
+                if self.bindings.get(local, target) != target:
+                    self.conflicts.add(local)
+                self.bindings[local] = target
         inside = set()
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -94,6 +99,8 @@ class Module:
                         self.values[target.id] = node.value
                         if _text(node.value) is not None:
                             self.texts[target.id] = _text(node.value)
+                            if any(isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mod) for n in ast.walk(node.value)):
+                                self.formatted.add(target.id)
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 inside |= {id(n) for n in ast.walk(node)}
@@ -109,6 +116,8 @@ class Module:
             self.units.setdefault(name, list(ast.walk(value)))
         held = {id(n) for nodes in self.units.values() for n in nodes} | inside
         self.units["<module>"] = [n for n in self.nodes if id(n) not in held]
+        # A name both defined here and imported: which one a function means cannot be told by the syntax alone.
+        self.conflicts |= set(self.bindings) & (set(self.functions) | set(self.classes) | set(self.values))
 
 
 def _lookup(mods: dict, module: str, name: str, depth: int = 0):
@@ -141,6 +150,8 @@ def _bound(mods: dict, bound: tuple, depth: int = 0):
 def _resolve(mods: dict, mod: Module, node, cls: str = None):
     """What a Name or a dotted Attribute is in the repo's code, as `_lookup` gives it, or None."""
     if isinstance(node, ast.Name):
+        if node.id in mod.conflicts:
+            return ("conflict", mod.name, node.id)
         if node.id in mod.functions or node.id in mod.classes or node.id in mod.values:
             return _lookup(mods, mod.name, node.id)
         return _bound(mods, mod.bindings[node.id]) if node.id in mod.bindings else None
@@ -200,6 +211,9 @@ class Reading:
                 out.append((got[1], got[2]))
             elif got[0] == "module":
                 self.handed.append((mod, node.lineno, got[1]))
+            elif got[0] == "conflict":
+                self.problems.append("%s:%d names %s, which the module binds more than one way, so what it reaches cannot "
+                                     "be read; give each its own name" % (mod.rel, node.lineno, got[2]))
             else:
                 self.problems.append("%s:%d names %s, which %s does not define, so what it reaches cannot be read"
                                      % (mod.rel, node.lineno, got[2], got[1]))
@@ -230,14 +244,20 @@ def _argument(call: ast.Call, at: int, name: str):
 def _query(mods: dict, mod: Module, node, nodes: list):
     """The text of a GraphQL query, a literal or a module's text constant, or a sentence saying why it cannot be read."""
     if _text(node) is not None:
-        return _text(node)
+        formatted = any(isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mod) for n in ast.walk(node))
+        return _filled(_text(node), formatted)
     if isinstance(node, ast.Name) and any(isinstance(n, ast.Name) and n.id == node.id and isinstance(n.ctx, ast.Store)
                                           for n in nodes):
         return "its GraphQL query is a name the function itself sets"
     got = _resolve(mods, mod, node) if isinstance(node, (ast.Name, ast.Attribute)) else None
     if got and got[0] == "value" and got[2] in mods[got[1]].texts:
-        return mods[got[1]].texts[got[2]]
+        return _filled(mods[got[1]].texts[got[2]], got[2] in mods[got[1]].formatted)
     return "its GraphQL query is not a text constant"
+
+
+def _filled(text: str, formatted: bool) -> str:
+    """A query made by a `%` format is read only where each of its holes takes a number, which holds no operation."""
+    return "its GraphQL query is formatted with text" if formatted and re.search(r"%(?![d%])", text) else text
 
 
 def _kind(mods: dict, mod: Module, call: ast.Call, which: str, nodes: list):

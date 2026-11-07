@@ -8847,6 +8847,7 @@ class Writes(unittest.TestCase):
             "harness/renamed.py": "from adapters.effects import role_write as rw" + go + role % "rw",
             "harness/relative.py": "from ..adapters import effects" + go + role % "effects.role_write",
             "harness/table.py": "from adapters import effects\n\nTABLE = {'review': effects.role_write}" + go + role % "TABLE['review']",
+            "harness/uncalled.py": "from adapters import effects\n\n\ndef hand(run):\n    return run(effects.role_write)\n",
             "harness/passon.py": "from adapters.effects import role_write\n",
             "harness/fromthere.py": "from harness.passon import role_write" + go + role % "role_write",
             "adapters/again.py": "from adapters.effects import role_write\n\nwrite = role_write\n",
@@ -8857,7 +8858,7 @@ class Writes(unittest.TestCase):
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
-                    "harness/fromthere.py", "harness/viaalias.py"):
+                    "harness/uncalled.py", "harness/fromthere.py", "harness/viaalias.py"):
             self.unlisted(problems, rel)
         for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py"):
             self.unlisted(problems, rel, "adapters.effects:approve")
@@ -8869,23 +8870,33 @@ class Writes(unittest.TestCase):
             "harness/handon.py": "from harness import approve\n\n\ndef go(use):\n    return use(approve)\n",
             "harness/loads.py": "import importlib\n\n\ndef go():\n    return importlib.import_module('adapters.effects')\n",
             "harness/missing.py": "from adapters import effects\n\n\ndef go():\n    return effects.no_such_writer()\n",
+            # A name bound two ways, which the syntax cannot tell apart (Argon).
+            "harness/twice.py": "def approve():\n    return None\n\n\ndef act(t):\n    from adapters.effects import approve\n    return approve(t)\n",
+            "harness/twice2.py": "def a(t):\n    from adapters.effects import approve as step\n    return step(t)\n\n\ndef b():\n"
+                                 "    from kernel.derive import derive as step\n    return step\n",
         }
         problems = check_writes.run(clone(files))
         for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
                           ("harness/star.py:1", "imports * from adapters.effects"),
                           ("harness/handon.py:5", "uses the module harness.approve as a value"),
                           ("harness/loads.py:5", "loads a module by its name"),
-                          ("harness/missing.py:5", "names no_such_writer, which adapters.effects does not define")):
+                          ("harness/missing.py:5", "names no_such_writer, which adapters.effects does not define"),
+                          ("harness/twice.py:7", "names approve, which the module binds more than one way"),
+                          ("harness/twice2.py:3", "names step, which the module binds more than one way")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
-        problems = check_writes.run(clone({"harness/queue.py": queue, "release/move.py": '"""Moves nothing."""\n'}))
+        # More than it lists, some of what it lists, and none of it (Argon: the middle one).
+        move = "from adapters import tags\n\n\ndef move(transport):\n    return tags.write(transport, 'x', 'y', 'z')\n"
+        problems = check_writes.run(clone({"harness/queue.py": queue, "release/move.py": move, "harness/apply_step.py": '"""Nothing."""\n'}))
         self.assertTrue(caught(problems, "harness/queue.py reaches adapters.effects:_check, adapters.effects:_comment, "
-                                         "adapters.effects:_review, adapters.queue:dequeue"), problems)
-        self.assertTrue(caught(problems, "release/move.py reaches no write, and CALLERS lists adapters.deployments:record, "
+                                         "adapters.effects:_review, adapters.queue:dequeue, adapters.queue:enqueue, "
+                                         "adapters.queue:resolve, and CALLERS lists adapters.queue:dequeue"), problems)
+        self.assertTrue(caught(problems, "release/move.py reaches adapters.tags:write, and CALLERS lists adapters.deployments:record, "
                                          "adapters.tags:write"), problems)
+        self.assertTrue(caught(problems, "harness/apply_step.py reaches no write, and CALLERS lists adapters.effects:_check"), problems)
         with mock.patch.dict(check_writes.CALLERS, {"harness/gone.py": {"adapters.tags:write"}}):
             self.assertTrue(caught(check_writes.run(), "CALLERS names harness/gone.py, which is not here"))
 
@@ -8898,6 +8909,9 @@ class Writes(unittest.TestCase):
                  "adapters/built.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK.upper(),'),
                  "adapters/shadow.py": (self.MARKS % self.QUERY).replace("    return", "    MARK = '%s'\n    return" % self.MUTATION),
                  "adapters/spread.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, **ident,'),
+                 # A query filled with text may be filled with a mutation (Argon); one filled with a number may not.
+                 "adapters/filled.py": (self.MARKS % "query Q { y } %s").replace('MARK = "query Q { y } %s"',
+                                                                                 'MARK = "query Q { y } %s" % OTHER'),
                  "harness/mint.py": "from adapters import identity\n\n\ndef both(as_app, app, as_token):\n"
                                     "    identity.mint(as_app, app, 'x/y', {})\n    return identity.revoke(as_token)\n"}
         problems = check_writes.run(clone(files))
@@ -8905,7 +8919,8 @@ class Writes(unittest.TestCase):
         self.unlisted(problems, "harness/peekb.py", "adapters.both:mark")
         for rel, said in (("adapters/built.py:7", "its GraphQL query is not a text constant"),
                           ("adapters/shadow.py:8", "its GraphQL query is a name the function itself sets"),
-                          ("adapters/spread.py:7", "its GraphQL body is not a literal dict")):
+                          ("adapters/spread.py:7", "its GraphQL body is not a literal dict"),
+                          ("adapters/filled.py:7", "its GraphQL query is formatted with text")):
             self.assertTrue(caught(problems, "%s sends a request whose kind cannot be read: %s" % (rel, said)), (rel, problems))
         # A query by POST is a read, and a token minted or revoked a credential: neither caller is named.
         self.assertFalse(caught(problems, "harness/peekr.py"), problems)
