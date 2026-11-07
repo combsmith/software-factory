@@ -55,7 +55,8 @@
         "result_invalid",
         "diff_not_whole",
         "head_unreadable",
-        "rubric_unreadable"
+        "rubric_unreadable",
+        "engine_transient"
       ]
     },
     "dispositions": {

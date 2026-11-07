@@ -271,7 +271,7 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
 # The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
 # reviewer's. `result_invalid` stays the reviewer's: an answer that could not be held to its schema (decision 0121).
 ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_model", "engine_failed", "engine_timeout", "task_too_large",
-                 "rubric_unreadable", "no_answer", "head_unreadable")
+                 "rubric_unreadable", "no_answer", "head_unreadable", "engine_transient")
 # What stops a run reaching or trusting a case, whatever the rest of the set read: no bar can be held over it. A case's own
 # fault is another matter, one case not passed, which is the bar's to weigh (decision 0120).
 RUN_FAULTS = ("schema", "not_found", "hash_differs", "too_large", "unanswered")
@@ -337,7 +337,7 @@ def case_fault(case: dict):
 
 
 def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = None, alternates: set = None,
-           usages: dict = None) -> dict:
+           usages: dict = None, retried: dict = None) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
     `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
@@ -346,8 +346,10 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
     and scored against the case by `tools/eval_result.py`. What `cause_of` and `seen_of` say of a case unanswered, or
     stopped by the Engine, goes in `causes`, by id, where one is given; the id of each pass the scorer marks
     `at_alternate`, in `alternates` (decision 0143). The `usage` of each Result `review` returned goes in `usages`, by
-    id, where one is given (issue 616)."""
+    id, where one is given (issue 616), and how many times `review` asked a case again, by its `retried`, in `retried`
+    (issue 615)."""
     assessed, interrupted = {}, False
+    retried = {} if retried is None else retried
     causes = {} if causes is None else causes
     alternates = set() if alternates is None else alternates
     usages = {} if usages is None else usages
@@ -403,6 +405,9 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
             continue
         if isinstance(result, dict) and isinstance(result.get("usage"), dict):
             usages[entry["id"]] = result["usage"]
+        again = getattr(review, "retried", {}).get(entry["id"])
+        if type(again) is int and again > 0:
+            retried[entry["id"]] = again
         if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
             assessed[entry["id"]] = ("unreadable", [result["reason"]])
             causes[entry["id"]] = seen_of(review)
@@ -545,17 +550,18 @@ def identity(root: pathlib.Path, role: str) -> dict:
 
 
 def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None,
-           causes: dict = None, alternates: set = None, usages: dict = None, ran: dict = None) -> dict:
+           causes: dict = None, alternates: set = None, usages: dict = None, ran: dict = None, retried: dict = None) -> dict:
     """The `eval-report/1` of this run: the plan's Release, commit and set, the models the CLI said answered and the
     prompt and rubric by `ran`, `identity`'s, each case by id and hash, in the manifest's order, with its verdict and
     codes, what it used and, where one was found, its cause, and its mark where it passed at an alternate place alone
     (decision 0143), whether the set holds `split_ok`'s kinds, whether each cleared its bar, and whether every case that
-    expects a blocking Finding passed."""
-    causes, alternates, usages = causes or {}, alternates or set(), usages or {}
+    expects a blocking Finding passed; and how many times a case was asked again, where it was (issue 615)."""
+    causes, alternates, usages, retried = causes or {}, alternates or set(), usages or {}, retried or {}
     ran = ran or {"prompt_sha256": None, "rubric_sha256": None}
     cases = [dict({"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1],
                    "usage": used(usages.get(e["id"]))},
                   **({"cause": causes[e["id"]]} if causes.get(e["id"]) else {}),
+                  **({"retried": retried[e["id"]]} if retried.get(e["id"]) else {}),
                   **({"at_alternate": True} if e["id"] in alternates and assessed[e["id"]] == (PASS, []) else {}))
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
@@ -617,10 +623,11 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     except Stop:
         causes = {}
     causes = dict(causes) if isinstance(causes, dict) else {}
-    alternates, usages = set(), {}
-    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, usages)
+    alternates, usages, retried = set(), {}, {}
+    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, usages, retried)
     written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
-                     blocking_pass(found, place, assessed), causes, alternates, usages, identity(root, found["role"]))
+                     blocking_pass(found, place, assessed), causes, alternates, usages, identity(root, found["role"]),
+                     retried)
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
@@ -632,12 +639,14 @@ def tally(document: dict, configured: str = None) -> str:
     where they are not the `configured` one alone (issue 616)."""
     codes = [code for case in document["cases"] for code in case["reasons"]]
     alternate = len([case for case in document["cases"] if case.get("at_alternate") and case["verdict"] == PASS])
+    again = len([case for case in document["cases"] if case.get("retried")])
     closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
     closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
     # Each cause by what it says, held to its schema like the rest, with how many cases gave it.
     causes = [" ".join("%s=%s" % (k, v) for k, v in sorted(case["cause"].items())) for case in document["cases"] if case.get("cause")]
     return "; ".join(["%d of %d passed" % (document["passed"], len(document["cases"]))
-                      + (", %d at an alternate place" % alternate if alternate else ""),
+                      + (", %d at an alternate place" % alternate if alternate else "")
+                      + (", %d asked again after a transient fault" % again if again else ""),
                       ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed
                      + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))]
                      # A run no model answered says so by its codes; one another did names it (the Claude review).

@@ -31,6 +31,9 @@ BUDGET = 110 * 60
 # each within this many seconds (harness/engine.py).
 VERSION_READS = 2 * 30
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+# How many times a case is asked again after a transient fault of the vendor, `engine_transient`, while the job has the
+# time: a fault that may pass is not the commit's to bear, and a bound keeps an outage from spending the job (issue 615).
+RETRIES = 2
 
 
 def run_id() -> str:
@@ -50,7 +53,7 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, pl
         manifest = json.load(f)
     deadline = began + BUDGET
     asked = call or live.cli_call
-    seen = {}
+    seen, retried = {}, {}
 
     def watched(args, env, timeout, **given):
         """The CLI's call, as the Engine makes it, in the case's head where it reads one, with what it said of the case
@@ -94,11 +97,19 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, pl
             raise Stop("unanswered")
         head = os.path.join(str(place), "heads", case["id"]) if place is not None else None
         try:
-            return live.answer(the_task, env, config, watched, clock, head=head)
+            result = live.answer(the_task, env, config, watched, clock, head=head)
+            # Asked again, in a fresh session, while the fault is the vendor's and there is time for the whole case.
+            while result.get("reason") == "engine_transient" and retried.get(case["id"], 0) < RETRIES \
+                    and deadline - clock() >= VERSION_READS + the_task["limits"]["seconds"]:
+                retried[case["id"]] = retried.get(case["id"], 0) + 1
+                seen.clear()     # what the CLI said of the last call is not this one's
+                result = live.answer(the_task, env, config, watched, clock, head=head)
+            return result
         finally:
             if head is not None:
                 shutil.rmtree(head, ignore_errors=True)
     review.seen = seen
+    review.retried = retried
     return review
 
 

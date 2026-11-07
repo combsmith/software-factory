@@ -44,6 +44,9 @@ ENGINE = "claude-cli"
 # cost ceiling reached, as the pinned binary names it and no trial has yet recorded (decision 0136). A model reads an
 # item's text, so such a run is the item's, not the Factory's. Any other way it errs stays the Factory's (decision 0122).
 MODEL_ENDED = ("error_max_budget_usd", "error_max_structured_output_retries", "error_max_turns")
+# The vendor's word, as the CLI gives it in `api_error_status` (`trials/P-13.json` holds the field), that its API was
+# overloaded or failed for its own reasons: a fault that may pass, apart from the model running out (issue 615).
+TRANSIENT = (429, 500, 502, 503, 504, 529)
 CREDENTIAL_NAME = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 # Every name the CLI is given, and its value where it is fixed. Nothing else of the job's environment reaches it.
@@ -57,7 +60,8 @@ ENGINE_WRITES = ["completed", "incomplete", "refused"]
 # by the status it writes, and the Harness's, with the `failed` Result it writes whole, here or in `harness/run.py`.
 MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task_not_a_review",)}
 HARNESS_REASONS = ("credential_missing", "engine_version", "engine_model", "task_too_large", "engine_failed",
-                   "engine_timeout", "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable")
+                   "engine_timeout", "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable",
+                   "engine_transient")
 REASONS = dict(MODEL_REASONS, failed=HARNESS_REASONS)
 FILLED = ("release", "usage")
 COUNTS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
@@ -200,6 +204,15 @@ def answering(said) -> str:
     return model if MODEL_ID.fullmatch(model) else None
 
 
+def transient(said) -> bool:
+    """Whether the CLI says it erred because the vendor's API was overloaded or failed, by a status of TRANSIENT, and
+    not because the model ran out: a run that may be asked again (issue 615)."""
+    if not isinstance(said, dict):
+        return False
+    status = said.get("api_error_status")
+    return said.get("is_error") is True and type(status) is int and status in TRANSIENT
+
+
 def _usage(task: dict, config: dict, session: str, seconds: float, said=None) -> dict:
     usage = said.get("usage") if isinstance(said, dict) and isinstance(said.get("usage"), dict) else {}
 
@@ -274,6 +287,8 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
         reason = None if done.returncode == 0 and not erred else "engine_failed"
         if isinstance(said, dict) and said.get("is_error") is True and said.get("subtype") in MODEL_ENDED:
             reason = "no_answer"
+        elif transient(said):
+            reason = "engine_transient"
     except subprocess.TimeoutExpired:
         reason = "engine_timeout"
     except (OSError, ValueError):       # a call that cannot be made, as an argument Python refuses, is the Engine's fault

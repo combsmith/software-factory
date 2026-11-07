@@ -922,6 +922,22 @@ class Engine(unittest.TestCase):
         r = engined(unstartable)
         self.assertEqual((r["status"], r["reason"]), ("failed", "engine_version"))
 
+    def test_a_transient_fault_of_the_vendor_is_told_from_the_model_running_out(self):  # issue 615
+        # The vendor's API overloaded or failing, by the status the CLI gives, is `engine_transient`, a fault that may pass;
+        # the model running out of turns or budget is `no_answer`, told first; any other error stays the Factory's.
+        for status in (429, 500, 502, 503, 504, 529):
+            r = engined(CLI(said=answer(is_error=True, subtype="error_during_execution", api_error_status=status), returncode=1))
+            self.assertEqual((r["status"], r["reason"]), ("failed", "engine_transient"), status)
+        for status in (400, 401, 403, 404, 413, None, "529", 529.0, True):
+            r = engined(CLI(said=answer(is_error=True, subtype="error_during_execution", api_error_status=status), returncode=1))
+            self.assertEqual(r["reason"], "engine_failed", status)
+        r = engined(CLI(said=answer(is_error=True, subtype="error_max_turns", api_error_status=529)))
+        self.assertEqual(r["reason"], "no_answer")
+        r = engined(CLI(said=answer(is_error=None, api_error_status=529)))
+        self.assertEqual(r["reason"], "engine_failed")
+        r = engined(CLI(said=answer(api_error_status=529)))
+        self.assertEqual(r["status"], "completed")
+
     def test_a_task_too_long_for_one_argument_is_refused_before_the_cli_starts(self):  # the security pass
         long = built()
         long["texts"] = [{"id": "thread:T1", "trust": "outside", "source": "stranger", "body": "x" * engine.LONGEST}]

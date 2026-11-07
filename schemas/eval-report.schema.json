@@ -127,6 +127,7 @@
                 "engine_failed",
                 "no_answer",
                 "engine_timeout",
+                "engine_transient",
                 "task_too_large",
                 "rubric_unreadable",
                 "head_unreadable",
@@ -159,6 +160,12 @@
               "cost_usd": { "type": ["number", "null"], "minimum": 0 },
               "seconds": { "type": "number", "minimum": 0 }
             }
+          },
+          "retried": {
+            "description": "How many times the case was asked again after a transient fault of the vendor, engine_transient, within the job's time (issue 615); absent where it was asked once.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2
           },
           "at_alternate": {
             "description": "A pass whose Finding was at a place of the case's also_at alone, not its location (decision 0143): a mark the report can count, saying no place.",

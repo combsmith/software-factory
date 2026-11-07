@@ -73,7 +73,7 @@ def reviewed(env, release, began, call=None, clock=None, place=None):
         if isinstance(case, dict) and isinstance(case.get("id"), str):
             (place / "heads" / case["id"]).mkdir(parents=True, exist_ok=True)
         return review(case)
-    asking.seen = review.seen
+    asking.seen, asking.retried = review.seen, review.retried
     return asking
 
 
@@ -1731,6 +1731,61 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(asked["env"]["CLAUDE_CODE_OAUTH_TOKEN"], live.TOKEN)
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
+
+    def test_a_case_a_transient_fault_stopped_is_asked_again_a_bounded_number_of_times(self):  # issue 615
+        # A transient fault of the vendor is not the commit's to bear: the case is asked again, as a fresh Run, at most
+        # RETRIES times and only while the job has the time for a whole case; the report marks it and the judge counts it.
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        transient = live.answer(is_error=True, subtype="error_during_execution", api_error_status=529)
+        good = live.answer(live.judged(findings=[], effects={}))
+
+        class Answers(live.CLI):
+            def __init__(self, *said):
+                super().__init__(versions=())
+                self.answers = list(said)
+
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    self.said = self.answers.pop(0)
+                return super().__call__(args, env, timeout, **given)
+        env = dict(live.JOB, HELDOUT_TOKEN="a-stand-in-held-out-token", HELDOUT_OWNER="o")
+        for said, status, again in (((transient, good), "completed", 1), ((transient, transient, good), "completed", 2),
+                                    ((transient, transient, transient), "failed", 2), ((good,), "completed", None)):
+            cli = Answers(*said)
+            review = reviewed(env, "factory/v0.1.0", 0, cli, live.Clock(*([0.0] * 20)))
+            with mock.patch.object(step, "run_id", lambda: live.RUN):
+                result = review(case)
+            self.assertEqual(result["status"], status, said)
+            asked = cli.asked()
+            self.assertEqual(len(asked), len(said), said)
+            self.assertEqual(len({a["args"][a["args"].index("--session-id") + 1] for a in asked}), len(said), "each in a fresh session")
+            self.assertEqual(review.retried.get(case["id"]), again, said)
+            if status == "failed":
+                self.assertEqual(result["reason"], "engine_transient")
+        # Not once the job has no time left for a whole case: the clock reads the deadline, the call's start and end, then that.
+        cli = Answers(transient, good)
+        review = reviewed(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 0.0, 0.0, float(step.BUDGET)))
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            self.assertEqual(review(case)["reason"], "engine_transient")
+        self.assertEqual(len(cli.asked()), 1)
+        # The report marks a case asked again, and the judge's line counts them.
+        self.step(job.plan)
+        self.step(job.fetch, self.home(self.cases))
+        first, second = list(self.cases)
+
+        def answering(c):
+            return example_result()
+        answering.retried = {first: 2}
+        self.assertEqual(self.step(job.score, answering), "scored 2 of 2 cases, 2 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual([c.get("retried") for c in written["cases"]], [2, None])
+        self.assertEqual(self.step(job.judge), "2 of 2 passed, 1 asked again after a transient fault; no code")
+        # A case still stopped by it is an Engine fault, said by its own code, apart from the model running out.
+        self.assertIn("engine_transient", job.ENGINE_FAULTS)
+        self.assertIn("engine_transient", job.eval_result_codes())
 
     def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0120
         # A code the enum lacks would make the whole report unreadable, and the run would say so and nothing else.
