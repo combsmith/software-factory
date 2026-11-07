@@ -8913,6 +8913,9 @@ class Writes(unittest.TestCase):
             "adapters/callback.py": "from adapters.effects import role_write\n\n\nclass Client:\n    write = staticmethod(role_write)\n\n"
                                     "    @classmethod\n    def act(cls, t, item, req):\n        return cls.write(t, item, 'review', req, 'me')\n",
             "harness/usecallback.py": "from adapters.callback import Client\n\n\ndef run(t):\n    return Client.act(t, {}, {})\n",
+            # Codex: a registry filled through another name for it.
+            "adapters/aliasreg.py": "from adapters.effects import approve\n\nSTEPS = []\nregistry = STEPS\nregistry.append(approve)\n",
+            "harness/usealiasreg.py": "from adapters.aliasreg import STEPS\n\n\ndef go(t):\n    return STEPS[0](t)\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
@@ -8930,7 +8933,7 @@ class Writes(unittest.TestCase):
         self.unlisted(problems, "harness/useinject.py")
         for rel in ("harness/useconditional.py", "harness/usecallback.py"):
             self.unlisted(problems, rel)
-        for rel in ("harness/useaug.py", "harness/defaultw.py"):
+        for rel in ("harness/useaug.py", "harness/defaultw.py", "harness/usealiasreg.py"):
             self.unlisted(problems, rel, "adapters.effects:approve")
         for rel in ():
             self.unlisted(problems, rel, "adapters.effects:approve")

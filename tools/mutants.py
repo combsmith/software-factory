@@ -10907,6 +10907,8 @@ MUTANTS = ISSUE + [
      'for name in (_filled_names(node) | stored) &', 'for name in _filled_names(node) &', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ('a class attribute called through cls is read as nothing', 'tools/check_writes.py',
      '            return ("value",) + held[0] if held else None\n', '            return None\n', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
+    ("a constant's alias is another container", 'tools/check_writes.py',
+     '                    self.units[name] = self.units[other] = union\n', '                    pass\n', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("the mutation runner's own load by name fails", 'tools/check_writes.py',
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
     ('a repo and family served by two Channels passes', 'tools/check_release.py',

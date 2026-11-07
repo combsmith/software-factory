@@ -142,6 +142,16 @@ class Module:
                 if not isinstance(node, (ast.Assign, ast.AnnAssign)) else set()     # rebound under an if or a try
             for name in (_filled_names(node) | stored) & (set(self.values) | set(self.classes)):
                 self.units[name] = self.units[name] + list(ast.walk(node))
+        # A constant that is another, registry = STEPS, is the one container: what fills either fills both.
+        for _ in range(len(self.values)):
+            joined = False
+            for name, values in self.values.items():
+                for other in {v.id for v in values if isinstance(v, ast.Name) and v.id in self.values and v.id != name}:
+                    union = self.units[name] + [n for n in self.units[other] if n not in self.units[name]]
+                    joined = joined or len(union) != len(self.units[name]) or len(union) != len(self.units[other])
+                    self.units[name] = self.units[other] = union
+            if not joined:
+                break
         held = {id(n) for nodes in self.units.values() for n in nodes} | inside
         self.units["<module>"] = [n for n in self.nodes if id(n) not in held]
         # A name both defined here and imported, or defined twice: which one a function means cannot be told by the syntax.
