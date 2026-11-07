@@ -5818,9 +5818,9 @@ exit 0
         return subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / out), str(folder / "key.pem"), *args],
                               capture_output=True, text=True, env=env, cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
 
-    def stopped(self, folder: pathlib.Path, *args, lang="C") -> tuple:
+    def stopped(self, folder: pathlib.Path, *args) -> tuple:
         """The script stopped once its stand-in python3 holds the mint's answer: (exit code, stdout, stderr)."""
-        env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": lang}
+        env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": "C"}
         ran = subprocess.Popen([SIGNAL_SHELL, str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / "out"), str(folder / "key.pem"),
                                 *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                                cwd=str(folder), stdin=subprocess.DEVNULL, start_new_session=True)
@@ -5847,13 +5847,13 @@ exit 0
     def test_a_stop_while_an_answer_cut_inside_a_character_is_read_still_revokes_its_token(self):
         # Issue 502 (Argon): the same stop, with the answer cut inside a multibyte character and read where python
         # decodes stdin strictly. The trap finds the token all the same.
-        ReachScript.assertStrict(self)
         folder = self.stand_in()
         (folder / "mint.body").write_bytes(ReachScript.CUT.replace("TOKEN", self.TOKEN).encode()[:-1])
         real = os.path.realpath(sys.executable)
-        (folder / "bin" / "python3").write_text(ReachScript.PYTHON % (real, real))
+        strict = ReachScript.strict_python(folder / "strict")
+        (folder / "bin" / "python3").write_text(ReachScript.PYTHON % (real, str(strict)))
         (folder / "bin" / "python3").chmod(0o755)
-        code, said, told = self.stopped(folder, "x/canary", "x/other", lang=ReachScript.UTF8)
+        code, said, told = self.stopped(folder, "x/canary", "x/other")
         self.assertNotEqual(code, 0, told)
         self.assertEqual([c.split(" ", 1)[0] for c in (folder / "calls").read_text().splitlines()], ["GET", "POST", "DELETE"], told)
         self.assertIn("stopped with a token live; revoking it returned 204", told)
@@ -6300,15 +6300,28 @@ data = sys.stdin.buffer.read()
 sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else "signature")
 '''
     MINTED = '{"token": "TOKEN", "expires_at": "2026-10-29T23:00:00Z", "permissions": {"metadata": "read"}}'
-    # A locale whose python reads stdin as UTF-8, strictly. Under C, and under C.UTF-8 too, python reads it with
-    # surrogateescape (PEP 538, PEP 540), and a cut character raises nothing (the Claude review).
-    UTF8 = "en_US.UTF-8"
+    # A stand-in python3 that runs a script's python3 -I -c with stdin read as UTF-8 strictly, as python reads it under a
+    # locale such as en_US.UTF-8. Under C and C.UTF-8 it reads with surrogateescape (PEP 538, PEP 540), so a cut character
+    # raises nothing (the Claude review), and a runner need have no other locale (Codex). Any other call runs as it is.
+    STRICT = """#!%s -I
+import os, sys
+args = sys.argv[1:]
+if args[:2] == ["-I", "-c"]:
+    sys.argv = ["-c"] + args[3:]
+    sys.stdin.reconfigure(encoding="utf-8", errors="strict")
+    exec(compile(args[2], "<string>", "exec"), {"__name__": "__main__"})
+else:
+    os.execv(%r, [%r] + args)
+"""
 
-    def assertStrict(self):
-        """python3 reads stdin strictly under UTF8 here, or a test of a cut character would pass with or without its fix."""
-        said = subprocess.run(["python3", "-I", "-c", "import sys; print(sys.stdin.errors)"], capture_output=True, text=True,
-                              stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], "LANG": ReachScript.UTF8})
-        self.assertEqual(said.stdout.strip(), "strict", "python3 does not read stdin strictly under %s here" % ReachScript.UTF8)
+    @staticmethod
+    def strict_python(where: pathlib.Path) -> pathlib.Path:
+        """STRICT, written as where/python3."""
+        real = os.path.realpath(sys.executable)
+        where.mkdir(parents=True, exist_ok=True)
+        (where / "python3").write_text(ReachScript.STRICT % (real, real, real))
+        (where / "python3").chmod(0o755)
+        return where / "python3"
     # A 201 answer cut inside a character, after its token: the stand-in curl drops the last byte of the é.
     CUT = '{"token": "TOKEN", "expires_at": "2026-10", "note": "café'
 
@@ -6326,7 +6339,7 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
         self.key_file = str(self.folder / "controller")
         self.out = self.folder / "out"
 
-    def run_script(self, plan, scratch_closed=False, stop=False, script=None, args=None, lang="C"):
+    def run_script(self, plan, scratch_closed=False, stop=False, script=None, args=None):
         (self.folder / "plan.json").write_text(json.dumps(plan))
         if scratch_closed:
             # A scratch directory nothing can be written into: a failed mint must write nothing, not even there.
@@ -6335,7 +6348,7 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
         ran = subprocess.Popen([SIGNAL_SHELL, str(script or self.SCRIPT), str(self.out), *(args or self.keys)], stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=str(self.folder),
                                env={"PATH": "%s:%s" % (self.folder / "bin", os.environ["PATH"]), "HOME": str(self.folder),
-                                    "LANG": lang, "TMPDIR": str(self.folder / "tmp")}, start_new_session=True)
+                                    "LANG": "C", "TMPDIR": str(self.folder / "tmp")}, start_new_session=True)
         if stop:
             deadline = time.monotonic() + 30
             while not (self.folder / "reading").exists() and time.monotonic() < deadline:
@@ -6437,16 +6450,15 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
     def test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token(self):
         # Issue 502 (Argon): a 201 answer cut inside a multibyte character, read where python decodes stdin strictly.
         # Its token is found all the same and revoked, in every script that mints with curl; P-4 is in NarrowedToken.
-        self.assertStrict()
         for name, args in OutputMadeAlone.SCRIPTS.items():
             if name == "trial_p4_narrow.sh":
                 continue
             with self.subTest(script=name):
                 self.setUp()
+                self.strict_python(self.folder / "bin")
                 argv = [a.replace("KEY", self.key_file) for a in args]
                 code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.CUT, "cut": True}},
-                                                          scratch_closed=True, script=ROOT / "tools" / name, args=argv,
-                                                          lang=self.UTF8)
+                                                          scratch_closed=True, script=ROOT / "tools" / name, args=argv)
                 self.assertEqual(code, 1, told)
                 self.assertEqual(len(self.minted(calls)), 1, told)
                 self.assertEqual(self.revoked(calls), self.minted(calls), told)
