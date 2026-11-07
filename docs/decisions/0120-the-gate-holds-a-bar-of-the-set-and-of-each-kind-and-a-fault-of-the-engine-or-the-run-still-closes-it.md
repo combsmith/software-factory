@@ -1,6 +1,6 @@
 # 0120. The gate holds a bar of the set and of each kind, and a fault of the Engine or the run still closes it
 
-Status: replaced by `docs/decisions/NNNN-the-review-intents-bar-is-each-kinds-own-set-under-the-measured-recall-to-guard-against-regression.md`, which holds the rule in force.
+Status: replaced by `docs/decisions/0150-the-review-intents-bar-is-each-kinds-own-set-under-the-measured-recall-to-guard-against-regression.md`, which holds the rule in force.
 
 ## Decision
 

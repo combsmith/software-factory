@@ -1062,7 +1062,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.verdict(changed(set={"count": 0, "sha256": digest}, cases=[], passed=0), empty, digest,
                                      "a" * 40, "factory/v0.1.0"), "eval_set_empty")
 
-    def test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it(self):  # decisions 0120 and NNNN
+    def test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it(self):  # decisions 0120 and 0150
         from harness import eval as job
         found_of = lambda count: {"role": "pr-review", "intent": "review-change", "count": count,
                                   "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i} for i in range(count)]}
@@ -1129,7 +1129,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.eval_result_codes(), scorer | own | set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS))
         self.assertEqual(own & (set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS)), set())
 
-    def test_each_kind_is_held_to_its_own_bar_where_the_cases_are(self):  # decisions 0120 and NNNN
+    def test_each_kind_is_held_to_its_own_bar_where_the_cases_are(self):  # decisions 0120 and 0150
         from harness import eval as job
 
         def told(finding_cases, finding_passed, met_cases, met_passed):
@@ -1183,7 +1183,7 @@ class EvalJob(unittest.TestCase):
             self.step(job.score, lambda case: load("examples/result.json"))
             return self.step(job.judge), json.loads((self.work / job.REPORT).read_text())["split_ok"]
 
-    def test_a_missed_blocking_case_is_said_and_closes_nothing_by_itself(self):  # decisions 0120 and NNNN
+    def test_a_missed_blocking_case_is_said_and_closes_nothing_by_itself(self):  # decisions 0120 and 0150
         from harness import eval as job
         plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
         place = self.temp / "blocking"
@@ -1242,7 +1242,7 @@ class EvalJob(unittest.TestCase):
         # The line says so, as 23 of 24 would not.
         self.assertEqual(self.step(job.judge), "23 of 24 passed; finding_not_raised 1; a blocking case not passed")
 
-    def test_the_job_writes_each_kinds_word_and_the_judge_holds_it(self):  # decisions 0120 and NNNN
+    def test_the_job_writes_each_kinds_word_and_the_judge_holds_it(self):  # decisions 0120 and 0150
         # Plan, fetch, score and judge over a set of 4 cases that expect a Finding and 20 clean ones: each kind is held to
         # its own bar, 30% and 90%.
         from harness import eval as job

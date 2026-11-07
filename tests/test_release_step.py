@@ -261,7 +261,7 @@ class Candidate(unittest.TestCase):
             (gate_reads(document=report(kinds_pass={"finding": True, "met": False})), "case_failed"),
             (gate_reads(document=report(kinds_pass=None)), "eval_split_short"),
             # The word for the cases that expect a blocking Finding is never a count, and a report must say it, though a
-            # false one closes nothing by itself (decision NNNN).
+            # false one closes nothing by itself (decision 0150).
             (gate_reads(document=report(blocking_pass=None)), "eval_split_short"),
             (gate_reads(document=report(blocking_pass=1)), "report_unreadable"),
             (gate_reads(document={k: v for k, v in report().items() if k != "blocking_pass"}), "report_unreadable"),

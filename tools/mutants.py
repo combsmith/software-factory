@@ -8165,7 +8165,7 @@ MUTANTS = ISSUE + [
     ("an example's reason is not held to its status", 'tools/check_examples.py',
      'errors = errors or (_reason_unsuited(value) if kind == "result" else [])',
      'errors = errors or []', ('tests.test_tools.Examples.test_a_results_reason_its_status_may_not_give_is_caught',)),
-    # Decisions 0120 and NNNN: the gate's bar of each kind, what closes it whatever the bar, and what no longer does.
+    # Decisions 0120 and 0150: the gate's bar of each kind, what closes it whatever the bar, and what no longer does.
     ("a missed blocking case closes the gate again", 'harness/eval/__init__.py',
      '            or (kinds is not None and not all(kinds.values())):',
      '            or (kinds is not None and not all(kinds.values())) or blocking is False:',

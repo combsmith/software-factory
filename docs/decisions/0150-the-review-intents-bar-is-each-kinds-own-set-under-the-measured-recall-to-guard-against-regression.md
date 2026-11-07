@@ -1,4 +1,4 @@
-# NNNN. The review Intent's bar is each kind's own, set under the measured recall to guard against regression
+# 0150. The review Intent's bar is each kind's own, set under the measured recall to guard against regression
 
 Status: accepted. Replaces `docs/decisions/0120-the-gate-holds-a-bar-of-the-set-and-of-each-kind-and-a-fault-of-the-engine-or-the-run-still-closes-it.md`, and keeps all of it but two rows, "The bar" and "A blocking case", which it overturns, and four that name them, "Where it is computed", "What the run says", "What the bar does not hold" and "The eval gate", which it restates below. The Maintainer's ruling, restated to this lane by the Factory Builder on 2026-11-06: re-baseline the eval bar for v0.1.0, the first Release. What closes the gate whatever the bar, the split, the report and its words stand as 0120 decided them.
 

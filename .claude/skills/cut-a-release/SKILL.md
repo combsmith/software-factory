@@ -26,7 +26,7 @@ next, and roll back in one action".
 - **The Pause.** Read `FACTORY_PAUSED` on the org and this repo. A rollback runs under a Pause; a cut waits.
 - **The commit.** It is on `main`, and `verify` concluded `success` on it.
 - **The eval gate (ruling 4″).** `next` moves only to a commit whose eval report for the cases `evals/pr-review` names at that
-  commit, scored against the review's rubric, clears the bar of decision NNNN: at least 90% of the clean cases passed and
+  commit, scored against the review's rubric, clears the bar of decision 0150: at least 90% of the clean cases passed and
   at least 30% of those that expect a Finding, no fault of the Engine or the run, and the set not empty (decision 0120).
   It guards against regression and sits under the measured recall, so a Release can go out with cases not passed, a
   blocking one among them: read the judge's line. A closed gate refuses every cut and move,
