@@ -1858,10 +1858,15 @@ class Convergence(unittest.TestCase):
                          "2026-10-11T12:14:00Z")
         d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [rerun])
         self.assertEqual(d["reason"], "description_edited_after_approval")
+        # A re-run whose dispatch was not read may be the act that read, made before it: nothing shows when, so it holds.
+        unread = dict(act, started_at="2026-10-11T12:30:00Z")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=REVIEWED + [unread]), "")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), REVIEWED + [unread])
+        self.assertEqual(d["reason"], "description_edited_after_approval")
         # An act on other content, or one that began after the approval, is not the one that read it: the approval is
         # the browser's, anchored at its own time, so the same edit holds nothing.
         for other in (run(intent="issue-approval", content="sha256:0000", at="2026-10-11T12:14:00Z", name="r2"),
-                      run(intent="issue-approval", at="2026-10-11T12:20:00Z", name="r2"),
+                      dict(run(intent="issue-approval", at="2026-10-11T12:20:00Z", name="r2"), dispatched_at="2026-10-11T12:20:00Z"),
                       run(intent="review-change", at="2026-10-11T12:14:00Z", name="r2")):
             d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [other])
             self.assertEqual(d.get("action"), "enqueue", other)

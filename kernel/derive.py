@@ -1016,14 +1016,18 @@ def approval_anchor(review: dict, runs):
     """When a machine user's approval last read the description: when the approving act's Run on its content was made,
     the latest made at or before it, as the act reads the description after that (issue 195); else, where a record of
     this item was made before it or in its second, the approval's own time, as a person approving in the browser reads
-    as they approve (decision 0046); else "", before every time, as nothing shows when it read. An item's Runs run one at
+    as they approve (decision 0046); else "", before every time, as nothing shows when it read, and so where an act on
+    its content started after it with no dispatch read, which may be a re-run of the act that read. An item's Runs run one at
     a time, so none is made while an act runs, and records expire oldest first: an act's Run is not gone while a record
     as old as the approval stays. With no records given, the approval's own time (`description_anchor`)."""
     at = review["submitted_at"]
     if runs is None:
         return at
-    acts = [made_at(r) for r in runs if r["intent"] == t.ISSUE_APPROVAL
-            and r["content_id"] == review["content_id"] and made_at(r) <= at]
+    mine = [r for r in runs if r["intent"] == t.ISSUE_APPROVAL and r["content_id"] == review["content_id"]]
+    # An act started after it with no dispatch read may be a re-run of the one that read, made before it: unknown.
+    if any(made_at(r) > at and not is_time(r.get("dispatched_at")) for r in mine):
+        return ""
+    acts = [made_at(r) for r in mine if made_at(r) <= at]
     if acts:
         return max(acts)
     return at if any(made_at(r) <= at for r in runs) else ""
