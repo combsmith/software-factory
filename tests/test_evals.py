@@ -1419,12 +1419,18 @@ class EvalJob(unittest.TestCase):
             there, as the read tools may."""
             def __call__(self, args, env, timeout, **given):
                 if args[1:] != ["--version"]:
-                    for folder, folders, names in os.walk(given["head"]):
-                        seen["folders"] += [os.path.relpath(os.path.join(folder, name), given["head"]) for name in folders]
-                        for name in names:
-                            seen["files"][os.path.relpath(os.path.join(folder, name), given["head"])] = \
-                                pathlib.Path(folder, name).read_bytes().decode("utf-8", "replace")
+                    self.read(given["head"], "")
                 return super().__call__(args, env, timeout, **given)
+
+            def read(self, head, under):
+                # Listed by hand, not by `tools/walk`: that walks this repo, and skips the `.git` looked for here.
+                for name in sorted(os.listdir(os.path.join(head, under))):
+                    path = os.path.join(under, name)
+                    if os.path.isdir(os.path.join(head, path)) and not os.path.islink(os.path.join(head, path)):
+                        seen["folders"].append(path)
+                        self.read(head, path)
+                    else:
+                        seen["files"][path] = pathlib.Path(head, path).read_bytes().decode("utf-8", "replace")
         built, answered = [], step.live.answer
 
         def answering(the_task, *given, **named):
