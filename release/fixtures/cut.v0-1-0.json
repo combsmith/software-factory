@@ -627,19 +627,19 @@
             "headers": {
               "cache-control": "private, max-age=60, s-maxage=60",
               "content-type": "application/json; charset=utf-8",
-              "date": "Sat, 07 Nov 2026 06:54:12 GMT",
-              "etag": "W/\"bfaa2d87e3b242338243c15de3a09ce284225ead593614579d0b02193209225c\"",
-              "last-modified": "Sat, 07 Nov 2026 06:31:06 GMT",
+              "date": "Sat, 07 Nov 2026 13:37:06 GMT",
+              "etag": "W/\"1816adb65e7188b31f950fbc6aefa93f0d0835a7e8568ad50c1bf4ee39ae8982\"",
+              "last-modified": "Sat, 07 Nov 2026 11:52:40 GMT",
               "server": "github.com",
               "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
               "x-accepted-oauth-scopes": "repo",
               "x-github-media-type": "github.v3; format=json",
-              "x-github-request-id": "F872:1A7F5D:15936D8:468F239:6AEECB14",
+              "x-github-request-id": "CF0A:2E7AA1:4D61B3:FB4B81:6AEF2982",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "4748",
-              "x-ratelimit-reset": "1794035975",
+              "x-ratelimit-remaining": "4488",
+              "x-ratelimit-reset": "1794061754",
               "x-ratelimit-resource": "core",
-              "x-ratelimit-used": "252"
+              "x-ratelimit-used": "512"
             },
             "body": {
               "ref": "refs/tags/factory/v0.1.0",
@@ -668,19 +668,19 @@
             "headers": {
               "cache-control": "private, max-age=60, s-maxage=60",
               "content-type": "application/json; charset=utf-8",
-              "date": "Sat, 07 Nov 2026 06:54:13 GMT",
-              "etag": "W/\"e8d359ec6d3b4c1c18e27634199cc5ecbbc75be16199c1ac9b731394a5731a37\"",
-              "last-modified": "Sat, 07 Nov 2026 06:31:06 GMT",
+              "date": "Sat, 07 Nov 2026 13:37:06 GMT",
+              "etag": "W/\"c57d290786c95680de72bd9f20f599a8c1aa9f1c89598a45920c37018d0b7925\"",
+              "last-modified": "Sat, 07 Nov 2026 11:52:40 GMT",
               "server": "github.com",
               "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
               "x-accepted-oauth-scopes": "repo",
               "x-github-media-type": "github.v3; format=json",
-              "x-github-request-id": "F879:1B9E94:14A9E2F:432465D:6AEECB14",
+              "x-github-request-id": "CF0B:3650AD:17B293C:4D1DBB8:6AEF2982",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "4747",
-              "x-ratelimit-reset": "1794035975",
+              "x-ratelimit-remaining": "4487",
+              "x-ratelimit-reset": "1794061754",
               "x-ratelimit-resource": "core",
-              "x-ratelimit-used": "253"
+              "x-ratelimit-used": "513"
             },
             "body": {
               "ref": "refs/tags/factory/v0-next",
@@ -709,18 +709,18 @@
             "headers": {
               "cache-control": "private, max-age=60, s-maxage=60",
               "content-type": "application/json; charset=utf-8",
-              "date": "Sat, 07 Nov 2026 06:54:13 GMT",
-              "etag": "W/\"4f1c9410d392ee0f3dbe78bd44738751f28301734bc5232941cde5921f479750\"",
+              "date": "Sat, 07 Nov 2026 13:37:07 GMT",
+              "etag": "W/\"7bcd63192b5151aa114ce47c6b45d65e96a06f201b92aea332c9eaf222882a7c\"",
               "server": "github.com",
               "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
               "x-accepted-oauth-scopes": "repo, repo_deployment",
               "x-github-media-type": "github.v3; format=json",
-              "x-github-request-id": "F87A:22A3CE:15A5785:460FE1F:6AEECB15",
+              "x-github-request-id": "CF0C:2206D0:18FEBEB:5101747:6AEF2983",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "4746",
-              "x-ratelimit-reset": "1794035975",
+              "x-ratelimit-remaining": "4485",
+              "x-ratelimit-reset": "1794061754",
               "x-ratelimit-resource": "core",
-              "x-ratelimit-used": "254"
+              "x-ratelimit-used": "515"
             },
             "body": [
               {
@@ -756,18 +756,18 @@
             "headers": {
               "cache-control": "private, max-age=60, s-maxage=60",
               "content-type": "application/json; charset=utf-8",
-              "date": "Sat, 07 Nov 2026 06:54:13 GMT",
-              "etag": "W/\"01a67901746004b3fded4758ec875075b1d7d981b374917635a14307d467b9ea\"",
+              "date": "Sat, 07 Nov 2026 13:37:07 GMT",
+              "etag": "W/\"c81edec7137ac9dcf4e257651dcff1bdb48c1abe03d9ab8dd76aba655901d9b3\"",
               "server": "github.com",
               "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
               "x-accepted-oauth-scopes": "repo, repo_deployment",
               "x-github-media-type": "github.v3; format=json",
-              "x-github-request-id": "F8F9:36AE0D:13A024A:3FF06F3:6AEECB15",
+              "x-github-request-id": "CF0D:128B03:189E42D:4FBE56B:6AEF2983",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "4744",
-              "x-ratelimit-reset": "1794035975",
+              "x-ratelimit-remaining": "4484",
+              "x-ratelimit-reset": "1794061754",
               "x-ratelimit-resource": "core",
-              "x-ratelimit-used": "256"
+              "x-ratelimit-used": "516"
             },
             "body": [
               {
@@ -799,18 +799,18 @@
             "headers": {
               "cache-control": "private, max-age=60, s-maxage=60",
               "content-type": "application/json; charset=utf-8",
-              "date": "Sat, 07 Nov 2026 06:54:14 GMT",
-              "etag": "W/\"9cc6ab334e24bc81a2283fb85622d7822e59473e165511d80efbd8dec6dbecbd\"",
+              "date": "Sat, 07 Nov 2026 13:37:08 GMT",
+              "etag": "W/\"400dc0f319d7733fc9605c03ab767e432c28286de0594a706a4d4da4ebcea85b\"",
               "server": "github.com",
               "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
               "x-accepted-oauth-scopes": "repo",
               "x-github-media-type": "github.v3; format=json",
-              "x-github-request-id": "F95E:22A995:137033C:3F48011:6AEECB16",
+              "x-github-request-id": "CF0E:99F1B:17C2111:4D401A9:6AEF2983",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "4743",
-              "x-ratelimit-reset": "1794035975",
+              "x-ratelimit-remaining": "4482",
+              "x-ratelimit-reset": "1794061754",
               "x-ratelimit-resource": "core",
-              "x-ratelimit-used": "257"
+              "x-ratelimit-used": "518"
             },
             "body": {
               "id": 25996980,
@@ -845,11 +845,13 @@
     }
   ],
   "removed": [
-    "items[*].exchanges[*].response.headers: every header but those a trial's fixture keeps",
+    "items[*].exchanges[*].response.headers: every header but those a trial's fixture keeps; of items[1].exchanges[3], fewer still, as below",
     "items[*].exchanges[0].response.body: every field of the run but those kept, its head commit and the actor among them",
-    "items[*].exchanges[1].response.body: every field of the job but those kept",
+    "items[*].exchanges[1].response.body: every field of the job but those kept, and the name of steps[1] and steps[5], the token's mint and its post step, which tools/redact_trial.py took out as lines naming a token",
     "items[*].exchanges[2].response.body: every line of the job's log but the step's group, its inputs, its last line and its exit; the log is plain text, its colours taken out",
     "items[*].exchanges[*].response.body: of a Deployment and its statuses, every field but those kept, the creator and the URLs among them",
+    "items[*].exchanges[*].response.body: of a tag's ref, every field but the ref and its object's sha and type, the node id and the URLs among them",
+    "items[1].exchanges[8].response.body: of the tag ruleset, every field but its id, name, target, source type, enforcement, conditions, rules and bypass actors, its node id, source, dates, links and current_user_can_bypass among them",
     "items[1].exchanges[3].response.headers: every header but its content type and its date",
     "items[1].exchanges[3].response.body: every field of the refusal but its message and its status, the documentation URL among them, and the lines gh printed after it"
   ]

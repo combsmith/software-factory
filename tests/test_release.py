@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import copy
+import email.utils
 import io
 import json
 import pathlib
@@ -367,18 +368,23 @@ class Fixture(unittest.TestCase):
         self.assertEqual((again["conclusion"], again["printed"]),
                          ("failure", {"writes": [], "deployments": [], "refused": cut.ALREADY_RELEASED}))
         self.assertEqual(len(self.answered(again, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]), 1)
-        forced = self.answered(again, "/repos/%s/git/refs/tags/%s" % (REPO, fixture["version"]), "PATCH")
+        calls = [e["request"]["call"].split(" ")[:2] for e in again["exchanges"]]
+        forcing = again["exchanges"][calls.index(["PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, fixture["version"])])]
+        asked, forced = forcing["request"]["body"], forcing["response"]
+        self.assertTrue(asked["force"] is True and asked["sha"] != commit, asked)
         self.assertEqual((forced["status"], forced["body"]["message"].split("\n")[0]),
                          (422, "Repository rule violations found"))
-        calls = [e["request"]["call"].split(" ")[:2] for e in again["exchanges"]]
-        read = ["GET", "/repos/%s/git/ref/tags/%s" % (REPO, fixture["version"])]
-        self.assertLess(calls.index(["PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, fixture["version"])]),
-                        calls.index(read))
-        self.assertEqual(self.answered(again, read[1])["body"]["object"]["sha"], commit)
-        rules =self.answered(again, "/repos/%s/rulesets/25996980" % REPO)["body"]
+        # The exchanges are kept in the order they were made: the reads after the PATCH were made after it.
+        made_at = [email.utils.parsedate_to_datetime(e["response"]["headers"]["date"]) for e in again["exchanges"]]
+        self.assertEqual(made_at, sorted(made_at))
+        read = "/repos/%s/git/ref/tags/%s" % (REPO, fixture["version"])
+        self.assertLess(again["exchanges"].index(forcing), calls.index(["GET", read]))
+        self.assertEqual(self.answered(again, read)["body"]["object"]["sha"], commit)
+        rules = self.answered(again, "/repos/%s/rulesets/25996980" % REPO)["body"]
         self.assertEqual((rules["target"], rules["enforcement"], rules["bypass_actors"]), ("tag", "active", []))
         self.assertLessEqual({"update", "deletion"}, {rule["type"] for rule in rules["rules"]})
         self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
+        self.assertEqual(rules["conditions"]["ref_name"]["exclude"], [])
 
     def test_an_item_that_says_other_than_its_own_exchanges_is_refused(self):
         fixture = json.loads(self.PATH.read_text())
