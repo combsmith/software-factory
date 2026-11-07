@@ -8863,6 +8863,25 @@ class Writes(unittest.TestCase):
             # A constant assigned twice holds what each assignment names (Argon).
             "adapters/twiceconst.py": "from adapters import effects\n\nACT = effects.approve\nACT = None\n",
             "harness/useact.py": "from adapters import twiceconst\n\n\ndef go(t):\n    return twiceconst.ACT(t)\n",
+            # Astra and Argon: a re-export ten deep, a name stored under an if and used in its own module, and a method a
+            # subclass reaches in its base by self.
+            "adapters/r0.py": "from adapters.r1 import role_write\n",
+            "adapters/r1.py": "from adapters.r2 import role_write\n",
+            "adapters/r2.py": "from adapters.r3 import role_write\n",
+            "adapters/r3.py": "from adapters.r4 import role_write\n",
+            "adapters/r4.py": "from adapters.r5 import role_write\n",
+            "adapters/r5.py": "from adapters.r6 import role_write\n",
+            "adapters/r6.py": "from adapters.r7 import role_write\n",
+            "adapters/r7.py": "from adapters.r8 import role_write\n",
+            "adapters/r8.py": "from adapters.r9 import role_write\n",
+            "adapters/r9.py": "from adapters.effects import role_write\n",
+            "harness/deep.py": "from adapters.r0 import role_write" + go + role % "role_write",
+            "adapters/condw.py": "from adapters import effects\n\nif True:\n    W = effects.role_write\n" + go + role % "W",
+            "harness/usecondw.py": "from adapters import condw\n\n\ndef go(t):\n    return condw.go(t, {}, {})\n",
+            "adapters/bases.py": "from adapters.github import request\n\n\nclass Base:\n    def _write(self, t):\n"
+                                 "        return t.send(request('POST', '/repos/x/y/issues'))\n\n\nclass Sub(Base):\n"
+                                 "    def act(self, t):\n        return self._write(t)\n",
+            "harness/usebases.py": "from adapters import bases\n\n\ndef go(t):\n    return bases.Sub.act(None, t)\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
@@ -8870,6 +8889,12 @@ class Writes(unittest.TestCase):
             self.unlisted(problems, rel)
         for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py", "harness/usezz.py", "harness/usesteps.py",
                     "harness/useact.py"):
+            self.unlisted(problems, rel, "adapters.effects:approve")
+        for rel in ("harness/deep.py", "harness/usecondw.py"):
+            self.unlisted(problems, rel)
+        for rel in ("harness/usebases.py",):
+            self.unlisted(problems, rel, "adapters.bases:Base._write")
+        for rel in ():
             self.unlisted(problems, rel, "adapters.effects:approve")
 
     def test_what_cannot_be_read_fails(self):
@@ -8900,12 +8925,22 @@ class Writes(unittest.TestCase):
             "harness/loadsharness.py": "import importlib\n\n\ndef go():\n    return importlib.import_module('harness.approve')\n",
             "harness/plainvalue.py": "from adapters import items\n\n\ndef go(run):\n    return run(items)\n",
             "harness/package.py": "import adapters\n\n\ndef go(run):\n    return run(adapters)\n",
+            # Astra: a load by a renamed import_module, or __import__; an adapter that holds another as a value; a request
+            # changed after it is built, by a call; and a re-export that comes back to itself.
+            "harness/aliasload.py": "from importlib import import_module as load\n\n\ndef go():\n    return load('adapters.effects')\n",
+            "harness/dunder.py": "def go():\n    return __import__('adapters.effects')\n",
+            "adapters/relay.py": "from adapters import effects\n\nFX = effects\n",
+            "adapters/positional.py": "from adapters.github import request\n\n\ndef go(transport):\n"
+                                      "    r = request('GET', '/repos/x/y/issues/1')\n    r.update([('method', 'PATCH')])\n"
+                                      "    return transport.send(r)\n",
+            "adapters/cyc1.py": "from adapters.cyc2 import x\n", "adapters/cyc2.py": "from adapters.cyc1 import x\n",
+            "harness/usecyc.py": "from adapters.cyc1 import x\n\n\ndef go():\n    return x()\n",
         }
         problems = check_writes.run(clone(files))
         for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
                           ("harness/star.py:1", "imports * from adapters.effects"),
                           ("harness/handon.py:5", "uses the module harness.approve as a value"),
-                          ("harness/loads.py:5", "loads a module by its name"),
+                          ("harness/loads.py:1", "loads a module by its name"),
                           ("harness/missing.py:5", "names no_such_writer, which adapters.effects does not define"),
                           ("harness/twice.py:7", "names approve, which the module binds more than one way"),
                           ("harness/twice2.py:3", "names step, which the module binds more than one way"),
@@ -8916,8 +8951,13 @@ class Writes(unittest.TestCase):
                           ("harness/twodefs.py:10", "names act, which the module binds more than one way"),
                           ("harness/defval.py:9", "names act, which the module binds more than one way"),
                           ("harness/useconf.py:5", "names w, which the module binds more than one way"),
-                          ("harness/loadsvar.py:5", "loads a module by its name"),
-                          ("harness/loadsharness.py:5", "loads a module by its name"),
+                          ("harness/loadsvar.py:1", "loads a module by its name"),
+                          ("harness/loadsharness.py:1", "loads a module by its name"),
+                          ("harness/aliasload.py:1", "loads a module by its name"),
+                          ("harness/dunder.py:2", "loads a module by its name"),
+                          ("adapters/relay.py:3", "uses the module adapters.effects as a value"),
+                          ("adapters/positional.py:6", "changes a request after it is built"),
+                          ("harness/usecyc.py:5", "names x, which adapters.cyc"),
                           ("harness/plainvalue.py:5", "uses the module adapters.items as a value"),
                           ("harness/package.py:5", "uses the module adapters as a value")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
@@ -8947,6 +8987,10 @@ class Writes(unittest.TestCase):
                  "adapters/shadow.py": (self.MARKS % self.QUERY).replace("    return", "    MARK = '%s'\n    return" % self.MUTATION),
                  "adapters/spread.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, **ident,'),
                  "adapters/subs.py": self.MARKS % "subscription S { x }",
+                 # Astra: a query a parameter shadows, one a key that is no literal may replace, one assigned again.
+                 "adapters/param.py": (self.MARKS % self.QUERY).replace("def mark(transport, ident):", "def mark(transport, ident, MARK):"),
+                 "adapters/keyed.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, key: ident,'),
+                 "adapters/reassigned.py": (self.MARKS % self.QUERY).replace("\n\n\ndef mark", "\nMARK = ''.join([MARK])\n\n\ndef mark"),
                  # A query filled with text may be filled with a mutation (Argon); one filled with a number may not.
                  "adapters/filled.py": (self.MARKS % "query Q { y } %s").replace('MARK = "query Q { y } %s"',
                                                                                  'MARK = "query Q { y } %s" % OTHER'),
@@ -8964,7 +9008,10 @@ class Writes(unittest.TestCase):
                           ("adapters/shadow.py:8", "its GraphQL query is a name the function itself sets"),
                           ("adapters/spread.py:7", "its GraphQL body is not a literal dict"),
                           ("adapters/filled.py:7", "its GraphQL query is formatted with text"),
-                          ("adapters/subs.py:7", "its GraphQL document is neither a query nor a mutation")):
+                          ("adapters/subs.py:7", "its GraphQL document is neither a query nor a mutation"),
+                          ("adapters/param.py:7", "its GraphQL query is a name the function itself sets"),
+                          ("adapters/keyed.py:7", "its GraphQL body is not a literal dict"),
+                          ("adapters/reassigned.py:8", "its GraphQL query is not a text constant")):
             self.assertTrue(caught(problems, "%s sends a request whose kind cannot be read: %s" % (rel, said)), (rel, problems))
         # A query by POST is a read, and a token minted or revoked a credential: neither caller is named.
         self.assertFalse(caught(problems, "harness/peekr.py"), problems)
