@@ -31,6 +31,13 @@ def load(rel: str):
     return json.loads((ROOT / rel).read_text())
 
 
+def example_result() -> dict:
+    """The public example Result, posting none of its Findings: the example cases' diff holds no line of the test file
+    one is on, and the scorer refuses a Result that posts a Finding off every hunk, as `apply` does (issue 574), which
+    would hide what a test scores it for. A test of that rule posts its Findings itself."""
+    return dict(load("examples/result.json"), effects={})
+
+
 class Heads:
     """A transport standing in for the anonymous one `fetch` reads each case's head with: each commit's tarball as
     codeload serves one (P-60), or, for a commit in `refused`, a 404. What it was asked is kept by path."""
@@ -72,7 +79,7 @@ def reviewed(env, release, began, call=None, clock=None, place=None):
 
 class Scoring(unittest.TestCase):
     def test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails(self):
-        case, result = load("examples/eval-case.json"), load("examples/result.json")
+        case, result = load("examples/eval-case.json"), example_result()
         self.assertEqual(eval_result.score(case, result), {"case": case["id"], "verdict": "pass", "reasons": []})
         # A Result that raised nothing, one that raised it against another criterion, in another category, at another
         # severity, in another file, or that covered the criterion as met: each is a fail that says why.
@@ -132,7 +139,7 @@ class Scoring(unittest.TestCase):
     def test_a_finding_no_finding_cited_says_where_it_went(self):
         # Run 41315433150 read 19 cases as `finding_not_raised`, and could not tell a miss from a Finding raised and not
         # cited. Each of these fails the case alike: only what it says has changed.
-        case, right = load("examples/eval-case.json"), load("examples/result.json")
+        case, right = load("examples/eval-case.json"), example_result()
         self.assertEqual(eval_result.score(case, right)["verdict"], "pass")
         at = right["findings"][0]
         place = at["location"]
@@ -175,7 +182,7 @@ class Scoring(unittest.TestCase):
         # A fault that spans several changed lines is rightly placed on any of them: a case may name up to three such
         # places beside its `location`, in `also_at`, each on lines a hunk of its own diff holds on the head's side. One
         # fault, several places: what else a Finding must be is unchanged.
-        case, result = load("examples/eval-case.also-at.json"), load("examples/result.json")
+        case, result = load("examples/eval-case.also-at.json"), example_result()
         first, other = case["expected"]["finding"]["location"], case["expected"]["finding"]["also_at"][0]
         self.assertNotEqual(eval_result._lines(first), eval_result._lines(other))
 
@@ -300,7 +307,7 @@ class Scoring(unittest.TestCase):
             bad["expected"]["finding"]["also_at"] = places
             self.assertNotEqual(validate(bad, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [], places)
     def test_a_right_change_is_scored_by_its_coverage(self):
-        case, result = load("examples/eval-case.met.json"), load("examples/result.json")
+        case, result = load("examples/eval-case.met.json"), example_result()
         # The example's major Finding would hold a pull request, which a clean case fails (decision 0144): at minor, it
         # holds none.
         result["findings"][0]["severity"] = "minor"
@@ -319,7 +326,7 @@ class Scoring(unittest.TestCase):
         # a security Finding at any severity, as `kernel/gate.py` reads a required Lens's, fails the case whatever
         # criterion it cites or none, and even with the case's own criterion covered as met.
         from kernel import gate, terms
-        case, result = load("examples/eval-case.met.json"), load("examples/result.json")
+        case, result = load("examples/eval-case.met.json"), example_result()
         self.assertEqual(result["findings"][0]["severity"], "major")
         self.assertNotEqual(result["findings"][0]["criterion"], case["expected"]["criterion"])
         self.assertEqual([c["verdict"] for c in result["coverage"] if c["criterion"] == case["expected"]["criterion"]], ["met"])
@@ -347,7 +354,7 @@ class Scoring(unittest.TestCase):
         self.assertEqual(eval_result.score(case, cites)["reasons"], ["finding_raised_wrongly"])
         # The other side: a case that expects a Finding is scored as before, a Finding elsewhere that would hold it no fault.
         found = load("examples/eval-case.json")
-        extra = copy.deepcopy(load("examples/result.json"))
+        extra = copy.deepcopy(example_result())
         extra["findings"].append(dict(extra["findings"][1], ref="n9", category="security", severity="blocking"))
         self.assertEqual(eval_result.score(found, extra)["verdict"], "pass")
 
@@ -355,7 +362,7 @@ class Scoring(unittest.TestCase):
         # A Result whose Finding cites a criterion at another severity or category than the rubric's is refused (decisions
         # 0088 and 0095), so a case that expects one would reward a Result `apply` refuses: what is measured would not be
         # what runs. Such a case is no answer, whatever the Result says, and it is read as a code alone.
-        case, result = load("examples/eval-case.json"), load("examples/result.json")
+        case, result = load("examples/eval-case.json"), example_result()
         self.assertEqual(eval_result.score(case, result)["verdict"], "pass")
         self.assertFalse(eval_result.off_rubric(case))
         for change in ({"category": "delivery"}, {"severity": "minor"}, {"category": "security", "severity": "blocking"}):
@@ -416,7 +423,7 @@ class Scoring(unittest.TestCase):
             self.assertFalse(eval_result.off_rubric(json.loads(path.read_text())), path.name)
 
     def test_a_case_or_a_result_that_cannot_be_read_scores_nothing(self):
-        case, result = load("examples/eval-case.json"), load("examples/result.json")
+        case, result = load("examples/eval-case.json"), example_result()
         for broken in ({}, dict(case, expected=None), dict(case, diff=None), "a case", None):
             self.assertEqual(eval_result.score(broken, result)["verdict"], "unreadable", broken)
         for broken in ({}, dict(result, status="done"), dict(result, findings=[{"ref": "n1"}])):
@@ -433,10 +440,67 @@ class Scoring(unittest.TestCase):
             unknown = dict(copy.deepcopy(case), **over)
             self.assertEqual(eval_result.score(unknown, result)["reasons"], ["criterion_unknown"], over)
 
+    def test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result(self):  # issue 574
+        # `apply` refuses a Result whole when a Finding it posts is not all on one hunk of its file at the head (decision
+        # 0146), so the scorer fails the case by that code alone, as a live Run would meet it, by `apply`'s own readers.
+        from harness import apply, task
+        case = load("examples/eval-case.json")
+        shown = {"texts": [{"id": "diff:x", "body": task.numbered(case["diff"])}]}
+
+        def posting(*places, annotate=None):
+            result = example_result()
+            for finding, place in zip(result["findings"], places):
+                finding["location"] = place
+            result["effects"] = {"submit_review": [{"id": "e1", "comments": [{"finding": "n1", "body": "x"}], "body": None}]}
+            if annotate:
+                result["effects"]["create_check_run"] = [{"id": "e2", "annotations": [{"finding": "n2", "body": "x"}]}]
+            return result
+        decide = {"path": "kernel/decide.py", "start_line": 88, "end_line": 94}
+        on = posting(decide)
+        self.assertEqual(eval_result.score(case, on), {"case": case["id"], "verdict": "pass", "reasons": []})
+        # The hunk's first and last lines are on it; a line before or past it, or a file the diff does not hold, is not.
+        for place, off in ((dict(decide, start_line=86), False), (dict(decide, end_line=95), True),
+                           (dict(decide, start_line=85), True), (dict(decide, path="kernel/derive.py"), True)):
+            result = posting(place)
+            self.assertEqual(eval_result.score(case, result)["reasons"] == ["finding_not_in_hunk"], off, place)
+            self.assertEqual(apply.off_hunks(shown, result) is not None, off, place)
+        # An annotation is held as a review's comment is, and the case fails by it alone, the right Finding beside it.
+        noted = posting(decide, {"path": "tests/test_decide.py", "start_line": 410, "end_line": 410}, annotate=True)
+        self.assertEqual(eval_result.score(case, noted), {"case": case["id"], "verdict": "fail", "reasons": ["finding_not_in_hunk"]})
+        self.assertEqual(eval_result.score(load("examples/eval-case.met.json"), noted)["reasons"], ["finding_not_in_hunk"])
+        # A review's comment is held beside an annotation that is on the hunk, as the annotation is beside a comment.
+        swapped = copy.deepcopy(noted)
+        swapped["effects"]["submit_review"][0]["comments"][0]["finding"] = "n2"
+        swapped["effects"]["create_check_run"][0]["annotations"][0]["finding"] = "n1"
+        self.assertEqual(eval_result.score(case, swapped)["reasons"], ["finding_not_in_hunk"])
+        self.assertEqual(eval_result.score(load("examples/eval-case.met.json"), swapped)["reasons"], ["finding_not_in_hunk"])
+        # A fault of the case is told first, as before: it is the case owner's, never the reviewer's.
+        for over, code in (({"criterion": "PR-99"}, "criterion_unknown"), ({"finding": None}, "answer_disagrees_with_verdict"),
+                           ({"finding": dict(case["expected"]["finding"], severity="minor")}, "answer_off_rubric"),
+                           ({"finding": dict(case["expected"]["finding"], also_at=[{"path": "kernel/decide.py",
+                                                                                    "start_line": 1, "end_line": 1}])},
+                            "location_unreadable")):
+            broken = dict(case, expected=dict(case["expected"], **over))
+            self.assertEqual(eval_result.score(broken, noted)["reasons"], [code], code)
+        # A Result that did not complete is told as that, as `apply` refuses it first.
+        unfinished = dict(noted, status="incomplete", reason="change_not_reviewed_whole")
+        self.assertEqual(eval_result.score(case, unfinished)["reasons"][0], "result_not_completed")
+        self.assertNotIn("finding_not_in_hunk", eval_result.score(case, unfinished)["reasons"])
+        # A Finding the Result does not post is scored as before, and so is a posted one with no lines, which `apply`
+        # refuses by another code.
+        unposted = dict(posting(dict(decide, path="kernel/derive.py")), effects={})
+        self.assertEqual(eval_result.score(case, unposted)["reasons"], ["location_differs"])
+        whole = posting({"path": "kernel/decide.py"})
+        self.assertEqual(eval_result.score(case, whole)["reasons"], ["location_differs"])
+
     def test_the_front_door_scores_two_files_and_says_so_in_its_exit(self):
+        import tempfile
         out = io.StringIO()
-        with mock.patch("sys.stdout", out):
-            self.assertEqual(eval_result.main([str(ROOT / "examples" / "eval-case.json"), str(ROOT / "examples" / "result.json")]), 0)
+        with tempfile.TemporaryDirectory() as d, mock.patch("sys.stdout", out):
+            given = pathlib.Path(d).resolve()
+            (given / "case.json").write_text(json.dumps(load("examples/eval-case.json")))
+            (given / "result.json").write_text(json.dumps(example_result()))
+            self.assertEqual(eval_result.main([str(given / "case.json"), str(given / "result.json")], base=given), 0)
         self.assertEqual(json.loads(out.getvalue())["verdict"], "pass")
         with mock.patch("sys.stdout", io.StringIO()):
             self.assertEqual(eval_result.main([str(ROOT / "examples" / "eval-case.met.json"),
@@ -456,8 +520,9 @@ class Scoring(unittest.TestCase):
                 self.assertEqual(eval_result.main(outside, base=base), 2, outside)
         self.assertNotIn("elsewhere", said.getvalue())
         self.assertIn("file_outside", said.getvalue())
+        # A path inside it is read: the example Result posts a Finding off the example case's hunks, so it fails.
         with mock.patch("sys.stdout", io.StringIO()):
-            self.assertEqual(eval_result.main([str(case), str(result)], base=ROOT / "examples"), 0)
+            self.assertEqual(eval_result.main([str(case), str(result)], base=ROOT / "examples"), 1)
 
 
 class TheSet(unittest.TestCase):
@@ -797,7 +862,7 @@ class EvalJob(unittest.TestCase):
 
     def test_each_case_is_fetched_into_the_scratch_and_scored_and_only_the_report_reaches_the_workspace(self):
         from harness import eval as job
-        result = load("examples/result.json")
+        result = example_result()
         self.assertEqual(self.step(job.plan), "planned 2 cases")
         self.assertEqual(self.step(job.fetch, self.home(self.cases)), "fetched 2 of 2 cases")
         kept = self.temp / "heldout" / "cases"
@@ -827,7 +892,7 @@ class EvalJob(unittest.TestCase):
         self.set(cases)
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))
-        result = load("examples/result.json")
+        result = example_result()
         result["findings"][0]["location"] = {"path": "kernel/decide.py", "start_line": 86, "end_line": 86}
         self.assertEqual(self.step(job.score, lambda case: result), "scored 2 of 2 cases, 2 passed")
         written = json.loads((self.work / job.REPORT).read_text())
@@ -855,7 +920,7 @@ class EvalJob(unittest.TestCase):
         # `verdict`, the Release's gate too, refuses. Neither says how many of a kind.
         from harness import eval as job
         self.assertEqual(job.KIND_LEAST, 0, "as these fixtures set it")
-        result = load("examples/result.json")
+        result = example_result()
         one = json.loads(next(iter(self.cases.values())))
         right = dict(copy.deepcopy(one), id="poc-right",
                      expected={"verdict": "met", "criterion": one["expected"]["criterion"], "finding": None})
@@ -902,7 +967,7 @@ class EvalJob(unittest.TestCase):
 
     def test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded(self):
         from harness import eval as job
-        result = load("examples/result.json")
+        result = example_result()
         wrong = copy.deepcopy(result)
         wrong["findings"] = []
         self.step(job.plan)
@@ -989,7 +1054,7 @@ class EvalJob(unittest.TestCase):
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))
         asked = []
-        self.step(job.score, lambda case: asked.append(case["id"]) or load("examples/result.json"))
+        self.step(job.score, lambda case: asked.append(case["id"]) or example_result())
         self.assertEqual(asked, ["poc-two"], "the case off its rubric is never given to the review")
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
@@ -1125,7 +1190,8 @@ class EvalJob(unittest.TestCase):
         for code in job.ENGINE_FAULTS:
             self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "engine_fault", code)
         # No code is left out of telling the two apart: each of the report's is a Fault, the reviewer's or a case's own.
-        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | {"result_not_completed", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met"}
+        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | {"result_not_completed", "coverage_disagrees", "finding_raised_wrongly",
+                                                                    "criterion_not_met", "finding_not_in_hunk"}
         self.assertEqual(job.eval_result_codes(), scorer | own | set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS))
         self.assertEqual(own & (set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS)), set())
 
@@ -1180,7 +1246,7 @@ class EvalJob(unittest.TestCase):
         self.step(fetch, self.home(self.cases))
         said = lambda case, result: {"case": case["id"], "verdict": "pass", "reasons": []}
         with mock.patch.object(job, "BLOCKING_LEAST", 1), mock.patch.object(job.eval_result, "score", said):
-            self.step(job.score, lambda case: load("examples/result.json"))
+            self.step(job.score, lambda case: example_result())
             return self.step(job.judge), json.loads((self.work / job.REPORT).read_text())["split_ok"]
 
     def test_a_missed_blocking_case_is_said_and_closes_nothing_by_itself(self):  # decisions 0120 and 0150
@@ -1236,7 +1302,7 @@ class EvalJob(unittest.TestCase):
         said = lambda case, result: {"case": case["id"], "verdict": "fail" if case["id"] == "poc-b0" else "pass",
                                      "reasons": ["finding_not_raised"] if case["id"] == "poc-b0" else []}
         with mock.patch.object(job.eval_result, "score", said):
-            self.step(job.score, lambda case: load("examples/result.json"))
+            self.step(job.score, lambda case: example_result())
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((written["passed"], written["kinds_pass"]["finding"], written["blocking_pass"]), (23, True, False))
         # The line says so, as 23 of 24 would not.
@@ -1266,7 +1332,7 @@ class EvalJob(unittest.TestCase):
             said = lambda case, result: {"case": case["id"], "verdict": "fail" if case["id"] in miss else "pass",
                                          "reasons": ["finding_not_raised"] if case["id"] in miss else []}
             with mock.patch.object(job.eval_result, "score", said):
-                self.step(job.score, lambda case: load("examples/result.json"))
+                self.step(job.score, lambda case: example_result())
             return json.loads((self.work / job.REPORT).read_text())
         # A kind under its bar: 1 of 4 that expect a Finding, and the job's own word closes the gate, 21 of 24 passed.
         written = run({"poc-k0", "poc-k1", "poc-k2"})
@@ -1404,7 +1470,7 @@ class EvalJob(unittest.TestCase):
         self.step(plan)
         self.assertEqual(self.step(fetch, self.home(cases)), "fetched 1 of 1 cases")
         given = []
-        self.step(job.score, lambda case: given.append(case) or load("examples/result.json"))
+        self.step(job.score, lambda case: given.append(case) or example_result())
         self.assertEqual(len(given), 1, "the case is read as filled")
         self.assertIsNone(given[0]["facts"]["last_reopened_at"])
         # And the scorer reads the filled case too: raw, it would be refused by its schema, and every case would fail.
@@ -1502,7 +1568,7 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
         first = next(iter(self.cases))
-        usage = load("examples/result.json")["usage"]
+        usage = example_result()["usage"]
         for reason in job.ENGINE_FAULTS:
             with self.subTest(reason):
                 shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
@@ -1511,7 +1577,7 @@ class EvalJob(unittest.TestCase):
                 self.step(fetch, self.home(self.cases))
                 task = {"run": "r_ABC123", "release": "factory/v0.1.0"}
                 failed = engine.failed(task, reason, usage)
-                good = load("examples/result.json")
+                good = example_result()
                 self.step(job.score, lambda case: failed if case["id"] == first else good)
                 written = json.loads((self.work / job.REPORT).read_text())
                 self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
@@ -1524,7 +1590,7 @@ class EvalJob(unittest.TestCase):
         shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
         self.step(plan)
         self.step(fetch, self.home(self.cases))
-        wrong = dict(load("examples/result.json"), findings=[])
+        wrong = dict(example_result(), findings=[])
         invalid = engine.failed({"run": "r_ABC123", "release": "factory/v0.1.0"}, "result_invalid", usage)
         self.step(job.score, lambda case: wrong if case["id"] == first else invalid)
         written = json.loads((self.work / job.REPORT).read_text())
@@ -1536,7 +1602,7 @@ class EvalJob(unittest.TestCase):
         shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
         self.step(plan)
         self.step(fetch, self.home(self.cases))
-        said = dict(load("examples/result.json"), status="refused", reason="engine_failed", findings=[])
+        said = dict(example_result(), status="refused", reason="engine_failed", findings=[])
         self.step(job.score, lambda case: said)
         report = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([c["reasons"] for c in report["cases"]],
@@ -1643,7 +1709,7 @@ class EvalJob(unittest.TestCase):
         self.set(cases)
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))
-        self.step(job.score, lambda case: load("examples/result.json"))
+        self.step(job.score, lambda case: example_result())
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]], [("unreadable", ["criterion_unknown"])])
         self.assertEqual(self.step(job.judge), "case_failed")
@@ -1764,7 +1830,7 @@ class EvalJob(unittest.TestCase):
         first = next(iter(self.cases))
         self.step(job.plan)
         self.step(job.fetch, self.home(self.cases))
-        self.step(job.score, lambda c: result if c["id"] == first else load("examples/result.json"))
+        self.step(job.score, lambda c: result if c["id"] == first else example_result())
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["no_answer"])
         self.assertEqual(self.step(job.judge), "engine_fault")
@@ -1804,7 +1870,10 @@ class EvalJob(unittest.TestCase):
                      "A Finding you raise cites the criterion it falls under, the nearest where more than one fits, and that criterion's coverage is `finding`, never `met`",
                      "A security fault that no `security` criterion reaches stays cited to none, at category `security`, "
                      "and counts against no criterion's coverage",
-                     "Never `met` on the diff's face alone."):
+                     "Never `met` on the diff's face alone.",
+                     "Each Finding's lines, from `start_line` to `end_line`, are all on one hunk of its file in the diff, "
+                     "lines the diff numbers: a Finding on a line you read only in the head, or across two hunks, refuses "
+                     "the whole Result, every other Finding with it."):
             self.assertIn(said, prompt)
 
     def test_a_finding_at_the_line_its_task_numbers_is_where_the_scorer_looks(self):  # decision 0137
@@ -1966,13 +2035,13 @@ class EvalJob(unittest.TestCase):
         self.step(plan)
         with mock.patch.object(heldout, "case", side_effect=OSError("the home's name")):
             self.step(fetch, self.home(self.cases))
-        self.step(job.score, lambda case: load("examples/result.json"))
+        self.step(job.score, lambda case: example_result())
         text = (self.work / job.REPORT).read_text()
         self.assertEqual({(c["reasons"][0], c["cause"]["exception"]) for c in json.loads(text)["cases"]}, {("unanswered", "OSError")})
         self.assertNotIn("home's name", text)
         # The causes of the home's read that cannot be read are none: the report is written all the same.
         (self.temp / "heldout" / "fetch-causes.json").unlink()
-        self.step(job.score, lambda case: load("examples/result.json"))
+        self.step(job.score, lambda case: example_result())
         self.assertEqual([c.get("cause") for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [None, None])
         # A class, a code, an exit or a timeout not of its shape is left out, so the report holds to its schema.
         class timeout(Exception):

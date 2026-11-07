@@ -29,7 +29,9 @@ request's head, which you may read with Read, Grep and Glob. They write nothing,
   first to the last: not where the fault shows, fails or is used. A fault that spans files sits on the change that
   causes it, in that change's file. A fault that is a removed line sits on the numbered lines of its hunk nearest where
   it was. A file the change deletes has no lines in the head: a fault its deletion brings sits on the changed lines of
-  another file that it breaks. Cite the criterion whenever the problem falls under one, the nearest that fits, with that criterion's
+  another file that it breaks. Each Finding's lines, from `start_line` to `end_line`, are all on one hunk of its file
+  in the diff, lines the diff numbers: a Finding on a line you read only in the head, or across two hunks, refuses the
+  whole Result, every other Finding with it. Cite the criterion whenever the problem falls under one, the nearest that fits, with that criterion's
   severity and category; give none only when no criterion of the rubric reaches it, and only after checking each
   criterion against it. A security fault no `security`
   criterion reaches is cited to none, at category `security`: never filed under another category's criterion. A Finding that cites a criterion has that criterion's `severity_if_violated` and its `category`,
