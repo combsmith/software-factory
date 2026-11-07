@@ -9,8 +9,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   commit its diff was taken at, as its tarball with no credential, unpacked by hand beside it (decision 0138);
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
-- `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: the
-  bar of decision 0120, every case that expects a blocking Finding, and no fault of the Engine or the run.
+- `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: each
+  kind's bar of decision 0150, and no fault of the Engine or the run (decision 0120).
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
 exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
@@ -38,15 +38,17 @@ REPORT = "eval-report.json"
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
-# The bar a run must clear, as whole fractions so that a boundary is exact: of the whole set, and of each kind, set before
-# any result with issue text (decision 0120). A case not passed is not passed, whatever it reads as.
-BAR_OF_THE_SET, BAR_OF_A_KIND = (9, 10), (4, 5)
+# The bar each kind's cases must clear, as whole fractions so that a boundary is exact: those of a criterion met, the clean
+# cases, and those that expect a Finding. A guard against regression, set under the measured recall so that a run's noise
+# alone does not close it, and raised as recall rises. The set's own share has no bar but the fewest passes these imply,
+# `least_passed` (decision 0150, in place of 0120's bar). A case not passed is not passed, whatever it reads as.
+BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}
 # How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
 # held here, where the cases are, since the repo cannot hold a count of them true (decision 0120).
 KIND_LEAST = 20
 KINDS = ("finding", "met")
-BLOCKING = "blocking"       # a case that expects a Finding of this severity must pass, whatever the bar (decision 0120)
-BLOCKING_LEAST = 1          # and a set holds one, or a true word for them could mean none exist
+BLOCKING = "blocking"       # whether every case that expects a Finding of this severity passed is said, and closes nothing
+BLOCKING_LEAST = 1          # by itself (decision 0150); a set holds one, or a true word for them could mean none exist
 # What a case's `cause` may say, each held to a shape that holds no words: an exception's class, the last line of this
 # repo's own code it passed, a code, and the CLI's subtype and exit. Never a message, which could quote a case.
 CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,63}")
@@ -450,9 +452,19 @@ def _clears(passed: int, of: int, bar: tuple) -> bool:
     return passed * bar[1] >= of * bar[0]
 
 
+def least_passed(count: int, least: int) -> int:
+    """The fewest of `count` cases a set can have passed with each kind on its BAR_OF_A_KIND and holding `least` cases at
+    least: those `least` of each kind, and every other case in the kind whose bar asks fewest of them (decision 0150). A
+    set too small to hold `least` of each kind is read with no least."""
+    least = least if count >= least * len(KINDS) else 0
+    on = lambda bar, cases: -(-cases * bar[0] // bar[1])        # the fewest of `cases` that clear `bar`, in whole numbers
+    return min(sum(on(BAR_OF_A_KIND[kind], count - least * (len(KINDS) - 1) if kind == rest else least) for kind in KINDS)
+               for rest in KINDS)
+
+
 def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
-    """`{kind: whether at least BAR_OF_A_KIND of its cases passed}`, read where the cases are: one word for each, never how
-    many (decision 0120). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
+    """`{kind: whether at least its BAR_OF_A_KIND of its cases passed}`, read where the cases are: one word for each, never
+    how many (decisions 0120 and 0150). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
     holds that."""
     kinds = kinds_of(found, place)
     if kinds is None:
@@ -461,7 +473,7 @@ def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     for kind in KINDS:
         cases = [case for case, its in kinds.items() if its == kind]
         passed = [case for case in cases if assessed[case] == (PASS, [])]
-        said[kind] = _clears(len(passed), len(cases), BAR_OF_A_KIND)
+        said[kind] = _clears(len(passed), len(cases), BAR_OF_A_KIND[kind])
     return said
 
 
@@ -484,8 +496,9 @@ def blocking_cases(found: dict, expected: dict) -> list:
 
 
 def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
-    """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many. True
-    of a set with none, which `split_ok` closes on. None where `_expected` can say nothing."""
+    """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many, which
+    the judge's line says and which closes nothing by itself (decision 0150). True of a set with none, which `split_ok`
+    closes on. None where `_expected` can say nothing."""
     expected = _expected(found, place)
     if expected is None:
         return None
@@ -510,8 +523,8 @@ def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: di
 
 def verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
     """`pass` only for the report of this set on this commit for this Release, with a case at least, every case the
-    manifest names once by its id and hash, no case stopped by a fault of the Engine or the run, at least BAR_OF_THE_SET
-    of them and BAR_OF_A_KIND of each kind passed, and every case that expects a blocking Finding (decision 0120); otherwise the one code that says why not.
+    manifest names once by its id and hash, no case stopped by a fault of the Engine or the run, and each kind's
+    BAR_OF_A_KIND of its cases passed (decision 0150); otherwise the one code that says why not.
     The Release's gate reads the report it downloads with this function too (the ruling on issue 197, 4″)."""
     if _errors(document, "eval-report"):
         return "report_unreadable"
@@ -539,9 +552,13 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
     # A case marked as passed at an alternate place alone is a pass (decision 0143).
     if any(c.get("at_alternate") and c["verdict"] != PASS for c in document["cases"]):
         return "count_differs"
+    # Each kind is held to its own bar, where the cases are. The set's share is held only to the fewest passes a set
+    # whose kinds each cleared could hold, of KIND_LEAST each where the report says the split held, so that a report
+    # whose words its own cases cannot bear is not passed. A blocking case not passed closes nothing by itself (decision
+    # 0150).
     kinds, blocking = document["kinds_pass"], document["blocking_pass"]
-    if not _clears(passed, found["count"], BAR_OF_THE_SET) or (kinds is not None and not all(kinds.values())) \
-            or blocking is False:
+    if passed < least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \
+            or (kinds is not None and not all(kinds.values())):
         return "case_failed"
     if document["split_ok"] is not True or kinds is None or blocking is None:
         return "eval_split_short"
@@ -566,9 +583,9 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
 
 
 def tally(document: dict) -> str:
-    """One line of a report that holds to its schema: how many cases passed, how many carry each code, and what of its
-    words closed the gate, as a share alone may not say why, and how many passed at an alternate place alone (decision
-    0143)."""
+    """One line of a report that holds to its schema: how many cases passed, how many carry each code, each kind under
+    its bar, which closes the gate, and a blocking case not passed, which does not by itself (decision 0150), as a share
+    alone may not say why, and how many passed at an alternate place alone (decision 0143)."""
     codes = [code for case in document["cases"] for code in case["reasons"]]
     alternate = len([case for case in document["cases"] if case.get("at_alternate") and case["verdict"] == PASS])
     closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]

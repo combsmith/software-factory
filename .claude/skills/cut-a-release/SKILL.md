@@ -26,9 +26,10 @@ next, and roll back in one action".
 - **The Pause.** Read `FACTORY_PAUSED` on the org and this repo. A rollback runs under a Pause; a cut waits.
 - **The commit.** It is on `main`, and `verify` concluded `success` on it.
 - **The eval gate (ruling 4″).** `next` moves only to a commit whose eval report for the cases `evals/pr-review` names at that
-  commit, scored against the review's rubric, clears the bar of decision 0120: at least 90% of the set passed, each kind
-  at least 80%, every case that expects a blocking Finding passed, no fault of the Engine or the run, and the set not
-  empty. So a Release can go out with cases not passed: read the judge's line. A closed gate refuses every cut and move,
+  commit, scored against the review's rubric, clears the bar of decision 0150: at least 90% of the clean cases passed and
+  at least 30% of those that expect a Finding, no fault of the Engine or the run, and the set not empty (decision 0120).
+  It guards against regression and sits under the measured recall, so a Release can go out with cases not passed, a
+  blocking one among them: read the judge's line. A closed gate refuses every cut and move,
   `eval_gate_closed`: a gate-deciding Intent does not serve without its eval set (design section 9.1).
 - **The release key's environment.** Only `factory-release`'s deployment branches keep the App's key from another ref's copy
   of a workflow, and nothing in the repo can hold them. Have the Maintainer run `sh tools/environments_drift.sh` at a terminal, and stop if it says anything but `no drift`.

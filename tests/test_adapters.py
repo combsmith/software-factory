@@ -95,6 +95,28 @@ class Transport(unittest.TestCase):
             with self.assertRaises(github.Unanswered, msg=headers):
                 github.request("GET", "/x", headers=headers)
 
+    def test_the_storage_is_any_productionresults_account_numbered_in_one_to_three_digits(self):
+        # Decision 0151, the Maintainer's ruling of 2026-11-06: GitHub serves an artifact from sa32, so the storage is
+        # productionresultssa and one to three digits, with no leading zero; the rest of 0045's row stands.
+        for number in ("0", "7", "10", "19", "20", "32", "99", "100", "199", "999"):
+            url = "https://productionresultssa%s.blob.core.windows.net/actions-results/0a1b/outcome.zip?sig=redacted" % number
+            self.assertEqual(github.storage(url), url)
+        for host in ("productionresultssa1000", "productionresultssa0000", "productionresultssa00", "productionresultssa032",
+                     "productionresultssa", "productionresultssax", "productionresultssa32b", "productionresultssa3x2",
+                     "productionresultssa-32", "productionresultssa32-", "productionresultssa٣٢",
+                     "productionresultssb32", "productionresults32", "evilproductionresultssa32", "productionresultsa32"):
+            with self.assertRaises(github.Unanswered, msg=host):
+                github.storage("https://%s.blob.core.windows.net/actions-results/x" % host)
+        for url in ("https://productionresultssa32.queue.core.windows.net/actions-results/x",
+                    "https://productionresultssa32.blob.core.chinacloudapi.cn/actions-results/x",
+                    "https://productionresultssa32.blob.core.windows.net.evil.com/actions-results/x",
+                    "https://evil.com/productionresultssa32.blob.core.windows.net/actions-results/x",
+                    "http://productionresultssa32.blob.core.windows.net/actions-results/x",
+                    "https://productionresultssa32.blob.core.windows.net:8443/actions-results/x",
+                    "https://productionresultssa32.blob.core.windows.net/other/x"):
+            with self.assertRaises(github.Unanswered, msg=url):
+                github.storage(url)
+
     def test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage(self):
         # Decision 0045, the Maintainer's ruling on #192: the one redirect is an artifact's download, to GitHub's
         # artifact storage alone, over HTTPS on its own port.
@@ -116,7 +138,7 @@ class Transport(unittest.TestCase):
                     "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/actions-results/x", "https://pipelines.actions.githubusercontent.com/actions-results/x",
                     "https://productionresultssa7.blob.core.windows.net/actions-results/x\r\nHost: e", "https://api.github.com/actions-results/x",
                     "https://productionresultssa7.blob.core.windows.net\\@evil.com/actions-results/x", None, 7,
-                    "https://productionresultssa20.blob.core.windows.net/actions-results/x", "https://productionresultssa07.blob.core.windows.net/actions-results/x",
+                    "https://productionresultssa07.blob.core.windows.net/actions-results/x",
                     # Under /actions-results/ alone, and no segment that climbs out, plain or percent-encoded.
                     "https://productionresultssa7.blob.core.windows.net/other/x?sig=1",
                     "https://productionresultssa7.blob.core.windows.net/actions-resultsx/x",

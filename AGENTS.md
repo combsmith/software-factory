@@ -10,7 +10,7 @@ except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standard
 
 ```
 make verify                  # every check and every test: 15 minutes on CI, 40 on a busy desk; SIM_SEEDS=40 is quicker
-python3 -m tools.mutants     # breaks each rule, one to a CPU; a test must notice. Over an hour; CI runs 8 shards of 10 to 15 minutes
+python3 -m tools.mutants     # breaks each rule, one to a CPU; a test must notice. Over an hour; CI runs 12 shards of 4.4 to 12.3 minutes
 ```
 
 Both must pass before a change is finished. Python 3.9 or later; nothing to install. Hooks run the checks alone after an edit and before a stop, refuse a commit not the Maintainer's, and ask before a protected edit or a merge, not in bypass mode.
@@ -21,7 +21,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 
 | Rule | Held by |
 |---|---|
-| The Kernel does no I/O, reads no clock and keeps nothing between calls | `tools/check_purity.py` |
+| The Kernel does no I/O, reads no clock, keeps nothing between calls and calls no function it is given but `_decision` | `tools/check_purity.py` |
 | State is derived from facts and run records at every call, never stored | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |
 | An unreadable fact yields a deferral or a Hold, never an action | `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit` |
 | A reason is a code, never a sentence, and no text from outside reaches a decision | `tools/check_examples.py` |
