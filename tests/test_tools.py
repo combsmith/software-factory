@@ -4315,6 +4315,8 @@ class Decisions(unittest.TestCase):
             # A test named in its class is pending only if that class's test is.
             "a held test whose name another class's pending test has": (
                 "`tests/test_x.py::Active.test_later`, not held yet", "names no mutant"),
+            "a held test given as a link beside a pending one": (
+                "[a test](tests/test_x.py::test_y), `tests/test_x.py::test_later`, not held yet", "names no mutant"),
             "a held test named another way beside a pending one": (
                 "`./tests/test_x.py::test_y`, `tests/test_x.py::test_later`, not held yet", "names no mutant"),
         }
@@ -4337,6 +4339,10 @@ class Decisions(unittest.TestCase):
         indented = REPLACING.replace("Replaces", "Adds to").replace(ONE_ROW, "| One thing | `tools/check_x.py` |")
         indented = indented.replace("\n| ", "\n  | ")
         self.assertTrue(refused({LATER: indented}, "0002-two-things.md, boundary 1: a new or changed row names no mutant"))
+        # A table in a fence is an example; the Boundaries table is the first outside one.
+        fenced = indented.replace("  | Boundary |", "```\n| Boundary | Check |\n|---|---|\n```\n\n| Boundary |", 1)
+        fenced = fenced.replace("\n  | ", "\n| ")
+        self.assertTrue(refused({LATER: fenced}, "0002-two-things.md, boundary 1: a new or changed row names no mutant"))
         # A new record's rows are new.
         bare = REPLACING.replace("Replaces", "Adds to").replace(ONE_ROW, "| One thing | `tools/check_x.py` |")
         self.assertTrue(refused({LATER: bare}, "0002-two-things.md, boundary 1: a new or changed row names no mutant"))

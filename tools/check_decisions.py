@@ -28,7 +28,7 @@ import re
 import shutil
 import subprocess
 
-from tools.check_context import PENDING, WAITING, _cells, _is_pending
+from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = "refs/remotes/origin/main"
@@ -44,10 +44,8 @@ REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | an
 CLAIM = re.compile(r"replace|supersede", re.I)
 NUMBER = re.compile(r"^(\d{4})-")
 BOUNDARIES = "## Boundaries"
-TICKED = re.compile(r"`([^`\n]+)`")
-# A mutant a row names, by its description in tools/mutants.py, and a test, as path::name (issue 590).
+# A mutant a row names, by its description in tools/mutants.py (issue 590).
 MUTANT = re.compile(r'mutant: "([^"\n]+)"')
-TEST = re.compile(r"`([\w./-]+\.py)::([\w.]+)`")
 
 
 class Unreadable(Exception):
@@ -144,24 +142,32 @@ def _body(region: list) -> range:
 
 
 def boundaries(text: str) -> list:
-    """(Boundary cells, Check cell) of each row of the first table under Boundaries, as `parse` reads them; [] for a
-    record it cannot read."""
-    lines = [line.rstrip() for line in text.splitlines()]
-    heads = [i for i, line in enumerate(lines) if line == BOUNDARIES]
-    if len(heads) != 1 or isinstance(parse(text), str):
+    """(Boundary cells, Check cell) of each row of the first table under Boundaries, as `check_context` reads the table,
+    outside any fence and however it is indented; [] for a record `parse` cannot read (issue 590)."""
+    if isinstance(parse(text), str):
         return []
-    region = lines[heads[0]:]
-    rows = [[" ".join(cell.split()) for cell in _cells(region[i])] for i in _body(region)]
-    return [(tuple(row[:-1]), row[-1] if row else "") for row in rows]
+    rows = _rows(dict(_sections(text, "## ")).get("Boundaries", ""))
+    return [(tuple(" ".join(cell.split()) for cell in row[:-1]), " ".join(row[-1].split()) if row else "") for row in rows]
+
+
+def _names(cell: str) -> list:
+    """Every name a cell gives, as `check_context` reads them: in backticks, or as a link's target."""
+    return TOKEN.findall(cell) + [m for m in LINK.findall(cell) if "://" not in m and not m.startswith("mailto:")]
 
 
 def _tokens(cell: str) -> set:
-    return set(TICKED.findall(cell))
+    return set(_names(cell))
 
 
 def _named_tests(cell: str) -> list:
     """(path, name) of each test a cell names as path::name, its path as the repo holds it, under `tests/`."""
-    return [(path, name) for path, name in ((_path(p), n) for p, n in TEST.findall(cell)) if path.split("/")[0] == "tests"]
+    out = []
+    for name in _names(cell):
+        path, _, test = name.partition("::")
+        path = _path(re.sub(r":\d+$", "", path))
+        if test and path.split("/")[0] == "tests":
+            out.append((path, test))
+    return out
 
 
 def _tests(cell: str) -> list:
