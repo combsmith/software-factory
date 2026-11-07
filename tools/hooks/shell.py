@@ -227,6 +227,8 @@ def _readable(script: str) -> bool:
     """Whether the reader splits `script` into simple commands at all: no quote left open, no ( in a word."""
     try:
         simple_commands(script)
+    except Unread:
+        raise
     except ValueError:
         return False
     return True
@@ -266,6 +268,11 @@ def simple_commands(text: str) -> list:
     into words, such as an unclosed quote.
     """
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
+
+
+class Unread(ValueError):
+    """What the shell runs that the reader cannot read as the shell does (#579). Unlike a script the shell fails, it is
+    never left as a here-document's data: the hook asks or refuses (Codex on #604)."""
 
 
 class _Token:
@@ -548,9 +555,15 @@ def _held(text: str) -> str:
     comments = True     # and a # there begins a comment
     # Where an arithmetic command or expansion, (( or $((, and a ${...}, that began ends: what they hold is their own.
     arithmetic = braces = 0
+    braced = False      # whether the unquoted ${...} that ends at braces holds a '
+    clean = 0       # where a "${...}" read and let through ends: none in it is read again
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
     opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
     ticked = False  # an unquoted backtick has opened and not yet closed
+    held = []       # where each $( or backtick double quotes hold opens: a script with quotes of its own
+    held_tick = False   # a backtick double quotes hold has opened and not yet closed
+    seen = {}       # for each held substitution, where it ends and how far its own double quotes are counted
+    tick_end = len(text)    # where the unquoted backtick that is open ends: read once, as it opens
     while i < len(text):
         c = text[i]
         if c == "\\" and quote != "'":
@@ -566,8 +579,16 @@ def _held(text: str) -> str:
             i += 2
             continue
         if quote is None:
+            if c == "$" and i < braces and braced and text.startswith("${", i) and _inside(text, held, i, seen) \
+                    and "'" in text[i:_balanced(text, i + 2, "}")]:
+                raise Unread("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "$" and i >= braces and text.startswith("${", i):
                 braces = _balanced(text, i + 2, "}")
+                braced = "'" in text[i:braces]
+                if braced and _inside(text, held, i, seen):
+                    # A "${...}" in a substitution double quotes hold is read here as unquoted, though it is not: its '
+                    # is a character to the shell and would be a quote to this reading (#579).
+                    raise Unread("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
                 end = len(text) if end < 0 else end
@@ -604,6 +625,7 @@ def _held(text: str) -> str:
                     # word no hook can read, and not as ./, which names a folder (#410).
                     out.append("$")
                 ticked = not ticked
+                tick_end = _tick_end(text, i) if ticked else len(text)
             # A process substitution's or a command substitution's ( and ) stand in a word: after its ), the command
             # goes on where it was. Any other ) ends what it closed, and what follows is a command again.
             kept = None
@@ -628,6 +650,10 @@ def _held(text: str) -> str:
                     words, first = 0, None
                 elif c not in " \t\r<>":
                     word = grown(word, c)
+            if c in "'\"" and ticked and _past_tick(text, i, c, tick_end):
+                # bash ends a backtick at its next backtick before it reads the quotes in it: a quote that runs past
+                # that is an error there, and bash runs what follows the backtick (#579).
+                raise Unread("a quote in a backtick runs past where the backtick ends")
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
@@ -635,7 +661,19 @@ def _held(text: str) -> str:
         elif c == quote:
             quote, comments = None, False
             out.append(c)
+        elif quote == '"' and text.startswith("${", i) and i >= clean:
+            end = _balanced(text, i + 2, "}")
+            if "'" in text[i:end] and _inside(text, held, i, seen) is not False:   # in a substitution, its own quotes
+                # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
+                raise Unread("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
+            # With no ', none in it has one; in a substitution its own quotes leave unquoted, nor is one in it, which
+            # this reading takes as double-quoted until a quote of its own: so none is read again (Codex, Astra).
+            clean = end
+            out.append(c)
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
+            if c == "$" or not held_tick:
+                held.append(i)      # where it ends is read only if a ${...} with a ' needs it: most commands hold none
+            held_tick = held_tick != (c == "`")     # a backtick that closes is no new substitution (Codex)
             out.append(LIVE[c])
         else:
             out.append(HOLDS.get(c, c))
@@ -797,6 +835,44 @@ _CONNECTOR = re.compile(r"&&|\|\||[;&|\n]")
 # A command substitution that names the branch the shell is on: where it runs, it is HEAD.
 CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s+--abbrev-ref\s+HEAD|"
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
+
+
+def _inside(text: str, held: list, i: int, seen: dict):
+    """None where `i` is in none of the $( or backticks that open at `held`; else whether a double quote of the
+    innermost one's own holds it: an odd count of them, since it opened, before `i`. Since `i` only grows, one that
+    closed is dropped from `held`, and `seen` keeps each one's end and its count so far, so each is read once (Codex)."""
+    for start in held:
+        if start not in seen:
+            seen[start] = _balanced(text, start + 2, ")") if text[start] == "$" else _balanced(text, start + 1, "`")
+    held[:] = [start for start in held if seen[start] > i]
+    inner = max((start for start in held if start < i), default=None)
+    if inner is None:
+        return None
+    j, quotes = seen.get((inner, "quotes"), (inner, 0))
+    while j < i:
+        quotes += text[j] == '"'
+        j += 2 if text[j] == "\\" else 1
+    seen[(inner, "quotes")] = (j, quotes)
+    return quotes % 2 == 1
+
+
+def _tick_end(text: str, i: int) -> int:
+    """Where the backtick that opens at `i` ends: its next backtick no backslash holds, or the end of the text."""
+    tick = i + 1
+    while tick < len(text) and text[tick] != "`":
+        tick += 2 if text[tick] == "\\" else 1
+    return tick
+
+
+def _past_tick(text: str, i: int, quote: str, tick: int) -> bool:
+    """Whether a quote that opens at `i`, in a backtick that ends at `tick`, runs past it. Only the text up to its close
+    or `tick` is read, so each quote is read once and a reading stays linear (Codex)."""
+    if tick >= len(text):
+        return False
+    end = i + 1
+    while end < tick and text[end] != quote:
+        end += 2 if text[end] == "\\" and quote == '"' else 1
+    return end >= tick
 
 
 def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
