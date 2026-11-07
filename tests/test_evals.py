@@ -93,7 +93,9 @@ class Scoring(unittest.TestCase):
                                      ("location", {"path": "kernel/decide.py", "start_line": 1, "end_line": 85}, "location_differs")):
             wrong = copy.deepcopy(result)
             wrong["findings"][0][field] = value
-            self.assertEqual(eval_result.score(case, wrong), {"case": case["id"], "verdict": "fail", "reasons": [reason]}, reason)
+            # A gating Finding put elsewhere is counted as one away from the place (issue 610).
+            self.assertEqual(eval_result.score(case, wrong), dict({"case": case["id"], "verdict": "fail", "reasons": [reason]},
+                                                                  **({"surplus_gating": 1} if field == "location" else {})), reason)
         # A Finding's lines must overlap the expected ones, and span no more than fifteen lines beyond them; one given
         # without lines could be at any place, and is at none (decision 0143). The expected place is 86 to 94, nine lines.
         self.assertEqual(eval_result.SPAN_BEYOND, 15)
@@ -113,12 +115,12 @@ class Scoring(unittest.TestCase):
         self.assertEqual(eval_result.score(anywhere, wide)["verdict"], "pass")
         wide["findings"][0]["location"] = {"path": "kernel/decide.py"}
         self.assertEqual(eval_result.score(anywhere, wide)["reasons"], ["location_differs"])
-        # One Finding must be the expected one in every respect: two that are each right in part are no match, and the
-        # nearest of them says what it missed.
+        # One Finding must be the expected one in every respect: two that are each right in part are no match, the
+        # nearest of them says what it missed, and two at the place are one too many (issue 610).
         split = copy.deepcopy(result)
         split["findings"][0]["severity"] = "minor"
         split["findings"].append(dict(result["findings"][0], ref="n3", category="architecture"))
-        self.assertEqual(eval_result.score(case, split)["reasons"], ["severity_differs"])
+        self.assertEqual(eval_result.score(case, split)["reasons"], ["severity_differs", "surplus_at_place"])
         split["findings"][0]["location"] = {"path": "kernel/gate.py"}
         self.assertEqual(eval_result.score(case, split)["reasons"], ["category_differs"])
         # Lines are read whole: an end with no start, or before its start, is nowhere in a Result, and unreadable in
@@ -152,11 +154,12 @@ class Scoring(unittest.TestCase):
             return [r for r in scored["reasons"] if r != "coverage_disagrees"]
         self.assertEqual(said(dict(criterion=None)), ["finding_uncited"])
         self.assertEqual(said(dict(criterion="PR-1")), ["finding_cites_another"])
-        self.assertEqual(said(dict(criterion=None), dict(criterion="PR-1")), ["finding_uncited", "finding_cites_another"])
+        self.assertEqual(said(dict(criterion=None), dict(criterion="PR-1")),
+                         ["finding_uncited", "finding_cites_another", "surplus_at_place"])
         # What it has otherwise, of the nearest: the place is its being there.
         self.assertEqual(said(dict(criterion=None, severity="minor")), ["finding_uncited", "severity_differs"])
         self.assertEqual(said(dict(criterion=None, category="security")), ["finding_uncited", "category_differs"])
-        self.assertEqual(said(dict(criterion=None, severity="minor"), dict(criterion=None)), ["finding_uncited"])
+        self.assertEqual(said(dict(criterion=None, severity="minor"), dict(criterion=None)), ["finding_uncited", "surplus_at_place"])
         self.assertEqual(said(dict(criterion="PR-1", severity="minor")), ["finding_cites_another", "severity_differs"])
         # In the file, on other lines, or with no lines or too many, which is no place (decision 0143); in another
         # file, or none, is not raised.
@@ -174,9 +177,12 @@ class Scoring(unittest.TestCase):
         self.assertEqual(said(dict(location=None)), ["location_differs"])
         for lines in (dict(end_line=2), dict(start_line=9, end_line=2)):
             self.assertEqual(said(dict(criterion=None, location=dict(path=place["path"], **lines))), ["finding_not_raised"])
-        # Beside the Finding that cites it, none of these is anything: the pass rule has not moved.
-        extra = dict(at, ref="n9", criterion=None)
+        # Beside the Finding that cites it, one that holds nothing elsewhere is nothing: the pass rule has not moved. One
+        # at the place too is one too many (issue 610).
+        extra = dict(at, ref="n9", criterion=None, severity="minor", location=away)
         self.assertEqual(eval_result.score(case, dict(right, findings=[at, extra]))["verdict"], "pass")
+        extra["location"] = place
+        self.assertEqual(eval_result.score(case, dict(right, findings=[at, extra]))["reasons"], ["surplus_at_place"])
 
     def test_a_finding_at_any_place_the_case_gives_is_at_the_place(self):  # decision 0143
         # A fault that spans several changed lines is rightly placed on any of them: a case may name up to three such
@@ -200,16 +206,16 @@ class Scoring(unittest.TestCase):
             self.assertEqual(eval_result.score(case, placed(location))["reasons"], ["location_differs"], location)
         self.assertEqual(eval_result.score(case, placed(other, severity="minor"))["reasons"], ["severity_differs"])
         self.assertEqual(eval_result.score(case, placed(other, category="architecture"))["reasons"], ["category_differs"])
-        # A right Finding at the `location` beside one at an alternate place is no alternate pass; nor is a fail.
+        # One fault at two of its places is put twice: a right Finding at the `location` beside one at an alternate place
+        # fails, as one at the `location` that is not the expected Finding, or cites no criterion, does; a fail is never
+        # marked (issue 610).
         both = placed(other)
         both["findings"].append(dict(both["findings"][0], ref="n9", location=first))
-        self.assertEqual(eval_result.score(case, both), {"case": case["id"], "verdict": "pass", "reasons": []})
-        # One at the `location` that is not the expected Finding leaves the pass at the alternate place alone.
+        self.assertEqual(eval_result.score(case, both), {"case": case["id"], "verdict": "fail", "reasons": ["surplus_at_place"]})
         both["findings"][-1]["severity"] = "minor"
-        self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
-        # Nor does one at the `location` that cites no criterion: the pass is the citing Finding's, at the alternate.
+        self.assertEqual(eval_result.score(case, both), {"case": case["id"], "verdict": "fail", "reasons": ["surplus_at_place"]})
         both["findings"][-1].update(severity=both["findings"][0]["severity"], criterion=None)
-        self.assertEqual(eval_result.score(case, both)["at_alternate"], True)
+        self.assertEqual(eval_result.score(case, both), {"case": case["id"], "verdict": "fail", "reasons": ["surplus_at_place"]})
         self.assertNotIn("at_alternate", eval_result.score(case, placed(other, criterion=None)))
         # A clean case's pass is never marked: its Result's major Finding, which would hold it (decision 0144), at minor.
         clean = copy.deepcopy(result)
@@ -439,6 +445,61 @@ class Scoring(unittest.TestCase):
         for over in ({"expected": dict(case["expected"], criterion="PR-9")}, {"role": "qa-lead"}):
             unknown = dict(copy.deepcopy(case), **over)
             self.assertEqual(eval_result.score(unknown, result)["reasons"], ["criterion_unknown"], over)
+
+    def test_a_result_that_hedges_at_the_place_or_gates_elsewhere_fails_its_case(self):  # issue 610
+        # The scorer takes the nearest of the Findings that cite a case's criterion, so extra Findings would cost nothing:
+        # on a case that expects a Finding, one is put at the place, whatever it cites, and one gating Finding away from
+        # every place is allowed, for a real fault the case's authors could have missed.
+        from kernel import gate, terms
+        case, result = load("examples/eval-case.json"), example_result()
+        right = result["findings"][0]
+        place, far = right["location"], {"path": "kernel/gate.py", "start_line": 10, "end_line": 12}
+        self.assertEqual(eval_result.score(case, result), {"case": case["id"], "verdict": "pass", "reasons": []})
+
+        def scored(*more, first=None):
+            made = [dict(right, **(first or {}))] + [dict(right, ref="n%d" % (5 + n), **f) for n, f in enumerate(more)]
+            return eval_result.score(case, dict(result, findings=[{k: v for k, v in f.items() if k != "location" or v is not None}
+                                                                  for f in made]))
+        failed = {"case": case["id"], "verdict": "fail", "reasons": ["surplus_at_place"]}
+        # Two at the place fail, whatever the second cites, its category or severity, the right one among them.
+        for given in ({}, {"criterion": None}, {"criterion": "PR-1"}, {"category": "security"}, {"severity": "info"},
+                      {"location": dict(place, start_line=place["end_line"])}):
+            self.assertEqual(scored(given), failed, given)
+        self.assertEqual(scored({}, {})["reasons"], ["surplus_at_place"])
+        # One at the place and one gating Finding elsewhere pass, counted; two gating Findings elsewhere fail, counted.
+        self.assertEqual(scored({"location": far}), {"case": case["id"], "verdict": "pass", "reasons": [], "surplus_gating": 1})
+        self.assertEqual(scored({"location": far}, {"location": dict(far, path="kernel/state.py"), "criterion": None}),
+                         {"case": case["id"], "verdict": "fail", "reasons": ["surplus_gating_elsewhere"], "surplus_gating": 2})
+        # What gates elsewhere is what would hold a pull request, as on a clean case (decision 0144): blocking or major,
+        # or security at any severity. Any other Finding elsewhere is nothing, however many.
+        for severity in terms.SEVERITIES:
+            for category in terms.CATEGORIES:
+                holds = severity in gate.GATING_SEVERITIES or category == gate.SECURITY
+                two = scored(*[{"location": far, "severity": severity, "category": category, "criterion": c} for c in ("PR-1", None)])
+                self.assertEqual((two["reasons"], two.get("surplus_gating")),
+                                 (["surplus_gating_elsewhere"], 2) if holds else ([], None), (severity, category))
+        self.assertEqual(scored(*[{"location": far, "severity": "minor"}] * 4), {"case": case["id"], "verdict": "pass", "reasons": []})
+        # A Finding with no lines, or none at all, is at no place (decision 0143), so it is away from every place.
+        self.assertEqual(scored({"location": {"path": place["path"]}}, {"location": None})["reasons"], ["surplus_gating_elsewhere"])
+        # A miss is told as before, beside them, and the expected Finding put elsewhere is one of them.
+        self.assertEqual(scored({"location": far}, first={"location": far}),
+                         {"case": case["id"], "verdict": "fail", "reasons": ["location_differs", "surplus_gating_elsewhere"],
+                          "surplus_gating": 2})
+        # Each place of `also_at` is the place: one fault put at two of its places is put twice.
+        also = load("examples/eval-case.also-at.json")
+        first, other = also["expected"]["finding"]["location"], also["expected"]["finding"]["also_at"][0]
+        twice = dict(result, findings=[dict(right, location=first), dict(right, ref="n9", criterion=None, location=other)])
+        self.assertEqual(eval_result.score(also, twice), {"case": also["id"], "verdict": "fail", "reasons": ["surplus_at_place"]})
+        # A clean case is unchanged: any gating Finding already fails it, and none is counted.
+        met = load("examples/eval-case.met.json")
+        clean = dict(result, findings=[dict(right, severity=s, location=far, ref="n%d" % n) for n, s in enumerate(("major", "blocking"))])
+        self.assertEqual(eval_result.score(met, clean), {"case": met["id"], "verdict": "fail", "reasons": ["finding_raised_wrongly"]})
+        clean["findings"] = [dict(f, severity="minor", location=place) for f in clean["findings"]]
+        self.assertEqual(eval_result.score(met, clean), {"case": met["id"], "verdict": "pass", "reasons": []})
+        # A case that cannot be read counts nothing.
+        unknown = dict(case, expected=dict(case["expected"], criterion="PR-99"))
+        two = dict(result, findings=[right, dict(right, ref="n9", location=far), dict(right, ref="n10", location=far)])
+        self.assertEqual(eval_result.score(unknown, two), {"case": case["id"], "verdict": "unreadable", "reasons": ["criterion_unknown"]})
 
     def test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result(self):  # issue 574
         # `apply` refuses a Result whole when a Finding it posts is not all on one hunk of its file at the head (decision
@@ -914,6 +975,35 @@ class EvalJob(unittest.TestCase):
             self.assertNotEqual(validate(dict(unmarked, cases=[dict(unmarked["cases"][0], at_alternate=mark), unmarked["cases"][1]]),
                                          load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [], mark)
 
+    def test_the_report_counts_each_cases_gating_findings_away_from_the_place(self):  # issue 610
+        # How many gating Findings a review put away from every place can be counted from the report, case by case, by a
+        # count that says no place; a case with none, or none read, carries none.
+        from harness import eval as job
+        one = json.loads(next(iter(self.cases.values())))
+        two = dict(copy.deepcopy(one), id="poc-surplus")
+        cases = {c["id"]: (json.dumps(c, indent=2) + "\n").encode() for c in (one, two)}
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        self.set(cases)
+        self.step(plan)
+        self.step(fetch, self.home(cases))
+        result = example_result()
+        far = dict(result["findings"][0], location={"path": "kernel/gate.py", "start_line": 10, "end_line": 12})
+        given = {one["id"]: result, two["id"]: dict(result, findings=result["findings"] + [dict(far, ref="n8"), dict(far, ref="n9")])}
+        self.assertEqual(self.step(job.score, lambda case: given[case["id"]]), "scored 2 of 2 cases, 1 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual({c["id"]: (c["reasons"], c.get("surplus_gating")) for c in written["cases"]},
+                         {one["id"]: ([], None), two["id"]: (["surplus_gating_elsewhere"], 2)})
+        self.assertEqual(job.tally(written), "1 of 2 passed, 2 gating away from the place; surplus_gating_elsewhere 1")
+        # The report writes what the scorer counted, on any verdict, and no count of none.
+        found, digest = job.manifest(self.root)
+        kept = {"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}}
+        assessed = {one["id"]: ("pass", []), two["id"]: ("unreadable", ["schema"])}
+        counted = job.report(kept, found, assessed, True, None, True, None, None, {one["id"]: 1, two["id"]: 0})
+        self.assertEqual([c.get("surplus_gating") for c in counted["cases"]], [1, None])
+        self.assertEqual(validate(dict(counted, cases=[dict(counted["cases"][0], surplus_gating=0)] + counted["cases"][1:]),
+                                  load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()) == [], False)
+
     def test_a_set_short_of_a_kind_fails_the_run_and_closes_the_gate_saying_no_count(self):  # issue 365
         # Decision 0120: the set must hold KIND_LEAST of each kind, read from the cases fetched, where they are. A set short
         # of a kind fails `judge` by a code alone, and its report, uploaded all the same, says one word of the set, which
@@ -1182,7 +1272,7 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(read(10, 3, others=(("unreadable", [code]),)), "pass", code)
             self.assertEqual(read(10, 2, others=(("unreadable", [code]),)), "case_failed", code)
         # And so does the reviewer's own: a miss, and an answer the Harness could not read, which a CLI with no answer gives too.
-        for code in ("finding_not_raised", "result_not_completed", "criterion_not_met"):
+        for code in ("finding_not_raised", "result_not_completed", "criterion_not_met") + eval_result.SURPLUS:
             self.assertEqual(read(10, 9, others=(("fail", [code]),)), "pass", code)
         # What stops the run reaching or trusting a case closes it, however many passed.
         for code in job.RUN_FAULTS:
@@ -1190,8 +1280,8 @@ class EvalJob(unittest.TestCase):
         for code in job.ENGINE_FAULTS:
             self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "engine_fault", code)
         # No code is left out of telling the two apart: each of the report's is a Fault, the reviewer's or a case's own.
-        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | {"result_not_completed", "coverage_disagrees", "finding_raised_wrongly",
-                                                                    "criterion_not_met", "finding_not_in_hunk"}
+        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | set(eval_result.SURPLUS) | {
+            "result_not_completed", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met", "finding_not_in_hunk"}
         self.assertEqual(job.eval_result_codes(), scorer | own | set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS))
         self.assertEqual(own & (set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS)), set())
 

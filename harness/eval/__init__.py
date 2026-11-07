@@ -333,7 +333,8 @@ def case_fault(case: dict):
     return None
 
 
-def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = None, alternates: set = None) -> dict:
+def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = None, alternates: set = None,
+           surplus: dict = None) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
     `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
@@ -341,10 +342,12 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
     is off its rubric is `unreadable`, `answer_off_rubric`; every other is given to `review`, which returns its `result/1`,
     and scored against the case by `tools/eval_result.py`. What `cause_of` and `seen_of` say of a case unanswered, or
     stopped by the Engine, goes in `causes`, by id, where one is given; the id of each pass the scorer marks
-    `at_alternate`, in `alternates` (decision 0143)."""
+    `at_alternate`, in `alternates` (decision 0143); and how many gating Findings the scorer counts away from every
+    place a case gives, in `surplus`, by id (issue 610)."""
     assessed, interrupted = {}, False
     causes = {} if causes is None else causes
     alternates = set() if alternates is None else alternates
+    surplus = {} if surplus is None else surplus
     for entry in found["cases"]:
         code = why.get(entry["id"], "not_found") if isinstance(why, dict) else "not_found"
         if interrupted:
@@ -405,6 +408,8 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
         assessed[entry["id"]] = (said["verdict"], said["reasons"])
         if said.get("at_alternate") is True:
             alternates.add(entry["id"])
+        if said.get("surplus_gating"):
+            surplus[entry["id"]] = said["surplus_gating"]
     return assessed
 
 
@@ -506,15 +511,17 @@ def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
 
 
 def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None,
-           causes: dict = None, alternates: set = None) -> dict:
+           causes: dict = None, alternates: set = None, surplus: dict = None) -> dict:
     """The `eval-report/1` of this run: the plan's Release, commit and set, each case by id and hash, in the manifest's
-    order, with its verdict and codes and, where one was found, its cause, and its mark where it passed at an alternate
-    place alone (decision 0143), whether the set holds `split_ok`'s kinds,
+    order, with its verdict and codes and, where one was found, its cause, its mark where it passed at an alternate
+    place alone (decision 0143), and how many gating Findings it drew away from every place (issue 610), whether the
+    set holds `split_ok`'s kinds,
     whether each cleared its bar, and whether every case that expects a blocking Finding passed."""
-    causes, alternates = causes or {}, alternates or set()
+    causes, alternates, surplus = causes or {}, alternates or set(), surplus or {}
     cases = [dict({"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1]},
                   **({"cause": causes[e["id"]]} if causes.get(e["id"]) else {}),
-                  **({"at_alternate": True} if e["id"] in alternates and assessed[e["id"]] == (PASS, []) else {}))
+                  **({"at_alternate": True} if e["id"] in alternates and assessed[e["id"]] == (PASS, []) else {}),
+                  **({"surplus_gating": surplus[e["id"]]} if surplus.get(e["id"]) else {}))
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "cases": cases,
@@ -574,10 +581,10 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     except Stop:
         causes = {}
     causes = dict(causes) if isinstance(causes, dict) else {}
-    alternates = set()
-    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates)
+    alternates, surplus = set(), {}
+    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus)
     written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
-                     blocking_pass(found, place, assessed), causes, alternates)
+                     blocking_pass(found, place, assessed), causes, alternates, surplus)
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
@@ -585,15 +592,18 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
 def tally(document: dict) -> str:
     """One line of a report that holds to its schema: how many cases passed, how many carry each code, each kind under
     its bar, which closes the gate, and a blocking case not passed, which does not by itself (decision 0150), as a share
-    alone may not say why, and how many passed at an alternate place alone (decision 0143)."""
+    alone may not say why, how many passed at an alternate place alone (decision 0143), and how many gating Findings
+    were put away from every place a case gives (issue 610)."""
     codes = [code for case in document["cases"] for code in case["reasons"]]
     alternate = len([case for case in document["cases"] if case.get("at_alternate") and case["verdict"] == PASS])
+    away = sum(case.get("surplus_gating", 0) for case in document["cases"])
     closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
     closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
     # Each cause by what it says, held to its schema like the rest, with how many cases gave it.
     causes = [" ".join("%s=%s" % (k, v) for k, v in sorted(case["cause"].items())) for case in document["cases"] if case.get("cause")]
     return "; ".join(["%d of %d passed" % (document["passed"], len(document["cases"]))
-                      + (", %d at an alternate place" % alternate if alternate else ""),
+                      + (", %d at an alternate place" % alternate if alternate else "")
+                      + (", %d gating away from the place" % away if away else ""),
                       ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed
                      + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))])
 
