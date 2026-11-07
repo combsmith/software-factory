@@ -5844,6 +5844,21 @@ exit 0
         self.assertIn("stopped with a token live; revoking it returned 204", told)
         self.assertNotIn(self.TOKEN, said + told)
 
+    def test_a_stop_while_an_answer_cut_inside_a_character_is_read_still_revokes_its_token(self):
+        # Issue 502 (Argon): the same stop, with the answer cut inside a multibyte character and read where python
+        # decodes stdin strictly. The trap finds the token all the same.
+        folder = self.stand_in()
+        (folder / "mint.body").write_bytes(ReachScript.CUT.replace("TOKEN", self.TOKEN).encode()[:-1])
+        real = os.path.realpath(sys.executable)
+        strict = ReachScript.strict_python(folder / "strict")
+        (folder / "bin" / "python3").write_text(ReachScript.PYTHON % (real, str(strict)))
+        (folder / "bin" / "python3").chmod(0o755)
+        code, said, told = self.stopped(folder, "x/canary", "x/other")
+        self.assertNotEqual(code, 0, told)
+        self.assertEqual([c.split(" ", 1)[0] for c in (folder / "calls").read_text().splitlines()], ["GET", "POST", "DELETE"], told)
+        self.assertIn("stopped with a token live; revoking it returned 204", told)
+        self.assertNotIn(self.TOKEN, said + told)
+
     def test_a_narrowed_token_is_minted_used_three_times_and_revoked_and_never_kept(self):
         folder = self.stand_in()
         done = self.run_script(folder, "x/canary", "x/other")
@@ -5918,6 +5933,19 @@ exit 0
         self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
 
 
+@contextlib.contextmanager
+def planting(out: pathlib.Path, victim: pathlib.Path):
+    """While open, PATH holds a mktemp that makes OUT first, with a link in it to `victim` where the run writes ran_at:
+    another's directory, made after a trial's check on OUT and before the trial makes OUT itself (issue 502)."""
+    found = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+    victim.write_text("kept\n")
+    (found / "mktemp").write_text('#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/mktemp "$@"\n'
+                                  % (out, out, victim, out))
+    (found / "mktemp").chmod(0o755)
+    with mock.patch.dict(os.environ, {"PATH": "%s:%s" % (found, os.environ["PATH"])}):
+        yield
+
+
 class OutputMadeAlone(unittest.TestCase):
     """Each trial the Maintainer runs with a key finds OUT absent, then makes it itself (issue 367). A directory made in
     between, by another, may hold a link where the run will write; it is refused, and nothing is written through it."""
@@ -5936,6 +5964,10 @@ class OutputMadeAlone(unittest.TestCase):
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
+    # What each of those refuses next, once OUT's parent is read and taken: the test shows it got that far (issue 502).
+    PAST = "CONFIG_DIR is not a directory"
+    # These hold no key and make OUT as the first ones do; each is run by the shell it names (issue 502).
+    LATER = {"trial_p59_read_confinement.sh": ("bash", "CLI", "STUB"), "trial_p61_timeline.sh": ("sh", "x/canary", "1", "2")}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -5992,8 +6024,12 @@ class OutputMadeAlone(unittest.TestCase):
     def run_out(self, script, folder, out):
         """`script` run with OUT at `out`, with stand-ins that fail at once whatever it reaches: (exit code, stderr)."""
         (folder / "bin").mkdir(exist_ok=True)
-        (folder / "bin" / "curl").write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
-        (folder / "bin" / "curl").chmod(0o755)
+        for name in ("curl", "gh"):
+            (folder / "bin" / name).write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
+            (folder / "bin" / name).chmod(0o755)
+        if not (folder / "bin" / "timeout").exists():     # P-59 needs one, which a Mac's /usr/bin has not
+            (folder / "bin" / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+            (folder / "bin" / "timeout").chmod(0o755)
         (folder / "key.pem").write_text("not a key\n")
         (folder / "cli").write_text("#!/bin/sh\nexit 0\n")
         (folder / "cli").chmod(0o755)
@@ -6003,6 +6039,10 @@ class OutputMadeAlone(unittest.TestCase):
                                                                       for a in self.SCRIPTS[script]]
         elif script in self.OTHERS:
             argv = ["bash", str(ROOT / "tools" / script), str(out)] + list(self.OTHERS[script])
+        elif script in self.LATER:
+            shell, *rest = self.LATER[script]
+            argv = [shell, str(ROOT / "tools" / script), str(out)] + [
+                a.replace("CLI", str(folder / "cli")).replace("STUB", str(folder / "stub.py")) for a in rest]
         else:
             argv = ["bash", str(ROOT / "tools" / script), str(out), self.SANDBOX[script], str(folder / "cli"),
                     str(folder / "stub.py")]
@@ -6018,7 +6058,7 @@ class OutputMadeAlone(unittest.TestCase):
         # where it was. OUT's parent, or a directory above it, that others can write to, its group among them, is
         # refused unless it is sticky; so is one another user owns, and one a find that fails cannot read.
         said = " is another user's, or can be written by other users and is not sticky"
-        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS):
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS) + list(self.LATER):
             for modes, refused in (((0o700, 0o777), True), ((0o777, 0o700), True), ((0o700, 0o770), True),
                                    ((0o700, 0o707), True), ((0o700, 0o1777), False)):
                 with self.subTest(script=script, modes=modes):
@@ -6041,6 +6081,8 @@ class OutputMadeAlone(unittest.TestCase):
                     else:
                         self.assertNotIn("can be written by other users", told)
                         self.assertEqual((parent / "out").is_dir(), script not in self.OTHERS, told)
+                        if script in self.OTHERS:
+                            self.assertIn(self.PAST, told)
             # A directory this user does not own, as an id that names another user reads it; and a find that fails. Run
             # as root, the folder is root's, which the check takes as safe whoever runs it, so the id case cannot be shown.
             for name, stand_in in (("id", '#!/bin/sh\necho 4242\n'), ("find", '#!/bin/sh\nexit 1\n')):
@@ -6070,17 +6112,25 @@ class OutputMadeAlone(unittest.TestCase):
                   ("a + with no -e", None, held, True),
                   ("none with no -e", None, plain, False),
                   ("no read at all", None, None, True)]
-        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS):
+        # Issue 502 (Argon): an entry inherited from above, a right first in the list with no comma before it, a principal
+        # whose name has a space, and a harmless ACL under a first line that shows its +.
+        cases += [("an inherited allow", plain + " 0: group:staff inherited allow list,add_file,file_inherit\\n", None, True),
+                  ("a right first, alone", plain + " 0: user:other allow delete\\n", None, True),
+                  ("a principal with a space", plain + " 0: user:Jane Doe allow list,add_subdirectory\\n", None, True),
+                  ("a harmless ACL under a +", held + " 0: user:other allow list,search\\n", None, False)]
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS) + list(self.LATER):
             for name, read, listed, refused in cases:
                 with self.subTest(script=script, case=name):
                     folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
                     (folder / "bin").mkdir()
                     (folder / "parent").mkdir()
+                    # It answers ls -lde and ls -ld alone: any other ls the check ran would be told nothing.
                     (folder / "bin" / "ls").write_text("""#!/bin/sh
 if [ "$1" = -lde ]; then
     %s
     exit
 fi
+[ "$1" = -ld ] || exit 2
 %s
 """ % ('[ "$2" = "%s" ] && printf "%s" || printf "%s"' % (folder, read, plain) if read else "exit 2",
        '[ "$2" = "%s" ] && printf "%s" || printf "%s"' % (folder, listed, plain) if listed else "exit 2"))
@@ -6095,6 +6145,17 @@ fi
                     else:
                         self.assertNotIn(said, told)
                         self.assertEqual(out.is_dir(), script not in self.OTHERS, told)
+                        if script in self.OTHERS:
+                            self.assertIn(self.PAST, told)
+
+    # How each script reads what an ACL allows, past its first line, which names the directory.
+    ACL_READING = "| sed 1d | grep -Eq ' allow .*(add_file|add_subdirectory|delete|write|chown)'; then found=\"an ACL\"; fi"
+
+    def test_every_script_reads_an_acl_word_for_word_as_the_others_do(self):
+        # Issue 502 (Argon): the test above runs each script against each right an ACL may give. This holds each to the
+        # one reading it tests, so a right dropped, or the first line read as an entry, in any script is told at once.
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS) + list(self.LATER):
+            self.assertEqual((ROOT / "tools" / script).read_text().count(self.ACL_READING), 1, script)
 
     def test_a_refused_sandbox_trial_leaves_no_directory_behind(self):
         # Issue 424: P-50 and P-51 make OUT's parents if they are missing. They read what stands before they do, take no
@@ -6117,19 +6178,49 @@ fi
                 self.assertIn("holds ..", told)
                 self.assertFalse((folder / "unsafe" / "new").exists(), "a directory was made")
                 self.assertFalse((folder / "ghost").exists(), "a directory was made")
+                # A newline in OUT, which would have the parents read short of where it names (the Claude review).
+                code, told = self.run_out(script, folder, folder / "n1\nn2" / "deep" / "out")
+                self.assertEqual(code, 2, told)
+                self.assertIn("OUT holds a newline", told)
+                self.assertEqual(sorted(p.name for p in folder.iterdir() if p.name.startswith("n1")), [], "a directory was made")
                 was = os.umask(0o002)
                 try:
                     code, told = self.run_out(script, folder, folder / "new" / "made" / "out")
                 finally:
                     os.umask(was)
                 self.assertNotIn(said, told)
-                self.assertEqual((folder / "new" / "made").stat().st_mode & 0o7777, 0o700, told)
-                (folder / "bin" / "mkdir").write_text('#!/bin/sh\n/bin/mkdir "$@" || exit\ncase "$1" in -p) chmod 777 "$3" ;; esac\n')
+                for made in (folder / "new", folder / "new" / "made"):     # every parent it made (issue 502)
+                    self.assertEqual(made.stat().st_mode & 0o7777, 0o700, (made, told))
+                (folder / "bin" / "mkdir").write_text('#!/bin/sh\n/bin/mkdir "$@" || exit\ncase "$1" in -m) chmod 777 "$4" ;; esac\n')
                 (folder / "bin" / "mkdir").chmod(0o755)
                 code, told = self.run_out(script, folder, folder / "other" / "out")
                 self.assertEqual(code, 2, told)
                 self.assertIn(str(folder / "other") + said, told)
                 self.assertFalse((folder / "other" / "out").exists())
+
+    def test_a_link_put_where_a_sandbox_trial_makes_a_parent_is_refused_not_followed(self):
+        # Issue 502 (Argon): in a sticky directory another may put a link where a missing parent of OUT is to be made,
+        # once the check has read the directory. The parents are made one at a time inside it, so the link is refused,
+        # and nothing is made where it leads. Here a stand-in mkdir puts the link there as it is called.
+        for script in self.SANDBOX:
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                sticky, elsewhere = folder / "sticky", folder / "elsewhere"
+                sticky.mkdir()
+                sticky.chmod(0o1777)
+                elsewhere.mkdir()
+                (folder / "bin").mkdir()
+                (folder / "bin" / "mkdir").write_text(
+                    '#!/bin/sh\nfor a in "$@"; do case "$a" in %s/*) [ -e %s/x ] || [ -L %s/x ] || ln -s %s %s/x ;; esac; done\n'
+                    'exec /bin/mkdir "$@"\n' % (sticky, sticky, sticky, elsewhere, sticky))
+                (folder / "bin" / "mkdir").chmod(0o755)
+                try:
+                    code, told = self.run_out(script, folder, sticky / "x" / "new" / "out")
+                finally:
+                    sticky.chmod(0o700)
+                self.assertEqual(code, 2, told)
+                self.assertIn("could not be made new by this run", told)
+                self.assertEqual(list(elsewhere.iterdir()), [], "a directory was made through the link")
 
     def test_the_four_that_make_out_later_make_it_for_their_user_alone(self):
         # Issue 424: a parent no other can write to is little use if OUT itself takes the umask.
@@ -6191,7 +6282,9 @@ if url.endswith("/access_tokens"):
     with open(str(here / "mints"), "a") as mints:
         mints.write("x")
     token = "ghs_" + "Q" * 30 + "%06d" % len((here / "mints").read_text())
-    sys.stdout.write(plan["mint"]["body"].replace("TOKEN", token) + "\n%d" % plan["mint"]["status"])
+    body = plan["mint"]["body"].replace("TOKEN", token).encode()
+    sys.stdout.buffer.write(body[:-1] if plan["mint"].get("cut") else body)     # cut: inside its last character
+    sys.stdout.buffer.write(b"\n%d" % plan["mint"]["status"])
 elif method == "DELETE":
     sys.stdout.write(str(plan.get("revoke", 204)))
 else:
@@ -6207,6 +6300,30 @@ data = sys.stdin.buffer.read()
 sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else "signature")
 '''
     MINTED = '{"token": "TOKEN", "expires_at": "2026-10-29T23:00:00Z", "permissions": {"metadata": "read"}}'
+    # A stand-in python3 that runs a script's python3 -I -c with stdin read as UTF-8 strictly, as python reads it under a
+    # locale such as en_US.UTF-8. Under C and C.UTF-8 it reads with surrogateescape (PEP 538, PEP 540), so a cut character
+    # raises nothing (the Claude review), and a runner need have no other locale (Codex). Any other call runs as it is.
+    STRICT = """#!%s -I
+import os, sys
+args = sys.argv[1:]
+if args[:2] == ["-I", "-c"]:
+    sys.argv = ["-c"] + args[3:]
+    sys.stdin.reconfigure(encoding="utf-8", errors="strict")
+    exec(compile(args[2], "<string>", "exec"), {"__name__": "__main__"})
+else:
+    os.execv(%r, [%r] + args)
+"""
+
+    @staticmethod
+    def strict_python(where: pathlib.Path) -> pathlib.Path:
+        """STRICT, written as where/python3."""
+        real = os.path.realpath(sys.executable)
+        where.mkdir(parents=True, exist_ok=True)
+        (where / "python3").write_text(ReachScript.STRICT % (real, real, real))
+        (where / "python3").chmod(0o755)
+        return where / "python3"
+    # A 201 answer cut inside a character, after its token: the stand-in curl drops the last byte of the é.
+    CUT = '{"token": "TOKEN", "expires_at": "2026-10", "note": "café'
 
     def setUp(self):
         self.folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
@@ -6330,6 +6447,24 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
                     self.assertEqual(self.revoked(calls), self.minted(calls) if revoked else [])
                     self.assertFalse((self.out / "requests.json").exists())
 
+    def test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token(self):
+        # Issue 502 (Argon): a 201 answer cut inside a multibyte character, read where python decodes stdin strictly.
+        # Its token is found all the same and revoked, in every script that mints with curl; P-4 is in NarrowedToken.
+        for name, args in OutputMadeAlone.SCRIPTS.items():
+            if name == "trial_p4_narrow.sh":
+                continue
+            with self.subTest(script=name):
+                self.setUp()
+                self.strict_python(self.folder / "bin")
+                argv = [a.replace("KEY", self.key_file) for a in args]
+                code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.CUT, "cut": True}},
+                                                          scratch_closed=True, script=ROOT / "tools" / name, args=argv)
+                self.assertEqual(code, 1, told)
+                self.assertEqual(len(self.minted(calls)), 1, told)
+                self.assertEqual(self.revoked(calls), self.minted(calls), told)
+                self.assertNotIn("the Maintainer must revoke it by hand", told)
+                self.assertNotIn("ghs_", said + told)
+
     def test_a_refused_mint_is_shown_redacted_and_a_token_it_holds_is_revoked(self):
         code, said, told, calls = self.run_script(
             {"mint": {"status": 403, "body": '{"message": "Resource not accessible by integration", "client_secret": "x7Qp"}'}},
@@ -6396,8 +6531,11 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
                                      ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 403\n\n{}\n", "403"),
                                      ("HTTP/2 200\nx: y\n\nBody\n\nHTTP/1.1 404 Not Found\n", "200"),
                                      ("no head\n", "")):
-                    done = subprocess.run(["awk", program], input=said, capture_output=True, text=True, timeout=10)
-                    self.assertEqual(done.stdout.strip(), status, (name, said))
+                    # Each as it is, and as curl -i writes it, each line ending in CRLF (issue 502, Argon). What awk says
+                    # is read as bytes, as $(...) keeps them: a carriage return left in the status is not stripped here.
+                    for spelt in (said, said.replace("\n", "\r\n")):
+                        done = subprocess.run(["awk", program], input=spelt.encode(), capture_output=True, timeout=10)
+                        self.assertEqual(done.stdout, status.encode() + b"\n", (name, spelt))
 
     def test_a_stop_with_a_token_live_revokes_it(self):
         code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}, "hang": True}, stop=True)
@@ -6532,6 +6670,16 @@ exit 9
                          ("pass", self.PIN, self.PIN + " (Claude Code)", True))
         # The older runs are kept beside it, each at the version it ran at: a pin that moved has its earlier run still.
         self.assertGreaterEqual(len(set(pinned)), 2, pinned)
+
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        folder = self.stand_in()
+        victim = folder / "victim"
+        with planting(self.out, victim):
+            ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertNotEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn("exists", ran.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
 
     def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
         folder = self.stand_in()
@@ -7290,6 +7438,15 @@ exit 9
         return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg or self.cfg), str(self.bin / "claude")], env=env,
                               capture_output=True, text=True, timeout=60)
 
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        out, victim = self.folder / "out", self.folder / "victim"
+        with planting(out, victim):
+            done = self.run_script(out)
+        self.assertNotEqual(done.returncode, 0, done.stderr)
+        self.assertIn("exists", done.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+
     def test_it_asks_three_ways_and_keeps_only_codes(self):
         out = self.folder / "out"
         done = self.run_script(out)
@@ -7776,6 +7933,16 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
 
     def checked(self, out) -> dict:
         return json.loads((pathlib.Path(out) / "checked.json").read_text())
+
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        folder = self.stand_in()
+        victim = folder / "victim"
+        with planting(self.out, victim):
+            ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertNotEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn("exists", ran.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
 
     def test_the_cli_is_given_only_the_named_environment_and_one_command(self):
         folder = self.stand_in(hides=("markers", "markers"))
@@ -10252,6 +10419,18 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
     def texts(self, out) -> dict:
         return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
 
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        folder, commit = self.repo()
+        cli = self.stand_in()
+        victim = self.aside / "victim"
+        with planting(self.out, victim):
+            ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                                  cli / "claude")
+        self.assertNotEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn("exists", ran.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+
     def test_a_run_is_judged_and_recorded_with_no_model_text(self):
         folder, commit = self.repo()
         cli = self.stand_in()
@@ -10742,12 +10921,17 @@ esac
 
     def test_the_status_kept_is_the_last_heads(self):
         # Argon and the Claude reviews of the P-54 PR: a proxy's block comes first, 200, and GitHub's refusal after it is
-        # the read's answer. It would look like a read the token was let make.
-        (self.stand_in / "proxied").write_text("")
+        # the read's answer. It would look like a read the token was let make. Each call keeps the status it keeps with
+        # no proxy, call by call (issue 502, Argon).
         ran = self.run_script()
         self.assertEqual(ran.returncode, 0, ran.stderr)
-        asked = json.loads((self.out / "requests.json").read_text())
-        self.assertIn(403, [a["status"] for a in asked if "call" in a])
+        plain = [a["status"] for a in json.loads((self.out / "requests.json").read_text()) if "call" in a]
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script(out=self.out.parent / "proxied")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = [a["status"] for a in json.loads((self.out.parent / "proxied" / "requests.json").read_text()) if "call" in a]
+        self.assertEqual(asked, plain)
+        self.assertIn(403, asked)
 
 
 class IssueLookupTrial(ReaderTrialScript):

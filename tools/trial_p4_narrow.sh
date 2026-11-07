@@ -110,10 +110,11 @@ unrevoked() {
         "the Maintainer must revoke it by hand." >&2
 }
 
+# It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
     printf '%s\n' "$1" | python3 -I -c '
 import re, sys
-found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.read())
+found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
 }
 
@@ -176,7 +177,7 @@ with_token() {   # METHOD PATH [BODY_FILE]
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
-    status=$(awk 'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-$n")
+    status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-$n")
     body=null
     [ -n "${3:-}" ] && body=$(cat "$3")
     asked="$asked{\"n\": $n, \"call\": \"$1 /$2\", \"body\": $body, \"status\": \"$status\"},"
@@ -195,7 +196,7 @@ printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -i -H @- -H "$ACCEPT" -
 (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
 rm -f "$scratch/raw-1"
 installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["id"])')
-asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(awk 'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-1")\"},"
+asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-1")\"},"
 
 # The mint, narrowed: contents read alone, and the one repository. GitHub's answer and its status are held in a
 # variable, never a file, since the minted token is in the answer; python keeps the answer without its token.
