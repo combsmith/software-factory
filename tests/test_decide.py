@@ -1,6 +1,8 @@
 """The boundary cases of the design, one test each. Add the case here before the code."""
 from __future__ import annotations
 
+import ast
+import copy
 import datetime
 import json
 import random
@@ -13,6 +15,8 @@ from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, N
                            REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
+from tests.support import ROOT
+from tools import walk
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -1837,7 +1841,7 @@ class Convergence(unittest.TestCase):
         approval = review(at="2026-10-11T12:15:00Z")
         act = run(intent="issue-approval", at="2026-10-11T12:14:00Z", name="r2")
         acted = REVIEWED + [act]
-        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", acted),
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=acted),
                          "2026-10-11T12:14:00Z")
         for edited, held in (("2026-10-11T12:14:30Z", True), ("2026-10-11T12:14:00Z", True), ("2026-10-11T12:13:00Z", False)):
             d = go(facts(reviews=[approval], description_edited_at=edited), acted)
@@ -1849,19 +1853,19 @@ class Convergence(unittest.TestCase):
                       run(intent="review-change", at="2026-10-11T12:14:00Z", name="r2")):
             d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [other])
             self.assertEqual(d.get("action"), "enqueue", other)
-            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", REVIEWED + [other]),
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=REVIEWED + [other]),
                              "2026-10-11T12:15:00Z", other)
         # The browser's approval, after a record of the item, is anchored at its own time, a record in its own second
         # among them; an edit before it holds nothing, one after it holds.
         for records in (REVIEWED, [run(at="2026-10-11T12:15:00Z")]):
-            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", records),
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=records),
                              "2026-10-11T12:15:00Z", records)
             d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), records)
             self.assertEqual(d.get("action"), "enqueue", records)
         # With no record as old as the approval, an act's Run may be past retention: any edit holds, one before it too,
         # until a person approves after the edit.
         later = [run(at="2026-10-11T12:16:00Z")]
-        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", later), "")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=later), "")
         d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), later)
         self.assertEqual((d["outcome"], d["reason"]), ("hold", "description_edited_after_approval"))
         looked = [approval, review(kind="human", name="don-petry", at="2026-10-11T12:20:00Z")]
@@ -1869,7 +1873,22 @@ class Convergence(unittest.TestCase):
                          "enqueue")
         # Only this item's records count, as old as the approval or not.
         elsewhere = dict(run(at="2026-10-11T12:00:00Z"), item={"repo": "combsmith/other", "number": 9})
-        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", later + [elsewhere]), "")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=later + [elsewhere]), "")
+        # The Kernel always gives the records, none among them, so an approval with no record holds an edit there too;
+        # and nothing outside the simulator leans on the default, which only the world's model reads (issue 195).
+        bare = copy.deepcopy(CONFIG)
+        bare["required_lenses"]["model"] = []
+        d = derive.derive(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), [], bare)
+        self.assertEqual((d["state"], d["reason"]), ("held", "description_edited_after_approval"))
+        calls = []
+        for folder in ("kernel", "harness", "controller", "adapters", "tools"):
+            for path in walk.files(ROOT, folder):
+                if path.suffix == ".py":
+                    calls += [(path.name, node) for node in ast.walk(ast.parse(path.read_text()))
+                              if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", None))
+                              == "description_anchor"]
+        self.assertEqual([name for name, _ in calls], ["derive.py"])
+        self.assertTrue(all(any(k.arg == "runs" for k in node.keywords) for _, node in calls))
 
     def test_approver_is_never_the_author_or_last_pusher(self):  # I-26
         for who in ("author", "last_pusher"):

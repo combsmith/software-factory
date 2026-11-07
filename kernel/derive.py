@@ -1024,13 +1024,15 @@ def approval_anchor(review: dict, runs):
     return at if any(r["started_at"] <= at for r in runs) else ""
 
 
-def description_anchor(facts: dict, edited: str, runs=None):
+def description_anchor(facts: dict, edited: str, *, runs=None):
     """The time the description's edit at `edited` is measured against: on an outsider's pull request, a person's last
     look up to the edit, by approving or by admitting it; on any other, the time the machine user's first approval,
     dismissed since or not, from the second of the last look before the edit, last read it (`approval_anchor`, from
     this item's run records); or None where there is neither, or a person looked after the edit. In one second no order
     can be told, so the reading that stops work wins: a look in the edit's second saw nothing, an approval in a look's
-    second came after it, and an edit in the anchor's second after that."""
+    second came after it, and an edit in the anchor's second after that. `runs` is given by name, and `derive` always
+    gives it, an empty list included: its default is only for the simulator's world, whose act's Run starts in its
+    approval's own second."""
     approved = ("approved",)
     # A person's approval is a look, dismissed since or not, unless a person dismissed it, taking the look back.
     looks = [rv["submitted_at"] for rv in facts["reviews"]
@@ -1288,7 +1290,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # edit after the first approval since a person last looked, whoever made it, a reviewer App's among them, holds the
     # item until a person approves after it, having read it (P-58, issue 519). The first, never the latest: a push or a
     # dismissal brings a fresh approval, which must not clear the edit. A queued item leaves the queue on it.
-    anchor = description_anchor(facts, edited, runs) if edited is not None else None
+    anchor = description_anchor(facts, edited, runs=runs) if edited is not None else None
     if anchor is not None and edited >= anchor:
         return {"state": t.HELD, "reason": "description_edited_after_approval", "evidence": [edited]}
     approval = standing_approval(facts, config)
