@@ -1,4 +1,4 @@
-# NNNN. A boundary's check names a test, never a file, and a new or changed row names the mutant its test kills
+# 0154. A boundary's check names a test, never a file, and a new or changed row names the mutant its test kills
 
 Status: accepted. The Factory Builder's story "A boundary's check names a test, never a file, and a new boundary names the mutant its test kills" (issue 590).
 

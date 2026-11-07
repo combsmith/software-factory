@@ -36,7 +36,7 @@ from kernel.decide import decide
 from sim import world
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, mutants, needs_passed, redact_trial,
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
                    environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
@@ -1679,6 +1679,199 @@ class Purity(unittest.TestCase):
         self.assertEqual(check_purity.run(tree({"kernel/x.py": "from kernel import terms as t\n\n\ndef f():\n"
                                                 "    return t.HELD\n"})), [])
 
+    def test_the_kernel_calls_nothing_it_is_given(self):
+        # Issue 588: a function handed in could read the network or the clock for the Kernel, so it calls no parameter
+        # but _decision, no value it binds, no method but a built-in type's that BUILTIN_METHODS names, and hands
+        # nothing it was given or binds to be called. A function it defines, a lambda, a builtin and an import it may.
+        for text, words in (
+                ("def decide(facts, fetch=None):\n    return fetch()\n", "calls fetch, which it is given"),
+                ("def f(**kw):\n    return kw()\n", "calls kw, which it is given"),
+                ("def f(fetch):\n    def g():\n        return fetch()\n    return g()\n", "calls fetch, which it is given"),
+                ("def f(xs):\n    return (lambda g: g())(xs)\n", "calls g, which it is given"),
+                ("def f(context):\n    g = context.get('reader')\n    return g()\n", "calls g, a value it binds"),
+                ("def f(context):\n    if (g := context.get('x')):\n        return g()\n", "calls g, a value it binds"),
+                ("def f(fs):\n    for g in fs:\n        g()\n", "calls g, a value it binds"),
+                ("def f(fs):\n    return [g() for g in fs]\n", "calls g, a value it binds"),
+                ("def f(_decision, x):\n    _decision = x\n    return _decision()\n", "calls _decision, a value it binds"),
+                ("def f(x):\n    g = lambda: x\n    g = x\n    return g()\n", "calls g, a value it binds"),
+                ("def f(x):\n    g = x\n    g = lambda: x\n    return g()\n", "calls g, a value it binds"),
+                ("def f(x):\n    def g():\n        return 1\n    g = x\n    return g()\n", "calls g, a value it binds"),
+                ("def f(g):\n    def g():\n        return 1\n    return g()\n", "calls g, a value it binds"),
+                ("LIMIT = 'a'\n\n\ndef f():\n    return LIMIT()\n", "calls LIMIT, a value it binds"),
+                ("def f(facts):\n    return facts.read()\n", "calls the method read"),
+                ("def f(facts):\n    return facts.get('x').fetch()\n", "calls the method fetch"),
+                ("def f(facts):\n    return facts['x']()\n", "calls what an expression gives"),
+                ("def f(*fs):\n    return fs[0]()\n", "calls what an expression gives"),
+                ("def f(xs, order):\n    return sorted(xs, key=order)\n", "hands order to be called"),
+                ("def f(xs, o):\n    return max(xs, key=o.rank)\n", "hands o.rank to be called"),
+                ("def f(xs, c):\n    return sorted(xs, key=c.get('order'))\n", "hands c.get('order') to be called"),
+                ("def f(xs, g):\n    return list(map(g, xs))\n", "hands g to be called"),
+                ("def f(xs, c):\n    k = c['k']\n    return list(filter(k, xs))\n", "hands k to be called"),
+                ("def f(x):\n    return callable(x)\n", "uses callable"),
+                ("def f(fetch):\n    return next(iter(fetch, None))\n", "uses iter"),
+                ("def f(xs, fetch):\n    return sorted(xs, **{'key': fetch})\n", "spreads its arguments into sorted"),
+                ("def f(xs, **kw):\n    return max(xs, **kw)\n", "spreads its arguments into max"),
+                ("def f(fs, xs):\n    return list(map(*fs))\n", "spreads its arguments into map"),
+                ("def f(fetch):\n    @fetch\n    def g():\n        return 0\n    return g\n", "decorates a function"),
+                ("def f(fetch):\n    def g(x=frozenset(fetch())):\n        def fetch():\n            return 1\n"
+                 "        return x\n    return g\n", "calls fetch, which it is given"),
+                ("def f(fetch):\n    def g(x: fetch()):\n        def fetch():\n            return 1\n"
+                 "        return x\n    return g\n", "calls fetch, which it is given"),
+                ("def f(fetch):\n    def g(x=frozenset((run := fetch,))):\n        return x\n    return run()\n",
+                 "calls run, a value it binds"),
+                ("def f(fetch):\n    g = lambda x=(run := fetch): x\n    return run()\n", "calls run, a value it binds"),
+                ("import typing\n\n\ndef f(fetch):\n    return typing.get_type_hints(fetch)\n", "imports typing"),
+                ("from typing import sys\n\n\ndef f():\n    return sys.modules\n", "imports typing"),
+                ("from typing import get_type_hints\n\n\ndef f(fetch):\n    return get_type_hints(fetch)\n", "imports typing"),
+                ("def f(fetch):\n    def g(x: (h := fetch)):\n        return x\n    return h()\n", "calls h, a value it binds"),
+                ("def f(fetch):\n    def g() -> (h := fetch):\n        return 0\n    return h()\n", "calls h, a value it binds"),
+                ("def f(fetch):\n    return __build_class__(fetch, 'X')\n", "calls __build_class__, a builtin"),
+                ("def f(xs):\n    return sorted(xs, key=__build_class__)\n", "hands __build_class__ to be called"),
+                ("from __future__ import annotations\n\n\ndef f():\n    return annotations()\n",
+                 "calls annotations, which it imports but is no function of the Kernel's"),
+                ("from kernel.missing import g\n\n\ndef f():\n    return g()\n",
+                 "calls g, which it imports but is no function of the Kernel's")):
+            self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), words), (text, words))
+        for text in ("def f(_decision, facts):\n    return _decision(facts)\n",
+                     "def f(xs):\n    key = lambda r: r['at']\n    return sorted(xs, key=key), key(xs[0])\n",
+                     "def f(xs):\n    def g(r):\n        return r\n    return g(xs)\n",
+                     "def f(facts):\n    return (facts.get('a', {}).items(), ','.join(facts['b']), dict.fromkeys(facts['c']),\n"
+                     "            str(facts['d']).casefold().startswith('x'))\n",
+                     "def order(r):\n    return r\n\n\ndef f(xs):\n    return sorted(xs, key=order), max(xs, key=lambda r: r)\n",
+                     "def f(xs):\n    return len(xs), sorted(xs), list(map(lambda x: x, xs)), sorted(xs, key=str.casefold)\n",
+                     "def f(counts, extra):\n    return max(counts, key=counts.get), dict({'a': 1}, **extra)\n",
+                     "def f(g):\n    def h():\n        def g():\n            return 1\n        return g()\n    return h()\n",
+                     "def f(x):\n    def g():\n        y = x\n        return y\n    def y():\n        return x\n    return y()\n"):
+            self.assertEqual(check_purity.run(tree({"kernel/x.py": text})), [], text)
+        # A module of the Kernel's may be called into however it is imported, and named only to read a name of it.
+        terms = "def code(x):\n    return x\n"
+        for text in ("from kernel import terms as t\n\n\ndef f(x):\n    return t.code(x)\n",
+                     "import kernel.terms as t\n\n\ndef f(x):\n    return t.code(x)\n",
+                     "from . import terms\n\n\ndef f(x):\n    return terms.code(x)\n"):
+            self.assertEqual(check_purity.run(tree({"kernel/terms.py": terms, "kernel/x.py": text})), [], text)
+        for text, words in (("import kernel.terms\n\n\ndef f(x):\n    return kernel.terms.code(x)\n", "without naming it"),
+                            ("from kernel.terms import *\n\n\ndef f(x):\n    return code(x)\n", "imports * from kernel.terms"),
+                            ("from kernel import terms\n\n\ndef f(x):\n    m = terms\n    return m.code(x)\n",
+                             "names the module terms"),
+                            ("import kernel.other as o\n\n\ndef f(x):\n    m = o.terms\n    return m.code(x)\n",
+                             "names the module o.terms")):
+            got = check_purity.run(tree({"kernel/terms.py": terms, "kernel/other.py": "from kernel import terms\n",
+                                         "kernel/x.py": text}))
+            self.assertTrue(caught(got, words), (text, words, got))
+
+    def test_what_fills_a_decision_maker_is_a_kernel_function(self):
+        # Issue 588: _decision is the one parameter the Kernel calls, so what fills it is a Kernel function, or the
+        # caller's own _decision, by its name or its place; a function that takes it is at a module's top and is only
+        # called, so nothing handed in reaches it another way.
+        brakes = "def paused(_decision, facts):\n    return _decision(facts)\n"
+        head = "from kernel import brakes\nfrom kernel.brakes import paused\n\n\ndef _decision(facts):\n    return facts\n\n\n"
+        clean = head + "def decide(facts):\n    return brakes.paused(_decision, facts), paused(_decision, facts)\n\n\n" \
+                       "def again(_decision, facts):\n    return brakes.paused(_decision=_decision, facts=facts)\n"
+        self.assertEqual(check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/decide.py": clean})), [])
+        for body, words in (
+                ("def f(fetch, facts):\n    return brakes.paused(fetch, facts)\n", "gives fetch as _decision"),
+                ("def f(_decision, fetch, facts):\n    return paused(fetch, facts)\n", "gives fetch as _decision"),
+                ("def f(facts):\n    return brakes.paused(lambda f: f, facts)\n", "gives lambda f: f as _decision"),
+                ("def f(facts):\n    return brakes.paused(None, facts)\n", "gives None as _decision"),
+                ("def f(facts, c):\n    return brakes.paused(_decision=c.get('d'), facts=facts)\n", "gives c.get('d') as _decision"),
+                ("def f(args):\n    return brakes.paused(*args)\n", "how it is filled cannot be read"),
+                ("def f(facts, kw):\n    return brakes.paused(facts=facts, **kw)\n", "how it is filled cannot be read"),
+                ("def f(facts):\n    return paused(facts=facts)\n", "how it is filled cannot be read"),
+                ("def f(facts):\n    return [brakes.paused][0](_decision, facts)\n", "names paused without calling it"),
+                ("def f(facts):\n    g = paused\n    return g\n", "names paused without calling it"),
+                ("def f(facts):\n    def g(_decision):\n        return _decision()\n    return g(f)\n",
+                 "takes _decision in a function inside another"),
+                ("def f():\n    return lambda _decision: _decision()\n", "takes _decision in a function inside another"),
+                ("def p(_decision):\n    return _decision()\n\n\ndef f(g):\n    return p(g)\n", "gives g as _decision"),
+                ("def f(facts):\n    def g(x):\n        return x\n    return paused(g, facts)\n", "gives g as _decision")):
+            got = check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/decide.py": head + body}))
+            self.assertTrue(caught(got, words), (body, words, got))
+        # However the function that takes it is imported, and wherever its place, what fills _decision is read.
+        apply = "def apply(facts, _decision):\n    return _decision(facts)\n"
+        update = "def update(facts, _decision):\n    return _decision(facts)\n"
+        for files in ({"kernel/brakes.py": brakes, "kernel/decide.py": "from .brakes import paused\n\n\n"
+                       "def f(fetch, facts):\n    return paused(fetch, facts)\n"},
+                      {"kernel/brakes.py": brakes, "kernel/decide.py": "from . import brakes\n\n\n"
+                       "def f(fetch, facts):\n    return brakes.paused(fetch, facts)\n"},
+                      {"kernel/brakes.py": brakes, "kernel/decide.py": "import kernel.brakes as b\n\n\n"
+                       "def f(fetch, facts):\n    return b.paused(fetch, facts)\n"},
+                      {"kernel/pkg/__init__.py": apply, "kernel/decide.py": "from kernel.pkg import apply\n\n\n"
+                       "def f(fetch, facts):\n    return apply(facts, fetch)\n"},
+                      {"kernel/pkg/__init__.py": apply, "kernel/pkg/rules.py": "from . import apply\n\n\n"
+                       "def f(fetch, facts):\n    return apply(facts, fetch)\n"},
+                      {"kernel/pkg/__init__.py": apply, "kernel/decide.py": "import kernel.pkg as p\n\n\n"
+                       "def f(fetch, facts):\n    return p.apply(facts, fetch)\n"},
+                      {"kernel/a.py": "def update(facts, _decision):\n    return _decision(facts)\n",
+                       "kernel/decide.py": "import kernel.a as a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
+                      {"kernel/brakes.py": brakes.replace("paused(_decision, facts)", "paused(facts, _decision)"),
+                       "kernel/other.py": "from kernel.brakes import paused\n",
+                       "kernel/decide.py": "import kernel.other as o\n\n\ndef f(fetch, facts):\n    return o.paused(facts, fetch)\n"},
+                      {"kernel/brakes.py": brakes, "kernel/__init__.py": "from kernel.brakes import paused\n",
+                       "kernel/decide.py": "import kernel as k\n\n\ndef f(fetch, facts):\n    return k.paused(fetch, facts)\n"},
+                      {"kernel/brakes.py": brakes, "kernel/other.py": "from kernel.brakes import paused\n",
+                       "kernel/decide.py": "from kernel.other import paused\n\n\ndef f(fetch, facts):\n    return paused(fetch, facts)\n"},
+                      {"kernel/a.py": update, "kernel/other.py": "from kernel import a\n",
+                       "kernel/decide.py": "from kernel.other import a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
+                      {"kernel/a.py": update, "kernel/other.py": "from . import a\n",
+                       "kernel/decide.py": "from .other import a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
+                      {"kernel/a.py": update, "kernel/pkg/__init__.py": "from kernel import a\n",
+                       "kernel/decide.py": "from kernel.pkg import a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
+                      {"kernel/a.py": update, "kernel/o1.py": "from kernel import a\n", "kernel/o2.py": "from kernel.o1 import a\n",
+                       "kernel/decide.py": "import kernel.o2 as o\n\n\ndef f(fetch, facts):\n    return o.a.update(facts, fetch)\n"}):
+            got = check_purity.run(tree(files))
+            self.assertTrue(caught(got, "gives fetch as _decision"), (files, got))
+        # A value, or a name no module defines, reached through a Kernel module is no Kernel function; and _decision
+        # is never taken as a spread of arguments.
+        terms = "LIMIT = 'x'\n"
+        for body, words in (("def f(facts):\n    return brakes.paused(terms.LIMIT, facts)\n", "gives terms.LIMIT as _decision"),
+                            ("def f(facts):\n    return brakes.paused(terms.NOPE, facts)\n", "gives terms.NOPE as _decision")):
+            got = check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/terms.py": terms,
+                                         "kernel/decide.py": "from kernel import terms\n" + head + body}))
+            self.assertTrue(caught(got, words), (body, got))
+        for taker in ("def paused(*_decision):\n    return _decision\n", "def paused(**_decision):\n    return _decision\n"):
+            self.assertTrue(caught(check_purity.run(tree({"kernel/brakes.py": taker})), "takes _decision as a spread"), taker)
+        # A positional-only _decision is filled by its place alone: a keyword of its name fills another parameter.
+        only = "def paused(_decision, /, **facts):\n    return _decision(facts)\n"
+        got = check_purity.run(tree({"kernel/brakes.py": only, "kernel/decide.py": head +
+                                     "def f(fetch):\n    return paused(fetch, _decision=_decision)\n"}))
+        self.assertTrue(caught(got, "gives fetch as _decision"), got)
+        # A module re-exported by another is a module however it is reached, and is never kept as a value.
+        files = {"kernel/a.py": update, "kernel/other.py": "from kernel import a\n",
+                 "kernel/decide.py": "from kernel.other import a\n\n\ndef f(fetch, facts):\n    m = a\n    return m.update(facts, fetch)\n"}
+        self.assertTrue(caught(check_purity.run(tree(files)), "names the module a"))
+        files = {"kernel/rules.py": brakes, "kernel/other.py": "from kernel import rules\n",
+                 "kernel/decide.py": "from kernel.other import rules\n\n\ndef _decision(facts):\n    return facts\n\n\n"
+                 "def decide(facts):\n    return rules.paused(_decision, facts)\n"}
+        self.assertEqual(check_purity.run(tree(files)), [])
+
+    def test_a_chain_of_modules_is_read_once_a_level(self):
+        # A module re-exported as its own attribute, read down a long chain, is resolved once a level, so the reads
+        # grow with the square of the chain, not as a power of two (Muse on PR 591). Counted, not timed.
+        class Counted(dict):
+            reads = 0
+
+            def get(self, *args):
+                Counted.reads += 1
+                return dict.get(self, *args)
+        texts = {"terms.py": "from kernel import terms as a\n\n\ndef code(x):\n    return x\n",
+                 "x.py": "from kernel import terms\n\n\ndef f(x):\n    return terms" + ".a" * 20 + ".code(x)\n"}
+        trees = {n: ast.parse(t) for n, t in texts.items()}
+        tops = Counted({n: check_purity._names(n, t, trees) for n, t in trees.items()})
+        self.assertEqual(check_purity._calls("x.py", trees["x.py"], trees, check_purity._takers(trees), tops), [])
+        self.assertLess(Counted.reads, 20 * 20 * 4)
+
+    def test_each_decision_maker_the_kernel_fills_is_a_kernel_function(self):
+        # Issue 588: on the Kernel as it stands, the functions that take _decision are the brakes' and run_deferral,
+        # and every call of one fills it with decide.py's _decision or the caller's own. A new one is read here first.
+        trees = {p.relative_to(ROOT / "kernel").as_posix(): ast.parse(p.read_text()) for p in walk.files(ROOT, "kernel")
+                 if p.suffix == ".py"}
+        takers = check_purity._takers(trees)
+        self.assertEqual(sorted(takers), [("brakes.py", n) for n in ("approval_ceilings", "dequeue_ceiling",
+                                                                     "enqueue_ceilings", "on_act", "on_run", "paused",
+                                                                     "run_ceilings")] + [("derive.py", "run_deferral")])
+        tops = {n: check_purity._names(n, t, trees) for n, t in trees.items()}
+        self.assertEqual([p for n, t in sorted(trees.items()) for p in check_purity._calls(n, t, trees, takers, tops)], [])
+
     def test_the_brakes_and_the_gate_stand_apart(self):
         # Each is a protected path alone. The gate imports nothing of the Kernel and the brakes only its codes, so no
         # module that is not protected can change what they decide, and no other module stands in for one of theirs.
@@ -1686,7 +1879,7 @@ class Purity(unittest.TestCase):
         brakes = "from kernel import terms as t\nfrom kernel.terms import HELD\n\n\ndef paused(_decision, facts):\n" \
                  "    return None\n"
         derive = "from kernel import brakes, gate\nfrom kernel.gate import gates\nimport kernel.gate as gate\n\n\n" \
-                 "def derive(facts):\n    pause = brakes.paused(None, facts)\n    return pause or gates(facts, {})\n"
+                 "def derive(facts):\n    pause = brakes.paused(derive, facts)\n    return pause or gates(facts, {})\n"
         clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive}
         self.assertEqual(check_purity.run(tree(clean)), [])
         # Any binding of a name either owns stands in for theirs, at any depth and in any form, and so does a binding
@@ -6027,6 +6220,21 @@ exit 0
         self.assertIn("stopped with a token live; revoking it returned 204", told)
         self.assertNotIn(self.TOKEN, said + told)
 
+    def test_a_stop_while_an_answer_cut_inside_a_character_is_read_still_revokes_its_token(self):
+        # Issue 502 (Argon): the same stop, with the answer cut inside a multibyte character and read where python
+        # decodes stdin strictly. The trap finds the token all the same.
+        folder = self.stand_in()
+        (folder / "mint.body").write_bytes(ReachScript.CUT.replace("TOKEN", self.TOKEN).encode()[:-1])
+        real = os.path.realpath(sys.executable)
+        strict = ReachScript.strict_python(folder / "strict")
+        (folder / "bin" / "python3").write_text(ReachScript.PYTHON % (real, str(strict)))
+        (folder / "bin" / "python3").chmod(0o755)
+        code, said, told = self.stopped(folder, "x/canary", "x/other")
+        self.assertNotEqual(code, 0, told)
+        self.assertEqual([c.split(" ", 1)[0] for c in (folder / "calls").read_text().splitlines()], ["GET", "POST", "DELETE"], told)
+        self.assertIn("stopped with a token live; revoking it returned 204", told)
+        self.assertNotIn(self.TOKEN, said + told)
+
     def test_a_narrowed_token_is_minted_used_three_times_and_revoked_and_never_kept(self):
         folder = self.stand_in()
         done = self.run_script(folder, "x/canary", "x/other")
@@ -6101,6 +6309,19 @@ exit 0
         self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
 
 
+@contextlib.contextmanager
+def planting(out: pathlib.Path, victim: pathlib.Path):
+    """While open, PATH holds a mktemp that makes OUT first, with a link in it to `victim` where the run writes ran_at:
+    another's directory, made after a trial's check on OUT and before the trial makes OUT itself (issue 502)."""
+    found = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+    victim.write_text("kept\n")
+    (found / "mktemp").write_text('#!/bin/sh\nif [ ! -e "%s" ]; then mkdir "%s" && ln -s "%s" "%s/ran_at"; fi\nexec /usr/bin/mktemp "$@"\n'
+                                  % (out, out, victim, out))
+    (found / "mktemp").chmod(0o755)
+    with mock.patch.dict(os.environ, {"PATH": "%s:%s" % (found, os.environ["PATH"])}):
+        yield
+
+
 class OutputMadeAlone(unittest.TestCase):
     """Each trial the Maintainer runs with a key finds OUT absent, then makes it itself (issue 367). A directory made in
     between, by another, may hold a link where the run will write; it is refused, and nothing is written through it."""
@@ -6119,6 +6340,10 @@ class OutputMadeAlone(unittest.TestCase):
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
+    # What each of those refuses next, once OUT's parent is read and taken: the test shows it got that far (issue 502).
+    PAST = "CONFIG_DIR is not a directory"
+    # These hold no key and make OUT as the first ones do; each is run by the shell it names (issue 502).
+    LATER = {"trial_p59_read_confinement.sh": ("bash", "CLI", "STUB"), "trial_p61_timeline.sh": ("sh", "x/canary", "1", "2")}
 
     def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
         for script, args in self.SCRIPTS.items():
@@ -6175,8 +6400,12 @@ class OutputMadeAlone(unittest.TestCase):
     def run_out(self, script, folder, out):
         """`script` run with OUT at `out`, with stand-ins that fail at once whatever it reaches: (exit code, stderr)."""
         (folder / "bin").mkdir(exist_ok=True)
-        (folder / "bin" / "curl").write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
-        (folder / "bin" / "curl").chmod(0o755)
+        for name in ("curl", "gh"):
+            (folder / "bin" / name).write_text('#!/bin/sh\necho called >> "%s/calls"\nexit 7\n' % folder)
+            (folder / "bin" / name).chmod(0o755)
+        if not (folder / "bin" / "timeout").exists():     # P-59 needs one, which a Mac's /usr/bin has not
+            (folder / "bin" / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+            (folder / "bin" / "timeout").chmod(0o755)
         (folder / "key.pem").write_text("not a key\n")
         (folder / "cli").write_text("#!/bin/sh\nexit 0\n")
         (folder / "cli").chmod(0o755)
@@ -6186,6 +6415,10 @@ class OutputMadeAlone(unittest.TestCase):
                                                                       for a in self.SCRIPTS[script]]
         elif script in self.OTHERS:
             argv = ["bash", str(ROOT / "tools" / script), str(out)] + list(self.OTHERS[script])
+        elif script in self.LATER:
+            shell, *rest = self.LATER[script]
+            argv = [shell, str(ROOT / "tools" / script), str(out)] + [
+                a.replace("CLI", str(folder / "cli")).replace("STUB", str(folder / "stub.py")) for a in rest]
         else:
             argv = ["bash", str(ROOT / "tools" / script), str(out), self.SANDBOX[script], str(folder / "cli"),
                     str(folder / "stub.py")]
@@ -6201,7 +6434,7 @@ class OutputMadeAlone(unittest.TestCase):
         # where it was. OUT's parent, or a directory above it, that others can write to, its group among them, is
         # refused unless it is sticky; so is one another user owns, and one a find that fails cannot read.
         said = " is another user's, or can be written by other users and is not sticky"
-        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS):
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS) + list(self.LATER):
             for modes, refused in (((0o700, 0o777), True), ((0o777, 0o700), True), ((0o700, 0o770), True),
                                    ((0o700, 0o707), True), ((0o700, 0o1777), False)):
                 with self.subTest(script=script, modes=modes):
@@ -6224,6 +6457,8 @@ class OutputMadeAlone(unittest.TestCase):
                     else:
                         self.assertNotIn("can be written by other users", told)
                         self.assertEqual((parent / "out").is_dir(), script not in self.OTHERS, told)
+                        if script in self.OTHERS:
+                            self.assertIn(self.PAST, told)
             # A directory this user does not own, as an id that names another user reads it; and a find that fails. Run
             # as root, the folder is root's, which the check takes as safe whoever runs it, so the id case cannot be shown.
             for name, stand_in in (("id", '#!/bin/sh\necho 4242\n'), ("find", '#!/bin/sh\nexit 1\n')):
@@ -6253,17 +6488,25 @@ class OutputMadeAlone(unittest.TestCase):
                   ("a + with no -e", None, held, True),
                   ("none with no -e", None, plain, False),
                   ("no read at all", None, None, True)]
-        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS):
+        # Issue 502 (Argon): an entry inherited from above, a right first in the list with no comma before it, a principal
+        # whose name has a space, and a harmless ACL under a first line that shows its +.
+        cases += [("an inherited allow", plain + " 0: group:staff inherited allow list,add_file,file_inherit\\n", None, True),
+                  ("a right first, alone", plain + " 0: user:other allow delete\\n", None, True),
+                  ("a principal with a space", plain + " 0: user:Jane Doe allow list,add_subdirectory\\n", None, True),
+                  ("a harmless ACL under a +", held + " 0: user:other allow list,search\\n", None, False)]
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS) + list(self.LATER):
             for name, read, listed, refused in cases:
                 with self.subTest(script=script, case=name):
                     folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
                     (folder / "bin").mkdir()
                     (folder / "parent").mkdir()
+                    # It answers ls -lde and ls -ld alone: any other ls the check ran would be told nothing.
                     (folder / "bin" / "ls").write_text("""#!/bin/sh
 if [ "$1" = -lde ]; then
     %s
     exit
 fi
+[ "$1" = -ld ] || exit 2
 %s
 """ % ('[ "$2" = "%s" ] && printf "%s" || printf "%s"' % (folder, read, plain) if read else "exit 2",
        '[ "$2" = "%s" ] && printf "%s" || printf "%s"' % (folder, listed, plain) if listed else "exit 2"))
@@ -6278,6 +6521,17 @@ fi
                     else:
                         self.assertNotIn(said, told)
                         self.assertEqual(out.is_dir(), script not in self.OTHERS, told)
+                        if script in self.OTHERS:
+                            self.assertIn(self.PAST, told)
+
+    # How each script reads what an ACL allows, past its first line, which names the directory.
+    ACL_READING = "| sed 1d | grep -Eq ' allow .*(add_file|add_subdirectory|delete|write|chown)'; then found=\"an ACL\"; fi"
+
+    def test_every_script_reads_an_acl_word_for_word_as_the_others_do(self):
+        # Issue 502 (Argon): the test above runs each script against each right an ACL may give. This holds each to the
+        # one reading it tests, so a right dropped, or the first line read as an entry, in any script is told at once.
+        for script in list(self.SCRIPTS) + list(self.SANDBOX) + list(self.OTHERS) + list(self.LATER):
+            self.assertEqual((ROOT / "tools" / script).read_text().count(self.ACL_READING), 1, script)
 
     def test_a_refused_sandbox_trial_leaves_no_directory_behind(self):
         # Issue 424: P-50 and P-51 make OUT's parents if they are missing. They read what stands before they do, take no
@@ -6300,19 +6554,49 @@ fi
                 self.assertIn("holds ..", told)
                 self.assertFalse((folder / "unsafe" / "new").exists(), "a directory was made")
                 self.assertFalse((folder / "ghost").exists(), "a directory was made")
+                # A newline in OUT, which would have the parents read short of where it names (the Claude review).
+                code, told = self.run_out(script, folder, folder / "n1\nn2" / "deep" / "out")
+                self.assertEqual(code, 2, told)
+                self.assertIn("OUT holds a newline", told)
+                self.assertEqual(sorted(p.name for p in folder.iterdir() if p.name.startswith("n1")), [], "a directory was made")
                 was = os.umask(0o002)
                 try:
                     code, told = self.run_out(script, folder, folder / "new" / "made" / "out")
                 finally:
                     os.umask(was)
                 self.assertNotIn(said, told)
-                self.assertEqual((folder / "new" / "made").stat().st_mode & 0o7777, 0o700, told)
-                (folder / "bin" / "mkdir").write_text('#!/bin/sh\n/bin/mkdir "$@" || exit\ncase "$1" in -p) chmod 777 "$3" ;; esac\n')
+                for made in (folder / "new", folder / "new" / "made"):     # every parent it made (issue 502)
+                    self.assertEqual(made.stat().st_mode & 0o7777, 0o700, (made, told))
+                (folder / "bin" / "mkdir").write_text('#!/bin/sh\n/bin/mkdir "$@" || exit\ncase "$1" in -m) chmod 777 "$4" ;; esac\n')
                 (folder / "bin" / "mkdir").chmod(0o755)
                 code, told = self.run_out(script, folder, folder / "other" / "out")
                 self.assertEqual(code, 2, told)
                 self.assertIn(str(folder / "other") + said, told)
                 self.assertFalse((folder / "other" / "out").exists())
+
+    def test_a_link_put_where_a_sandbox_trial_makes_a_parent_is_refused_not_followed(self):
+        # Issue 502 (Argon): in a sticky directory another may put a link where a missing parent of OUT is to be made,
+        # once the check has read the directory. The parents are made one at a time inside it, so the link is refused,
+        # and nothing is made where it leads. Here a stand-in mkdir puts the link there as it is called.
+        for script in self.SANDBOX:
+            with self.subTest(script=script):
+                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                sticky, elsewhere = folder / "sticky", folder / "elsewhere"
+                sticky.mkdir()
+                sticky.chmod(0o1777)
+                elsewhere.mkdir()
+                (folder / "bin").mkdir()
+                (folder / "bin" / "mkdir").write_text(
+                    '#!/bin/sh\nfor a in "$@"; do case "$a" in %s/*) [ -e %s/x ] || [ -L %s/x ] || ln -s %s %s/x ;; esac; done\n'
+                    'exec /bin/mkdir "$@"\n' % (sticky, sticky, sticky, elsewhere, sticky))
+                (folder / "bin" / "mkdir").chmod(0o755)
+                try:
+                    code, told = self.run_out(script, folder, sticky / "x" / "new" / "out")
+                finally:
+                    sticky.chmod(0o700)
+                self.assertEqual(code, 2, told)
+                self.assertIn("could not be made new by this run", told)
+                self.assertEqual(list(elsewhere.iterdir()), [], "a directory was made through the link")
 
     def test_the_four_that_make_out_later_make_it_for_their_user_alone(self):
         # Issue 424: a parent no other can write to is little use if OUT itself takes the umask.
@@ -6374,7 +6658,9 @@ if url.endswith("/access_tokens"):
     with open(str(here / "mints"), "a") as mints:
         mints.write("x")
     token = "ghs_" + "Q" * 30 + "%06d" % len((here / "mints").read_text())
-    sys.stdout.write(plan["mint"]["body"].replace("TOKEN", token) + "\n%d" % plan["mint"]["status"])
+    body = plan["mint"]["body"].replace("TOKEN", token).encode()
+    sys.stdout.buffer.write(body[:-1] if plan["mint"].get("cut") else body)     # cut: inside its last character
+    sys.stdout.buffer.write(b"\n%d" % plan["mint"]["status"])
 elif method == "DELETE":
     sys.stdout.write(str(plan.get("revoke", 204)))
 else:
@@ -6390,6 +6676,30 @@ data = sys.stdin.buffer.read()
 sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else "signature")
 '''
     MINTED = '{"token": "TOKEN", "expires_at": "2026-10-29T23:00:00Z", "permissions": {"metadata": "read"}}'
+    # A stand-in python3 that runs a script's python3 -I -c with stdin read as UTF-8 strictly, as python reads it under a
+    # locale such as en_US.UTF-8. Under C and C.UTF-8 it reads with surrogateescape (PEP 538, PEP 540), so a cut character
+    # raises nothing (the Claude review), and a runner need have no other locale (Codex). Any other call runs as it is.
+    STRICT = """#!%s -I
+import os, sys
+args = sys.argv[1:]
+if args[:2] == ["-I", "-c"]:
+    sys.argv = ["-c"] + args[3:]
+    sys.stdin.reconfigure(encoding="utf-8", errors="strict")
+    exec(compile(args[2], "<string>", "exec"), {"__name__": "__main__"})
+else:
+    os.execv(%r, [%r] + args)
+"""
+
+    @staticmethod
+    def strict_python(where: pathlib.Path) -> pathlib.Path:
+        """STRICT, written as where/python3."""
+        real = os.path.realpath(sys.executable)
+        where.mkdir(parents=True, exist_ok=True)
+        (where / "python3").write_text(ReachScript.STRICT % (real, real, real))
+        (where / "python3").chmod(0o755)
+        return where / "python3"
+    # A 201 answer cut inside a character, after its token: the stand-in curl drops the last byte of the é.
+    CUT = '{"token": "TOKEN", "expires_at": "2026-10", "note": "café'
 
     def setUp(self):
         self.folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
@@ -6513,6 +6823,24 @@ sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else
                     self.assertEqual(self.revoked(calls), self.minted(calls) if revoked else [])
                     self.assertFalse((self.out / "requests.json").exists())
 
+    def test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token(self):
+        # Issue 502 (Argon): a 201 answer cut inside a multibyte character, read where python decodes stdin strictly.
+        # Its token is found all the same and revoked, in every script that mints with curl; P-4 is in NarrowedToken.
+        for name, args in OutputMadeAlone.SCRIPTS.items():
+            if name == "trial_p4_narrow.sh":
+                continue
+            with self.subTest(script=name):
+                self.setUp()
+                self.strict_python(self.folder / "bin")
+                argv = [a.replace("KEY", self.key_file) for a in args]
+                code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.CUT, "cut": True}},
+                                                          scratch_closed=True, script=ROOT / "tools" / name, args=argv)
+                self.assertEqual(code, 1, told)
+                self.assertEqual(len(self.minted(calls)), 1, told)
+                self.assertEqual(self.revoked(calls), self.minted(calls), told)
+                self.assertNotIn("the Maintainer must revoke it by hand", told)
+                self.assertNotIn("ghs_", said + told)
+
     def test_a_refused_mint_is_shown_redacted_and_a_token_it_holds_is_revoked(self):
         code, said, told, calls = self.run_script(
             {"mint": {"status": 403, "body": '{"message": "Resource not accessible by integration", "client_secret": "x7Qp"}'}},
@@ -6579,8 +6907,11 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
                                      ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 403\n\n{}\n", "403"),
                                      ("HTTP/2 200\nx: y\n\nBody\n\nHTTP/1.1 404 Not Found\n", "200"),
                                      ("no head\n", "")):
-                    done = subprocess.run(["awk", program], input=said, capture_output=True, text=True, timeout=10)
-                    self.assertEqual(done.stdout.strip(), status, (name, said))
+                    # Each as it is, and as curl -i writes it, each line ending in CRLF (issue 502, Argon). What awk says
+                    # is read as bytes, as $(...) keeps them: a carriage return left in the status is not stripped here.
+                    for spelt in (said, said.replace("\n", "\r\n")):
+                        done = subprocess.run(["awk", program], input=spelt.encode(), capture_output=True, timeout=10)
+                        self.assertEqual(done.stdout, status.encode() + b"\n", (name, spelt))
 
     def test_a_stop_with_a_token_live_revokes_it(self):
         code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}, "hang": True}, stop=True)
@@ -6715,6 +7046,16 @@ exit 9
                          ("pass", self.PIN, self.PIN + " (Claude Code)", True))
         # The older runs are kept beside it, each at the version it ran at: a pin that moved has its earlier run still.
         self.assertGreaterEqual(len(set(pinned)), 2, pinned)
+
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        folder = self.stand_in()
+        victim = folder / "victim"
+        with planting(self.out, victim):
+            ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertNotEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn("exists", ran.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
 
     def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
         folder = self.stand_in()
@@ -7473,6 +7814,15 @@ exit 9
         return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg or self.cfg), str(self.bin / "claude")], env=env,
                               capture_output=True, text=True, timeout=60)
 
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        out, victim = self.folder / "out", self.folder / "victim"
+        with planting(out, victim):
+            done = self.run_script(out)
+        self.assertNotEqual(done.returncode, 0, done.stderr)
+        self.assertIn("exists", done.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+
     def test_it_asks_three_ways_and_keeps_only_codes(self):
         out = self.folder / "out"
         done = self.run_script(out)
@@ -7959,6 +8309,16 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
 
     def checked(self, out) -> dict:
         return json.loads((pathlib.Path(out) / "checked.json").read_text())
+
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        folder = self.stand_in()
+        victim = folder / "victim"
+        with planting(self.out, victim):
+            ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertNotEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn("exists", ran.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
 
     def test_the_cli_is_given_only_the_named_environment_and_one_command(self):
         folder = self.stand_in(hides=("markers", "markers"))
@@ -8989,6 +9349,316 @@ class Redaction(unittest.TestCase):
                          "HTTP/1.1 100 Continue\n\nHTTP/2 204\nDate: x\n\n")
 
 
+class Writes(unittest.TestCase):
+    """`tools/check_writes.py`: outside adapters/ and the tests, only the callers it lists reach a GitHub write, each
+    the writers it lists (issue 587). Each test plants all its cases in one copy of the repo, as each problem names its
+    file: a copy is megabytes."""
+
+    SNEAK = "from adapters import effects\n\n\ndef go(transport, item, req):\n    return effects.role_write(transport, item, 'review', req, 'me')\n"
+    REVIEW = "adapters.effects:_check, adapters.effects:_comment, adapters.effects:_review"
+    UNLISTED = "is not in tools/check_writes.py's CALLERS"
+    # A new adapter that reads, or writes, by GraphQL: a POST either way.
+    MARKS = ('from adapters.github import request\n\nMARK = "%s"\n\n\ndef mark(transport, ident):\n'
+             '    return transport.send(request("POST", "/graphql", body={"query": MARK, "variables": {"id": ident}}))\n')
+    MUTATION = "mutation Mark($id: ID!) { markFileAsViewed(input: {pullRequestId: $id}) { clientMutationId } }"
+    QUERY = "query Mark($id: ID!) { node(id: $id) { id } }"
+
+    def unlisted(self, problems: list, rel: str, writes: str = None):
+        self.assertTrue(caught(problems, "%s reaches a GitHub write, %s, and %s" % (rel, writes or self.REVIEW, self.UNLISTED)),
+                        (rel, problems))
+
+    def test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists(self):
+        self.assertEqual(check_writes.run(), [])
+
+    def test_a_new_caller_of_a_writer_fails_until_it_is_listed(self):
+        self.unlisted(check_writes.run(clone({"harness/sneak.py": self.SNEAK})), "harness/sneak.py")
+
+    def test_a_writer_two_calls_deep_is_reached_through_the_modules_between(self):
+        # far calls near, which calls effects.role_write, which calls the writers: far writes as surely as near does.
+        problems = check_writes.run(clone({
+            "harness/near.py": self.SNEAK,
+            "harness/far.py": "from harness import near\n\n\ndef step(transport):\n    return near.go(transport, {}, {})\n"}))
+        self.unlisted(problems, "harness/far.py")
+
+    def test_a_writer_is_reached_by_any_name_it_goes_by(self):
+        # The Claude review's ways round a reading of names alone: each is a caller as surely as a plain call is.
+        role = "    return %s(transport, item, 'review', req, 'me')\n"
+        go = "\n\ndef go(transport, item, req):\n"
+        files = {
+            "harness/dotted.py": "import adapters.effects" + go + role % "adapters.effects.role_write",
+            "harness/aliased.py": "import adapters.effects as fx" + go + role % "fx.role_write",
+            "harness/renamed.py": "from adapters.effects import role_write as rw" + go + role % "rw",
+            "harness/relative.py": "from ..adapters import effects" + go + role % "effects.role_write",
+            "harness/table.py": "from adapters import effects\n\nTABLE = {'review': effects.role_write}" + go + role % "TABLE['review']",
+            "harness/uncalled.py": "from adapters import effects\n\n\ndef hand(run):\n    return run(effects.role_write)\n",
+            "harness/passon.py": "from adapters.effects import role_write\n",
+            "harness/fromthere.py": "from harness.passon import role_write" + go + role % "role_write",
+            "adapters/again.py": "from adapters.effects import role_write\n\nwrite = role_write\n",
+            "harness/viaalias.py": "from adapters import again" + go + role % "again.write",
+            "harness/hand.py": "from harness import approve\n\n\ndef port(transport):\n    return approve.Port(transport, 'me')\n",
+            "harness/sub.py": "from harness import approve\n\n\nclass Mine(approve.Port):\n    pass\n",
+            "harness/usesub.py": "from harness import sub\n\n\ndef port(transport):\n    return sub.Mine(transport, 'me').approve()\n",
+            # A name stored some other way than plainly, and a constant filled after it is made (the second Claude review).
+            "adapters/zz.py": "import os\n\nfrom adapters import effects\n\nif os.environ.get('X'):\n    W = effects.approve\nelse:\n    W = None\n",
+            "harness/usezz.py": "from adapters.zz import W\n\n\ndef go(t):\n    return W(t)\n",
+            "adapters/steps.py": "from adapters import effects\n\nSTEPS = {}\nSTEPS['approve'] = effects.approve\n",
+            "harness/usesteps.py": "from adapters import steps\n\n\ndef go(t):\n    return steps.STEPS['approve'](t)\n",
+            # A constant assigned twice holds what each assignment names (Argon).
+            "adapters/twiceconst.py": "from adapters import effects\n\nACT = effects.approve\nACT = None\n",
+            "harness/useact.py": "from adapters import twiceconst\n\n\ndef go(t):\n    return twiceconst.ACT(t)\n",
+            # Astra and Argon: a re-export ten deep, a name stored under an if and used in its own module, and a method a
+            # subclass reaches in its base by self.
+            "adapters/r0.py": "from adapters.r1 import role_write\n",
+            "adapters/r1.py": "from adapters.r2 import role_write\n",
+            "adapters/r2.py": "from adapters.r3 import role_write\n",
+            "adapters/r3.py": "from adapters.r4 import role_write\n",
+            "adapters/r4.py": "from adapters.r5 import role_write\n",
+            "adapters/r5.py": "from adapters.r6 import role_write\n",
+            "adapters/r6.py": "from adapters.r7 import role_write\n",
+            "adapters/r7.py": "from adapters.r8 import role_write\n",
+            "adapters/r8.py": "from adapters.r9 import role_write\n",
+            "adapters/r9.py": "from adapters.effects import role_write\n",
+            "harness/deep.py": "from adapters.r0 import role_write" + go + role % "role_write",
+            "adapters/condw.py": "from adapters import effects\n\nif True:\n    W = effects.role_write\n" + go + role % "W",
+            "harness/usecondw.py": "from adapters import condw\n\n\ndef go(t):\n    return condw.go(t, {}, {})\n",
+            "adapters/bases.py": "from adapters.github import request\n\n\nclass Base:\n    def _write(self, t):\n"
+                                 "        return t.send(request('POST', '/repos/x/y/issues'))\n\n\nclass Sub(Base):\n"
+                                 "    def act(self, t):\n        return self._write(t)\n",
+            "harness/usebases.py": "from adapters import bases\n\n\ndef go(t):\n    return bases.Sub.act(None, t)\n",
+            # Astra's second read: a nested function's parameter, a constant filled two keys deep, and super() in an
+            # override of the same name.
+            "harness/nestedparam.py": "from adapters.effects import role_write" + go + "    def unused(role_write):\n"
+                                      "        return None\n" + role % "role_write",
+            "harness/nestedassign.py": "from adapters.effects import role_write" + go + "    def unused():\n"
+                                       "        role_write = None\n        return role_write\n" + role % "role_write",
+            "adapters/nested.py": "from adapters.effects import role_write\n\nTABLE = {'review': {}}\nTABLE['review']['write'] = role_write\n",
+            "harness/usenested.py": "from adapters.nested import TABLE" + go + role % "TABLE['review']['write']",
+            "adapters/inherit.py": "from adapters.github import request\n\n\nclass Base:\n    @classmethod\n    def act(cls, t):\n"
+                                   "        return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n\n\nclass Sub(Base):\n"
+                                   "    @classmethod\n    def act(cls, t):\n        return super().act(t)\n",
+            "harness/useinherit.py": "from adapters.inherit import Sub\n\n\ndef go(t):\n    return Sub.act(t)\n",
+            # Astra on the last head: super() in a class named as its base, from another module; and a parameter a local
+            # import fills when none is given.
+            "adapters/pbase.py": "from adapters.github import request\n\n\nclass Client:\n    @classmethod\n    def act(cls, t):\n"
+                                 "        return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "adapters/pchild.py": "from adapters.pbase import Client as BaseClient\n\n\nclass Client(BaseClient):\n    @classmethod\n"
+                                  "    def act(cls, t):\n        return super().act(t)\n",
+            "harness/usepchild.py": "from adapters.pchild import Client\n\n\ndef go(t):\n    return Client.act(t)\n",
+            "adapters/inject.py": "def go(t, item, req, write=None):\n    if write is None:\n"
+                                  "        from adapters.effects import role_write as write\n    return write(t, item, 'review', req, 'me')\n",
+            "harness/useinject.py": "from adapters.inject import go\n\n\ndef run(t):\n    return go(t, {}, {})\n",
+            # Codex: a registry filled by +=, and a parameter whose default is the writer.
+            "adapters/augreg.py": "from adapters.effects import approve\n\nSTEPS = []\nSTEPS += [approve]\n",
+            "harness/useaug.py": "from adapters.augreg import STEPS\n\n\ndef go(t):\n    return STEPS[0](t)\n",
+            "harness/defaultw.py": "from adapters.effects import approve\n\n\ndef go(t, approve=approve):\n    return approve(t)\n",
+            # Astra: a constant rebound under an if, and a class attribute a method calls through cls.
+            "adapters/conditional.py": "from adapters.effects import role_write\n\nACTION = None\nif True:\n    ACTION = role_write" + go
+                                       + role % "ACTION",
+            "harness/useconditional.py": "from adapters import conditional\n\n\ndef run(t):\n    return conditional.go(t, {}, {})\n",
+            "adapters/callback.py": "from adapters.effects import role_write\n\n\nclass Client:\n    write = staticmethod(role_write)\n\n"
+                                    "    @classmethod\n    def act(cls, t, item, req):\n        return cls.write(t, item, 'review', req, 'me')\n",
+            "harness/usecallback.py": "from adapters.callback import Client\n\n\ndef run(t):\n    return Client.act(t, {}, {})\n",
+            # Codex: a registry filled through another name for it.
+            "adapters/aliasreg.py": "from adapters.effects import approve\n\nSTEPS = []\nregistry = STEPS\nregistry.append(approve)\n",
+            "harness/usealiasreg.py": "from adapters.aliasreg import STEPS\n\n\ndef go(t):\n    return STEPS[0](t)\n",
+            # Astra on the last head: a base's cls.write that a subclass overrides, and a writer a nested function imports
+            # under a name an outer parameter has.
+            "adapters/template.py": "from adapters.github import request\n\n\nclass Base:\n    @classmethod\n    def act(cls, t):\n"
+                                    "        return cls.write(t)\n\n    @classmethod\n    def write(cls, t):\n        return None\n\n\n"
+                                    "class Client(Base):\n    @classmethod\n    def go(cls, t):\n        return super().act(t)\n\n"
+                                    "    @classmethod\n    def write(cls, t):\n        return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "harness/usetemplate.py": "from adapters.template import Client\n\n\ndef run(t):\n    return Client.go(t)\n",
+            "adapters/dropper.py": "from adapters.github import request\n\n\ndef drop(t):\n"
+                                   "    return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "adapters/fallback.py": "def go(t, drop=None):\n    def fallback():\n        from adapters.dropper import drop\n"
+                                    "        return drop(t)\n    if drop is not None:\n        return drop(t)\n    return fallback()\n",
+            "harness/usefallback.py": "from adapters.fallback import go\n\n\ndef run(t):\n    return go(t)\n",
+        }
+        problems = check_writes.run(clone(files))
+        for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
+                    "harness/uncalled.py", "harness/fromthere.py", "harness/viaalias.py"):
+            self.unlisted(problems, rel)
+        for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py", "harness/usezz.py", "harness/usesteps.py",
+                    "harness/useact.py"):
+            self.unlisted(problems, rel, "adapters.effects:approve")
+        for rel in ("harness/deep.py", "harness/usecondw.py", "harness/nestedparam.py", "harness/nestedassign.py", "harness/usenested.py"):
+            self.unlisted(problems, rel)
+        for rel in ("harness/usebases.py",):
+            self.unlisted(problems, rel, "adapters.bases:Base._write")
+        self.unlisted(problems, "harness/useinherit.py", "adapters.inherit:Base.act")
+        self.unlisted(problems, "harness/usepchild.py", "adapters.pbase:Client.act")
+        self.unlisted(problems, "harness/useinject.py")
+        self.unlisted(problems, "harness/usetemplate.py", "adapters.template:Client.write")
+        self.unlisted(problems, "harness/usefallback.py", "adapters.dropper:drop")
+        for rel in ("harness/useconditional.py", "harness/usecallback.py"):
+            self.unlisted(problems, rel)
+        for rel in ("harness/useaug.py", "harness/defaultw.py", "harness/usealiasreg.py"):
+            self.unlisted(problems, rel, "adapters.effects:approve")
+        for rel in ():
+            self.unlisted(problems, rel, "adapters.effects:approve")
+
+    def test_what_cannot_be_read_fails(self):
+        files = {
+            "harness/value.py": "from adapters import effects\n\n\ndef go(run):\n    return run(effects)\n",
+            "harness/star.py": "from adapters.effects import *\n",
+            "harness/handon.py": "from harness import approve\n\n\ndef go(use):\n    return use(approve)\n",
+            "harness/loads.py": "import importlib\n\n\ndef go():\n    return importlib.import_module('adapters.effects')\n",
+            "harness/missing.py": "from adapters import effects\n\n\ndef go():\n    return effects.no_such_writer()\n",
+            # A name bound two ways, which the syntax cannot tell apart (Argon).
+            "harness/twice.py": "def approve():\n    return None\n\n\ndef act(t):\n    from adapters.effects import approve\n    return approve(t)\n",
+            "harness/twice2.py": "def a(t):\n    from adapters.effects import approve as step\n    return step(t)\n\n\ndef b():\n"
+                                 "    from kernel.derive import derive as step\n    return step\n",
+            # A constant an adapter fills from a function, a request edited once built, and a test imported (the second
+            # Claude review).
+            "adapters/deco.py": "STEPS = {}\n\n\ndef step(fn):\n    STEPS[fn.__name__] = fn\n    return fn\n",
+            "adapters/edited.py": "from adapters.github import request\n\n\ndef go(transport):\n    req = request('GET', '/x')\n"
+                                  "    req['method'] = 'PATCH'\n    req.update(body={})\n    return transport.send(req)\n",
+            "harness/fromtests.py": "from tests import support\n",
+            # Argon: a name defined twice, or defined and assigned; one bound two ways in the module it is imported from; a
+            # load by a name no literal gives, or of a module that reaches a write; an adapter that writes nothing, or the
+            # package itself, handed on.
+            "harness/twodefs.py": "def act():\n    return None\n\n\ndef act():\n    return 1\n\n\ndef go():\n    return act()\n",
+            "harness/defval.py": "def act():\n    return None\n\n\nact = 1\n\n\ndef go():\n    return act\n",
+            "harness/conf.py": "def w():\n    return None\n\n\nfrom adapters.effects import approve as w\n",
+            "harness/useconf.py": "from harness.conf import w\n\n\ndef go(t):\n    return w(t)\n",
+            "harness/loadsvar.py": "import importlib\n\n\ndef go(name):\n    return importlib.import_module(name)\n",
+            "harness/loadsharness.py": "import importlib\n\n\ndef go():\n    return importlib.import_module('harness.approve')\n",
+            "harness/plainvalue.py": "from adapters import items\n\n\ndef go(run):\n    return run(items)\n",
+            "harness/package.py": "import adapters\n\n\ndef go(run):\n    return run(adapters)\n",
+            # Astra: a load by a renamed import_module, or __import__; an adapter that holds another as a value; a request
+            # changed after it is built, by a call; and a re-export that comes back to itself.
+            "harness/aliasload.py": "from importlib import import_module as load\n\n\ndef go():\n    return load('adapters.effects')\n",
+            "harness/dunder.py": "def go():\n    return __import__('adapters.effects')\n",
+            "adapters/relay.py": "from adapters import effects\n\nFX = effects\n",
+            "adapters/positional.py": "from adapters.github import request\n\n\ndef go(transport):\n"
+                                      "    r = request('GET', '/repos/x/y/issues/1')\n    r.update([('method', 'PATCH')])\n"
+                                      "    return transport.send(r)\n",
+            "adapters/cyc1.py": "from adapters.cyc2 import x\n", "adapters/cyc2.py": "from adapters.cyc1 import x\n",
+            "harness/usecyc.py": "from adapters.cyc1 import x\n\n\ndef go():\n    return x()\n",
+            # Astra's second read: an adapter's namespace imported, __import__ imported from builtins, and a request bound
+            # by an annotation and changed through an alias.
+            "adapters/pwrite.py": "from adapters.github import request\n\n\ndef drop(t):\n"
+                                  "    return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "adapters/prelay.py": "from .pwrite import *\n\n\ndef go(t):\n    return drop(t)\n",
+            "harness/namespace.py": "from adapters.effects import __dict__ as namespace\n\n\ndef go(t):\n    return namespace['role_write'](t)\n",
+            "harness/builtinsload.py": "from builtins import __import__ as load\n\n\ndef go():\n    return load('adapters.effects')\n",
+            "adapters/annotated.py": "from adapters.github import request\n\n\ndef drop(t):\n"
+                                     "    req: dict = request('GET', '/repos/x/y/git/refs/heads/topic')\n    alias = req\n"
+                                     "    alias.update([('method', 'DELETE')])\n    return t.send(alias)\n",
+        }
+        problems = check_writes.run(clone(files))
+        for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
+                          ("harness/star.py:1", "imports * from adapters.effects"),
+                          ("harness/handon.py:5", "uses the module harness.approve as a value"),
+                          ("harness/loads.py:1", "loads a module by its name"),
+                          ("harness/missing.py:5", "names no_such_writer, which adapters.effects does not define"),
+                          ("harness/twice.py:7", "names approve, which the module binds more than one way"),
+                          ("harness/twice2.py:3", "names step, which the module binds more than one way"),
+                          ("adapters/deco.py:4", "fills STEPS from a function"),
+                          ("adapters/edited.py:6", "sets a request's method, path or body after it is built"),
+                          ("adapters/edited.py:7", "sets a request's method, path or body after it is built"),
+                          ("harness/fromtests.py:1", "imports tests, a test, which the check does not read"),
+                          ("harness/twodefs.py:10", "names act, which the module binds more than one way"),
+                          ("harness/defval.py:9", "names act, which the module binds more than one way"),
+                          ("harness/useconf.py:5", "names w, which the module binds more than one way"),
+                          ("harness/loadsvar.py:1", "loads a module by its name"),
+                          ("harness/loadsharness.py:1", "loads a module by its name"),
+                          ("harness/aliasload.py:1", "loads a module by its name"),
+                          ("harness/dunder.py:2", "loads a module by its name"),
+                          ("adapters/relay.py:3", "uses the module adapters.effects as a value"),
+                          ("adapters/positional.py:6", "changes a request after it is built"),
+                          ("harness/usecyc.py:5", "names x, which adapters.cyc"),
+                          ("harness/namespace.py:5", "uses the module adapters.effects as a value"),
+                          ("adapters/prelay.py:1", "imports * from adapters.pwrite"),
+                          ("harness/builtinsload.py:1", "loads a module by its name"),
+                          ("adapters/annotated.py:7", "changes a request after it is built"),
+                          ("harness/plainvalue.py:5", "uses the module adapters.items as a value"),
+                          ("harness/package.py:5", "uses the module adapters as a value")):
+            self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
+
+    def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
+        queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
+            "    return effects.role_write(transport, item, 'review', req, 'me')\n"
+        # More than it lists, some of what it lists, and none of it (Argon: the middle one).
+        move = "from adapters import tags\n\n\ndef move(transport):\n    return tags.write(transport, 'x', 'y', 'z')\n"
+        problems = check_writes.run(clone({"harness/queue.py": queue, "release/move.py": move, "harness/apply_step.py": '"""Nothing."""\n'}))
+        self.assertTrue(caught(problems, "harness/queue.py reaches adapters.effects:_check, adapters.effects:_comment, "
+                                         "adapters.effects:_review, adapters.queue:dequeue, adapters.queue:enqueue, "
+                                         "adapters.queue:resolve, and CALLERS lists adapters.queue:dequeue"), problems)
+        self.assertTrue(caught(problems, "release/move.py reaches adapters.tags:write, and CALLERS lists adapters.deployments:record, "
+                                         "adapters.tags:write"), problems)
+        self.assertTrue(caught(problems, "harness/apply_step.py reaches no write, and CALLERS lists adapters.effects:_check"), problems)
+        with mock.patch.dict(check_writes.CALLERS, {"harness/gone.py": {"adapters.tags:write"}}):
+            self.assertTrue(caught(check_writes.run(), "CALLERS names harness/gone.py, which is not here"))
+
+    def test_a_graphql_mutation_is_a_write_and_a_query_a_read(self):
+        peek = "from adapters import %s\n\n\ndef peek(transport):\n    return %s.mark(transport, 'x')\n"
+        files = {"adapters/writes.py": self.MARKS % self.MUTATION, "harness/peekw.py": peek % ("writes", "writes"),
+                 "adapters/reads.py": self.MARKS % self.QUERY, "harness/peekr.py": peek % ("reads", "reads"),
+                 # A document that holds a query, then the mutation it runs, is a write.
+                 "adapters/both.py": self.MARKS % (self.QUERY + " " + self.MUTATION), "harness/peekb.py": peek % ("both", "both"),
+                 "adapters/built.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK.upper(),'),
+                 "adapters/shadow.py": (self.MARKS % self.QUERY).replace("    return", "    MARK = '%s'\n    return" % self.MUTATION),
+                 "adapters/spread.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, **ident,'),
+                 "adapters/subs.py": self.MARKS % "subscription S { x }",
+                 # Astra: a query a parameter shadows, one a key that is no literal may replace, one assigned again.
+                 "adapters/param.py": (self.MARKS % self.QUERY).replace("def mark(transport, ident):", "def mark(transport, ident, MARK):"),
+                 "adapters/keyed.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, key: ident,'),
+                 "adapters/reassigned.py": (self.MARKS % self.QUERY).replace("\n\n\ndef mark", "\nMARK = ''.join([MARK])\n\n\ndef mark"),
+                 # Astra's second read: a query assigned again under an if, and one a parameter's attribute gives.
+                 "adapters/condq.py": (self.MARKS % self.QUERY).replace("\n\n\ndef mark", "\nif True:\n    MARK = '%s'\n\n\ndef mark" % self.MUTATION),
+                 "adapters/doc.py": "MARK = 'query Q { viewer { login } }'\n",
+                 "adapters/docparam.py": "from adapters import doc\nfrom adapters.github import request\n\n\ndef mark(t, ident, doc):\n"
+                                         "    return t.send(request('POST', '/graphql', body={'query': doc.MARK, 'variables': {'id': ident}}))\n",
+                 # A query filled with text may be filled with a mutation (Argon); one filled with a number may not.
+                 "adapters/filled.py": (self.MARKS % "query Q { y } %s").replace('MARK = "query Q { y } %s"',
+                                                                                 'MARK = "query Q { y } %s" % OTHER'),
+                 # A credential's path with a hole for text may name another path: it is a write (the second Claude review).
+                 "adapters/creds.py": "from adapters.github import request\n\n\ndef drop(transport, where):\n"
+                                      "    return transport.send(request('DELETE', '/app/installations/%s/access_tokens' % where))\n",
+                 "harness/dropper.py": "from adapters import creds\n\n\ndef go(t):\n    return creds.drop(t, '1')\n",
+                 "harness/mint.py": "from adapters import identity\n\n\ndef both(as_app, app, as_token):\n"
+                                    "    identity.mint(as_app, app, 'x/y', {})\n    return identity.revoke(as_token)\n"}
+        problems = check_writes.run(clone(files))
+        self.unlisted(problems, "harness/peekw.py", "adapters.writes:mark")
+        self.unlisted(problems, "harness/peekb.py", "adapters.both:mark")
+        self.unlisted(problems, "harness/dropper.py", "adapters.creds:drop")
+        for rel, said in (("adapters/built.py:7", "its GraphQL query is not a text constant"),
+                          ("adapters/shadow.py:8", "its GraphQL query is a name the function itself sets"),
+                          ("adapters/spread.py:7", "its GraphQL body is not a literal dict"),
+                          ("adapters/filled.py:7", "its GraphQL query is formatted with text"),
+                          ("adapters/subs.py:7", "its GraphQL document is neither a query nor a mutation"),
+                          ("adapters/param.py:7", "its GraphQL query is a name the function itself sets"),
+                          ("adapters/keyed.py:7", "its GraphQL body is not a literal dict"),
+                          ("adapters/reassigned.py:8", "its GraphQL query is not a text constant"),
+                          ("adapters/condq.py:9", "its GraphQL query is not a text constant"),
+                          ("adapters/docparam.py:6", "its GraphQL query is a name the function itself sets")):
+            self.assertTrue(caught(problems, "%s sends a request whose kind cannot be read: %s" % (rel, said)), (rel, problems))
+        # A query by POST is a read, and a token minted or revoked a credential: neither caller is named.
+        self.assertFalse(caught(problems, "harness/peekr.py"), problems)
+        self.assertFalse(caught(problems, "harness/mint.py"), problems)
+
+    def test_outside_adapters_a_request_reads_and_no_verb_is_held(self):
+        send = "from adapters.github import request\n\n\ndef send(transport, verb=None):\n    return transport.send(request(%s, '/repos/x/y/issues'))\n"
+        files = {"tools/reads.py": send % "'GET'", "tools/sends.py": send % "'PATCH'", "tools/varies.py": send % "verb",
+                 "tools/hold.py": 'METHOD = "DELETE"\n',
+                 "tools/raw.py": "def send(transport):\n    return transport.send({'method': 'GET', 'path': '/x'})\n",
+                 "tools/maker.py": "from adapters import github\n\nMAKE = github.request\n",
+                 "adapters/odd.py": send % "verb", "adapters/unknown.py": send % "'TRACE'"}
+        problems = check_writes.run(clone(files))
+        self.assertFalse(caught(problems, "tools/reads.py"), problems)
+        for rel, said in (("tools/sends.py:5", "sends a request that is not a read outside adapters/"),
+                          ("tools/varies.py:5", "sends a request that is not a read outside adapters/"),
+                          ("tools/hold.py:1", "holds a write verb"),
+                          ("tools/raw.py:2", "builds a request with a method by hand"),
+                          ("tools/maker.py:3", "names adapters/github.py's request without calling it"),
+                          ("adapters/odd.py:5", "sends a request whose kind cannot be read: its method is not a literal"),
+                          ("adapters/unknown.py:5", "sends a request whose kind cannot be read: its method 'TRACE' is no verb")):
+            self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
+        # The two hooks read a command's verb, and send none.
+        self.assertFalse(caught(problems, "tools/hooks/"), problems)
+
+
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {
     "check_examples": lambda: check_examples.run(clone({"examples/decision.json": "{}"})),
@@ -9006,6 +9676,7 @@ FAILS = {
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),
+    "check_writes": lambda: check_writes.run(clone({"harness/sneak.py": Writes.SNEAK})),
     "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
 }
 
@@ -10449,6 +11120,18 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
     def texts(self, out) -> dict:
         return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
 
+    def test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it(self):
+        # Issue 502 (Argon): OUT made by another between the check and this run's mkdir is refused, as mkdir -p would not.
+        folder, commit = self.repo()
+        cli = self.stand_in()
+        victim = self.aside / "victim"
+        with planting(self.out, victim):
+            ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                                  cli / "claude")
+        self.assertNotEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn("exists", ran.stderr)
+        self.assertEqual(victim.read_text(), "kept\n", "a write went through the planted link")
+
     def test_a_run_is_judged_and_recorded_with_no_model_text(self):
         folder, commit = self.repo()
         cli = self.stand_in()
@@ -10939,12 +11622,17 @@ esac
 
     def test_the_status_kept_is_the_last_heads(self):
         # Argon and the Claude reviews of the P-54 PR: a proxy's block comes first, 200, and GitHub's refusal after it is
-        # the read's answer. It would look like a read the token was let make.
-        (self.stand_in / "proxied").write_text("")
+        # the read's answer. It would look like a read the token was let make. Each call keeps the status it keeps with
+        # no proxy, call by call (issue 502, Argon).
         ran = self.run_script()
         self.assertEqual(ran.returncode, 0, ran.stderr)
-        asked = json.loads((self.out / "requests.json").read_text())
-        self.assertIn(403, [a["status"] for a in asked if "call" in a])
+        plain = [a["status"] for a in json.loads((self.out / "requests.json").read_text()) if "call" in a]
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script(out=self.out.parent / "proxied")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = [a["status"] for a in json.loads((self.out.parent / "proxied" / "requests.json").read_text()) if "call" in a]
+        self.assertEqual(asked, plain)
+        self.assertIn(403, asked)
 
 
 class IssueLookupTrial(ReaderTrialScript):

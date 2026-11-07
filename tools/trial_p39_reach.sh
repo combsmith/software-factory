@@ -99,10 +99,11 @@ revoke() {
 }
 
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
+# It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
     printf '%s\n' "$1" | python3 -I -c '
 import re, sys
-found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.read())
+found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
 }
 
@@ -218,7 +219,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
-    status=$(awk 'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
+    status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     revoked=$(revoke || true)
     if [ "$revoked" != 204 ]; then
         # The token stays set, so the exit trap tries once more to revoke it.

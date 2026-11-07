@@ -65,6 +65,8 @@ case "$2" in as-is | userns) phase=$2; order="plain scrubbed" ;; userns-reversed
 case "$(basename -- "$1")" in .|..) refuse "$1 names no new directory, since it ends in . or ..; name the directory itself" ;; esac
 # A name read past a directory that is not there says nothing of where it leads, so none is taken (issue 424).
 case "/$1/" in */../*) refuse "$1 holds .., which is read one way here and another by mkdir; name OUT without it" ;; esac
+# The parents are read one line at a time: a newline in OUT would make them short of where it names (the Claude review).
+case "$1" in *$'\n'*) refuse "OUT holds a newline; name it without one" ;; esac
 # OUT's parent, and each directory above it, is root's or this user's, and no other user can write to it unless it is
 # sticky: in any other, another user could rename OUT once it is made and put a link where it was (issue 367). A find
 # that fails says nothing, and is refused as such.
@@ -90,11 +92,26 @@ uid=$(id -u)
 # The deepest directory that stands is read first, so a refused run leaves nothing behind (issue 424).
 near=$(dirname -- "$1")
 until [[ -d "$near" || "$near" == . ]]; do near=$(dirname -- "$near"); done
-check_above "$(CDPATH= cd -- "$near" && pwd -P)"
+here=$(CDPATH= cd -- "$near" && pwd -P)
+here=${here%/}       # / as nothing, so what is made in it is /NAME; read once, by the check and by what is made
+check_above "${here:-/}"
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into. What this
-# made above it is its user's alone, and read too, and OUT is made where the check read, never through the path as given.
-(umask 077 && mkdir -p -- "$(dirname -- "$1")")
-parent=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd -P)
+# makes above it is made one directory at a time inside the one the check read, never through the path as given, so a
+# link put in its way is refused, not followed (issue 502); each is its user's alone, and read too.
+given=$(dirname -- "$1")
+case "$near" in
+    "$given") rest="" ;;
+    .) rest=$given ;;
+    /) rest=${given#/} ;;
+    *) rest=${given#"$near"/} ;;
+esac
+IFS=/ read -r -a parts <<< "$rest"
+for part in ${parts[@]+"${parts[@]}"}; do
+    [[ -n "$part" && "$part" != . ]] || continue
+    mkdir -m 700 -- "$here/$part" || refuse "$here/$part could not be made new by this run (made since, or refused); name a new directory"
+    here=$here/$part
+done
+parent=$(CDPATH= cd -- "${here:-/}" && pwd -P)
 check_above "$parent"
 target=$parent/$(basename -- "$1")
 mkdir -m 700 -- "$target" || refuse "$1 could not be made new by this run (made since, or refused); name a new directory"
