@@ -193,7 +193,7 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     # by that alone, as the live Run would meet it (issue 574). One that did not complete `apply` refuses first as that.
     if result["status"] == "completed" and _off_hunks(case, result):
         return {"case": case["id"], "verdict": FAIL, "reasons": ["finding_not_in_hunk"]}
-    reasons = []
+    reasons, away = [], []
     if result["status"] != "completed":
         reasons.append("result_not_completed")
     citing = [f for f in result["findings"] if f["criterion"] == want["criterion"]]
@@ -230,7 +230,7 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
             not _misses(want["finding"], f) and _overlaps(want["finding"]["location"], f.get("location", {})) for f in citing):
         said["at_alternate"] = True
     # How many gating Findings a case that expects one drew away from every place, so a report can count them.
-    if want["verdict"] == "finding" and away:
+    if away:
         said["surplus_gating"] = len(away)
     return said
 

@@ -470,6 +470,10 @@ class Scoring(unittest.TestCase):
         self.assertEqual(scored({"location": far}), {"case": case["id"], "verdict": "pass", "reasons": [], "surplus_gating": 1})
         self.assertEqual(scored({"location": far}, {"location": dict(far, path="kernel/state.py"), "criterion": None}),
                          {"case": case["id"], "verdict": "fail", "reasons": ["surplus_gating_elsewhere"], "surplus_gating": 2})
+        # Both bounds are told, the place's first.
+        self.assertEqual(scored({}, {"location": far}, {"location": far})["reasons"], ["surplus_at_place", "surplus_gating_elsewhere"])
+        self.assertEqual(scored(*[{"location": far}] * 3),
+                         {"case": case["id"], "verdict": "fail", "reasons": ["surplus_gating_elsewhere"], "surplus_gating": 3})
         # What gates elsewhere is what would hold a pull request, as on a clean case (decision 0144): blocking or major,
         # or security at any severity. Any other Finding elsewhere is nothing, however many.
         for severity in terms.SEVERITIES:
@@ -988,13 +992,18 @@ class EvalJob(unittest.TestCase):
         self.step(fetch, self.home(cases))
         result = example_result()
         far = dict(result["findings"][0], location={"path": "kernel/gate.py", "start_line": 10, "end_line": 12})
-        given = {one["id"]: result, two["id"]: dict(result, findings=result["findings"] + [dict(far, ref="n8"), dict(far, ref="n9")])}
+        given = {one["id"]: dict(result, findings=result["findings"] + [dict(far, ref="n7")]),
+                 two["id"]: dict(result, findings=result["findings"] + [dict(far, ref="n8"), dict(far, ref="n9")])}
         self.assertEqual(self.step(job.score, lambda case: given[case["id"]]), "scored 2 of 2 cases, 1 passed")
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        # One away is allowed and still counted, on a pass; two fail, counted; the run's line sums them.
         self.assertEqual({c["id"]: (c["reasons"], c.get("surplus_gating")) for c in written["cases"]},
-                         {one["id"]: ([], None), two["id"]: (["surplus_gating_elsewhere"], 2)})
-        self.assertEqual(job.tally(written), "1 of 2 passed, 2 gating away from the place; surplus_gating_elsewhere 1")
+                         {one["id"]: ([], 1), two["id"]: (["surplus_gating_elsewhere"], 2)})
+        self.assertEqual(job.tally(written), "1 of 2 passed, 3 gating away from the place; surplus_gating_elsewhere 1")
+        given[one["id"]] = result
+        self.step(job.score, lambda case: given[case["id"]])
+        self.assertEqual([c.get("surplus_gating") for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [None, 2])
         # The report writes what the scorer counted, on any verdict, and no count of none.
         found, digest = job.manifest(self.root)
         kept = {"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}}
