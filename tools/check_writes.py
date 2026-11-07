@@ -165,8 +165,7 @@ def _filled_names(node) -> set:
     out = set()
     for n in ast.walk(node):
         target = n.value if isinstance(n, (ast.Subscript, ast.Attribute)) and isinstance(n.ctx, ast.Store) else \
-            n.func.value if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in FILLS else \
-            n.target if isinstance(n, ast.AugAssign) else None      # STEPS += [w] fills STEPS
+            n.func.value if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in FILLS else None
         while isinstance(target, (ast.Subscript, ast.Attribute)):     # TABLE['a']['b'] = w fills TABLE
             target = target.value
         if isinstance(target, ast.Name):

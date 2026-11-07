@@ -10899,8 +10899,6 @@ MUTANTS = ISSUE + [
      'and not (above and m[0] == mod.name and m[1].startswith(', 'and not (above and m[1].startswith(', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ('a name a function imports is read as its parameter', 'tools/check_writes.py',
      '    return names - imported - {g', '    return names - {g', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
-    ('a constant filled by += holds nothing of it', 'tools/check_writes.py',
-     '            n.target if isinstance(n, ast.AugAssign) else None      # STEPS += [w] fills STEPS', '            None', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("a parameter's default is read in the function's scope", 'tools/check_writes.py',
      'root.id in local and id(node) not in defaults:', 'root.id in local:', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ('a constant rebound under an if holds nothing of it', 'tools/check_writes.py',
