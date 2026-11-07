@@ -1404,6 +1404,7 @@ class EvalJob(unittest.TestCase):
         # A marker the answer holds reaches neither the Task, nor the prompt, nor any file the read tools can reach, which
         # are the head's, the folder the CLI is started in; and the head holds no `.git`, whose history could hold it.
         import os
+        import uuid
         from harness import eval as job
         from harness.eval import run as step
         case, live = self.reviewed()
@@ -1427,7 +1428,9 @@ class EvalJob(unittest.TestCase):
             built.append(json.dumps(the_task, sort_keys=True))
             return answered(the_task, *given, **named)
 
-        def scored(heads=None):
+        def scored(heads=None, case=case):
+            seen["files"], seen["folders"] = {}, []
+            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)     # each run's scratch is its own
             cases = {case["id"]: (json.dumps(case, indent=2) + "\n").encode()}
             self.set(cases)
             self.step(job.plan)
@@ -1445,6 +1448,21 @@ class EvalJob(unittest.TestCase):
             self.assertNotIn(marker, text, where)
             self.assertNotIn(answer, text, where)
         self.assertNotIn(".git", [name.casefold() for name in seen["folders"]] + [os.path.basename(f).casefold() for f in seen["files"]])
+        # No part of it, either: cases that differ in their answer alone, each field of it, give the model the same
+        # Task, prompt and head, the Run's fresh id and session held still.
+        met = {"verdict": "met", "criterion": "PR-5", "finding": None}
+        other = {"verdict": "finding", "criterion": "PR-1", "finding": {"category": "requirements", "severity": "major",
+                 "location": {"path": "kernel/terms.py", "start_line": 12, "end_line": 14}}}
+        given = []
+        with mock.patch.object(step, "run_id", lambda: "r_" + "A" * 20), mock.patch("uuid.uuid4", lambda: uuid.UUID(int=1)):
+            for expected in (case["expected"], other, met):
+                del built[:]
+                said, cli = scored(case=dict(case, expected=expected))
+                self.assertEqual(len(cli.asked()), 1, expected)
+                given.append((built[0], cli.asked()[0]["args"], {os.path.basename(f): t for f, t in seen["files"].items()}))
+        self.assertTrue(given[0][2])
+        self.assertEqual(given[1], given[0])
+        self.assertEqual(given[2], given[0])
         # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
 
         class Historied(Heads):

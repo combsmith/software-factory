@@ -1222,6 +1222,9 @@ class Head(unittest.TestCase):
             ("git's folder", support.tarball(sha, [(".git/", b"5", b"")]), ".git segment"),
             ("a file in git's folder", support.tarball(sha, [(".git/HEAD", b"0", b"ref: refs/heads/main\n")]), ".git segment"),
             ("git's folder below the top", support.tarball(sha, [("a/.Git/config", b"0", b"x")]), ".git segment"),
+            ("git's folder named with no slash", support.tarball(sha, [(".git", b"5", b"")]), ".git segment"),
+            ("a file named for git's folder", support.tarball(sha, [(".git", b"0", b"gitdir: elsewhere\n")]), ".git segment"),
+            ("a file named for git's folder below the top", support.tarball(sha, [("a/.GIT", b"0", b"x")]), ".git segment"),
             ("outside the one folder", zipper(plain[:-1024] + support.tar_member("elsewhere/x", b"0", b"x") + b"\0" * 1024),
              "outside the archive's one folder"),
             ("a name that is not UTF-8", zipper(plain[:-1024] + support.tar_member("", b"0", b"x", raw_name=top.encode() + b"/\xff")
