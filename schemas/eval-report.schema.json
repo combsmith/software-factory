@@ -121,6 +121,7 @@
                 "location_differs",
                 "coverage_disagrees",
                 "finding_raised_wrongly",
+                "finding_not_in_hunk",
                 "criterion_not_met",
                 "answer_disagrees_with_verdict",
                 "location_unreadable",

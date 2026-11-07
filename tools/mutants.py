@@ -8419,6 +8419,23 @@ MUTANTS = ISSUE + [
      ' or raised["category"] == SECURITY\n', '\n', CLEAN_CASE),
     ("a Finding that would hold a change fails a case that expects one", 'tools/eval_result.py',
      '        if covered != ["finding"]:\n', '        if covered != ["finding"] or any(_gates(f) for f in result["findings"]):\n', CLEAN_CASE),
+    # Issue 574: the eval refuses a Result that posts a Finding off every hunk, as `apply` does, and the prompt says so.
+    ("the scorer takes a Result that posts a Finding off every hunk", 'tools/eval_result.py',
+     '    if _off_hunks(case, result):\n', '    if False:\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("a posted Finding with no lines is held to a hunk", 'tools/eval_result.py',
+     '              if ref in raised and _lines(raised[ref].get("location", {}))]\n', '              if ref in raised]\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("an annotation is not held to a hunk", 'tools/eval_result.py',
+     '    placed = [raised[ref] for _, _, ref in apply.posts(result.get("effects", {}))\n',
+     '    placed = [raised[ref] for _, _, ref in apply.posts({"submit_review": result.get("effects", {}).get("submit_review", ())})\n',
+     ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("an unposted Finding is held to a hunk", 'tools/eval_result.py',
+     '    placed = [raised[ref] for _, _, ref in apply.posts(result.get("effects", {}))\n'
+     '              if ref in raised and _lines(raised[ref].get("location", {}))]\n',
+     '    placed = [f for f in result["findings"] if _lines(f.get("location", {}))]\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("the report holds no code for a Finding off every hunk", 'schemas/eval-report.schema.json',
+     '                "finding_not_in_hunk",\n', '', ('tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it',)),
+    ("the review is not told a Finding off every hunk refuses the Result", 'roles/pr-review/prompt.md',
+     'refuses the\n  whole Result, every other Finding with it.', 'is\n  taken.', ('tests.test_evals.EvalJob.test_the_review_reads_the_head_places_a_finding_where_a_fix_goes_and_cites_what_it_raises',)),
     # Decision 0111: the scorer's codes are the report's and the log's.
     ("the judge's log counts no code", 'harness/eval/__init__.py',
      '        if said in ("engine_fault", "run_fault", "case_failed"):\n            print(tally(written))\n',
