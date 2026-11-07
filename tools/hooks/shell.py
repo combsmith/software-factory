@@ -556,7 +556,7 @@ def _held(text: str) -> str:
     # Where an arithmetic command or expansion, (( or $((, and a ${...}, that began ends: what they hold is their own.
     arithmetic = braces = 0
     braced = False      # whether the unquoted ${...} that ends at braces holds a '
-    clean = 0       # where a ${...} double quotes hold, with no ', ends: none in it holds one either, nor is read again
+    clean = 0       # where a "${...}" read and let through ends: none in it is read again
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
     opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
     ticked = False  # an unquoted backtick has opened and not yet closed
@@ -663,11 +663,12 @@ def _held(text: str) -> str:
             out.append(c)
         elif quote == '"' and text.startswith("${", i) and i >= clean:
             end = _balanced(text, i + 2, "}")
-            if "'" not in text[i:end]:
-                clean = end     # so a ${...} inside it is not read again (Codex)
-            elif _inside(text, held, i, seen) is not False:     # in a substitution, double quotes of its own hold it
+            if "'" in text[i:end] and _inside(text, held, i, seen) is not False:   # in a substitution, its own quotes
                 # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
                 raise Unread("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
+            # With no ', none in it has one; in a substitution its own quotes leave unquoted, nor is one in it, which
+            # this reading takes as double-quoted until a quote of its own: so none is read again (Codex, Astra).
+            clean = end
             out.append(c)
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
             if c == "$" or not held_tick:

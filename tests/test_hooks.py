@@ -1547,6 +1547,8 @@ class Identity(unittest.TestCase):
         # What the shell runs and the reader cannot read is no here-document's data, as a script the shell fails is (Codex).
         with self.assertRaises(shell.Unread):
             shell.without_heredocs("cat <<EOF\n$(echo \"${x:-'default'}\"; rm kernel/gate.py)\nEOF")
+        with self.assertRaises(shell.Unread):       # a quote past its backtick is such a script too (Astra)
+            shell.commands("echo `echo '`\nrm kernel/gate.py\n# '`")
         self.assertEqual(shell.commands("echo `echo \"a b\"` > notes.txt"),
                          [(["echo"], []), (["echo", "a b"], []), ([], [(">", "notes.txt")])])
         self.assertEqual(shell.commands("echo \"${x:-default}\" > notes.txt"), [(["echo", "${x:-default}"], [(">", "notes.txt")])])
@@ -1751,7 +1753,9 @@ class Identity(unittest.TestCase):
                                  # Quoted words in a backtick, each read up to its close alone (Codex on #604).
                                  (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 8000, ""),
                                  (lambda n: 'echo "$(echo ' + "${x:-'y'} " * n + ')"; git push', 8000, ""),
-                                 (lambda n: 'echo "' + ("${x:-" + "a " * 20) * n + "}" * n + '"; git push', 800, "")):
+                                 (lambda n: 'echo "' + ("${x:-" + "a " * 20) * n + "}" * n + '"; git push', 800, ""),
+                                 (lambda n: 'echo "$(echo ' + ("${x:-" + "a " * 20) * n + "'y'" + "}" * n + ')"; git push',
+                                  800, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
         # Codex on PR 604: a ${...} after each of many closed substitutions. The check reads each substitution's calls
