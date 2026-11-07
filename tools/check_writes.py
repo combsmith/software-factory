@@ -44,6 +44,12 @@ NAME_LOADERS = ("tools/mutants.py",)
 TEST_IMPORTERS = ("tools/make_corpus.py",)
 # What a request is, by its keys: edited after `request` built it, it is sent as edited.
 FIELDS = ("method", "path", "body")
+# A module's names as a value: what is read from them cannot be.
+NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
+# The modules by which code loads a module by its name.
+LOADER_MODULES = ("importlib", "builtins")
+# What opens a scope of its own inside a function.
+SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.ClassDef)
 # The calls on a request that only read it.
 READS = ("get", "copy", "items", "keys", "values")
 # The calls that fill a container in place.
@@ -92,7 +98,8 @@ class Module:
                 if self.bindings.get(local, target) != target:
                     self.conflicts.add(local)
                 self.bindings[local] = target
-        inside = set()
+        inside = {id(n) for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                  for n in ast.walk(node)}
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.functions[node.name] = node
@@ -108,14 +115,14 @@ class Module:
                         self.values.setdefault(target.id, []).append(node.value)
                         if any(isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mod) for n in ast.walk(node.value)):
                             self.formatted.add(target.id)
-        # A text constant is one every assignment of which is that same text: one assigned anything else is no constant.
+        # A text constant is one every assignment of which is that same text, and that nothing else at the top level
+        # rebinds, under an if or by an augmented assignment: one assigned anything else is no constant.
+        rebound = [n.id for n in self.nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+                   and id(n) not in inside]
         for name, values in self.values.items():
             texts = {_text(v) for v in values}
-            if len(texts) == 1 and None not in texts:
+            if len(texts) == 1 and None not in texts and rebound.count(name) == len(values):
                 self.texts[name] = texts.pop()
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                inside |= {id(n) for n in ast.walk(node)}
         # Every name the module's own top level stores, in an if, a try or a loop too: a value, whatever it holds.
         self.stored = {n.id for n in self.nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
                        and id(n) not in inside}
@@ -145,6 +152,8 @@ def _filled_names(node) -> set:
     for n in ast.walk(node):
         target = n.value if isinstance(n, (ast.Subscript, ast.Attribute)) and isinstance(n.ctx, ast.Store) else \
             n.func.value if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in FILLS else None
+        while isinstance(target, (ast.Subscript, ast.Attribute)):     # TABLE['a']['b'] = w fills TABLE
+            target = target.value
         if isinstance(target, ast.Name):
             out.add(target.id)
     return out
@@ -171,6 +180,8 @@ def _lookup(mods: dict, module: str, name: str, seen: frozenset = frozenset()):
         return _bound(mods, other.bindings[name], seen)
     if "%s.%s" % (module, name) in mods:
         return ("module", "%s.%s" % (module, name))
+    if name in NAMESPACES:
+        return ("module", module)
     if name.startswith("__") and name.endswith("__"):
         return None
     if name in other.stored:    # stored some other way, by an if, a tuple or a loop: whatever the top level reaches
@@ -198,7 +209,9 @@ def _resolve(mods: dict, mod: Module, node, cls: str = None):
         own = isinstance(node.value, ast.Name) and node.value.id in ("self", "cls") or isinstance(node.value, ast.Call) \
             and isinstance(node.value.func, ast.Name) and node.value.func.id == "super"
         if own and cls:
-            found = [m for m in _methods(mods, mod.name, cls, set()) if m[1].rpartition(".")[2] == node.attr]
+            above = isinstance(node.value, ast.Call)        # super(): the bases' method, never the class's own
+            found = [m for m in _methods(mods, mod.name, cls, set()) if m[1].rpartition(".")[2] == node.attr
+                     and not (above and m[1].startswith(cls + "."))]
             return ("def",) + found[0] if found else None
         base = _resolve(mods, mod, node.value, cls)
         if base and base[0] == "module":
@@ -207,6 +220,18 @@ def _resolve(mods: dict, mod: Module, node, cls: str = None):
             qual = "%s.%s" % (base[2], node.attr)
             return ("def", base[1], qual) if qual in mods[base[1]].functions else None
     return None
+
+
+def _scope(fn) -> set:
+    """The names a function binds in its own scope: its parameters and what it assigns, but not a nested function's,
+    a lambda's or a comprehension's, nor a name it declares global."""
+    nested = {id(n) for child in ast.walk(fn) if child is not fn and isinstance(child, SCOPES) for n in ast.walk(child)}
+    own = [n for n in ast.walk(fn) if id(n) not in nested]
+    names = {n.id for n in own if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    names |= {a.arg for a in ast.walk(fn.args) if isinstance(a, ast.arg)}
+    names |= {n.name for n in ast.walk(fn) if n is not fn and isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and id(n) not in nested}
+    return names - {g for n in own if isinstance(n, (ast.Global, ast.Nonlocal)) for g in n.names}
 
 
 def _methods(mods: dict, module: str, cls: str, seen: set) -> list:
@@ -235,10 +260,7 @@ class Reading:
         cls = qual.split(".")[0] if "." in qual and qual.split(".")[0] in mod.classes else None
         inner = {id(n.value) for n in nodes if isinstance(n, ast.Attribute)}
         # A function's own names, its parameters and what it assigns, shadow the module's; what it assigns them is read.
-        local = set() if qual not in mod.functions else \
-            ({n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)} |
-             {n.arg for n in nodes if isinstance(n, ast.arg)}) - {g for n in nodes if isinstance(n, ast.Global) for g in n.names} \
-            - {"self", "cls"}      # read as the class, by _resolve
+        local = set() if qual not in mod.functions else _scope(mod.functions[qual]) - {"self", "cls"}     # read as the class
         out = []
         for node in nodes:
             if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(node.ctx, ast.Load) or id(node) in inner:
@@ -297,8 +319,11 @@ def _query(mods: dict, mod: Module, node, nodes: list):
     if _text(node) is not None:
         formatted = any(isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mod) for n in ast.walk(node))
         return _filled(_text(node), formatted)
-    if isinstance(node, ast.Name) and any(isinstance(n, ast.Name) and n.id == node.id and isinstance(n.ctx, ast.Store)
-                                          or isinstance(n, ast.arg) and n.arg == node.id for n in nodes):
+    root = node
+    while isinstance(root, ast.Attribute):
+        root = root.value
+    if isinstance(root, ast.Name) and any(isinstance(n, ast.Name) and n.id == root.id and isinstance(n.ctx, ast.Store)
+                                          or isinstance(n, ast.arg) and n.arg == root.id for n in nodes):
         return "its GraphQL query is a name the function itself sets"
     got = _resolve(mods, mod, node) if isinstance(node, (ast.Name, ast.Attribute)) else None
     if got and got[0] == "value" and got[2] in mods[got[1]].texts:
@@ -367,7 +392,13 @@ def _edited(mod: Module) -> list:
 
 def _changed(mod: Module, nodes: list, call: ast.Call) -> list:
     """Where a request `request` built, bound to a name, is changed after: by a key set, or a call on it but a read."""
-    names = [t.id for n in nodes if isinstance(n, ast.Assign) and n.value is call for t in n.targets if isinstance(t, ast.Name)]
+    names = {t.id for n in nodes if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is call
+             for t in (n.targets if isinstance(n, ast.Assign) else [n.target]) if isinstance(t, ast.Name)}
+    grown = True
+    while grown:        # alias = req: the alias is the request too
+        more = {t.id for n in nodes if isinstance(n, (ast.Assign, ast.AnnAssign)) and isinstance(n.value, ast.Name)
+                and n.value.id in names for t in (n.targets if isinstance(n, ast.Assign) else [n.target]) if isinstance(t, ast.Name)}
+        grown, names = not more <= names, names | more
     out = []
     for n in nodes:
         base = n.value if isinstance(n, ast.Subscript) and isinstance(n.ctx, (ast.Store, ast.Del)) else \
@@ -397,9 +428,10 @@ def _tests(mod: Module) -> list:
 
 
 def _loaded(mod: Module) -> list:
-    """Each line that imports importlib or names __import__: a module loaded by its name is one the syntax cannot follow."""
-    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Import) and any(a.name.split(".")[0] == "importlib" for a in n.names)
-                   or isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "importlib"
+    """Each line that imports importlib or builtins, or names __import__: a module loaded by its name is one the syntax
+    cannot follow."""
+    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Import) and any(a.name.split(".")[0] in LOADER_MODULES for a in n.names)
+                   or isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in LOADER_MODULES
                    or isinstance(n, ast.Name) and n.id == "__import__"})
 
 

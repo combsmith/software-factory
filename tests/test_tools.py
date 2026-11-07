@@ -8882,6 +8882,16 @@ class Writes(unittest.TestCase):
                                  "        return t.send(request('POST', '/repos/x/y/issues'))\n\n\nclass Sub(Base):\n"
                                  "    def act(self, t):\n        return self._write(t)\n",
             "harness/usebases.py": "from adapters import bases\n\n\ndef go(t):\n    return bases.Sub.act(None, t)\n",
+            # Astra's second read: a nested function's parameter, a constant filled two keys deep, and super() in an
+            # override of the same name.
+            "harness/nestedparam.py": "from adapters.effects import role_write" + go + "    def unused(role_write):\n"
+                                      "        return None\n" + role % "role_write",
+            "adapters/nested.py": "from adapters.effects import role_write\n\nTABLE = {'review': {}}\nTABLE['review']['write'] = role_write\n",
+            "harness/usenested.py": "from adapters.nested import TABLE" + go + role % "TABLE['review']['write']",
+            "adapters/inherit.py": "from adapters.github import request\n\n\nclass Base:\n    @classmethod\n    def act(cls, t):\n"
+                                   "        return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n\n\nclass Sub(Base):\n"
+                                   "    @classmethod\n    def act(cls, t):\n        return super().act(t)\n",
+            "harness/useinherit.py": "from adapters.inherit import Sub\n\n\ndef go(t):\n    return Sub.act(t)\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
@@ -8890,10 +8900,11 @@ class Writes(unittest.TestCase):
         for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py", "harness/usezz.py", "harness/usesteps.py",
                     "harness/useact.py"):
             self.unlisted(problems, rel, "adapters.effects:approve")
-        for rel in ("harness/deep.py", "harness/usecondw.py"):
+        for rel in ("harness/deep.py", "harness/usecondw.py", "harness/nestedparam.py", "harness/usenested.py"):
             self.unlisted(problems, rel)
         for rel in ("harness/usebases.py",):
             self.unlisted(problems, rel, "adapters.bases:Base._write")
+        self.unlisted(problems, "harness/useinherit.py", "adapters.inherit:Base.act")
         for rel in ():
             self.unlisted(problems, rel, "adapters.effects:approve")
 
@@ -8935,6 +8946,13 @@ class Writes(unittest.TestCase):
                                       "    return transport.send(r)\n",
             "adapters/cyc1.py": "from adapters.cyc2 import x\n", "adapters/cyc2.py": "from adapters.cyc1 import x\n",
             "harness/usecyc.py": "from adapters.cyc1 import x\n\n\ndef go():\n    return x()\n",
+            # Astra's second read: an adapter's namespace imported, __import__ imported from builtins, and a request bound
+            # by an annotation and changed through an alias.
+            "harness/namespace.py": "from adapters.effects import __dict__ as namespace\n\n\ndef go(t):\n    return namespace['role_write'](t)\n",
+            "harness/builtinsload.py": "from builtins import __import__ as load\n\n\ndef go():\n    return load('adapters.effects')\n",
+            "adapters/annotated.py": "from adapters.github import request\n\n\ndef drop(t):\n"
+                                     "    req: dict = request('GET', '/repos/x/y/git/refs/heads/topic')\n    alias = req\n"
+                                     "    alias.update([('method', 'DELETE')])\n    return t.send(alias)\n",
         }
         problems = check_writes.run(clone(files))
         for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
@@ -8958,6 +8976,9 @@ class Writes(unittest.TestCase):
                           ("adapters/relay.py:3", "uses the module adapters.effects as a value"),
                           ("adapters/positional.py:6", "changes a request after it is built"),
                           ("harness/usecyc.py:5", "names x, which adapters.cyc"),
+                          ("harness/namespace.py:5", "uses the module adapters.effects as a value"),
+                          ("harness/builtinsload.py:1", "loads a module by its name"),
+                          ("adapters/annotated.py:7", "changes a request after it is built"),
                           ("harness/plainvalue.py:5", "uses the module adapters.items as a value"),
                           ("harness/package.py:5", "uses the module adapters as a value")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
@@ -8991,6 +9012,11 @@ class Writes(unittest.TestCase):
                  "adapters/param.py": (self.MARKS % self.QUERY).replace("def mark(transport, ident):", "def mark(transport, ident, MARK):"),
                  "adapters/keyed.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, key: ident,'),
                  "adapters/reassigned.py": (self.MARKS % self.QUERY).replace("\n\n\ndef mark", "\nMARK = ''.join([MARK])\n\n\ndef mark"),
+                 # Astra's second read: a query assigned again under an if, and one a parameter's attribute gives.
+                 "adapters/condq.py": (self.MARKS % self.QUERY).replace("\n\n\ndef mark", "\nif True:\n    MARK = '%s'\n\n\ndef mark" % self.MUTATION),
+                 "adapters/doc.py": "MARK = 'query Q { viewer { login } }'\n",
+                 "adapters/docparam.py": "from adapters import doc\nfrom adapters.github import request\n\n\ndef mark(t, ident, doc):\n"
+                                         "    return t.send(request('POST', '/graphql', body={'query': doc.MARK, 'variables': {'id': ident}}))\n",
                  # A query filled with text may be filled with a mutation (Argon); one filled with a number may not.
                  "adapters/filled.py": (self.MARKS % "query Q { y } %s").replace('MARK = "query Q { y } %s"',
                                                                                  'MARK = "query Q { y } %s" % OTHER'),
@@ -9011,7 +9037,9 @@ class Writes(unittest.TestCase):
                           ("adapters/subs.py:7", "its GraphQL document is neither a query nor a mutation"),
                           ("adapters/param.py:7", "its GraphQL query is a name the function itself sets"),
                           ("adapters/keyed.py:7", "its GraphQL body is not a literal dict"),
-                          ("adapters/reassigned.py:8", "its GraphQL query is not a text constant")):
+                          ("adapters/reassigned.py:8", "its GraphQL query is not a text constant"),
+                          ("adapters/condq.py:9", "its GraphQL query is not a text constant"),
+                          ("adapters/docparam.py:6", "its GraphQL query is a name the function itself sets")):
             self.assertTrue(caught(problems, "%s sends a request whose kind cannot be read: %s" % (rel, said)), (rel, problems))
         # A query by POST is a read, and a token minted or revoked a credential: neither caller is named.
         self.assertFalse(caught(problems, "harness/peekr.py"), problems)
