@@ -1844,6 +1844,14 @@ class Purity(unittest.TestCase):
                  "def decide(facts):\n    return rules.paused(_decision, facts)\n"}
         self.assertEqual(check_purity.run(tree(files)), [])
 
+    def test_a_chain_of_modules_is_read_in_time(self):
+        # A module re-exported as its own attribute, read down a long chain, is resolved once a level (Muse on PR 591).
+        files = {"kernel/terms.py": "from kernel import terms as a\n\n\ndef code(x):\n    return x\n",
+                 "kernel/x.py": "from kernel import terms\n\n\ndef f(x):\n    return terms" + ".a" * 20 + ".code(x)\n"}
+        started = time.monotonic()
+        self.assertEqual(check_purity.run(tree(files)), [])
+        self.assertLess(time.monotonic() - started, 5)
+
     def test_each_decision_maker_the_kernel_fills_is_a_kernel_function(self):
         # Issue 588: on the Kernel as it stands, the functions that take _decision are the brakes' and run_deferral,
         # and every call of one fills it with decide.py's _decision or the caller's own. A new one is read here first.

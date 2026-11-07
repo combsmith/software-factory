@@ -289,10 +289,11 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
     def module_file(node, chain):
         """The file of the Kernel's module an expression names, by a name or as a module's attribute, followed through
         each module that imports it, or None."""
+        outer = module_file(node.value, chain) if isinstance(node, ast.Attribute) else None
         if isinstance(node, ast.Name):
             kind, detail, _ = resolve(node.id, chain)
-        elif isinstance(node, ast.Attribute) and module_file(node.value, chain):
-            kind, detail = tops.get(module_file(node.value, chain), {}).get(node.attr, (None, None))
+        elif outer:
+            kind, detail = tops.get(outer, {}).get(node.attr, (None, None))
         else:
             return None
         seen = set()
