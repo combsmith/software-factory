@@ -25,7 +25,7 @@ VERBS = frozenset({"PO" "ST", "PU" "T", "PAT" "CH", "DEL" "ETE"})     # spelt ap
 CREDENTIALS = (re.compile(r"/app/installations/%d/access_tokens"), re.compile(r"/installation/token"))     # %d: a hole for text
 # could hold another path (the Claude review)
 # The callers outside adapters/ that may reach a write, each with the writers it reaches, by module and function. A
-# change here is a change to who writes to GitHub, and is the Maintainer's (decision NNNN).
+# change here is a change to who writes to GitHub, and is the Maintainer's (decision 0153).
 CALLERS = {
     "harness/apply_step.py": {"adapters.effects:_review", "adapters.effects:_check", "adapters.effects:_comment"},
     "harness/approve.py": {"adapters.effects:approve"},
