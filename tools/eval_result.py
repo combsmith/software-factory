@@ -95,7 +95,7 @@ def _in_hunks(places: list, diff: str) -> bool:
 def _off_hunks(case: dict, result: dict) -> bool:
     """Whether `apply` would refuse the Result whole as `finding_not_in_hunk`: a Finding it posts, as a review's comment
     or a check run's annotation, its lines given, on lines not all on one hunk of its file on the head's side of the
-    case's diff, as the Task gives the diff to the model (decisions 0137, 0146 and NNNN). `apply`'s own readers read
+    case's diff, as the Task gives the diff to the model (decisions 0137, 0146 and 0156). `apply`'s own readers read
     both, so the eval and a live Run refuse the same Result; a posted Finding with no lines `apply` refuses otherwise."""
     raised = {f["ref"]: f for f in result["findings"]}
     placed = [raised[ref] for _, _, ref in apply.posts(result.get("effects", {}))

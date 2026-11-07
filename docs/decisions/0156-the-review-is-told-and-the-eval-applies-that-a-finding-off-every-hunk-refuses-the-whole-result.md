@@ -1,4 +1,4 @@
-# NNNN. The review is told, and the eval applies, that a Finding off every hunk refuses the whole Result
+# 0156. The review is told, and the eval applies, that a Finding off every hunk refuses the whole Result
 
 Status: accepted. The Factory Builder's story of 2026-11-07, issue 574, "The prompt and the eval state that a Finding off every hunk refuses the whole Result, after factory/v0.1.0". It answers the cost decision 0146 named: `apply` refuses a whole Result that posts a Finding off every hunk of its file (`finding_not_in_hunk`), while neither the prompt nor the eval said so.
 
