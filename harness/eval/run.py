@@ -90,7 +90,8 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, pl
         # So is an issue over the texts' budget: asked without it, a case on PR-1 would read as the reviewer's failure.
         if any(o["kind"] == "issue" for o in the_task["omitted"]):
             raise Stop("issue_not_whole")
-        if deadline - clock() < the_task["limits"]["seconds"] + VERSION_READS:
+        # A review asked one Run for each changed file may take each Run's seconds (issue 581's prototype).
+        if deadline - clock() < max(len(live.passes(the_task)), 1) * (the_task["limits"]["seconds"] + VERSION_READS):
             raise Stop("unanswered")
         head = os.path.join(str(place), "heads", case["id"]) if place is not None else None
         try:

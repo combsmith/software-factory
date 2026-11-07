@@ -28,7 +28,7 @@ import tempfile
 import time
 import uuid
 
-from harness import engine, steps, task
+from harness import engine, shared, steps, task
 from kernel.coverage import readable_rubric
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -156,8 +156,121 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     def called(args, env, timeout):
         # The head is the folder the CLI starts in, for a review alone; any other Intent's call is as it always was.
         return asked(args, env=env, timeout=timeout, head=head) if reviewing else asked(args, env=env, timeout=timeout)
-    return engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], called, clock, session, told,
-                      read=reviewing)
+    focus = passes(the_task)
+    if not focus:
+        return engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], called, clock, session, told,
+                          read=reviewing)
+    # Issue 581's prototype: one Run of the Engine for each changed file, each reading the whole diff and the head, and
+    # raising the Findings that sit on its own file's changed lines; their Results joined into one.
+    results = []
+    for at, path in enumerate(focus):
+        one = dict(the_task, focus={"path": path})
+        result = engine.run(one, job_env.get(CLI, ""), job_env, config["harness"], called, clock,
+                            session if at == 0 else str(uuid.uuid4()), told, read=True)
+        results.append(result)
+        if result["status"] != "completed":
+            break
+    return joined(the_task, results)
+
+
+# The most changed files a review is asked one Run each for; a change of more is reviewed whole, in one Run.
+MOST_PASSES = 6
+PATH = re.compile(r"[^\s\x00-\x1f\x7f]+")
+
+
+def passes(the_task: dict) -> list:
+    """The paths of a review's changed files, in the diff's order, one Run each, or [] where it is asked one Run: an
+    Intent that does not review, a change of one file or of more than MOST_PASSES, or a path no Task's focus can hold."""
+    if the_task["intent"] not in REVIEWING or not the_task["texts"] or not the_task["texts"][0]["id"].startswith("diff:"):
+        return []
+    paths = []
+    for part in task.FILE_START.split(the_task["texts"][0]["body"]):
+        head = re.search(r"^\+\+\+ b/(.+)$", part, re.M)
+        base = re.search(r"^--- a/(.+)$", part, re.M)
+        path = (head or base).group(1) if (head or base) else None
+        if path is None and part.startswith("diff --git "):
+            return []
+        if path is not None and path not in paths:
+            paths.append(path)
+    if not 1 < len(paths) <= MOST_PASSES or not all(PATH.fullmatch(p) for p in paths):
+        return []
+    return paths
+
+
+def _same(one: dict, other: dict) -> bool:
+    """Whether two Findings are one: the same criterion, or none and the same category, in the same file, on lines that
+    overlap, or neither with lines."""
+    if (one["criterion"], one["criterion"] or one["category"]) != (other["criterion"], other["criterion"] or other["category"]):
+        return False
+    here, there = one.get("location", {}), other.get("location", {})
+    if here.get("path") != there.get("path"):
+        return False
+    if "start_line" not in here or "start_line" not in there:
+        return "start_line" not in here and "start_line" not in there
+    return (here["start_line"] <= there.get("end_line", there["start_line"])
+            and there["start_line"] <= here.get("end_line", here["start_line"]))
+
+
+def joined(the_task: dict, results: list) -> dict:
+    """One Result of a review's Runs, one for each changed file: the first that did not complete, whole, with the usage
+    of all; or every Finding once, numbered afresh, each posted as its own Run asked, the Dispositions once each, and a
+    criterion `finding` where a Finding cites it, else `met` where any Run met it, else as the first Run judged it. One
+    that does not hold to result/1 is `failed`, `result_invalid`."""
+    usage = dict(results[0]["usage"])
+    for name in engine.COUNTS + ("turns",):
+        values = [r["usage"][name] for r in results]
+        usage[name] = sum(values) if all(type(v) is int for v in values) else None
+    costs = [r["usage"]["cost_usd"] for r in results]
+    usage["cost_usd"] = sum(costs) if all(isinstance(c, (int, float)) for c in costs) else None
+    usage["seconds"] = round(sum(r["usage"]["seconds"] for r in results), 3)
+    models = {r["usage"]["answering_model"] for r in results}
+    usage["answering_model"] = models.pop() if len(models) == 1 else None
+    for result in results:
+        if result["status"] != "completed":
+            return dict(result, usage=usage)
+    findings, bodies, dispositions, kept = [], {}, [], set()
+    for result in results:
+        posted = {}
+        for kind, field in (("submit_review", "comments"), ("create_check_run", "annotations")):
+            for effect in result["effects"].get(kind, []):
+                for note in effect[field]:
+                    posted[note["finding"]] = (kind, note["body"])
+        for finding in result["findings"]:
+            if any(_same(finding, f) for f in findings):
+                continue
+            ref = "n%d" % (len(findings) + 1)
+            findings.append(dict(finding, ref=ref))
+            if finding["ref"] in posted:
+                bodies[ref] = posted[finding["ref"]]
+        for disposition in result["dispositions"]:
+            if disposition["finding"] not in kept:
+                kept.add(disposition["finding"])
+                dispositions.append(disposition)
+    effects = {}
+    if any("submit_review" in r["effects"] for r in results):
+        effects["submit_review"] = [{"id": "e1", "body": None, "comments": [
+            {"finding": ref, "body": body} for ref, (kind, body) in bodies.items() if kind == "submit_review"]}]
+    if any("create_check_run" in r["effects"] for r in results):
+        effects["create_check_run"] = [{"id": "e2", "annotations": [
+            {"finding": ref, "body": body} for ref, (kind, body) in bodies.items() if kind == "create_check_run"]}]
+    cited = {f["criterion"] for f in findings if f["criterion"] is not None}
+    coverage, judged = [], {}
+    for result in results:
+        for entry in result["coverage"]:
+            judged.setdefault(entry["criterion"], []).append(entry)
+    for criterion, entries in judged.items():
+        if criterion in cited:
+            coverage.append({"criterion": criterion, "verdict": "finding", "reason": None})
+        elif any(e["verdict"] == "met" for e in entries):
+            coverage.append({"criterion": criterion, "verdict": "met", "reason": None})
+        else:
+            coverage.append(dict(entries[0]))
+    result = dict(results[0], findings=findings, effects=effects, dispositions=dispositions, coverage=coverage,
+                  usage=usage)
+    if shared.errors(result, "result") or not engine.sound(result, the_task):
+        return engine.failed(the_task, "result_invalid", usage)
+    return result
+
 
 
 RUN_ID = re.compile(r"r_[0-9A-Z]{6,26}")

@@ -21,6 +21,18 @@ request's head, which you may read with Read, Grep and Glob. They write nothing,
 - An `advisory` reviewer's comment is a claim to check against the diff. Where you agree, raise the Finding yourself,
   with `adopted_from` naming its Lens and surface; where you do not, raise nothing for it.
 
+## A Task with a `focus`
+
+A Task may name a `focus`: one changed file's `path`. The change is then reviewed in one Run for each changed file,
+and their Results are joined, so this Run answers for that file's changes alone.
+
+- Read the whole diff and the head as you need, to judge that file's changes; review them as closely as if they were
+  the whole change.
+- Raise each Finding whose place, as below, is on that file's changed lines, and no other. A fault that another file's
+  change brings is raised in that file's Run.
+- Judge each criterion that applies to the change as that file's changes bear on it: `finding` when a Finding of
+  yours cites it, `met` when that file's changes hold it, or give it nothing to break.
+
 ## What you answer
 
 - `findings`: each problem the change brings, once, with its `ref` (`n1`, `n2` and so on), the place in the head's file

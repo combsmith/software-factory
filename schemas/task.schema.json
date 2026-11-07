@@ -189,6 +189,20 @@
           }
         }
       }
+    },
+    "focus": {
+      "description": "One changed file of the diff, by its path in the head, where a review is asked one Run of the Harness's for each changed file and their Results joined (issue 581's prototype). Optional: a Task with none reviews the change whole.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$"
+        }
+      }
     }
   }
 }
