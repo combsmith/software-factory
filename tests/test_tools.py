@@ -36,7 +36,7 @@ from kernel.decide import decide
 from sim import world
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, mutants, needs_passed, redact_trial,
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
                    environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
@@ -8807,6 +8807,84 @@ class Redaction(unittest.TestCase):
 
 
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
+class Writes(unittest.TestCase):
+    """`tools/check_writes.py`: outside adapters/ and the tests, only the callers it lists reach a GitHub write, each
+    the writers it lists (issue 587)."""
+
+    SNEAK = "from adapters import effects\n\n\ndef go(transport, item, req):\n    return effects.role_write(transport, item, 'review', req, 'me')\n"
+    REVIEW = "adapters.effects:_check, adapters.effects:_comment, adapters.effects:_review"
+    UNLISTED = "is not in tools/check_writes.py's CALLERS"
+    # A new adapter that reads, or writes, by GraphQL: a POST either way.
+    MARKS = ('from adapters.github import request\n\nMARK = "%s Mark($id: ID!) { markFileAsViewed(input: {pullRequestId: $id}) '
+             '{ clientMutationId } }"\n\n\ndef mark(transport, ident):\n    return transport.send(request("POST", "/graphql", '
+             'body={"query": MARK, "variables": {"id": ident}}))\n')
+    PEEK = "from adapters import marks\n\n\ndef peek(transport):\n    return marks.mark(transport, 'x')\n"
+
+    def test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists(self):
+        self.assertEqual(check_writes.run(), [])
+
+    def test_a_new_caller_of_a_writer_fails_until_it_is_listed(self):
+        problems = check_writes.run(clone({"harness/sneak.py": self.SNEAK}))
+        self.assertTrue(caught(problems, "harness/sneak.py reaches a GitHub write, %s, and %s" % (self.REVIEW, self.UNLISTED)), problems)
+
+    def test_a_writer_two_calls_deep_is_reached_through_the_modules_between(self):
+        # far calls near, which calls effects.role_write, which calls the writers: far writes as surely as near does.
+        problems = check_writes.run(clone({
+            "harness/near.py": self.SNEAK,
+            "harness/far.py": "from harness import near\n\n\ndef step(transport):\n    return near.go(transport, {}, {})\n"}))
+        self.assertTrue(caught(problems, "harness/far.py reaches a GitHub write, %s, and %s" % (self.REVIEW, self.UNLISTED)), problems)
+
+    def test_a_class_named_reaches_its_methods(self):
+        # approve_step hands approve.Port to approve.job, which calls its approve: naming the class is reaching it.
+        problems = check_writes.run(clone({
+            "harness/hand.py": "from harness import approve\n\n\ndef port(transport):\n    return approve.Port(transport, 'me')\n"}))
+        self.assertTrue(caught(problems, "harness/hand.py reaches a GitHub write, adapters.effects:approve, and"), problems)
+
+    def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
+        queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
+            "    return effects.role_write(transport, item, 'review', req, 'me')\n"
+        problems = check_writes.run(clone({"harness/queue.py": queue, "release/move.py": '"""Moves nothing."""\n'}))
+        self.assertTrue(caught(problems, "harness/queue.py reaches adapters.effects:_check, adapters.effects:_comment, "
+                                         "adapters.effects:_review, adapters.queue:dequeue"), problems)
+        self.assertTrue(caught(problems, "release/move.py reaches no write, and CALLERS lists adapters.deployments:record, "
+                                         "adapters.tags:write"), problems)
+        with mock.patch.dict(check_writes.CALLERS, {"harness/gone.py": {"adapters.tags:write"}}):
+            self.assertTrue(caught(check_writes.run(), "CALLERS names harness/gone.py, which is not here"))
+
+    def test_a_graphql_mutation_is_a_write_and_a_query_a_read(self):
+        problems = check_writes.run(clone({"adapters/marks.py": self.MARKS % "mutation", "harness/peek.py": self.PEEK}))
+        self.assertTrue(caught(problems, "harness/peek.py reaches a GitHub write, adapters.marks:mark, and"), problems)
+        self.assertEqual(check_writes.run(clone({"adapters/marks.py": self.MARKS % "query", "harness/peek.py": self.PEEK})), [])
+        # A query that is no text constant cannot be read, and is a problem, not a read.
+        built = (self.MARKS % "query").replace('{"query": MARK,', '{"query": MARK.upper(),')
+        self.assertTrue(caught(check_writes.run(clone({"adapters/marks.py": built})),
+                               "adapters/marks.py:7 sends a request whose kind cannot be read: its GraphQL query is not a text constant"))
+
+    def test_minting_or_revoking_a_token_is_a_credential_not_a_write(self):
+        files = {"harness/mint.py": "from adapters import identity\n\n\ndef both(as_app, app, as_token):\n"
+                                    "    identity.mint(as_app, app, 'x/y', {})\n    return identity.revoke(as_token)\n"}
+        self.assertEqual(check_writes.run(clone(files)), [])
+
+    def test_outside_adapters_a_request_reads_and_no_verb_is_held(self):
+        send = "from adapters.github import request\n\n\ndef send(transport):\n    return transport.send(request(%s, '/repos/x/y/issues'))\n"
+        self.assertEqual(check_writes.run(clone({"tools/reads.py": send % "'GET'"})), [])
+        for method, said in (("'PATCH'", "tools/sends.py:5 sends a request that is not a read outside adapters/"),
+                             ("verb", "tools/sends.py:5 sends a request that is not a read outside adapters/")):
+            with self.subTest(method=method):
+                self.assertTrue(caught(check_writes.run(clone({"tools/sends.py": send.replace("(transport)", "(transport, verb=None)") % method})), said))
+        problems = check_writes.run(clone({"tools/hold.py": 'METHOD = "DELETE"\n'}))
+        self.assertTrue(caught(problems, "tools/hold.py:1 holds a write verb"), problems)
+        # In adapters/, a method that is not a literal cannot be read.
+        problems = check_writes.run(clone({"adapters/odd.py": send.replace("(transport)", "(transport, verb)") % "verb"}))
+        self.assertTrue(caught(problems, "adapters/odd.py:5 sends a request whose kind cannot be read: its method is not a literal"), problems)
+
+    def test_an_adapter_module_handed_on_as_a_value_cannot_be_read_and_fails(self):
+        for text in ("from adapters import effects\n\n\ndef go(run):\n    return run(effects)\n",
+                     "from adapters.effects import *\n"):
+            with self.subTest(text=text):
+                self.assertTrue(caught(check_writes.run(clone({"harness/hands.py": text})), "so what it reaches cannot be read"))
+
+
 FAILS = {
     "check_examples": lambda: check_examples.run(clone({"examples/decision.json": "{}"})),
     "check_lifecycle": lambda: check_lifecycle.run(clone({"lifecycle/issue.json": json.dumps(
@@ -8823,6 +8901,7 @@ FAILS = {
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),
+    "check_writes": lambda: check_writes.run(clone({"harness/sneak.py": Writes.SNEAK})),
     "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
 }
 
