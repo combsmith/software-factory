@@ -1730,7 +1730,25 @@ class Purity(unittest.TestCase):
                 ("from __future__ import annotations\n\n\ndef f():\n    return annotations()\n",
                  "calls annotations, which it imports but is no function of the Kernel's"),
                 ("from kernel.missing import g\n\n\ndef f():\n    return g()\n",
-                 "calls g, which it imports but is no function of the Kernel's")):
+                 "calls g, which it imports but is no function of the Kernel's"),
+                # Issue 593: a top-level function's default binds in the module, a builtin that calls is never handed,
+                # type makes no class, nothing is raised and no special attribute is named.
+                ("def bind(x=frozenset((safe := map,))):\n    return x\n\n\ndef f(fetch, xs):\n    return list(safe(fetch, xs))\n",
+                 "calls safe, a value it binds"),
+                ("def bind(x: (safe := map)):\n    return x\n\n\ndef f(fetch, xs):\n    return list(safe(fetch, xs))\n",
+                 "calls safe, a value it binds"),
+                ("def bind() -> (safe := map):\n    return 0\n\n\ndef f(fetch, xs):\n    return list(safe(fetch, xs))\n",
+                 "calls safe, a value it binds"),
+                ("def f(fetch, xs):\n    return list(map(list, map(map, [fetch], [xs])))\n", "hands map to be called"),
+                ("def f(fetch, xs):\n    return list(map(filter, [fetch], [xs]))\n", "hands filter to be called"),
+                ("def f(names, bases, spaces):\n    return list(map(type, names, bases, spaces))\n", "hands type to be called"),
+                ("def f(xs):\n    return sorted(xs, key=type)\n", "hands type to be called"),
+                ("def f(cls):\n    return type('X', (cls,), {})\n", "calls type with other than one argument"),
+                ("def f(x):\n    return type(x, metaclass=x)\n", "calls type with other than one argument"),
+                ("def f(cls):\n    raise cls\n", "raises"),
+                ("def f(x):\n    if x:\n        raise ValueError(x)\n    return x\n", "raises"),
+                ("def f(x):\n    return x.__class__\n", "names __class__, a special attribute"),
+                ("def decide(facts, _decision=len):\n    return _decision(facts)\n", "has a default that can change")):
             self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), words), (text, words))
         for text in ("def f(_decision, facts):\n    return _decision(facts)\n",
                      "def f(xs):\n    key = lambda r: r['at']\n    return sorted(xs, key=key), key(xs[0])\n",
@@ -1741,7 +1759,8 @@ class Purity(unittest.TestCase):
                      "def f(xs):\n    return len(xs), sorted(xs), list(map(lambda x: x, xs)), sorted(xs, key=str.casefold)\n",
                      "def f(counts, extra):\n    return max(counts, key=counts.get), dict({'a': 1}, **extra)\n",
                      "def f(g):\n    def h():\n        def g():\n            return 1\n        return g()\n    return h()\n",
-                     "def f(x):\n    def g():\n        y = x\n        return y\n    def y():\n        return x\n    return y()\n"):
+                     "def f(x):\n    def g():\n        y = x\n        return y\n    def y():\n        return x\n    return y()\n",
+                     "def f(xs):\n    return type(xs) is list, list(map(len, xs)), sorted(xs, key=len)\n"):
             self.assertEqual(check_purity.run(tree({"kernel/x.py": text})), [], text)
         # A module of the Kernel's may be called into however it is imported, and named only to read a name of it.
         terms = "def code(x):\n    return x\n"
@@ -1758,6 +1777,50 @@ class Purity(unittest.TestCase):
             got = check_purity.run(tree({"kernel/terms.py": terms, "kernel/other.py": "from kernel import terms\n",
                                          "kernel/x.py": text}))
             self.assertTrue(caught(got, words), (text, words, got))
+
+    def test_a_module_is_called_into_only_at_its_functions(self):
+        # Issue 593: a module's value, a name it lacks, or what its __getattr__ hands back is no function of its, so it
+        # is neither called through the module nor handed to be called; and its names are not reached by a special
+        # attribute. A name it imports is handed only where it is a Kernel function.
+        terms = "LIMIT = 'x'\n\n\ndef code(x):\n    return x\n"
+        clean = "from kernel import terms\nfrom kernel.terms import code\n\n\n" \
+                "def f(xs):\n    return terms.code(xs), sorted(xs, key=code), sorted(xs, key=terms.code)\n"
+        self.assertEqual(check_purity.run(tree({"kernel/terms.py": terms, "kernel/x.py": clean})), [])
+        head = "from __future__ import annotations\nfrom kernel import terms\nfrom kernel.terms import LIMIT\n\n\n"
+        for body, words in (("def f():\n    return terms.LIMIT()\n", "calls terms.LIMIT, which is no function"),
+                            ("def f():\n    return terms.NOPE()\n", "calls terms.NOPE, which is no function"),
+                            ("def f(fetch, xs):\n    return list(terms.apply(fetch, xs))\n",
+                             "calls terms.apply, which is no function"),
+                            ("def f(xs):\n    return sorted(xs, key=LIMIT)\n", "hands LIMIT to be called"),
+                            ("def f(xs):\n    return sorted(xs, key=terms.LIMIT)\n", "hands terms.LIMIT to be called"),
+                            ("def f(xs):\n    return list(map(annotations, xs))\n", "hands annotations to be called"),
+                            ("def f(fetch):\n    return terms.__dict__.update(code=fetch)\n",
+                             "names __dict__, a special attribute")):
+            got = check_purity.run(tree({"kernel/terms.py": terms + "\n\ndef __getattr__(name):\n    return map\n",
+                                         "kernel/x.py": head + body}))
+            self.assertTrue(caught(got, words), (body, words, got))
+
+    def test_a_package_is_read_as_python_imports_it(self):
+        # Issue 593: where Python would import another module than the check reads, the check refuses it: a module
+        # beside a package of its name, and a package's binding of a name that also names a module in it.
+        module = "def run(x):\n    return x\n"
+        for files, words in (({"kernel/a.py": module, "kernel/a/__init__.py": ""}, "a.py and a/__init__.py are both kernel.a"),
+                             ({"kernel/a/b.py": module, "kernel/a/b/__init__.py": ""},
+                              "a/b.py and a/b/__init__.py are both kernel.a.b"),
+                             ({"kernel/a/__init__.py": "from kernel.other import invoke\n", "kernel/a/invoke.py": module,
+                               "kernel/other.py": "def invoke(x):\n    return x\n"},
+                              "a/__init__.py binds invoke, which also names the module a/invoke.py"),
+                             ({"kernel/__init__.py": "def a(x):\n    return x\n", "kernel/a.py": module},
+                              "__init__.py binds a, which also names the module a.py"),
+                             ({"kernel/a/__init__.py": "def b(x):\n    return x\n", "kernel/a/b/__init__.py": module},
+                              "a/__init__.py binds b, which also names the module a/b/__init__.py")):
+            got = check_purity.run(tree(files))
+            self.assertTrue(caught(got, words), (files, words, got))
+        for files in ({"kernel/a/__init__.py": "from . import invoke\n", "kernel/a/invoke.py": module},
+                      {"kernel/a/__init__.py": "from kernel.a import invoke\n", "kernel/a/invoke.py": module},
+                      {"kernel/a/__init__.py": "import kernel.a.invoke as invoke\n", "kernel/a/invoke.py": module},
+                      {"kernel/__init__.py": "", "kernel/a.py": module, "kernel/b/__init__.py": module}):
+            self.assertEqual(check_purity.run(tree(files)), [], files)
 
     def test_what_fills_a_decision_maker_is_a_kernel_function(self):
         # Issue 588: _decision is the one parameter the Kernel calls, so what fills it is a Kernel function, or the
@@ -1783,7 +1846,11 @@ class Purity(unittest.TestCase):
                  "takes _decision in a function inside another"),
                 ("def f():\n    return lambda _decision: _decision()\n", "takes _decision in a function inside another"),
                 ("def p(_decision):\n    return _decision()\n\n\ndef f(g):\n    return p(g)\n", "gives g as _decision"),
-                ("def f(facts):\n    def g(x):\n        return x\n    return paused(g, facts)\n", "gives g as _decision")):
+                ("def f(facts):\n    def g(x):\n        return x\n    return paused(g, facts)\n", "gives g as _decision"),
+                # Issue 593: a caller's _decision that it binds is not its own, and a lambda at the top takes none.
+                ("def f(facts, c):\n    _decision = c['d']\n    return paused(_decision, facts)\n", "gives _decision as _decision"),
+                ("def f(facts, x=lambda _decision: _decision()):\n    return facts\n",
+                 "takes _decision in a function inside another or a lambda")):
             got = check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/decide.py": head + body}))
             self.assertTrue(caught(got, words), (body, words, got))
         # However the function that takes it is imported, and wherever its place, what fills _decision is read.
