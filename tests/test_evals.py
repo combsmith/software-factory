@@ -844,7 +844,7 @@ class EvalJob(unittest.TestCase):
         marked["cases"][1]["at_alternate"] = True
         self.assertEqual(job.verdict(marked, found, digest, "a" * 40, "factory/v0.1.0"), "count_differs")
         self.assertIn(", 1 at an alternate place;", job.tally(marked))
-        self.assertEqual(job.verdict(unmarked, found, digest, "a" * 40, "factory/v0.1.0"), "case_failed")
+        self.assertEqual(job.verdict(unmarked, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
         for mark in (False, 1):
             self.assertNotEqual(validate(dict(unmarked, cases=[dict(unmarked["cases"][0], at_alternate=mark), unmarked["cases"][1]]),
                                          load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [], mark)
@@ -978,8 +978,8 @@ class EvalJob(unittest.TestCase):
 
     def test_a_case_off_its_rubric_is_unreadable_by_its_code_and_asks_nothing(self):  # issue 421
         # Where the cases are, at run time: a case whose expected Finding is not as its criterion gives it asks nothing of
-        # the model, and the run fails by a code alone, naming neither the severity nor the category. Its owner mends it
-        # in the home; nothing here holds what it expected.
+        # the model, and counts as not passing by a code alone, naming neither the severity nor the category. Its owner
+        # mends it in the home; nothing here holds what it expected.
         from harness import eval as job
         first = next(iter(self.cases))
         off = json.loads(self.cases[first])
@@ -996,7 +996,8 @@ class EvalJob(unittest.TestCase):
         self.assertEqual([(c["id"], c["verdict"], c["reasons"]) for c in written["cases"]],
                          [(first, "unreadable", ["answer_off_rubric"]), ("poc-two", "pass", [])])
         self.assertNotIn("delivery", (self.work / job.REPORT).read_text())
-        self.assertEqual(self.step(job.judge), "case_failed")
+        # The bar weighs it as one case not passed: 1 of 2 that expect a Finding clears it.
+        self.assertEqual(self.step(job.judge), "1 of 2 passed; answer_off_rubric 1")
 
     def test_the_fetch_step_takes_its_token_from_its_environment_alone(self):
         from harness import eval as job
@@ -1045,8 +1046,11 @@ class EvalJob(unittest.TestCase):
                                 "run_fault"),
                                (changed(cases=[first, dict(good["cases"][1], reasons=["schema"])]), "run_fault"),
                                (changed(cases=[first, dict(good["cases"][1], reasons=["finding_uncited"])]), "count_differs"),
-                               (changed(cases=[first, dict(good["cases"][1], verdict="fail", reasons=["finding_uncited"])], passed=1), "case_failed"),
-                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable", reasons=["not_this_set"])], passed=1), "case_failed"),
+                               # A case not passed with its code is the job's, and counts against its kind's bar.
+                               (changed(cases=[first, dict(good["cases"][1], verdict="fail", reasons=["finding_uncited"])], passed=1,
+                                        kinds_pass={"finding": False, "met": True}), "case_failed"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable", reasons=["not_this_set"])], passed=1,
+                                        kinds_pass={"finding": False, "met": True}), "case_failed"),
                                # What the job never writes is no report of the job's: a case not passed with no code.
                                (changed(cases=[first, dict(good["cases"][1], verdict="fail")], passed=1), "count_differs"),
                                (changed(cases=[first, dict(good["cases"][1], verdict="unreadable")], passed=1), "count_differs"),
@@ -1058,7 +1062,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.verdict(changed(set={"count": 0, "sha256": digest}, cases=[], passed=0), empty, digest,
                                      "a" * 40, "factory/v0.1.0"), "eval_set_empty")
 
-    def test_the_gate_holds_its_bar_of_the_set_and_of_each_kind(self):  # decision 0120
+    def test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it(self):  # decisions 0120 and NNNN
         from harness import eval as job
         found_of = lambda count: {"role": "pr-review", "intent": "review-change", "count": count,
                                   "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i} for i in range(count)]}
@@ -1071,16 +1075,20 @@ class EvalJob(unittest.TestCase):
             document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": count, "sha256": "0" * 64}},
                                   found, assessed, True, told, blocking)
             return job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0")
-        # Of the whole set: exactly 90% clears, and just under does not, whatever the size.
-        for count, least in ((10, 9), (20, 18), (40, 36), (42, 38), (39, 36), (1, 1)):
+        # The set's share is no bar of its own: each kind clearing its bar, a set clears at the lowest of them, 30%, and
+        # just under it no report of the job's could say each kind cleared, whatever the size.
+        for count, least in ((10, 3), (20, 6), (40, 12), (42, 13), (39, 12), (1, 1)):
             self.assertEqual(read(count, least), "pass", (count, least))
             self.assertEqual(read(count, least - 1), "case_failed", (count, least))
         self.assertEqual(read(42, 42), "pass")
-        # A word for each kind closes it by itself, the set's bar cleared; a report that can't say is short.
+        self.assertEqual(read(40, 35), "pass", "under 0120's 90% of the set, which no longer holds")
+        # A word for each kind closes it by itself, every case passed; a report that can't say is short.
         self.assertEqual(read(10, 10, {"finding": False, "met": True}), "case_failed")
         self.assertEqual(read(10, 10, {"finding": True, "met": False}), "case_failed")
-        # So does a case that expects a blocking Finding and did not pass, every bar cleared; and a report that can't say.
-        self.assertEqual(read(10, 10, blocking=False), "case_failed")
+        # A case that expects a blocking Finding and did not pass closes nothing by itself, each kind cleared; a report
+        # that can't say of them is short all the same.
+        self.assertEqual(read(10, 9, blocking=False), "pass")
+        self.assertEqual(read(10, 9, {"finding": False, "met": True}, blocking=False), "case_failed")
         self.assertEqual(read(10, 10, blocking=None), "eval_split_short")
         found = found_of(10)
         document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 10, "sha256": "0" * 64}},
@@ -1091,8 +1099,8 @@ class EvalJob(unittest.TestCase):
                "diff_not_whole", "issue_not_whole", "issue_unreadable", "answer_off_rubric", "answer_disagrees_with_verdict",
                "location_unreadable", "criterion_unknown"}
         for code in own:
-            self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "pass", code)
-            self.assertEqual(read(10, 8, others=(("unreadable", [code]),)), "case_failed", code)
+            self.assertEqual(read(10, 3, others=(("unreadable", [code]),)), "pass", code)
+            self.assertEqual(read(10, 2, others=(("unreadable", [code]),)), "case_failed", code)
         # And so does the reviewer's own: a miss, and an answer the Harness could not read, which a CLI with no answer gives too.
         for code in ("finding_not_raised", "result_not_completed", "criterion_not_met"):
             self.assertEqual(read(10, 9, others=(("fail", [code]),)), "pass", code)
@@ -1106,7 +1114,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.eval_result_codes(), scorer | own | set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS))
         self.assertEqual(own & (set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS)), set())
 
-    def test_each_kind_is_held_to_its_bar_where_the_cases_are(self):  # decision 0120
+    def test_each_kind_is_held_to_its_own_bar_where_the_cases_are(self):  # decisions 0120 and NNNN
         from harness import eval as job
 
         def told(finding_cases, finding_passed, met_cases, met_passed):
@@ -1121,16 +1129,27 @@ class EvalJob(unittest.TestCase):
                     found["cases"].append({"id": name})
                     assessed[name] = ("pass", []) if i < passed else ("fail", ["criterion_not_met"])
             return job.kinds_pass(found, place, assessed)
-        # Exactly 80% clears, and just under does not; each kind by itself.
-        self.assertEqual(told(20, 16, 20, 16), {"finding": True, "met": True})
-        self.assertEqual(told(20, 15, 20, 16), {"finding": False, "met": True})
-        self.assertEqual(told(20, 16, 20, 15), {"finding": True, "met": False})
-        self.assertEqual(told(5, 4, 22, 18), {"finding": True, "met": True})
-        self.assertEqual(told(5, 3, 22, 17), {"finding": False, "met": False})
+        # Exactly 30% of the cases that expect a Finding clears, and exactly 90% of the clean ones; one case under does
+        # not; each kind by itself.
+        for cases in (10, 20, 40):
+            finding, met = cases * 3 // 10, cases * 9 // 10
+            self.assertEqual(told(cases, finding, cases, met), {"finding": True, "met": True}, cases)
+            self.assertEqual(told(cases, finding - 1, cases, met), {"finding": False, "met": True}, cases)
+            self.assertEqual(told(cases, finding, cases, met - 1), {"finding": True, "met": False}, cases)
+        self.assertEqual(told(7, 3, 11, 10), {"finding": True, "met": True})
+        self.assertEqual(told(7, 2, 11, 9), {"finding": False, "met": False})
+        # Each kind's bar is its own: a share that clears one does not clear the other.
+        self.assertEqual(told(10, 3, 10, 3), {"finding": True, "met": False})
+        self.assertEqual(told(10, 9, 10, 9), {"finding": True, "met": True})
         # A kind with no case has nothing to fail here: `split_ok` is what closes on it.
-        self.assertEqual(told(0, 0, 5, 4), {"finding": True, "met": True})
-        self.assertEqual(told(43, 34, 5, 4)["finding"], False, "79.07% is under the bar, however near")
-        self.assertEqual(told(5, 4, 43, 35)["met"], True)
+        self.assertEqual(told(0, 0, 5, 5), {"finding": True, "met": True})
+        self.assertEqual(told(43, 12, 5, 5)["finding"], False, "27.91% is under the bar, however near")
+        self.assertEqual(told(43, 13, 5, 5)["finding"], True)
+        self.assertEqual(told(5, 5, 43, 38)["met"], False, "88.37% is under the bar, however near")
+        self.assertEqual(told(5, 5, 43, 39)["met"], True)
+        # Nearer still, inside the hundredth under each bar.
+        self.assertEqual(told(17, 5, 5, 5)["finding"], False, "29.41%")
+        self.assertEqual(told(5, 5, 19, 17)["met"], False, "89.47%")
         # A verdict of pass with a code is not passed, and a case not read leaves nothing to say.
         place = self.temp / "bar"
         found = {"cases": [{"id": "c-finding-0"}]}
@@ -1149,7 +1168,7 @@ class EvalJob(unittest.TestCase):
             self.step(job.score, lambda case: load("examples/result.json"))
             return self.step(job.judge), json.loads((self.work / job.REPORT).read_text())["split_ok"]
 
-    def test_a_case_that_expects_a_blocking_finding_must_pass(self):  # decision 0120
+    def test_a_missed_blocking_case_is_said_and_closes_nothing_by_itself(self):  # decisions 0120 and NNNN
         from harness import eval as job
         plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
         place = self.temp / "blocking"
@@ -1189,7 +1208,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self._least_held(job), ("eval_split_short", False))
         # A case not read leaves nothing to say.
         self.assertIsNone(job.blocking_pass({"cases": [{"id": "c-none"}]}, place, {"c-none": ("pass", [])}))
-        # Through the job, every bar cleared: 23 of 24, each kind cleared, and the one miss is the blocking one.
+        # Through the job: 23 of 24, each kind cleared, and the one miss is the blocking one. It is said, and the run passes.
         shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
         expected = {"verdict": "finding", "criterion": "PR-2", "finding": {"category": "security", "severity": "blocking",
                     "location": {"path": "kernel/decide.py", "start_line": 86, "end_line": 94}}}
@@ -1205,13 +1224,12 @@ class EvalJob(unittest.TestCase):
             self.step(job.score, lambda case: load("examples/result.json"))
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((written["passed"], written["kinds_pass"]["finding"], written["blocking_pass"]), (23, True, False))
-        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            self.assertEqual(self.step(job.judge), "case_failed")
-        # The line says why, as 23 of 24 would not.
-        self.assertEqual(out.getvalue(), "23 of 24 passed; finding_not_raised 1; a blocking case not passed\n")
+        # The line says so, as 23 of 24 would not.
+        self.assertEqual(self.step(job.judge), "23 of 24 passed; finding_not_raised 1; a blocking case not passed")
 
     def test_the_job_writes_each_kinds_word_and_the_judge_holds_it(self):  # decision 0120
-        # Plan, fetch, score and judge over a set: 23 of 24 clears the set's bar, and a kind at 3 of 4 does not clear its own.
+        # Plan, fetch, score and judge over a set of 4 cases that expect a Finding and 20 clean ones: each kind is held to
+        # its own bar, 30% and 90%.
         from harness import eval as job
         plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
         finding, met = json.loads(next(iter(self.cases.values()))), None
@@ -1235,17 +1253,23 @@ class EvalJob(unittest.TestCase):
             with mock.patch.object(job.eval_result, "score", said):
                 self.step(job.score, lambda case: load("examples/result.json"))
             return json.loads((self.work / job.REPORT).read_text())
-        # A kind under its bar: the set's clears at 23 of 24, and the job's own word closes the gate.
-        written = run({"poc-k0"})
-        self.assertEqual((written["passed"], written["kinds_pass"]), (23, {"finding": False, "met": True}))
+        # A kind under its bar: 1 of 4 that expect a Finding, and the job's own word closes the gate, 21 of 24 passed.
+        written = run({"poc-k0", "poc-k1", "poc-k2"})
+        self.assertEqual((written["passed"], written["kinds_pass"]), (21, {"finding": False, "met": True}))
         self.assertIs(written["blocking_pass"], True)
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(self.step(job.judge), "case_failed")
-        self.assertEqual(out.getvalue(), "23 of 24 passed; finding_not_raised 1; finding under its bar\n")
-        # Each kind on or over its bar: it opens, and the judge says what did not pass.
-        written = run({"poc-k4"})
-        self.assertEqual((written["passed"], written["kinds_pass"]), (23, {"finding": True, "met": True}))
-        self.assertEqual(self.step(job.judge), "23 of 24 passed; finding_not_raised 1")
+        self.assertEqual(out.getvalue(), "21 of 24 passed; finding_not_raised 3; finding under its bar\n")
+        # And 17 of 20 clean ones.
+        written = run({"poc-k4", "poc-k5", "poc-k6"})
+        self.assertEqual((written["passed"], written["kinds_pass"]), (21, {"finding": True, "met": False}))
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(self.step(job.judge), "case_failed")
+        self.assertEqual(out.getvalue(), "21 of 24 passed; finding_not_raised 3; met under its bar\n")
+        # Each kind on or over its bar, 2 of 4 and 19 of 20: it opens, and the judge says what did not pass.
+        written = run({"poc-k0", "poc-k1", "poc-k4"})
+        self.assertEqual((written["passed"], written["kinds_pass"]), (21, {"finding": True, "met": True}))
+        self.assertEqual(self.step(job.judge), "21 of 24 passed; finding_not_raised 3")
 
     def test_the_job_reads_and_writes_a_file_of_its_own_directory_alone(self):
         # Every file the job reads or writes is named by one part, a case's id or the step's own, and resolves inside
@@ -1480,7 +1504,7 @@ class EvalJob(unittest.TestCase):
                                  [("unreadable", [reason]), ("pass", [])])
                 with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
                     self.assertEqual(self.step(judge), "engine_fault")
-                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1; finding under its bar\n" % reason)
+                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1\n" % reason, "it closes, the kind's bar cleared")
         # The reviewer's own failure stays as it was: a Result it gave that does not pass, and one that cannot be read.
         shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
         self.step(plan)
@@ -1586,7 +1610,8 @@ class EvalJob(unittest.TestCase):
         cleared = {"kinds_pass": {"finding": True, "met": True}, "blocking_pass": True}
         self.assertEqual(job.tally(dict(cleared, passed=1, cases=cases)), "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2")
         self.assertEqual(job.tally(dict(cleared, passed=0, cases=[{"verdict": "fail", "reasons": []}])), "0 of 1 passed; no code")
-        # Which of its words closed the gate, as the share may not say; a report that can't say names nothing.
+        # Which of its words closed the gate, and a blocking case not passed, which does not by itself, as the share may not
+        # say; a report that can't say names nothing.
         self.assertEqual(job.tally(dict(passed=1, cases=cases, kinds_pass={"finding": False, "met": False}, blocking_pass=False)),
                          "1 of 3 passed; coverage_disagrees 1, criterion_not_met 2; finding under its bar; met under its bar; "
                          "a blocking case not passed")
