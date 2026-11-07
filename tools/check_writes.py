@@ -256,7 +256,8 @@ def _scope(fn) -> set:
     names |= {a.arg for a in ast.walk(fn.args) if isinstance(a, ast.arg)}
     names |= {n.name for n in ast.walk(fn) if n is not fn and isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
               and id(n) not in nested}
-    imported = {(a.asname or a.name.split(".")[0]) for n in own if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+    imported = {(a.asname or a.name.split(".")[0]) for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom))
+                for a in n.names}       # a nested function's import too: its name is the import's wherever it is read
     return names - imported - {g for n in own if isinstance(n, (ast.Global, ast.Nonlocal)) for g in n.names}
 
 
@@ -278,6 +279,12 @@ class Reading:
 
     def __init__(self, mods: dict):
         self.mods, self.graph, self.problems, self.handed = mods, {}, [], []
+        self.below = {}     # (module, class) -> the classes that have it among their bases, at any depth
+        for mod in mods.values():
+            for name in mod.classes:
+                for base in _methods(mods, mod.name, name, set()):
+                    if "." not in base[1] and base != (mod.name, name):
+                        self.below.setdefault(base, set()).add((mod.name, name))
         for mod in mods.values():
             for qual, nodes in mod.units.items():
                 self.graph[(mod.name, qual)] = self._edges(mod, qual, nodes)
@@ -299,6 +306,10 @@ class Reading:
                 root = root.value
             if isinstance(root, ast.Name) and root.id in local and id(node) not in defaults:
                 continue
+            if cls and isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in ("self", "cls"):
+                # self.write() or cls.write() runs a subclass's write where the instance is the subclass's.
+                out += [(m, "%s.%s" % (c, node.attr)) for m, c in self.below.get((mod.name, cls), ())
+                        if "%s.%s" % (c, node.attr) in self.mods[m].functions]
             got, part = None, node
             while got is None and isinstance(part, (ast.Name, ast.Attribute)):
                 got = _resolve(self.mods, mod, part, cls)

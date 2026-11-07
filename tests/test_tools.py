@@ -8916,6 +8916,18 @@ class Writes(unittest.TestCase):
             # Codex: a registry filled through another name for it.
             "adapters/aliasreg.py": "from adapters.effects import approve\n\nSTEPS = []\nregistry = STEPS\nregistry.append(approve)\n",
             "harness/usealiasreg.py": "from adapters.aliasreg import STEPS\n\n\ndef go(t):\n    return STEPS[0](t)\n",
+            # Astra on the last head: a base's cls.write that a subclass overrides, and a writer a nested function imports
+            # under a name an outer parameter has.
+            "adapters/template.py": "from adapters.github import request\n\n\nclass Base:\n    @classmethod\n    def act(cls, t):\n"
+                                    "        return cls.write(t)\n\n    @classmethod\n    def write(cls, t):\n        return None\n\n\n"
+                                    "class Client(Base):\n    @classmethod\n    def go(cls, t):\n        return super().act(t)\n\n"
+                                    "    @classmethod\n    def write(cls, t):\n        return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "harness/usetemplate.py": "from adapters.template import Client\n\n\ndef run(t):\n    return Client.go(t)\n",
+            "adapters/dropper.py": "from adapters.github import request\n\n\ndef drop(t):\n"
+                                   "    return t.send(request('DELETE', '/repos/x/y/git/refs/heads/topic'))\n",
+            "adapters/fallback.py": "def go(t, drop=None):\n    def fallback():\n        from adapters.dropper import drop\n"
+                                    "        return drop(t)\n    if drop is not None:\n        return drop(t)\n    return fallback()\n",
+            "harness/usefallback.py": "from adapters.fallback import go\n\n\ndef run(t):\n    return go(t)\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
@@ -8931,6 +8943,8 @@ class Writes(unittest.TestCase):
         self.unlisted(problems, "harness/useinherit.py", "adapters.inherit:Base.act")
         self.unlisted(problems, "harness/usepchild.py", "adapters.pbase:Client.act")
         self.unlisted(problems, "harness/useinject.py")
+        self.unlisted(problems, "harness/usetemplate.py", "adapters.template:Client.write")
+        self.unlisted(problems, "harness/usefallback.py", "adapters.dropper:drop")
         for rel in ("harness/useconditional.py", "harness/usecallback.py"):
             self.unlisted(problems, rel)
         for rel in ("harness/useaug.py", "harness/defaultw.py", "harness/usealiasreg.py"):
