@@ -1020,9 +1020,10 @@ def approval_anchor(review: dict, runs):
     this item started before it or in its second, the approval's own time, as a person approving in the browser reads
     as they approve (decision 0046); else "", before every time, as nothing shows when it read. So too where an act on
     its content started after it with no dispatch read, which may be a re-run of the act that read, and where a
-    record's time cannot be read. An item's Runs run one at a time, so none starts while an act runs, and records expire
-    oldest first: an act's Run is not gone while a record that started no later than the approval stays. With no
-    records given, the approval's own time (`description_anchor`)."""
+    record's time cannot be read. Records expire oldest first, and an act's Run is made before its approval: it is not
+    gone while a record made before it stays. A Run made while the act ran waits in the item's lane, but its record's
+    start is when it was made (trials/P-44.json), so it may reach back once the act's Run is past retention: a residual
+    the record names. With no records given, the approval's own time (`description_anchor`)."""
     at = review["submitted_at"]
     if runs is None:
         return at
