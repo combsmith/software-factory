@@ -98,6 +98,7 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
 CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
+ROLLBACK_FIXTURE = ("tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
@@ -4058,6 +4059,15 @@ MUTANTS = ISSUE + [
      '13:07:04 GMT', '23:07:04 GMT', CUT_FIXTURE),
     ('the tag ruleset exempts the Release', 'release/fixtures/cut.v0-1-0.json',
      '"exclude": []', '"exclude": ["refs/tags/factory/v0.1.0"]', CUT_FIXTURE),
+    # The refused rollback's fixture: the rules refuse it for the tags read after it, and it moved and recorded nothing.
+    ('a rollback with no earlier Release moved next', 'release/fixtures/rollback.refused.json',
+     '"ref": "refs/tags/factory/v0-next",\n              "object": {\n                "sha": "499835d5',
+     '"ref": "refs/tags/factory/v0-next",\n              "object": {\n                "sha": "9ca55015', ROLLBACK_FIXTURE),
+    ('the refused rollback recorded a Deployment', 'release/fixtures/rollback.refused.json',
+     '"transient_environment": false,\n                "created_at": "2026-11-07T06:48:42Z"',
+     '"transient_environment": false,\n                "created_at": "2026-11-07T19:11:52Z"', ROLLBACK_FIXTURE),
+    ('the tags were read before the rollback ended', 'release/fixtures/rollback.refused.json',
+     '"updated_at": "2026-11-07T19:11:56Z"', '"updated_at": "2026-11-07T19:23:56Z"', ROLLBACK_FIXTURE),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a file of tests holds a rule', 'tools/check_context.py',
      '        if not test:\n            problems.append(', '        if False:\n            problems.append(', BARE_TESTS),

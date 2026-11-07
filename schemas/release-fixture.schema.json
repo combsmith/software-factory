@@ -32,9 +32,9 @@
       "required": ["item", "run", "asked", "printed", "conclusion", "read_at", "exchanges"],
       "properties": {
         "item": {
-          "description": "Which of ruling 9′'s five it is.",
+          "description": "Which of ruling 9′'s five it is, or the rollback refused while one Release stood (#197, 2026-11-07).",
           "enum": ["cut_refused_by_the_closed_gate", "cut_and_move_of_next", "refused_move_of_the_release", "rollback",
-                   "move_forward_again"]
+                   "move_forward_again", "refused_rollback_with_no_earlier_release"]
         },
         "run": {"description": "The release.yml run's id.", "type": "integer", "minimum": 1},
         "asked": {

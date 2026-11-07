@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import copy
+import datetime
 import email.utils
 import io
 import json
@@ -318,6 +319,7 @@ class Fixture(unittest.TestCase):
     ruling 9′, as amended on 2026-11-03), read through the Maintainer's login."""
     PATH = ROOT / "release" / "fixtures" / "gate.v0-1-0.json"
     CUT = ROOT / "release" / "fixtures" / "cut.v0-1-0.json"
+    ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
 
     def item(self, fixture, name):
         found = [item for item in fixture["items"] if item["item"] == name]
@@ -385,6 +387,36 @@ class Fixture(unittest.TestCase):
         self.assertLessEqual({"update", "deletion"}, {rule["type"] for rule in rules["rules"]})
         self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
         self.assertEqual(rules["conditions"]["ref_name"]["exclude"], [])
+
+    def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
+        # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,
+        # as the rules refuse it for the tags read after it, and `next` still names the Release, with its one
+        # Deployment, the cut's (#197).
+        fixture = json.loads(self.ROLLBACK.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, "rollback.refused.json"), [])
+        refused = self.item(fixture, "refused_rollback_with_no_earlier_release")
+        channel = move.next_channel(json.loads(move.RINGS.read_text()))
+        self.assertEqual((refused["asked"]["command"], refused["asked"]["version"], refused["asked"]["to"]),
+                         ("rollback", "", ""))
+        self.assertEqual((refused["conclusion"], refused["printed"]),
+                         ("failure", {"writes": [], "deployments": [], "refused": cut.NO_EARLIER_RELEASE}))
+        refs = {tag: self.answered(refused, "/repos/%s/git/ref/tags/%s" % (REPO, tag))["body"]["object"]["sha"]
+                for tag in (fixture["version"], channel)}
+        self.assertEqual(refs[channel], refs[fixture["version"]])
+        rings = json.loads(move.RINGS.read_text())
+        self.assertEqual(cut.plan({"command": "rollback", "channel": channel}, refs, {}, move.channels(rings)),
+                         ([], cut.NO_EARLIER_RELEASE))
+        run = self.answered(refused, "/repos/%s/actions/runs/%d" % (REPO, refused["run"]))["body"]
+        deployed = self.answered(refused, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]
+        self.assertEqual([(d["sha"], d["description"]) for d in deployed], [(refs[channel], fixture["version"])])
+        self.assertLess(deployed[0]["created_at"], run["created_at"])
+        statuses = self.answered(refused, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))["body"]
+        self.assertEqual([s["state"] for s in statuses], ["success"])
+        # Each read was made after the run had ended: what it shows is what the run left.
+        ended = datetime.datetime.strptime(run["updated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        for e in refused["exchanges"]:
+            with self.subTest(call=e["request"]["call"]):
+                self.assertGreater(email.utils.parsedate_to_datetime(e["response"]["headers"]["date"]), ended)
 
     def test_an_item_that_says_other_than_its_own_exchanges_is_refused(self):
         fixture = json.loads(self.PATH.read_text())
