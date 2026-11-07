@@ -1,4 +1,4 @@
-# NNNN. An act's shim is the Run's but for its name and the file it calls
+# 0157. An act's shim is the Run's but for its name and the file it calls
 
 Status: accepted. The Factory Builder's rulings of 2026-11-07 on the plan for the shims of "Workflows: the frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape" (issue 196). This is its PR A: the three shims that dispatch a Run, landed before the poller's, which is its PR B. It widens the row "Its shape" of `docs/decisions/0057-a-shim-calls-the-release-and-holds-nothing-else-and-the-poller-wakes-on-a-workflows-end-and-reads-nothing-of-it.md`, where run.yml alone names its run, to the three.
 
