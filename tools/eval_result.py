@@ -8,7 +8,7 @@ import os
 import pathlib
 import sys
 
-from harness import task
+from harness import apply, task
 from kernel.coverage import readable_rubric
 from kernel.gate import GATING_SEVERITIES, SECURITY
 from tools.jsonschema_lite import SchemaError, validate
@@ -90,6 +90,19 @@ def _in_hunks(places: list, diff: str) -> bool:
                                 for hunk in held.get(place["path"], [])):
             return False
     return True
+
+
+def _off_hunks(case: dict, result: dict) -> bool:
+    """Whether `apply` would refuse the Result whole as `finding_not_in_hunk`: a Finding it posts, as a review's comment
+    or a check run's annotation, its lines given, on lines not all on one hunk of its file on the head's side of the
+    case's diff, as the Task gives the diff to the model (decisions 0137, 0146 and 0156). `apply`'s own readers read
+    both, so the eval and a live Run refuse the same Result; a posted Finding with no lines `apply` refuses otherwise."""
+    raised = {f["ref"]: f for f in result["findings"]}
+    placed = [raised[ref] for _, _, ref in apply.posts(result.get("effects", {}))
+              if ref in raised and _lines(raised[ref].get("location", {}))]
+    shown = {"texts": [{"id": "diff:" + case["id"], "body": task.numbered(case["diff"])}]}
+    posting = {"findings": placed, "effects": {"submit_review": [{"id": "e", "comments": [{"finding": f["ref"]} for f in placed]}]}}
+    return apply.off_hunks(shown, posting) is not None
 
 
 def _misses(expected: dict, raised: dict) -> list:
@@ -174,6 +187,10 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["criterion_unknown"]}
     if off_rubric(case):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_off_rubric"]}
+    # A completed Result `apply` would refuse whole for a posted Finding off every hunk posts nothing, so the case fails
+    # by that alone, as the live Run would meet it (issue 574). One that did not complete `apply` refuses first as that.
+    if result["status"] == "completed" and _off_hunks(case, result):
+        return {"case": case["id"], "verdict": FAIL, "reasons": ["finding_not_in_hunk"]}
     reasons = []
     if result["status"] != "completed":
         reasons.append("result_not_completed")
