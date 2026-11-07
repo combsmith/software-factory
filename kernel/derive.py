@@ -1007,21 +1007,26 @@ def acceptance_reading(facts: dict) -> tuple:
     return "passing", []
 
 
+def made_at(run: dict) -> str:
+    """When a Run was made: its dispatch, which a re-run keeps, or its start where it is earlier or no dispatch is read."""
+    return min(when for when in (run.get("dispatched_at"), run["started_at"]) if is_time(when))
+
+
 def approval_anchor(review: dict, runs):
-    """When a machine user's approval last read the description: the start of the approving act's Run on its content
-    that began before it, which reads the description after it starts (issue 195); else, where a record of this item
-    began before it or in its second, the approval's own time, as a person approving in the browser reads as they
-    approve (decision 0046); else "", before every time, as nothing shows when it read. Records expire oldest first, and
-    an act's Run starts before its approval, so it is never gone while a record as old as the approval stays. With no
-    records given, the approval's own time (`description_anchor`)."""
+    """When a machine user's approval last read the description: when the approving act's Run on its content was made,
+    the latest made at or before it, as the act reads the description after that (issue 195); else, where a record of
+    this item was made before it or in its second, the approval's own time, as a person approving in the browser reads
+    as they approve (decision 0046); else "", before every time, as nothing shows when it read. An item's Runs run one at
+    a time, so none is made while an act runs, and records expire oldest first: an act's Run is not gone while a record
+    as old as the approval stays. With no records given, the approval's own time (`description_anchor`)."""
     at = review["submitted_at"]
     if runs is None:
         return at
-    acts = [r["started_at"] for r in runs if r["intent"] == t.ISSUE_APPROVAL
-            and r["content_id"] == review["content_id"] and r["started_at"] <= at]
+    acts = [made_at(r) for r in runs if r["intent"] == t.ISSUE_APPROVAL
+            and r["content_id"] == review["content_id"] and made_at(r) <= at]
     if acts:
         return max(acts)
-    return at if any(r["started_at"] <= at for r in runs) else ""
+    return at if any(made_at(r) <= at for r in runs) else ""
 
 
 def description_anchor(facts: dict, edited: str, *, runs=None):

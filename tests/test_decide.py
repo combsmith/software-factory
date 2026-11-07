@@ -15,7 +15,6 @@ from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, N
                            REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
-from tests.support import ROOT
 from tools import walk
 from tools.jsonschema_lite import validate
 
@@ -1846,6 +1845,19 @@ class Convergence(unittest.TestCase):
         for edited, held in (("2026-10-11T12:14:30Z", True), ("2026-10-11T12:14:00Z", True), ("2026-10-11T12:13:00Z", False)):
             d = go(facts(reviews=[approval], description_edited_at=edited), acted)
             self.assertEqual(d["reason"] == "description_edited_after_approval", held, edited)
+        # Of two acts on its content, the latest made before the approval read last: an edit between them held nothing.
+        twice = REVIEWED + [run(intent="issue-approval", at="2026-10-11T12:12:00Z", name="r2"), dict(act, run="r3")]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:13:00Z", runs=twice),
+                         "2026-10-11T12:14:00Z")
+        self.assertEqual(go(facts(reviews=[approval], description_edited_at="2026-10-11T12:13:00Z"), twice).get("action"),
+                         "enqueue")
+        # A re-run keeps its dispatch and moves its start: the act is timed by when it was made, so a re-run after the
+        # approval leaves the edit between its read and its approval held.
+        rerun = dict(act, started_at="2026-10-11T12:30:00Z", dispatched_at="2026-10-11T12:14:00Z")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=REVIEWED + [rerun]),
+                         "2026-10-11T12:14:00Z")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [rerun])
+        self.assertEqual(d["reason"], "description_edited_after_approval")
         # An act on other content, or one that began after the approval, is not the one that read it: the approval is
         # the browser's, anchored at its own time, so the same edit holds nothing.
         for other in (run(intent="issue-approval", content="sha256:0000", at="2026-10-11T12:14:00Z", name="r2"),
