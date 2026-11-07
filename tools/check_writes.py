@@ -21,7 +21,7 @@ GITHUB = "adapters.github"
 VERBS = frozenset({"PO" "ST", "PU" "T", "PAT" "CH", "DEL" "ETE"})     # spelt apart, so this file holds no verb itself
 CREDENTIALS = (re.compile(r"/app/installations/%[sd]/access_tokens"), re.compile(r"/installation/token"))
 # The callers outside adapters/ that may reach a write, each with the writers it reaches, by module and function. A
-# change here is a change to who writes to GitHub, and is the Maintainer's (decision 0150).
+# change here is a change to who writes to GitHub, and is the Maintainer's (decision NNNN).
 CALLERS = {
     "harness/apply_step.py": {"adapters.effects:_review", "adapters.effects:_check", "adapters.effects:_comment"},
     "harness/approve.py": {"adapters.effects:approve"},

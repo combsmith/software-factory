@@ -1,4 +1,4 @@
-# 0150. Only the callers a check lists reach a GitHub write, each the writers it lists
+# NNNN. Only the callers a check lists reach a GitHub write, each the writers it lists
 
 Status: accepted. The Factory Builder's rulings of 2026-11-07 on "Only the write steps call a write: a check that keeps GitHub writes to an allowlist of callers" (issue 587), made on a derivation of main at 228fdc34 by syntax. The issue's allowlist named the direct callers. This record reads callers transitively, which adds two, and it corrects the issue's line on `harness/queue_step.py`.
 
