@@ -138,7 +138,9 @@ class Module:
         for node in tree.body:      # a constant or a class filled at the top level, after it is made, holds what fills it
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 continue
-            for name in _filled_names(node) & (set(self.values) | set(self.classes)):
+            stored = {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)} \
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)) else set()     # rebound under an if or a try
+            for name in (_filled_names(node) | stored) & (set(self.values) | set(self.classes)):
                 self.units[name] = self.units[name] + list(ast.walk(node))
         held = {id(n) for nodes in self.units.values() for n in nodes} | inside
         self.units["<module>"] = [n for n in self.nodes if id(n) not in held]
@@ -215,7 +217,11 @@ def _resolve(mods: dict, mod: Module, node, cls: str = None):
             above = isinstance(node.value, ast.Call)        # super(): the bases' method, never the class's own
             found = [m for m in _methods(mods, mod.name, cls, set()) if m[1].rpartition(".")[2] == node.attr
                      and not (above and m[0] == mod.name and m[1].startswith(cls + "."))]
-            return ("def",) + found[0] if found else None
+            if found:
+                return ("def",) + found[0]
+            held = [m for m in _methods(mods, mod.name, cls, set()) if "." not in m[1]
+                    and node.attr in _assigned(mods[m[0]].classes[m[1]])]     # write = staticmethod(role_write)
+            return ("value",) + held[0] if held else None
         base = _resolve(mods, mod, node.value, cls)
         if base and base[0] == "module":
             return _lookup(mods, base[1], node.attr)
@@ -223,6 +229,12 @@ def _resolve(mods: dict, mod: Module, node, cls: str = None):
             qual = "%s.%s" % (base[2], node.attr)
             return ("def", base[1], qual) if qual in mods[base[1]].functions else None
     return None
+
+
+def _assigned(cls: ast.ClassDef) -> set:
+    """The names a class's own body assigns, its methods aside."""
+    return {t.id for item in cls.body if isinstance(item, (ast.Assign, ast.AnnAssign))
+            for t in (item.targets if isinstance(item, ast.Assign) else [item.target]) if isinstance(t, ast.Name)}
 
 
 def _scope(fn) -> set:

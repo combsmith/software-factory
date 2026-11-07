@@ -8906,6 +8906,13 @@ class Writes(unittest.TestCase):
             "adapters/augreg.py": "from adapters.effects import approve\n\nSTEPS = []\nSTEPS += [approve]\n",
             "harness/useaug.py": "from adapters.augreg import STEPS\n\n\ndef go(t):\n    return STEPS[0](t)\n",
             "harness/defaultw.py": "from adapters.effects import approve\n\n\ndef go(t, approve=approve):\n    return approve(t)\n",
+            # Astra: a constant rebound under an if, and a class attribute a method calls through cls.
+            "adapters/conditional.py": "from adapters.effects import role_write\n\nACTION = None\nif True:\n    ACTION = role_write" + go
+                                       + role % "ACTION",
+            "harness/useconditional.py": "from adapters import conditional\n\n\ndef run(t):\n    return conditional.go(t, {}, {})\n",
+            "adapters/callback.py": "from adapters.effects import role_write\n\n\nclass Client:\n    write = staticmethod(role_write)\n\n"
+                                    "    @classmethod\n    def act(cls, t, item, req):\n        return cls.write(t, item, 'review', req, 'me')\n",
+            "harness/usecallback.py": "from adapters.callback import Client\n\n\ndef run(t):\n    return Client.act(t, {}, {})\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
@@ -8921,6 +8928,8 @@ class Writes(unittest.TestCase):
         self.unlisted(problems, "harness/useinherit.py", "adapters.inherit:Base.act")
         self.unlisted(problems, "harness/usepchild.py", "adapters.pbase:Client.act")
         self.unlisted(problems, "harness/useinject.py")
+        for rel in ("harness/useconditional.py", "harness/usecallback.py"):
+            self.unlisted(problems, rel)
         for rel in ("harness/useaug.py", "harness/defaultw.py"):
             self.unlisted(problems, rel, "adapters.effects:approve")
         for rel in ():
