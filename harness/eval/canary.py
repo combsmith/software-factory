@@ -57,9 +57,10 @@ def review(env: dict, call=live.cli_call, clock=time.time, heads=None) -> int:
     content = "sha256:" + hashlib.sha256(case["diff"].encode("utf-8")).hexdigest()
     case["facts"]["content_id"] = content
     results = []
-    with tempfile.TemporaryDirectory() as scratch:
+    # The head apart from the case, as the eval job keeps them (issue 623).
+    with tempfile.TemporaryDirectory() as scratch, tempfile.TemporaryDirectory() as unpacked:
         place = pathlib.Path(scratch)
-        reviewer = step.reviewer(env, RELEASE, int(clock()), told(call), clock, place)
+        reviewer = step.reviewer(env, RELEASE, int(clock()), told(call), clock, pathlib.Path(unpacked))
 
         def answered(given: dict) -> dict:
             results.append(reviewer(given))
@@ -71,7 +72,7 @@ def review(env: dict, call=live.cli_call, clock=time.time, heads=None) -> int:
         if heads is None:
             from adapters import github
             heads = github.Live.anonymous()
-        fetched = job.head_of(data, place, case["id"], heads)
+        fetched = job.head_of(data, pathlib.Path(unpacked), case["id"], heads)
         verdict, reasons = job.assess(found, {case["id"]: fetched}, place, answered)[case["id"]]
     status = results[0].get("status") if results else None
     print("status %s, verdict %s, reasons %s" % (status, verdict, ",".join(reasons) or "none"))

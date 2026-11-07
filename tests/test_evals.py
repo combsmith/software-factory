@@ -60,18 +60,18 @@ def github_tarred() -> int:
     return github.TARRED
 
 
-def reviewed(env, release, began, call=None, clock=None, place=None):
-    """`harness/eval/run.reviewer`, given a scratch directory whose `heads/<id>` stands for the head `fetch` unpacked
-    for each case it is asked (decision 0138), unless `place` is given."""
+def reviewed(env, release, began, call=None, clock=None, heads=None):
+    """`harness/eval/run.reviewer`, given a directory of heads, `heads`, a new one unless it is given, whose `<id>`
+    stands for the head `fetch` unpacked for each case it is asked (decision 0138, issue 623)."""
     import tempfile
     from harness.eval import run as step
     from tests import test_harness as live
-    place = pathlib.Path(tempfile.mkdtemp()) if place is None else place
-    review = step.reviewer(env, release, began, call, clock if clock is not None else live.Clock(), place)
+    heads = pathlib.Path(tempfile.mkdtemp()) / "heads" if heads is None else heads
+    review = step.reviewer(env, release, began, call, clock if clock is not None else live.Clock(), heads)
 
     def asking(case):
         if isinstance(case, dict) and isinstance(case.get("id"), str):
-            (place / "heads" / case["id"]).mkdir(parents=True, exist_ok=True)
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
         return review(case)
     asking.seen = review.seen
     return asking
@@ -805,6 +805,11 @@ class EvalJob(unittest.TestCase):
     def tearDown(self):
         self.dir.cleanup()
 
+    def clean(self) -> None:
+        """A run's scratch and its heads, apart from it (issue 623), removed for the next run."""
+        for folder in ("heldout", "heads"):
+            shutil.rmtree(str(self.temp / folder), ignore_errors=True)
+
     def set(self, cases: dict) -> None:
         import hashlib
         manifest = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(cases),
@@ -932,14 +937,14 @@ class EvalJob(unittest.TestCase):
         for least, cases, held in ((1, mixed, True), (2, mixed, False), (1, self.cases, False), (1, right_only, False),
                                    (0, self.cases, True)):
             with self.subTest(least=least, cases=sorted(cases)), mock.patch.object(job, "KIND_LEAST", least):
-                shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+                self.clean()
                 self.set(cases)
                 self.step(job.plan)
                 self.step(job.fetch, self.home(cases))
                 self.assertIs(job.split_ok(found(), self.temp / "heldout"), held)
         # Short of a kind: the run says so by a code alone, and neither the log nor the report holds a count of a kind.
         with mock.patch.object(job, "KIND_LEAST", 1):
-            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+            self.clean()
             self.set(self.cases)
             self.step(job.plan)
             self.step(job.fetch, self.home(self.cases))
@@ -1240,7 +1245,7 @@ class EvalJob(unittest.TestCase):
     def _least_held(self, job):
         """The verdict and the word of a set of this fixture's cases, none of which expects a blocking Finding."""
         plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
-        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.clean()
         self.set(self.cases)
         self.step(plan)
         self.step(fetch, self.home(self.cases))
@@ -1290,7 +1295,7 @@ class EvalJob(unittest.TestCase):
         # A case not read leaves nothing to say.
         self.assertIsNone(job.blocking_pass({"cases": [{"id": "c-none"}]}, place, {"c-none": ("pass", [])}))
         # Through the job: 23 of 24, each kind cleared, and the one miss is the blocking one. It is said, and the run passes.
-        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.clean()
         expected = {"verdict": "finding", "criterion": "PR-2", "finding": {"category": "security", "severity": "blocking",
                     "location": {"path": "kernel/decide.py", "start_line": 86, "end_line": 94}}}
         base = json.loads(next(iter(self.cases.values())))
@@ -1321,7 +1326,7 @@ class EvalJob(unittest.TestCase):
         met["facts"] = dict(met["facts"], content_id="sha256:" + hashlib.sha256(met["diff"].encode()).hexdigest())
 
         def run(miss):
-            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+            self.clean()
             cases = {}
             for i in range(24):
                 name = "poc-k%d" % i
@@ -1484,7 +1489,7 @@ class EvalJob(unittest.TestCase):
         # The same case with its fields already given is another file, whatever the fill would make of the first: the
         # fetch refuses it by its bytes, and it asks nothing.
         import shutil
-        shutil.rmtree(str(self.temp / "heldout"))
+        self.clean()
         (self.work / job.REPORT).unlink()
         self.step(plan)
         filled = dict(raw, facts=job.current_facts(raw["facts"]))
@@ -1571,7 +1576,7 @@ class EvalJob(unittest.TestCase):
         usage = example_result()["usage"]
         for reason in job.ENGINE_FAULTS:
             with self.subTest(reason):
-                shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+                self.clean()
                 self.set(self.cases)
                 self.step(plan)
                 self.step(fetch, self.home(self.cases))
@@ -1587,7 +1592,7 @@ class EvalJob(unittest.TestCase):
                     self.assertEqual(self.step(judge), "engine_fault")
                 self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1\n" % reason, "it closes, the kind's bar cleared")
         # The reviewer's own failure stays as it was: a Result it gave that does not pass, and one that cannot be read.
-        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.clean()
         self.step(plan)
         self.step(fetch, self.home(self.cases))
         wrong = dict(example_result(), findings=[])
@@ -1599,7 +1604,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(judge), "case_failed")
         # A reason the model wrote is the reviewer's, whatever it says: a Result it refused, naming an Engine fault, is
         # no fault of the Engine's, or a case's text could choose the report's code.
-        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.clean()
         self.step(plan)
         self.step(fetch, self.home(self.cases))
         said = dict(example_result(), status="refused", reason="engine_failed", findings=[])
@@ -2030,7 +2035,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual((first["cause"]["exception"], after.get("cause")), ("KeyboardInterrupt", None))
         # The home's read that raised.
         from adapters import heldout
-        shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        self.clean()
         self.set(self.cases)
         self.step(plan)
         with mock.patch.object(heldout, "case", side_effect=OSError("the home's name")):
@@ -2074,7 +2079,7 @@ class EvalJob(unittest.TestCase):
         cases = {i: (json.dumps(dict(case, id=i), indent=2) + "\n").encode() for i in ("poc-one", "poc-two")}
 
         def run(cli):
-            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+            self.clean()
             self.set(cases)
             with mock.patch.object(job, "now", lambda: 1000):
                 self.step(plan)
@@ -2129,6 +2134,47 @@ class EvalJob(unittest.TestCase):
         self.assertEqual((len(asked), [(c["verdict"], c["reasons"]) for c in written["cases"]]),
                          (1, [("unreadable", ["unanswered"])] * 2))
 
+    def test_each_head_is_unpacked_apart_from_the_cases(self):  # issue 623
+        # The CLI starts in a case's head. The set's cases, answers and all, are kept in the scratch: no head is in it,
+        # nor holds it, and the two share no folder below the runner's own temporary directory, so the read tools'
+        # confinement (decision 0138) is not the only thing between the model and the answers.
+        import os
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        cases = {case["id"]: (json.dumps(case, indent=2) + "\n").encode()}
+        plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
+        self.set(cases)
+        self.step(plan)
+        self.assertEqual(self.step(fetch, self.home(cases), Heads()), "fetched 1 of 1 cases")
+        place = self.temp / "heldout"
+        kept_plan = json.loads((place / "plan.json").read_text())
+        (place / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
+        seen = {}
+
+        class Looking(live.CLI):
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    seen["head"] = os.path.realpath(given["head"])
+                    seen["beside"] = sorted(os.listdir(os.path.dirname(seen["head"])))
+                return super().__call__(args, env, timeout, **given)
+        cli = Looking(said=live.answer(live.judged(findings=[], effects={})))
+        self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
+        scratch, temp = os.path.realpath(str(place)), os.path.realpath(str(self.temp))
+        self.assertTrue(os.path.isdir(os.path.join(scratch, "cases")), "the cases are where the scratch keeps them")
+        self.assertEqual(os.path.commonpath([seen["head"], scratch]), temp)
+        self.assertEqual(seen["beside"], [case["id"]], "beside the head, nothing but the heads")
+        # A heads folder that would be inside the scratch or the workspace, or hold either, through a link, is refused.
+        for target in (place / "linked", self.work / "linked", self.temp):
+            self.clean()
+            target.mkdir(parents=True, exist_ok=True)
+            os.symlink(str(target), str(self.temp / "heads"))
+            with self.assertRaises(job.Stop) as stopped:
+                job.heads_place(self.env, self.work)
+            self.assertEqual(stopped.exception.code, "scratch_in_workspace", target)
+            os.unlink(str(self.temp / "heads"))
+        self.assertEqual(job.heads_place(self.env, self.work), pathlib.Path(temp, "heads"))
+
     def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
         # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its
         # own, never the home's, and unpacks it under heads/; the run step reads it as the case's folder and removes it
@@ -2148,15 +2194,15 @@ class EvalJob(unittest.TestCase):
                                        ("/repos/%s/tarball/%s" % (repo, "2" * 40), True, github_tarred())])
         place = self.temp / "heldout"
         self.assertEqual(json.loads((place / "fetched.json").read_text()), {"poc-one": None, "poc-two": "head_unreadable"})
-        self.assertEqual(sorted(p.name for p in (place / "heads").iterdir()), ["poc-one"])
-        self.assertTrue((place / "heads" / "poc-one" / "README.md").is_file())
+        self.assertEqual(sorted(p.name for p in (self.temp / "heads").iterdir()), ["poc-one"])
+        self.assertTrue((self.temp / "heads" / "poc-one" / "README.md").is_file())
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         kept_plan = json.loads((place / "plan.json").read_text())
         (place / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
         self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
         asked, = cli.asked()
         self.assertEqual(pathlib.Path(asked["head"]).parts[-2:], ("heads", "poc-one"))
-        self.assertFalse((place / "heads" / "poc-one").exists(), "removed once its case is asked")
+        self.assertFalse((self.temp / "heads" / "poc-one").exists(), "removed once its case is asked")
         report = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in report["cases"]}["poc-two"], ["head_unreadable"])
         self.assertIn("head_unreadable", job.ENGINE_FAULTS)

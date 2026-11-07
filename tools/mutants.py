@@ -97,6 +97,7 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
+APART = ("tests.test_evals.EvalJob.test_each_head_is_unpacked_apart_from_the_cases",)
 CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
@@ -8541,6 +8542,20 @@ MUTANTS = ISSUE + [
      ' or raised["category"] == SECURITY\n', '\n', CLEAN_CASE),
     ("a Finding that would hold a change fails a case that expects one", 'tools/eval_result.py',
      '        if covered != ["finding"]:\n', '        if covered != ["finding"] or any(_gates(f) for f in result["findings"]):\n', CLEAN_CASE),
+    # Issue 623: each head is unpacked apart from the cases.
+    ("the heads are unpacked beside the cases", 'harness/eval/__init__.py',
+     '    heads = os.path.realpath(os.path.join(env["RUNNER_TEMP"], "heads"))\n', '    heads = os.path.join(str(place), "heads")\n', APART),
+    ("a heads folder inside the scratch is taken", 'harness/eval/__init__.py',
+     '    for other in (os.path.realpath(str(workspace)), str(place)):\n', '    for other in (os.path.realpath(str(workspace)),):\n', APART),
+    ("a heads folder inside the workspace is taken", 'harness/eval/__init__.py',
+     '    for other in (os.path.realpath(str(workspace)), str(place)):\n', '    for other in (str(place),):\n', APART),
+    ("a heads folder that holds the scratch is taken", 'harness/eval/__init__.py',
+     '        if heads == other or heads.startswith(other + os.sep) or other.startswith(heads + os.sep):\n',
+     '        if heads == other or heads.startswith(other + os.sep):\n', APART),
+    ("the fetch unpacks each head in the scratch", 'harness/eval/__init__.py',
+     'code = head_of(data, heads_place(env, workspace), entry["id"], heads)', 'code = head_of(data, place / "heads", entry["id"], heads)', APART),
+    ("the run step looks for each head in the scratch", 'harness/eval/run.py',
+     'reviewer(env, kept["release"], began, call, clock, heads_place(env, workspace))', 'reviewer(env, kept["release"], began, call, clock, place / "heads")', APART),
     # Issue 574: the eval refuses a Result that posts a Finding off every hunk, as `apply` does, and the prompt says so.
     ("the scorer takes a Result that posts a Finding off every hunk", 'tools/eval_result.py',
      '    if result["status"] == "completed" and _off_hunks(case, result):\n', '    if False:\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
