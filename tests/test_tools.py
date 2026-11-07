@@ -6519,10 +6519,11 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
                                      ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 403\n\n{}\n", "403"),
                                      ("HTTP/2 200\nx: y\n\nBody\n\nHTTP/1.1 404 Not Found\n", "200"),
                                      ("no head\n", "")):
-                    # Each as it is, and as curl -i writes it, each line ending in CRLF (issue 502, Argon).
+                    # Each as it is, and as curl -i writes it, each line ending in CRLF (issue 502, Argon). What awk says
+                    # is read as bytes, as $(...) keeps them: a carriage return left in the status is not stripped here.
                     for spelt in (said, said.replace("\n", "\r\n")):
-                        done = subprocess.run(["awk", program], input=spelt, capture_output=True, text=True, timeout=10)
-                        self.assertEqual(done.stdout.strip(), status, (name, spelt))
+                        done = subprocess.run(["awk", program], input=spelt.encode(), capture_output=True, timeout=10)
+                        self.assertEqual(done.stdout, status.encode() + b"\n", (name, spelt))
 
     def test_a_stop_with_a_token_live_revokes_it(self):
         code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}, "hang": True}, stop=True)
