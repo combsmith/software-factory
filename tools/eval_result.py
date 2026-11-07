@@ -187,9 +187,9 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["criterion_unknown"]}
     if off_rubric(case):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_off_rubric"]}
-    # A Result `apply` would refuse whole for a posted Finding off every hunk posts nothing, so the case fails by that
-    # alone, as the live Run would meet it (issue 574).
-    if _off_hunks(case, result):
+    # A completed Result `apply` would refuse whole for a posted Finding off every hunk posts nothing, so the case fails
+    # by that alone, as the live Run would meet it (issue 574). One that did not complete `apply` refuses first as that.
+    if result["status"] == "completed" and _off_hunks(case, result):
         return {"case": case["id"], "verdict": FAIL, "reasons": ["finding_not_in_hunk"]}
     reasons = []
     if result["status"] != "completed":

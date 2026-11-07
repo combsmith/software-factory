@@ -468,6 +468,23 @@ class Scoring(unittest.TestCase):
         noted = posting(decide, {"path": "tests/test_decide.py", "start_line": 410, "end_line": 410}, annotate=True)
         self.assertEqual(eval_result.score(case, noted), {"case": case["id"], "verdict": "fail", "reasons": ["finding_not_in_hunk"]})
         self.assertEqual(eval_result.score(load("examples/eval-case.met.json"), noted)["reasons"], ["finding_not_in_hunk"])
+        # A review's comment is held beside an annotation that is on the hunk, as the annotation is beside a comment.
+        swapped = copy.deepcopy(noted)
+        swapped["effects"]["submit_review"][0]["comments"][0]["finding"] = "n2"
+        swapped["effects"]["create_check_run"][0]["annotations"][0]["finding"] = "n1"
+        self.assertEqual(eval_result.score(case, swapped)["reasons"], ["finding_not_in_hunk"])
+        # A fault of the case is told first, as before: it is the case owner's, never the reviewer's.
+        for over, code in (({"criterion": "PR-99"}, "criterion_unknown"),
+                           ({"finding": dict(case["expected"]["finding"], severity="minor")}, "answer_off_rubric"),
+                           ({"finding": dict(case["expected"]["finding"], also_at=[{"path": "kernel/decide.py",
+                                                                                    "start_line": 1, "end_line": 1}])},
+                            "location_unreadable")):
+            broken = dict(case, expected=dict(case["expected"], **over))
+            self.assertEqual(eval_result.score(broken, noted)["reasons"], [code], code)
+        # A Result that did not complete is told as that, as `apply` refuses it first.
+        unfinished = dict(noted, status="incomplete", reason="change_not_reviewed_whole")
+        self.assertEqual(eval_result.score(case, unfinished)["reasons"][0], "result_not_completed")
+        self.assertNotIn("finding_not_in_hunk", eval_result.score(case, unfinished)["reasons"])
         # A Finding the Result does not post is scored as before, and so is a posted one with no lines, which `apply`
         # refuses by another code.
         unposted = dict(posting(dict(decide, path="kernel/derive.py")), effects={})

@@ -8421,9 +8421,21 @@ MUTANTS = ISSUE + [
      '        if covered != ["finding"]:\n', '        if covered != ["finding"] or any(_gates(f) for f in result["findings"]):\n', CLEAN_CASE),
     # Issue 574: the eval refuses a Result that posts a Finding off every hunk, as `apply` does, and the prompt says so.
     ("the scorer takes a Result that posts a Finding off every hunk", 'tools/eval_result.py',
-     '    if _off_hunks(case, result):\n', '    if False:\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+     '    if result["status"] == "completed" and _off_hunks(case, result):\n', '    if False:\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
     ("a posted Finding with no lines is held to a hunk", 'tools/eval_result.py',
      '              if ref in raised and _lines(raised[ref].get("location", {}))]\n', '              if ref in raised]\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("a Result off every hunk is told before a fault of the case", 'tools/eval_result.py',
+     '    want = case["expected"]\n    if (want["verdict"] == "finding") != (want["finding"] is not None):\n',
+     '    want = case["expected"]\n    if result["status"] == "completed" and _off_hunks(case, result):\n'
+     '        return {"case": case["id"], "verdict": FAIL, "reasons": ["finding_not_in_hunk"]}\n'
+     '    if (want["verdict"] == "finding") != (want["finding"] is not None):\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("a Result that did not complete is told as off every hunk", 'tools/eval_result.py',
+     '    if result["status"] == "completed" and _off_hunks(case, result):\n', '    if _off_hunks(case, result):\n',
+     ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
+    ("a review's comments are not held beside a check run's annotations", 'tools/eval_result.py',
+     '    placed = [raised[ref] for _, _, ref in apply.posts(result.get("effects", {}))\n',
+     '    placed = [raised[ref] for _, _, ref in apply.posts({k: v for k, v in result.get("effects", {}).items() if k == "create_check_run"} or result.get("effects", {}))\n',
+     ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
     ("an annotation is not held to a hunk", 'tools/eval_result.py',
      '    placed = [raised[ref] for _, _, ref in apply.posts(result.get("effects", {}))\n',
      '    placed = [raised[ref] for _, _, ref in apply.posts({"submit_review": result.get("effects", {}).get("submit_review", ())})\n',
