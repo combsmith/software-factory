@@ -6351,7 +6351,7 @@ fi
             self.assertEqual((ROOT / "tools" / script).read_text().count(self.ACL_READING), 1, script)
 
     def test_a_refused_sandbox_trial_leaves_no_directory_behind(self):
-        # Issue 424: P-50 and P-51 make OUT's parents if they are missing. They read what stands before they do, take no
+        # Issue 424: P-50, P-51 and P-59 make OUT's parents if they are missing. They read what stands before they do, take no
         # name with .. in it, and make them private whatever the umask. What they made is read too: here a stand-in mkdir
         # leaves one open, as another's change would.
         said = " is another user's, or can be written by other users and is not sticky"

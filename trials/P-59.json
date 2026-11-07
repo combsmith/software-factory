@@ -591,7 +591,7 @@
     },
     {
       "request": {
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41772353972 (gh api): the run the third push started, the trial's run",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/41772353972 (gh api): the run the third push started, the trial's run, superseded by the fourth push's run (exchange 13)",
         "as": {
           "kind": "person",
           "name": "don-petry"
@@ -2102,7 +2102,7 @@
     },
     {
       "request": {
-        "call": "git push origin trial/p-59 (the Maintainer's own login), from a clone outside the repo: the branch made again from the canary's main, with the workflow trial-p59.yml as it ran before, and p59/run.sh and p59/stub.py copied whole from tools/trial_p59_read_confinement.sh and tools/trial_p50_stub.py after issue 586's change",
+        "call": "git push origin trial/p-59 (the Maintainer's own login), from a clone outside the repo: the branch, deleted since the third push, made again from the canary's main, with the workflow trial-p59.yml as it ran before, and p59/run.sh and p59/stub.py copied whole from tools/trial_p59_read_confinement.sh and tools/trial_p50_stub.py after issue 586's change",
         "as": {
           "kind": "person",
           "name": "don-petry"
@@ -2126,7 +2126,7 @@
     },
     {
       "request": {
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/42356151807 (gh api): the run the fourth push started, the trial's run of the script that makes OUT's parents one at a time, inside the directory it read (issue 586), which supersedes the third push's run",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/42356151807 (gh api): the run the fourth push started, the trial's run of the script that makes OUT's parents one at a time, inside the directory it read (issue 586), which supersedes the third push's run. OUT is /tmp/p59-out, whose parent stands, so the run makes no parent: the new making of parents is held by the tests in tests/test_tools.py",
         "as": {
           "kind": "person",
           "name": "don-petry"
