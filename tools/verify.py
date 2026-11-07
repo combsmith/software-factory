@@ -11,7 +11,7 @@ import sys
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows)
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECKS = [
@@ -25,6 +25,7 @@ CHECKS = [
     ("release", check_release.run),
     ("repo", check_repo.run),
     ("workflows", check_workflows.run),
+    ("writes", check_writes.run),
     ("context", check_context.run),
     ("decision records", check_decisions.run),
 ]
@@ -67,11 +68,19 @@ def suite(fast: bool) -> unittest.TestSuite:
     return unittest.TestSuite(item for item in whole if not _modules(item) & slow)
 
 
+def notes() -> list:
+    """What `verify` says of the records before the tests: what they were compared with, and how many Boundary rows
+    name no mutant yet (issue 590)."""
+    return ["%-22s %s" % ("decision base", check_decisions.described()),
+            "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]
+
+
 def main(argv: list) -> int:
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
         return 1 if checks_failed else 0
-    print("%-22s %s" % ("decision base", check_decisions.described()))
+    for line in notes():
+        print(line)
     unverified(check_trials.unverified())
     result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv))
     return 1 if checks_failed or not result.wasSuccessful() else 0

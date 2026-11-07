@@ -20,13 +20,15 @@ skipped; `verify` says so. In GitHub Actions a missing `.git` fails, so CI canno
 """
 from __future__ import annotations
 
+import ast
+import hashlib
 import os
 import pathlib
 import re
 import shutil
 import subprocess
 
-from tools.check_context import _cells
+from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = "refs/remotes/origin/main"
@@ -42,6 +44,8 @@ REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | an
 CLAIM = re.compile(r"replace|supersede", re.I)
 NUMBER = re.compile(r"^(\d{4})-")
 BOUNDARIES = "## Boundaries"
+# A mutant a row names, by its description in tools/mutants.py (issue 590).
+MUTANT = re.compile(r'mutant: "([^"\n]+)"')
 
 
 class Unreadable(Exception):
@@ -121,14 +125,191 @@ def parse(text: str):
     if len(heads) != 1 or heads[0] < end:
         return "it must have one line '%s', after its Status" % BOUNDARIES
     region = lines[heads[0]:]
-    top = next((i for i, line in enumerate(region) if line.startswith("|")), len(region))
-    bottom = next((i for i in range(top, len(region)) if not region[i].startswith("|")), len(region))
-    body = range(top + 2, bottom)       # the first table's rows, below its header and the line under it
+    body = _body(region)
     rows = [tuple(" ".join(cell.split()) for cell in _cells(region[i])[:-1]) for i in body]
     rest = lines[:first] + lines[end:heads[0]] + [line for i, line in enumerate(region) if i not in body]
     while rest and not rest[-1]:
         rest.pop()
     return _words(lines[first:end]), rest, rows
+
+
+def _body(region: list) -> range:
+    """The rows of the first table in `region`, below its header and the line under it."""
+    # A table may be indented, as Markdown and `check_context` read one (issue 590).
+    top = next((i for i, line in enumerate(region) if line.lstrip().startswith("|")), len(region))
+    bottom = next((i for i in range(top, len(region)) if not region[i].lstrip().startswith("|")), len(region))
+    return range(top + 2, bottom)
+
+
+def boundaries(text: str) -> list:
+    """(Boundary cells, Check cell) of each row of the first table under Boundaries, as `check_context` reads the table,
+    outside any fence and however it is indented; [] for a record `parse` cannot read (issue 590)."""
+    if isinstance(parse(text), str):
+        return []
+    rows = _rows(dict(_sections(text, "## ")).get("Boundaries", ""))
+    return [(tuple(" ".join(cell.split()) for cell in row[:-1]), " ".join(row[-1].split()) if row else "") for row in rows]
+
+
+def _names(cell: str) -> list:
+    """Every name a cell gives, as `check_context` reads them: in backticks, or as a link's target."""
+    return TOKEN.findall(cell) + [m for m in LINK.findall(cell) if "://" not in m and not m.startswith("mailto:")]
+
+
+def _tokens(cell: str) -> set:
+    return set(_names(cell))
+
+
+def _named_tests(cell: str) -> list:
+    """(path, name) of each test a cell names as path::name, its path as the repo holds it, under `tests/`."""
+    out = []
+    for name in _names(cell):
+        path, _, test = name.partition("::")
+        path = _path(re.sub(r":\d+$", "", path))
+        if test and path.split("/")[0] == "tests":
+            out.append((path, test))
+    return out
+
+
+def _tests(cell: str) -> list:
+    """(module, name) of each test a cell names as path::name."""
+    return [(path[:-len(".py")].replace("/", "."), name) for path, name in _named_tests(cell)]
+
+
+def _exempt(cell: str, root: pathlib.Path) -> bool:
+    """Whether a row has no test that can kill a mutant yet: it waits on a planned part, or says it is not held yet,
+    and every test it names is marked @pending (issue 590)."""
+    return bool(WAITING.search(cell) or PENDING in cell) and \
+        all(_is_pending("%s::%s" % (path, name), root, root) for path, name in _named_tests(cell))
+
+
+def _is_tests(token: str) -> bool:
+    return _path(token.partition("::")[0]).split("/")[0] == "tests"
+
+
+def _same_check(old: str, new: str) -> bool:
+    """Whether a row's Check is the one it was: the same names, but that a test file the old one named bare may now be
+    named as a test of that file; the same mutants; and the same wait or the same word that it is not held yet, so a
+    rule that stops waiting is a changed row (issue 590)."""
+    was = _tokens(old)
+    now = {t.partition("::")[0] if "::" in t and t.partition("::")[0] in was and _is_tests(t) else t for t in _tokens(new)}
+    return (now == was and MUTANT.findall(old) == MUTANT.findall(new)
+            and WAITING.findall(old) == WAITING.findall(new) and (PENDING in old) == (PENDING in new))
+
+
+def _changed(old: list, new: list) -> list:
+    """(number, row) of each row of `new` that is new or whose Check changed, against `old`, in order (issue 590)."""
+    left, out = list(old), []
+    for at, row in enumerate(new, 1):
+        if row in left:
+            left.remove(row)
+            continue
+        same = next((o for o in left if o[0] == row[0] and _same_check(o[1], row[1])), None)
+        if same is not None:
+            left.remove(same)
+        else:
+            out.append((at, row))
+    return out
+
+
+def _mutants(root: pathlib.Path) -> dict:
+    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once for each root and
+    each text of the file. Two
+    that share a description name no one mutant. Raises Unreadable."""
+    try:
+        key = (str(root.resolve()), hashlib.sha256((root / "tools" / "mutants.py").read_bytes()).hexdigest())
+    except OSError as err:
+        raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+    if key not in _READ:
+        try:
+            if root.resolve() == ROOT.resolve():
+                from tools import mutants
+                listed = mutants.MUTANTS
+            else:
+                # Another tree's list is read as a literal, never run: nothing is loaded by a name (tools/check_writes.py).
+                listed = _literal_mutants((root / "tools" / "mutants.py").read_text(encoding="utf-8"))
+            read = [(m[0], (m[1], tuple(m[4]))) for m in listed]
+        except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
+            raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+        if len({name for name, _ in read}) != len(read):
+            raise Unreadable("two mutants in tools/mutants.py share a description, so a row cannot name one of them")
+        _READ[key] = dict(read)
+    return _READ[key]
+
+
+_READ = {}
+
+
+def _literal_mutants(source: str) -> list:
+    """The `MUTANTS = [...]` of a file that writes it as a literal, which a tree other than this one holds in a test."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["MUTANTS"]:
+            return ast.literal_eval(node.value)
+    raise ValueError("no MUTANTS")
+
+
+def _is_test(killer: str, module: str, name: str) -> bool:
+    """Whether a mutant's killer is the test `name` of `module`: a test of one class, by its module, its class and its
+    own name, which the row gives as `Class.name`, or as `name` alone. A module or a class is not a test, whatever it
+    is called (issue 590)."""
+    parts = killer.split(".")
+    if not killer.startswith(module + ".") or len(parts) != module.count(".") + 3:
+        return False
+    return ".".join(parts[-2:]) == name if "." in name else parts[-1] == name
+
+
+def _path(name: str) -> str:
+    """A path as the repo holds it, so that `./tests/x.py` and `tools/../tests/x.py` are `tests/x.py`. One that climbs
+    out of the repo keeps its `..`, and so names nothing here."""
+    parts = []
+    for part in name.split("/"):
+        if part in ("", "."):
+            continue
+        if part == ".." and parts and parts[-1] != "..":
+            parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def _named_mutant(rel: str, at: int, row: tuple, root: pathlib.Path, mutants: dict) -> list:
+    """Why the row at boundary `at` does not name the mutant its test kills, or [] (issue 590)."""
+    where, cell = "%s, boundary %d" % (rel, at), row[1]
+    if _exempt(cell, root):
+        return []
+    named = MUTANT.findall(cell)
+    if not named:
+        return ['%s: a new or changed row names no mutant; name one as mutant: "<its description in tools/mutants.py>"'
+                % where]
+    tests = _tests(cell)
+    if not tests:
+        return ["%s: names no test for its mutant to be killed by; name it as path::name" % where]
+    names = {_path(t.partition("::")[0]) for t in _tokens(" ".join(row[0]) + " " + cell)}
+    problems = []
+    for name in named:
+        if name not in mutants:
+            problems.append('%s: names mutant "%s", which tools/mutants.py does not hold' % (where, name))
+            continue
+        changed, killers = mutants[name]
+        changed = _path(changed)
+        if changed.split("/")[0] == "tests" or changed not in names:
+            problems.append('%s: mutant "%s" changes %s, which this row does not name' % (where, name, changed))
+        # The mutant is run against the tests it lists alone (tools/mutants.py), so each is one this row names.
+        if not killers or not all(any(_is_test(k, module, test) for module, test in tests) for k in killers):
+            problems.append('%s: mutant "%s" lists a test this row does not name, or none' % (where, name))
+    return problems
+
+
+def unnamed(root: pathlib.Path = ROOT) -> str:
+    """How many Boundary rows name no mutant, of how many that could, for `verify` to print (issue 590)."""
+    rows = [cell for path in sorted((root / FOLDER).glob("*.md"))
+            for _, cell in boundaries(path.read_text(encoding="utf-8", errors="replace")) if not _exempt(cell, root)]
+    return "%d of %d boundary rows name no mutant" % (sum(1 for c in rows if not MUTANT.search(c)), len(rows))
+
+
+def held_by_rows(root: pathlib.Path = ROOT) -> set:
+    """The description of each mutant a Boundary row names, which `tools/mutants.py` runs against its own tests alone."""
+    return {name for path in sorted((root / FOLDER).glob("*.md"))
+            for _, cell in boundaries(path.read_text(encoding="utf-8", errors="replace")) for name in MUTANT.findall(cell)}
 
 
 def _declared(pattern, status: str):
@@ -214,16 +395,36 @@ def _linked(root: pathlib.Path) -> list:
             for p in entries if p.is_symlink()]
 
 
+def _mutants_named(root: pathlib.Path, before: dict, texts: dict) -> list:
+    """Why each Boundary row new in this change, or whose Check changed, or that names a mutant, does not name the
+    mutant its test kills. Rows main holds that name none are left as they are (issue 590)."""
+    problems, mutants = [], None
+    for rel, text in sorted(texts.items()):
+        rows = boundaries(text)
+        fresh = dict(_changed(boundaries(before[rel]), rows) if rel in before else enumerate(rows, 1))
+        for at, row in enumerate(rows, 1):
+            if at not in fresh and not MUTANT.search(row[1]):
+                continue
+            if mutants is None and not _exempt(row[1], root):
+                try:
+                    mutants = _mutants(root)
+                except Unreadable as err:
+                    return problems + ["%s, boundary %d: %s, so no mutant it names can be read" % (rel, at, err)]
+            problems += _named_mutant(rel, at, row, root, mutants or {})
+    return problems
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = _linked(root)
     folder = root / FOLDER
-    current = {}
+    current, texts = {}, {}
     for path in sorted(folder.glob("*.md")) if folder.is_dir() and not folder.is_symlink() else []:
         rel = path.relative_to(root).as_posix()
         if path.is_symlink() or not path.is_file():
             continue
         try:
-            current[rel] = parse(path.read_text(encoding="utf-8"))
+            texts[rel] = path.read_text(encoding="utf-8")
+            current[rel] = parse(texts[rel])
         except UnicodeDecodeError:
             current[rel] = "it is not UTF-8"
         if isinstance(current[rel], str):
@@ -238,6 +439,8 @@ def run(root: pathlib.Path = ROOT) -> list:
     for rel, new in sorted(current.items()):
         if at and rel not in before and isinstance(new, tuple):     # with no base, nothing is known to be new
             problems += ["%s: %s" % (rel, why) for why in _replacing(rel, new[0], before, current)]
+    if at:
+        problems += _mutants_named(root, before, texts)
     for rel, text in sorted(before.items()):
         old, new = parse(text), current.get(rel)
         if new is None:
