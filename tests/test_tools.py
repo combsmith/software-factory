@@ -8902,6 +8902,10 @@ class Writes(unittest.TestCase):
             "adapters/inject.py": "def go(t, item, req, write=None):\n    if write is None:\n"
                                   "        from adapters.effects import role_write as write\n    return write(t, item, 'review', req, 'me')\n",
             "harness/useinject.py": "from adapters.inject import go\n\n\ndef run(t):\n    return go(t, {}, {})\n",
+            # Codex: a registry filled by +=, and a parameter whose default is the writer.
+            "adapters/augreg.py": "from adapters.effects import approve\n\nSTEPS = []\nSTEPS += [approve]\n",
+            "harness/useaug.py": "from adapters.augreg import STEPS\n\n\ndef go(t):\n    return STEPS[0](t)\n",
+            "harness/defaultw.py": "from adapters.effects import approve\n\n\ndef go(t, approve=approve):\n    return approve(t)\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
@@ -8917,6 +8921,8 @@ class Writes(unittest.TestCase):
         self.unlisted(problems, "harness/useinherit.py", "adapters.inherit:Base.act")
         self.unlisted(problems, "harness/usepchild.py", "adapters.pbase:Client.act")
         self.unlisted(problems, "harness/useinject.py")
+        for rel in ("harness/useaug.py", "harness/defaultw.py"):
+            self.unlisted(problems, rel, "adapters.effects:approve")
         for rel in ():
             self.unlisted(problems, rel, "adapters.effects:approve")
 

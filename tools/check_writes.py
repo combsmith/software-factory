@@ -153,7 +153,8 @@ def _filled_names(node) -> set:
     out = set()
     for n in ast.walk(node):
         target = n.value if isinstance(n, (ast.Subscript, ast.Attribute)) and isinstance(n.ctx, ast.Store) else \
-            n.func.value if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in FILLS else None
+            n.func.value if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in FILLS else \
+            n.target if isinstance(n, ast.AugAssign) else None      # STEPS += [w] fills STEPS
         while isinstance(target, (ast.Subscript, ast.Attribute)):     # TABLE['a']['b'] = w fills TABLE
             target = target.value
         if isinstance(target, ast.Name):
@@ -264,6 +265,9 @@ class Reading:
         inner = {id(n.value) for n in nodes if isinstance(n, ast.Attribute)}
         # A function's own names, its parameters and what it assigns, shadow the module's; what it assigns them is read.
         local = set() if qual not in mod.functions else _scope(mod.functions[qual]) - {"self", "cls"}     # read as the class
+        fn = mod.functions.get(qual)
+        defaults = set() if fn is None else {id(n) for d in fn.args.defaults + [k for k in fn.args.kw_defaults if k]
+                                             for n in ast.walk(d)}      # approve=approve: the module's approve
         out = []
         for node in nodes:
             if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(node.ctx, ast.Load) or id(node) in inner:
@@ -271,7 +275,7 @@ class Reading:
             root = node
             while isinstance(root, ast.Attribute):
                 root = root.value
-            if isinstance(root, ast.Name) and root.id in local:
+            if isinstance(root, ast.Name) and root.id in local and id(node) not in defaults:
                 continue
             got, part = None, node
             while got is None and isinstance(part, (ast.Name, ast.Attribute)):
