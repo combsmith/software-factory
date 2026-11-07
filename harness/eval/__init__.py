@@ -117,8 +117,9 @@ def heads_place(env: dict, workspace: pathlib.Path) -> pathlib.Path:
     (decision 0138) is not the only thing between the model and the answers (issue 623)."""
     place = scratch(env, workspace)
     heads = os.path.realpath(os.path.join(env["RUNNER_TEMP"], "heads"))
+    # Read part by part, so that the root, whose own path ends in its separator, holds every other.
     for other in (os.path.realpath(str(workspace)), str(place)):
-        if heads == other or heads.startswith(other + os.sep) or other.startswith(heads + os.sep):
+        if os.path.commonpath([heads, other]) in (heads, other):
             raise Stop("scratch_in_workspace")
     return pathlib.Path(heads)
 

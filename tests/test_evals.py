@@ -2164,8 +2164,9 @@ class EvalJob(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(scratch, "cases")), "the cases are where the scratch keeps them")
         self.assertEqual(os.path.commonpath([seen["head"], scratch]), temp)
         self.assertEqual(seen["beside"], [case["id"]], "beside the head, nothing but the heads")
-        # A heads folder that would be inside the scratch or the workspace, or hold either, through a link, is refused.
-        for target in (place / "linked", self.work / "linked", self.temp):
+        # A heads folder that would be the scratch or the workspace, or inside either, or hold either, the root among
+        # them, through a link, is refused.
+        for target in (place / "linked", self.work / "linked", place, self.work, self.temp, pathlib.Path(os.sep)):
             self.clean()
             target.mkdir(parents=True, exist_ok=True)
             os.symlink(str(target), str(self.temp / "heads"))
