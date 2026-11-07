@@ -1753,6 +1753,14 @@ class Purity(unittest.TestCase):
                 ("def f(x):\n    return x.__class__\n", "names __class__, a special name"),
                 ("def __getattr__(name):\n    return map\n", "names __getattr__, a special name"),
                 ("def f():\n    return __name__\n", "names __name__, a special name"),
+                ("def f(x):\n    return dict(__x__=x)\n", "names __x__, a special name"),
+                ("from kernel.terms import run as __getattr__\n", "names __getattr__, a special name"),
+                ("import kernel.__init__ as k\n\n\ndef f():\n    return k.g()\n", "names __init__, a special name"),
+                ("from kernel.__init__ import g\n", "names __init__, a special name"),
+                ("from kernel.terms import __dict__ as ns\n", "x.py:1 names __dict__, a special name"),
+                ("def f():\n    global __x__\n    return 0\n", "names __x__, a special name"),
+                ("def f(x):\n    try:\n        return x\n    except ValueError as __e__:\n        return 0\n",
+                 "names __e__, a special name"),
                 ("def f(__x__):\n    return 0\n", "names __x__, a special name"),
                 ("def decide(facts, _decision=len):\n    return _decision(facts)\n", "has a default that can change")):
             self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), words), (text, words))
@@ -1766,8 +1774,13 @@ class Purity(unittest.TestCase):
                      "def f(counts, extra):\n    return max(counts, key=counts.get), dict({'a': 1}, **extra)\n",
                      "def f(g):\n    def h():\n        def g():\n            return 1\n        return g()\n    return h()\n",
                      "def f(x):\n    def g():\n        y = x\n        return y\n    def y():\n        return x\n    return y()\n",
-                     "def f(xs):\n    return type(xs) is list, list(map(len, xs)), sorted(xs, key=len)\n"):
+                     "def f(xs):\n    return type(xs) is list, list(map(len, xs)), sorted(xs, key=len)\n",
+                     "from __future__ import annotations\n\n\ndef f(x):\n    return '__dict__', x\n"):
             self.assertEqual(check_purity.run(tree({"kernel/x.py": text})), [], text)
+        # A pattern names an attribute it reads, from Python 3.10 (issue 593).
+        if sys.version_info >= (3, 10):
+            text = "def f(facts):\n    match facts:\n        case object(__class__=c):\n            return c\n    return 0\n"
+            self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), "names __class__, a special name"))
         # A module of the Kernel's may be called into however it is imported, and named only to read a name of it.
         terms = "def code(x):\n    return x\n"
         for text in ("from kernel import terms as t\n\n\ndef f(x):\n    return t.code(x)\n",

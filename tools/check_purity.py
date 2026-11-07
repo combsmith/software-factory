@@ -58,23 +58,20 @@ FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
 
 def _special(node) -> list:
-    """The special names, written `__x__`, that a node names: an attribute, a name, a definition, a parameter, a keyword
-    or an import's. Through one a module's names are rewritten, as by `__dict__`, or a name is handed back that no module
-    binds, as by a module's `__getattr__`; the Kernel names none (issue 593). `__future__`, a module an import names, is
-    no import's name."""
-    if isinstance(node, ast.Attribute):
-        words = [node.attr]
-    elif isinstance(node, ast.Name):
-        words = [node.id]
-    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        words = [node.name]
-    elif isinstance(node, (ast.arg, ast.keyword)):
-        words = [node.arg]
-    elif isinstance(node, ast.alias):
-        words = node.name.split(".") + [node.asname]
-    else:
+    """The special names, written `__x__`, that a node holds: any name in it, but a constant's value. Through one a
+    module's names are rewritten, as by `__dict__`, or a name is handed back that no module binds, as by a module's
+    `__getattr__`; the Kernel names none (issue 593). An import's names are read with it, so that a problem has its
+    line, and `__future__`, the module `from __future__ import` names, is the one allowed."""
+    if isinstance(node, (ast.Constant, ast.alias)):
         return []
-    return [w for w in words if w and len(w) > 4 and w.startswith("__") and w.endswith("__")]
+    words = []
+    for field, value in ast.iter_fields(node):
+        for part in value if isinstance(value, list) else [value]:
+            if isinstance(part, ast.alias):
+                part = part.name + "." + (part.asname or "")
+            if isinstance(part, str) and not (field == "module" and part == "__future__"):
+                words += part.split(".")
+    return [w for w in words if len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
 
 def _constant(node) -> bool:

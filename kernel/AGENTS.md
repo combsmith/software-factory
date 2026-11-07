@@ -7,9 +7,9 @@ A queued item is read as if it were not, and stays only if that reading is appro
 
 | Rule | Held by |
 |---|---|
-| No I/O: no file, socket, process, environment variable or clock. The time is the argument `now`. Only `__future__` and `kernel` are imported | `tools/check_purity.py` |
+| No I/O: no file, socket, process, environment variable or clock. The time is the argument `now`. Only `__future__` and `kernel` are imported. No `raise`, no special name | `tools/check_purity.py` |
 | Nothing is kept: a module holds imports, constants and functions, and no function has a default that can change | `tests/test_tools.py::test_state_kept_between_calls_is_caught` |
-| Calls only its own functions, listed builtins and methods, and `_decision`. No `raise`, no special name | `tests/test_tools.py::test_the_kernel_calls_nothing_it_is_given`, `tests/test_tools.py::test_what_fills_a_decision_maker_is_a_kernel_function` |
+| Calls only its own functions, listed builtins and methods, and `_decision` | `tests/test_tools.py::test_the_kernel_calls_nothing_it_is_given`, `tests/test_tools.py::test_a_module_is_called_into_only_at_its_functions` |
 | Facts in, Decision out, as plain dictionaries and lists. An argument is never changed | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |
 | No text from outside: no function takes a comment body or a title | `examples/invalid/facts.carries-prose.json` |
 | A reason is a code that matches `^[a-z_]+$`, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
