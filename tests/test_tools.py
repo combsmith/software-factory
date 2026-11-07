@@ -8806,39 +8806,77 @@ class Redaction(unittest.TestCase):
                          "HTTP/1.1 100 Continue\n\nHTTP/2 204\nDate: x\n\n")
 
 
-# One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 class Writes(unittest.TestCase):
     """`tools/check_writes.py`: outside adapters/ and the tests, only the callers it lists reach a GitHub write, each
-    the writers it lists (issue 587)."""
+    the writers it lists (issue 587). Each test plants all its cases in one copy of the repo, as each problem names its
+    file: a copy is megabytes."""
 
     SNEAK = "from adapters import effects\n\n\ndef go(transport, item, req):\n    return effects.role_write(transport, item, 'review', req, 'me')\n"
     REVIEW = "adapters.effects:_check, adapters.effects:_comment, adapters.effects:_review"
     UNLISTED = "is not in tools/check_writes.py's CALLERS"
     # A new adapter that reads, or writes, by GraphQL: a POST either way.
-    MARKS = ('from adapters.github import request\n\nMARK = "%s Mark($id: ID!) { markFileAsViewed(input: {pullRequestId: $id}) '
-             '{ clientMutationId } }"\n\n\ndef mark(transport, ident):\n    return transport.send(request("POST", "/graphql", '
-             'body={"query": MARK, "variables": {"id": ident}}))\n')
-    PEEK = "from adapters import marks\n\n\ndef peek(transport):\n    return marks.mark(transport, 'x')\n"
+    MARKS = ('from adapters.github import request\n\nMARK = "%s"\n\n\ndef mark(transport, ident):\n'
+             '    return transport.send(request("POST", "/graphql", body={"query": MARK, "variables": {"id": ident}}))\n')
+    MUTATION = "mutation Mark($id: ID!) { markFileAsViewed(input: {pullRequestId: $id}) { clientMutationId } }"
+    QUERY = "query Mark($id: ID!) { node(id: $id) { id } }"
+
+    def unlisted(self, problems: list, rel: str, writes: str = None):
+        self.assertTrue(caught(problems, "%s reaches a GitHub write, %s, and %s" % (rel, writes or self.REVIEW, self.UNLISTED)),
+                        (rel, problems))
 
     def test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists(self):
         self.assertEqual(check_writes.run(), [])
 
     def test_a_new_caller_of_a_writer_fails_until_it_is_listed(self):
-        problems = check_writes.run(clone({"harness/sneak.py": self.SNEAK}))
-        self.assertTrue(caught(problems, "harness/sneak.py reaches a GitHub write, %s, and %s" % (self.REVIEW, self.UNLISTED)), problems)
+        self.unlisted(check_writes.run(clone({"harness/sneak.py": self.SNEAK})), "harness/sneak.py")
 
     def test_a_writer_two_calls_deep_is_reached_through_the_modules_between(self):
         # far calls near, which calls effects.role_write, which calls the writers: far writes as surely as near does.
         problems = check_writes.run(clone({
             "harness/near.py": self.SNEAK,
             "harness/far.py": "from harness import near\n\n\ndef step(transport):\n    return near.go(transport, {}, {})\n"}))
-        self.assertTrue(caught(problems, "harness/far.py reaches a GitHub write, %s, and %s" % (self.REVIEW, self.UNLISTED)), problems)
+        self.unlisted(problems, "harness/far.py")
 
-    def test_a_class_named_reaches_its_methods(self):
-        # approve_step hands approve.Port to approve.job, which calls its approve: naming the class is reaching it.
-        problems = check_writes.run(clone({
-            "harness/hand.py": "from harness import approve\n\n\ndef port(transport):\n    return approve.Port(transport, 'me')\n"}))
-        self.assertTrue(caught(problems, "harness/hand.py reaches a GitHub write, adapters.effects:approve, and"), problems)
+    def test_a_writer_is_reached_by_any_name_it_goes_by(self):
+        # The Claude review's ways round a reading of names alone: each is a caller as surely as a plain call is.
+        role = "    return %s(transport, item, 'review', req, 'me')\n"
+        go = "\n\ndef go(transport, item, req):\n"
+        files = {
+            "harness/dotted.py": "import adapters.effects" + go + role % "adapters.effects.role_write",
+            "harness/aliased.py": "import adapters.effects as fx" + go + role % "fx.role_write",
+            "harness/renamed.py": "from adapters.effects import role_write as rw" + go + role % "rw",
+            "harness/relative.py": "from ..adapters import effects" + go + role % "effects.role_write",
+            "harness/table.py": "from adapters import effects\n\nTABLE = {'review': effects.role_write}" + go + role % "TABLE['review']",
+            "harness/passon.py": "from adapters.effects import role_write\n",
+            "harness/fromthere.py": "from harness.passon import role_write" + go + role % "role_write",
+            "adapters/again.py": "from adapters.effects import role_write\n\nwrite = role_write\n",
+            "harness/viaalias.py": "from adapters import again" + go + role % "again.write",
+            "harness/hand.py": "from harness import approve\n\n\ndef port(transport):\n    return approve.Port(transport, 'me')\n",
+            "harness/sub.py": "from harness import approve\n\n\nclass Mine(approve.Port):\n    pass\n",
+            "harness/usesub.py": "from harness import sub\n\n\ndef port(transport):\n    return sub.Mine(transport, 'me').approve()\n",
+        }
+        problems = check_writes.run(clone(files))
+        for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
+                    "harness/fromthere.py", "harness/viaalias.py"):
+            self.unlisted(problems, rel)
+        for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py"):
+            self.unlisted(problems, rel, "adapters.effects:approve")
+
+    def test_what_cannot_be_read_fails(self):
+        files = {
+            "harness/value.py": "from adapters import effects\n\n\ndef go(run):\n    return run(effects)\n",
+            "harness/star.py": "from adapters.effects import *\n",
+            "harness/handon.py": "from harness import approve\n\n\ndef go(use):\n    return use(approve)\n",
+            "harness/loads.py": "import importlib\n\n\ndef go():\n    return importlib.import_module('adapters.effects')\n",
+            "harness/missing.py": "from adapters import effects\n\n\ndef go():\n    return effects.no_such_writer()\n",
+        }
+        problems = check_writes.run(clone(files))
+        for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
+                          ("harness/star.py:1", "imports * from adapters.effects"),
+                          ("harness/handon.py:5", "uses the module harness.approve as a value"),
+                          ("harness/loads.py:5", "loads a module by its name"),
+                          ("harness/missing.py:5", "names no_such_writer, which adapters.effects does not define")):
+            self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
@@ -8852,39 +8890,49 @@ class Writes(unittest.TestCase):
             self.assertTrue(caught(check_writes.run(), "CALLERS names harness/gone.py, which is not here"))
 
     def test_a_graphql_mutation_is_a_write_and_a_query_a_read(self):
-        problems = check_writes.run(clone({"adapters/marks.py": self.MARKS % "mutation", "harness/peek.py": self.PEEK}))
-        self.assertTrue(caught(problems, "harness/peek.py reaches a GitHub write, adapters.marks:mark, and"), problems)
-        self.assertEqual(check_writes.run(clone({"adapters/marks.py": self.MARKS % "query", "harness/peek.py": self.PEEK})), [])
-        # A query that is no text constant cannot be read, and is a problem, not a read.
-        built = (self.MARKS % "query").replace('{"query": MARK,', '{"query": MARK.upper(),')
-        self.assertTrue(caught(check_writes.run(clone({"adapters/marks.py": built})),
-                               "adapters/marks.py:7 sends a request whose kind cannot be read: its GraphQL query is not a text constant"))
-
-    def test_minting_or_revoking_a_token_is_a_credential_not_a_write(self):
-        files = {"harness/mint.py": "from adapters import identity\n\n\ndef both(as_app, app, as_token):\n"
+        peek = "from adapters import %s\n\n\ndef peek(transport):\n    return %s.mark(transport, 'x')\n"
+        files = {"adapters/writes.py": self.MARKS % self.MUTATION, "harness/peekw.py": peek % ("writes", "writes"),
+                 "adapters/reads.py": self.MARKS % self.QUERY, "harness/peekr.py": peek % ("reads", "reads"),
+                 # A document that holds a query, then the mutation it runs, is a write.
+                 "adapters/both.py": self.MARKS % (self.QUERY + " " + self.MUTATION), "harness/peekb.py": peek % ("both", "both"),
+                 "adapters/built.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK.upper(),'),
+                 "adapters/shadow.py": (self.MARKS % self.QUERY).replace("    return", "    MARK = '%s'\n    return" % self.MUTATION),
+                 "adapters/spread.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, **ident,'),
+                 "harness/mint.py": "from adapters import identity\n\n\ndef both(as_app, app, as_token):\n"
                                     "    identity.mint(as_app, app, 'x/y', {})\n    return identity.revoke(as_token)\n"}
-        self.assertEqual(check_writes.run(clone(files)), [])
+        problems = check_writes.run(clone(files))
+        self.unlisted(problems, "harness/peekw.py", "adapters.writes:mark")
+        self.unlisted(problems, "harness/peekb.py", "adapters.both:mark")
+        for rel, said in (("adapters/built.py:7", "its GraphQL query is not a text constant"),
+                          ("adapters/shadow.py:8", "its GraphQL query is a name the function itself sets"),
+                          ("adapters/spread.py:7", "its GraphQL body is not a literal dict")):
+            self.assertTrue(caught(problems, "%s sends a request whose kind cannot be read: %s" % (rel, said)), (rel, problems))
+        # A query by POST is a read, and a token minted or revoked a credential: neither caller is named.
+        self.assertFalse(caught(problems, "harness/peekr.py"), problems)
+        self.assertFalse(caught(problems, "harness/mint.py"), problems)
 
     def test_outside_adapters_a_request_reads_and_no_verb_is_held(self):
-        send = "from adapters.github import request\n\n\ndef send(transport):\n    return transport.send(request(%s, '/repos/x/y/issues'))\n"
-        self.assertEqual(check_writes.run(clone({"tools/reads.py": send % "'GET'"})), [])
-        for method, said in (("'PATCH'", "tools/sends.py:5 sends a request that is not a read outside adapters/"),
-                             ("verb", "tools/sends.py:5 sends a request that is not a read outside adapters/")):
-            with self.subTest(method=method):
-                self.assertTrue(caught(check_writes.run(clone({"tools/sends.py": send.replace("(transport)", "(transport, verb=None)") % method})), said))
-        problems = check_writes.run(clone({"tools/hold.py": 'METHOD = "DELETE"\n'}))
-        self.assertTrue(caught(problems, "tools/hold.py:1 holds a write verb"), problems)
-        # In adapters/, a method that is not a literal cannot be read.
-        problems = check_writes.run(clone({"adapters/odd.py": send.replace("(transport)", "(transport, verb)") % "verb"}))
-        self.assertTrue(caught(problems, "adapters/odd.py:5 sends a request whose kind cannot be read: its method is not a literal"), problems)
+        send = "from adapters.github import request\n\n\ndef send(transport, verb=None):\n    return transport.send(request(%s, '/repos/x/y/issues'))\n"
+        files = {"tools/reads.py": send % "'GET'", "tools/sends.py": send % "'PATCH'", "tools/varies.py": send % "verb",
+                 "tools/hold.py": 'METHOD = "DELETE"\n',
+                 "tools/raw.py": "def send(transport):\n    return transport.send({'method': 'GET', 'path': '/x'})\n",
+                 "tools/maker.py": "from adapters import github\n\nMAKE = github.request\n",
+                 "adapters/odd.py": send % "verb", "adapters/unknown.py": send % "'TRACE'"}
+        problems = check_writes.run(clone(files))
+        self.assertFalse(caught(problems, "tools/reads.py"), problems)
+        for rel, said in (("tools/sends.py:5", "sends a request that is not a read outside adapters/"),
+                          ("tools/varies.py:5", "sends a request that is not a read outside adapters/"),
+                          ("tools/hold.py:1", "holds a write verb"),
+                          ("tools/raw.py:2", "builds a request with a method by hand"),
+                          ("tools/maker.py:3", "names adapters/github.py's request without calling it"),
+                          ("adapters/odd.py:5", "sends a request whose kind cannot be read: its method is not a literal"),
+                          ("adapters/unknown.py:5", "sends a request whose kind cannot be read: its method 'TRACE' is no verb")):
+            self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
+        # The two hooks read a command's verb, and send none.
+        self.assertFalse(caught(problems, "tools/hooks/"), problems)
 
-    def test_an_adapter_module_handed_on_as_a_value_cannot_be_read_and_fails(self):
-        for text in ("from adapters import effects\n\n\ndef go(run):\n    return run(effects)\n",
-                     "from adapters.effects import *\n"):
-            with self.subTest(text=text):
-                self.assertTrue(caught(check_writes.run(clone({"harness/hands.py": text})), "so what it reaches cannot be read"))
 
-
+# One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {
     "check_examples": lambda: check_examples.run(clone({"examples/decision.json": "{}"})),
     "check_lifecycle": lambda: check_lifecycle.run(clone({"lifecycle/issue.json": json.dumps(

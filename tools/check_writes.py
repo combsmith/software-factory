@@ -1,12 +1,14 @@
 """Only the write steps reach a GitHub write (issue 587). Read from the code's syntax, never by importing it.
 
-A write is a request through `adapters/github.py` whose method is POST, PUT, PATCH or DELETE, but for a GraphQL query,
-which GitHub reads by POST, and for minting or revoking an installation token, which is a credential: CREDENTIALS. A
-writer is an adapter function that holds a write, and a function reaches one when it calls it, names it as a value, or
-names a class one of whose methods reaches it, across modules. Outside `adapters/` and the tests, only the callers in
-CALLERS reach a writer, and each reaches exactly the writers it lists: a new caller, or a caller reaching a new writer,
-fails until CALLERS names it in the same change, and a listing no longer true fails too. What the syntax cannot read,
-a method or a query that is not a literal, or an adapter module handed on as a value, is a problem, never a pass.
+A write is a request built by `adapters/github.py`'s `request` whose method is POST, PUT, PATCH or DELETE, but for a
+GraphQL query, which GitHub reads by POST, and for minting or revoking an installation token, which is a credential:
+CREDENTIALS. A writer is an adapter function that holds a write. A function reaches one when it calls it or names it,
+names a module constant that names it, or names a class one of whose methods, its bases' among them, reaches it,
+through any number of calls, modules and re-exports. Outside `adapters/` and the tests, only the callers in CALLERS
+reach a writer, each exactly the writers it lists: a new caller, or a caller reaching a new writer, fails until
+CALLERS names it in the same change, and a listing no longer true fails too. What the syntax cannot read is a problem,
+never a pass: a method or a query that is not a literal, a name a module does not define, a module that reaches a write
+handed on as a value, a request built by hand, or an adapter loaded by name.
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GITHUB = "adapters.github"
+SENDS = ("request", "download", "tarball")      # adapters/github.py's: a request, and the two that are GETs
 VERBS = frozenset({"PO" "ST", "PU" "T", "PAT" "CH", "DEL" "ETE"})     # spelt apart, so this file holds no verb itself
 CREDENTIALS = (re.compile(r"/app/installations/%[sd]/access_tokens"), re.compile(r"/installation/token"))
 # The callers outside adapters/ that may reach a write, each with the writers it reaches, by module and function. A
@@ -34,6 +37,8 @@ CALLERS = {
 TRANSPORT = {(GITHUB, "Live.send"), (GITHUB, "Replay.send")}
 # Python outside adapters/ that may hold a write verb as a string: each reads a command to classify it, and sends none.
 VERB_HOLDERS = ("tools/hooks/identity.py", "tools/hooks/protected.py")
+# Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one.
+NAME_LOADERS = ("tools/mutants.py",)
 
 
 def _name(rel: str) -> str:
@@ -54,11 +59,14 @@ def _text(node):
 
 
 class Module:
+    """A module as its syntax gives it: what its names are bound to, and its units of code, each walked once."""
+
     def __init__(self, rel: str, tree: ast.Module, known: set):
         self.rel, self.name, self.tree = rel, _name(rel), tree
         package = self.name if rel.endswith("__init__.py") else self.name.rpartition(".")[0]
-        self.bindings, self.texts, self.functions, self.classes = {}, {}, {}, set()
-        for node in ast.walk(tree):     # an import anywhere, for one made inside a function binds as well
+        self.bindings, self.texts, self.functions, self.classes, self.values, self.stored = {}, {}, {}, {}, {}, set()
+        self.nodes = list(ast.walk(tree))
+        for node in self.nodes:     # an import anywhere, for one made inside a function binds as well
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local = alias.asname or alias.name.split(".")[0]
@@ -70,75 +78,171 @@ class Module:
                     whole = "%s.%s" % (source, alias.name)
                     self.bindings[alias.asname or alias.name] = ("module", whole) if whole in known else \
                         ("attr", source, alias.name)
+        inside = set()
         for node in tree.body:
-            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
-                    and _text(node.value) is not None:
-                self.texts[node.targets[0].id] = _text(node.value)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.functions[node.name] = node
-            if isinstance(node, ast.ClassDef):
-                self.classes.add(node.name)
+            elif isinstance(node, ast.ClassDef):
+                self.classes[node.name] = node
                 for item in node.body:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         self.functions["%s.%s" % (node.name, item.name)] = item
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        self.values[target.id] = node.value
+                        if _text(node.value) is not None:
+                            self.texts[target.id] = _text(node.value)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                inside |= {id(n) for n in ast.walk(node)}
+        # Every name the module's own top level stores, in an if, a try or a loop too: a value, whatever it holds.
+        self.stored = {n.id for n in self.nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+                       and id(n) not in inside}
+        self.units = {qual: list(ast.walk(fn)) for qual, fn in self.functions.items()}
+        for name, node in self.classes.items():     # a class's bases and its own assignments, its methods aside
+            methods = {id(n) for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                       for n in ast.walk(item)}
+            self.units[name] = [n for n in ast.walk(node) if id(n) not in methods]
+        for name, value in self.values.items():
+            self.units.setdefault(name, list(ast.walk(value)))
+        held = {id(n) for nodes in self.units.values() for n in nodes} | inside
+        self.units["<module>"] = [n for n in self.nodes if id(n) not in held]
 
-    def module(self, local: str):
-        bound = self.bindings.get(local)
-        return bound[1] if bound and bound[0] == "module" else None
 
-    def units(self):
-        """(name, nodes) for each function and method, a def or lambda inside one as its own, and `<module>` for the rest."""
-        inside = set()
-        for qual, fn in self.functions.items():
-            nodes = list(ast.walk(fn))
-            inside |= {id(n) for n in nodes}
-            yield qual, nodes
-        yield "<module>", [n for n in ast.walk(self.tree) if id(n) not in inside]
+def _lookup(mods: dict, module: str, name: str, depth: int = 0):
+    """What `name` is in `module`: ("def"|"class"|"value", module, name), ("module", name), ("unknown", module, name),
+    or None for what this check does not read: a module outside the repo, or a name its top level stores some other way."""
+    other = mods.get(module)
+    if other is None or depth > 8:
+        return None
+    if name in other.functions:
+        return ("def", module, name)
+    if name in other.classes:
+        return ("class", module, name)
+    if name in other.values:
+        return ("value", module, name)
+    if name in other.bindings:
+        return _bound(mods, other.bindings[name], depth + 1)
+    if "%s.%s" % (module, name) in mods:
+        return ("module", "%s.%s" % (module, name))
+    if name in other.stored or (name.startswith("__") and name.endswith("__")):
+        return None
+    return ("unknown", module, name)
 
 
-def _requests(mod: Module, nodes: list) -> list:
-    """Each call in `nodes` of adapters/github.py's `request`, `download` or `tarball`: (call, what it is called)."""
-    out = []
-    for node in nodes:
-        if not isinstance(node, ast.Call):
-            continue
-        f, called = node.func, None
-        if isinstance(f, ast.Name):
-            bound = mod.bindings.get(f.id)
-            if mod.name == GITHUB and f.id in ("request", "download", "tarball"):
-                called = f.id
-            elif bound and bound[0] == "attr" and bound[1] == GITHUB and bound[2] in ("request", "download", "tarball"):
-                called = bound[2]
-        elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and mod.module(f.value.id) == GITHUB \
-                and f.attr in ("request", "download", "tarball"):
-            called = f.attr
-        if called:
-            out.append((node, called))
+def _bound(mods: dict, bound: tuple, depth: int = 0):
+    if bound[0] == "module":
+        return ("module", bound[1]) if bound[1] in mods else None
+    return _lookup(mods, bound[1], bound[2], depth)
+
+
+def _resolve(mods: dict, mod: Module, node, cls: str = None):
+    """What a Name or a dotted Attribute is in the repo's code, as `_lookup` gives it, or None."""
+    if isinstance(node, ast.Name):
+        if node.id in mod.functions or node.id in mod.classes or node.id in mod.values:
+            return _lookup(mods, mod.name, node.id)
+        return _bound(mods, mod.bindings[node.id]) if node.id in mod.bindings else None
+    if isinstance(node, ast.Attribute):
+        if isinstance(node.value, ast.Name) and node.value.id == "self" and cls:
+            qual = "%s.%s" % (cls, node.attr)
+            return ("def", mod.name, qual) if qual in mod.functions else None
+        base = _resolve(mods, mod, node.value, cls)
+        if base and base[0] == "module":
+            return _lookup(mods, base[1], node.attr)
+        if base and base[0] == "class":
+            qual = "%s.%s" % (base[2], node.attr)
+            return ("def", base[1], qual) if qual in mods[base[1]].functions else None
+    return None
+
+
+def _methods(mods: dict, module: str, cls: str, seen: set) -> list:
+    """Each method of a class and of its bases, as far as the repo's code holds them."""
+    if (module, cls) in seen or module not in mods or cls not in mods[module].classes:
+        return []
+    seen.add((module, cls))
+    out = [(module, cls)] + [(module, f) for f in mods[module].functions if f.startswith(cls + ".")]
+    for base in mods[module].classes[cls].bases:
+        got = _resolve(mods, mods[module], base)
+        if got and got[0] == "class":
+            out += _methods(mods, got[1], got[2], seen)
     return out
+
+
+class Reading:
+    """The repo's code read once: what each unit reaches by one step, its requests, and what cannot be read."""
+
+    def __init__(self, mods: dict):
+        self.mods, self.graph, self.problems, self.handed = mods, {}, [], []
+        for mod in mods.values():
+            for qual, nodes in mod.units.items():
+                self.graph[(mod.name, qual)] = self._edges(mod, qual, nodes)
+
+    def _edges(self, mod: Module, qual: str, nodes: list) -> list:
+        cls = qual.split(".")[0] if "." in qual and qual.split(".")[0] in mod.classes else None
+        inner = {id(n.value) for n in nodes if isinstance(n, ast.Attribute)}
+        out = []
+        for node in nodes:
+            if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(node.ctx, ast.Load) or id(node) in inner:
+                continue
+            got, part = None, node
+            while got is None and isinstance(part, (ast.Name, ast.Attribute)):
+                got = _resolve(self.mods, mod, part, cls)
+                part = part.value if isinstance(part, ast.Attribute) else None
+            if got is None:
+                continue
+            if got[0] == "def":
+                out.append((got[1], got[2]))
+            elif got[0] == "class":
+                out += _methods(self.mods, got[1], got[2], set())
+            elif got[0] == "value":
+                out.append((got[1], got[2]))
+            elif got[0] == "module":
+                self.handed.append((mod, node.lineno, got[1]))
+            else:
+                self.problems.append("%s:%d names %s, which %s does not define, so what it reaches cannot be read"
+                                     % (mod.rel, node.lineno, got[2], got[1]))
+        if qual == "<module>":
+            self.problems += ["%s:%d imports * from %s, so what it reaches cannot be read; name what it imports"
+                              % (mod.rel, n.lineno, n.module) for n in mod.nodes if isinstance(n, ast.ImportFrom)
+                              and any(a.name == "*" for a in n.names) and _bound(self.mods, ("module", n.module or ""))]
+        return out
+
+    def sends(self, mod: Module, nodes: list) -> list:
+        """(call, which) for each call in `nodes` of a function of adapters/github.py's that sends; and each place one is
+        named but not called, as (node, None)."""
+        called = {id(n.func) for n in nodes if isinstance(n, ast.Call)}
+        out = []
+        for node in nodes:
+            if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load):
+                got = _resolve(self.mods, mod, node)
+                if got and got[0] == "def" and got[1] == GITHUB and got[2] in SENDS:
+                    call = next((n for n in nodes if isinstance(n, ast.Call) and n.func is node), None)
+                    out.append((call, got[2]) if id(node) in called else (node, None))
+        return out
 
 
 def _argument(call: ast.Call, at: int, name: str):
     return call.args[at] if len(call.args) > at else next((k.value for k in call.keywords if k.arg == name), None)
 
 
-def _query(mods: dict, mod: Module, node):
-    """The text of a GraphQL query: a literal, or a module's own or another module's text constant; None if neither."""
+def _query(mods: dict, mod: Module, node, nodes: list):
+    """The text of a GraphQL query, a literal or a module's text constant, or a sentence saying why it cannot be read."""
     if _text(node) is not None:
         return _text(node)
-    if isinstance(node, ast.Name):
-        bound = mod.bindings.get(node.id)
-        if node.id in mod.texts:
-            return mod.texts[node.id]
-        if bound and bound[0] == "attr" and bound[1] in mods:
-            return mods[bound[1]].texts.get(bound[2])
-    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and mod.module(node.value.id) in mods:
-        return mods[mod.module(node.value.id)].texts.get(node.attr)
-    return None
+    if isinstance(node, ast.Name) and any(isinstance(n, ast.Name) and n.id == node.id and isinstance(n.ctx, ast.Store)
+                                          for n in nodes):
+        return "its GraphQL query is a name the function itself sets"
+    got = _resolve(mods, mod, node) if isinstance(node, (ast.Name, ast.Attribute)) else None
+    if got and got[0] == "value" and got[2] in mods[got[1]].texts:
+        return mods[got[1]].texts[got[2]]
+    return "its GraphQL query is not a text constant"
 
 
-def _kind(mods: dict, mod: Module, call: ast.Call, called: str):
+def _kind(mods: dict, mod: Module, call: ast.Call, which: str, nodes: list):
     """"read", "credential", "write", or a sentence saying what the syntax cannot tell."""
-    if called != "request":
+    if which != "request":
         return "read"
     method, path = _argument(call, 0, "method"), _argument(call, 1, "path")
     if not (isinstance(method, ast.Constant) and isinstance(method.value, str)):
@@ -149,91 +253,75 @@ def _kind(mods: dict, mod: Module, call: ast.Call, called: str):
         return "its method %r is no verb this check knows" % method.value
     if method.value == "PO" "ST" and isinstance(path, ast.Constant) and path.value == "/graphql":
         body = _argument(call, 3, "body")
-        found = [v for k, v in zip(body.keys, body.values) if isinstance(k, ast.Constant) and k.value == "query"] \
-            if isinstance(body, ast.Dict) else []
-        text = _query(mods, mod, found[0]) if len(found) == 1 else None
-        if text is None:
-            return "its GraphQL query is not a text constant"
-        word = re.match(r"\s*(\w+|\{)", text)
-        word = word.group(1) if word else ""
-        return "write" if word == "mutation" else "read" if word in ("query", "{") else \
-            "its GraphQL operation %r is neither a query nor a mutation" % word
+        if not isinstance(body, ast.Dict) or None in body.keys:
+            return "its GraphQL body is not a literal dict"
+        found = [v for k, v in zip(body.keys, body.values) if isinstance(k, ast.Constant) and k.value == "query"]
+        if len(found) != 1:
+            return "its GraphQL body has no one query"
+        text = _query(mods, mod, found[0], nodes)
+        if text.startswith("its GraphQL query"):
+            return text
+        if re.search(r"\bmutation\b", text):    # anywhere: a document may hold a query, then a mutation
+            return "write"
+        return "read" if re.match(r"\s*(query\b|\{)", text) else "its GraphQL document is neither a query nor a mutation"
     if _text(path) is not None and any(c.fullmatch(_text(path)) for c in CREDENTIALS):
         return "credential"
     return "write"
 
 
-def _edges(mods: dict, mod: Module) -> dict:
-    """{function: [(module, function)]}: what each unit calls, or names as a value; a class named, each of its methods."""
-    out = {}
-    for qual, nodes in mod.units():
-        cls, seen = qual.split(".")[0] if "." in qual else None, []
-        for node in nodes:
-            if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(node.ctx, ast.Load):
-                continue
-            target = None
-            if isinstance(node, ast.Name):
-                bound = mod.bindings.get(node.id)
-                if node.id in mod.functions or node.id in mod.classes:
-                    target = (mod.name, node.id)
-                elif bound and bound[0] == "attr" and bound[1] in mods:
-                    target = (bound[1], bound[2])
-            elif isinstance(node.value, ast.Name):
-                if node.value.id == "self" and cls:
-                    target = (mod.name, "%s.%s" % (cls, node.attr))
-                elif mod.module(node.value.id) in mods:
-                    target = (mod.module(node.value.id), node.attr)
-            if target is None or target[0] not in mods:
-                continue
-            other = mods[target[0]]
-            if target[1] in other.classes:
-                seen += [(target[0], f) for f in other.functions if f.startswith(target[1] + ".")]
-            elif target[1] in other.functions:
-                seen.append(target)
-        out[(mod.name, qual)] = seen
+def _by_hand(mod: Module) -> list:
+    """A request built as a dict with a method, not by `request`: what it sends cannot be read."""
+    out = []
+    for node in mod.nodes:
+        if isinstance(node, ast.Dict) and any(isinstance(k, ast.Constant) and k.value == "method" for k in node.keys) \
+                or isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict" \
+                and any(k.arg == "method" for k in node.keywords):
+            out.append("%s:%d builds a request with a method by hand, so what it sends cannot be read; build it with "
+                       "adapters/github.py's request" % (mod.rel, node.lineno))
     return out
 
 
-def _handed_on(mod: Module) -> list:
-    """Where `mod` uses an adapter module as a value, not by a name of it: what it reaches then cannot be read."""
-    out, read = [], set()
-    for node in ast.walk(mod.tree):
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            read.add(id(node.value))
-    for node in ast.walk(mod.tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and id(node) not in read \
-                and (mod.module(node.id) or "").startswith("adapters"):
-            out.append("%s:%d uses the module %s as a value, so what it reaches cannot be read; name what it calls"
-                       % (mod.rel, node.lineno, mod.module(node.id)))
-    for node in ast.walk(mod.tree):
-        if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names) \
-                and (node.module or "").startswith("adapters"):
-            out.append("%s:%d imports * from %s, so what it reaches cannot be read; name what it calls"
-                       % (mod.rel, node.lineno, node.module))
+def _loaded(mod: Module) -> list:
+    """Where a module is loaded by its name, which the syntax cannot follow when it is no literal or is an adapter."""
+    out = []
+    for node in mod.nodes:
+        if isinstance(node, ast.Call) and (isinstance(node.func, ast.Name) and node.func.id in ("__import__", "import_module")
+                                           or isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"):
+            named = _text(node.args[0]) if node.args else None
+            if named is None or named.startswith("adapters"):
+                out.append("%s:%d loads a module by its name, so what it reaches cannot be read; import it" % (mod.rel, node.lineno))
     return out
 
 
 def _verbs(mod: Module) -> list:
     """The lines of `mod` that hold a write verb as a whole string, its docstrings aside."""
-    docs = {id(n.body[0].value) for n in ast.walk(mod.tree)
+    docs = {id(n.body[0].value) for n in mod.nodes
             if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body
             and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
-    return sorted({n.lineno for n in ast.walk(mod.tree) if isinstance(n, ast.Constant) and n.value in VERBS
-                   and id(n) not in docs})
+    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Constant) and n.value in VERBS and id(n) not in docs})
 
 
-def reached(mods: dict, graph: dict, writers: set, start: tuple) -> set:
-    """The writers `start` reaches, through any number of calls."""
-    seen, todo, out = {start}, [start], set()
-    while todo:
-        here = todo.pop()
-        if here in writers:
-            out.add(here)
-        for there in graph.get(here, []):
-            if there not in seen:
-                seen.add(there)
-                todo.append(there)
+def reaching(graph: dict, writers: set) -> dict:
+    """{unit: the writers it reaches, through any number of steps}, read back from each writer."""
+    back = {}
+    for here, theres in graph.items():
+        for there in theres:
+            back.setdefault(there, set()).add(here)
+    out = {}
+    for writer in writers:
+        seen, todo = {writer}, [writer]
+        while todo:
+            here = todo.pop()
+            out.setdefault(here, set()).add(writer)
+            for caller in back.get(here, ()):
+                if caller not in seen:
+                    seen.add(caller)
+                    todo.append(caller)
     return out
+
+
+def _adapter(mod: Module) -> bool:
+    return mod.name == "adapters" or mod.name.startswith("adapters.")
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -248,40 +336,50 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s cannot be read as Python (%s), so what it writes cannot be told" % (rel, err))
             continue
         mods[_name(rel)] = Module(rel, tree, known)
-    graph, writers = {}, set()
+    reading = Reading(mods)
+    problems += reading.problems
+    writers = set()
     for mod in mods.values():
-        graph.update(_edges(mods, mod))
-        adapter = mod.name.startswith("adapters.") or mod.name == "adapters"
-        for qual, nodes in mod.units():
-            for call, called in ([] if (mod.name, qual) in TRANSPORT else _requests(mod, nodes)):
-                kind = _kind(mods, mod, call, called)
-                if kind == "write" and adapter:
+        if mod.name != GITHUB:
+            problems += _by_hand(mod)
+        if mod.rel not in NAME_LOADERS:
+            problems += _loaded(mod)
+        for qual, nodes in mod.units.items():
+            for call, which in ([] if (mod.name, qual) in TRANSPORT else reading.sends(mod, nodes)):
+                if which is None:
+                    if mod.name != GITHUB:
+                        problems.append("%s:%d names adapters/github.py's request without calling it, so what it "
+                                        "sends cannot be read" % (mod.rel, call.lineno))
+                    continue
+                kind = _kind(mods, mod, call, which, nodes)
+                if kind == "write" and _adapter(mod):
                     writers.add((mod.name, qual))
-                elif kind == "write" or (kind not in ("read", "credential") and not adapter):
+                elif kind == "write" or (kind not in ("read", "credential") and not _adapter(mod)):
                     problems.append("%s:%d sends a request that is not a read outside adapters/; a write to GitHub is an "
                                     "adapter's, which a caller in tools/check_writes.py's CALLERS reaches" % (mod.rel, call.lineno))
                 elif kind not in ("read", "credential"):
                     problems.append("%s:%d sends a request whose kind cannot be read: %s; write it as a literal" %
                                     (mod.rel, call.lineno, kind))
-        if not adapter:
-            problems += _handed_on(mod)
-            if mod.rel not in VERB_HOLDERS and mod.rel != "tools/check_writes.py":
-                problems += ["%s:%d holds a write verb; a write to GitHub is an adapter's, and Python that only reads "
-                             "a command's verb is named in tools/check_writes.py's VERB_HOLDERS" % (mod.rel, line)
-                             for line in _verbs(mod)]
-    for mod in sorted(mods.values(), key=lambda m: m.rel):
-        if mod.name.startswith("adapters.") or mod.name == "adapters":
+        if not _adapter(mod) and mod.rel not in VERB_HOLDERS and mod.rel != "tools/check_writes.py":
+            problems += ["%s:%d holds a write verb; a write to GitHub is an adapter's, and Python that only reads "
+                         "a command's verb is named in tools/check_writes.py's VERB_HOLDERS" % (mod.rel, line)
+                         for line in _verbs(mod)]
+    reach = reaching(reading.graph, writers)
+    writing = {name for (name, _), found in reach.items() if found}
+    for mod, line, module in reading.handed:
+        if not _adapter(mod) and (module in writing or module == "adapters" or module.startswith("adapters.")):
+            problems.append("%s:%d uses the module %s as a value, so what it reaches cannot be read; name what it calls"
+                            % (mod.rel, line, module))
+    for node_mod in sorted(mods.values(), key=lambda m: m.rel):
+        if _adapter(node_mod):
             continue
-        reach = set()
-        for qual, _ in mod.units():
-            reach |= reached(mods, graph, writers, (mod.name, qual))
-        found = {"%s:%s" % w for w in reach}
-        listed = CALLERS.get(mod.rel)
+        found = {"%s:%s" % w for qual in node_mod.units for w in reach.get((node_mod.name, qual), ())}
+        listed = CALLERS.get(node_mod.rel)
         if found and listed is None:
             problems.append("%s reaches a GitHub write, %s, and is not in tools/check_writes.py's CALLERS; a new writer "
-                            "is the Maintainer's to allow, in the change that adds it" % (mod.rel, ", ".join(sorted(found))))
+                            "is the Maintainer's to allow, in the change that adds it" % (node_mod.rel, ", ".join(sorted(found))))
         elif listed is not None and found != listed:
             problems.append("%s reaches %s, and CALLERS lists %s; name what it reaches, in the change that changes it" %
-                            (mod.rel, ", ".join(sorted(found)) or "no write", ", ".join(sorted(listed))))
+                            (node_mod.rel, ", ".join(sorted(found)) or "no write", ", ".join(sorted(listed))))
     problems += ["CALLERS names %s, which is not here; take it off" % rel for rel in sorted(CALLERS) if _name(rel) not in mods]
     return problems
