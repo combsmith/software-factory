@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "eval-ledger/1: each case of one run over a gate set, by its id, with its verdict, codes and the Result the review returned (issue 612). It is written in the eval job's scratch, sealed to the Maintainer's certificates by its seal step, and never uploaded or read in the clear while the set is in service. Its salt, drawn for the run alone, makes its hash in the report tell nothing of it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "salt",
+    "release",
+    "commit",
+    "role",
+    "intent",
+    "set",
+    "cases"
+  ],
+  "properties": {
+    "schema": {
+      "const": "eval-ledger/1"
+    },
+    "salt": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "intent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "sha256"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sha256",
+          "verdict",
+          "reasons",
+          "natural"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "fail",
+              "unreadable"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "schema",
+                "not_found",
+                "hash_differs",
+                "too_large",
+                "unanswered",
+                "not_this_set",
+                "facts_not_current",
+                "facts_read_short",
+                "diff_unreadable",
+                "diff_not_content",
+                "pusher_unnamed",
+                "diff_not_whole",
+                "issue_not_whole",
+                "issue_unreadable",
+                "credential_missing",
+                "engine_version",
+                "engine_model",
+                "engine_failed",
+                "no_answer",
+                "engine_timeout",
+                "task_too_large",
+                "rubric_unreadable",
+                "head_unreadable",
+                "answer_off_rubric",
+                "result_not_completed",
+                "finding_not_raised",
+                "finding_uncited",
+                "finding_cites_another",
+                "finding_elsewhere",
+                "category_differs",
+                "severity_differs",
+                "location_differs",
+                "coverage_disagrees",
+                "finding_raised_wrongly",
+                "finding_not_in_hunk",
+                "criterion_not_met",
+                "answer_disagrees_with_verdict",
+                "location_unreadable",
+                "criterion_unknown"
+              ]
+            }
+          },
+          "at_alternate": {
+            "description": "A pass whose Finding was at a place of the case's also_at alone, not its location (decision 0143): a mark the report can count, saying no place.",
+            "type": "boolean",
+            "const": true
+          },
+          "cause": {
+            "description": "Why a case was unanswered or stopped by the Engine, where the job found it: an exception's class and the last line of this repo's code it passed, a step's code, the CLI's subtype and exit, or that it timed out. Never a message.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "exception": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+              },
+              "at": {
+                "type": "string",
+                "pattern": "^(adapters|controller|harness|kernel|release|tools)/[a-z0-9_/]+\\.py:[1-9][0-9]{0,5}$"
+              },
+              "stop": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]{0,63}$"
+              },
+              "subtype": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]{0,63}$"
+              },
+              "exit": {
+                "type": "integer",
+                "minimum": -255,
+                "maximum": 255
+              },
+              "timed_out": {
+                "const": true
+              }
+            }
+          },
+          "natural": {
+            "type": "boolean"
+          },
+          "result": {
+            "description": "The Result the review returned for the case, whole, where it returned one: its Findings' words among it. Sealed, never uploaded in the clear.",
+            "$ref": "result.schema.json"
+          }
+        }
+      }
+    }
+  }
+}

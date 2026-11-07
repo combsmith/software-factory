@@ -31,7 +31,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "outcome": ("document", "run"), "verdict": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
             "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
-            "eval-report": ("document", "commit"),
+            "eval-report": ("document", "commit"), "eval-aggregate": ("document", "commit"), "eval-ledger": ("document", "commit"),
             "facts": "record", "issue-facts": "record", "seen": "record", "decision": "record", "issue-decision": "record", "finding": "record",
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
@@ -47,7 +47,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # is held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
-              "eval-set", "eval-report", "rings")
+              "eval-set", "eval-report", "eval-aggregate", "rings")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"

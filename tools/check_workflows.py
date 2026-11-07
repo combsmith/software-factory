@@ -674,7 +674,8 @@ EVAL_STEP = "python3 -m harness.eval.%s"
 # The one upload the eval job may run, by its commit, as CHECKOUT is the one checkout: an action in the one job that
 # holds both credentials can read them both (decision 0053), so a bump of it edits this too.
 UPLOAD = ("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", "# v7.0.2")
-EVAL_ORDER = ("checkout", "plan", "install", "fetch", "run", "upload", "judge")
+# A gate set's ledger is sealed after the run and its ciphertext uploaded before the report (issue 612).
+EVAL_ORDER = ("checkout", "plan", "install", "fetch", "run", "seal", "ledger", "upload", "judge")
 # The CLI's install, the one the Run's jobs hold word for word in RUN_JOBS_FILE: the eval job installs the CLI a live
 # Run does, at the Engine's pin and by the vendor's checksum (issue 309, amendment 1). Its version and checksum are given
 # under env:, as RUN_JOBS_FILE gives them. Bubblewrap is the one package: the CLI refuses to run with the scrub on and
@@ -694,7 +695,7 @@ EVAL_RUNNER = {"runs-on": "ubuntu-24.04", "timeout-minutes": "120"}
 # What each step may be given, under with: or env:, exactly: a step's own keys beside these are refused.
 EVAL_GIVEN = {
     "checkout": {"with": {"persist-credentials": "false"}},
-    "plan": {"env": {"RELEASE": "${{ inputs.release }}"}},
+    "plan": {"env": {"RELEASE": "${{ inputs.release }}", "EVAL_SET": "${{ inputs.set }}"}},
     # The one personal token a workflow here may name, the Maintainer's, read-only on the home alone (decision 0053),
     # and the home's coordinates, secrets and never variables: a step's log shows what it is given, and GitHub masks a
     # secret's value there, and nowhere a variable's.
@@ -704,6 +705,11 @@ EVAL_GIVEN = {
     "install": {"env": {"CLI_VERSION": None, "CLI_CHECKSUM": None}},
     "run": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}",
                     "CLAUDE_CLI": "/usr/local/bin/claude"}},
+    # The seal holds no credential: what it seals to is in the checkout.
+    "seal": {},
+    # The ciphertext alone, and nothing where a development set has no ledger to seal.
+    "ledger": {"with": {"name": "eval-ledger", "path": "eval-ledger.cms", "if-no-files-found": "ignore",
+                        "retention-days": "90"}},
     "upload": {"with": {"name": "eval-report", "path": "eval-report.json", "if-no-files-found": "error",
                         "retention-days": "90"}},
     "judge": {},
@@ -761,7 +767,10 @@ RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"
 # What names the release job's environment, its key or its token, in a workflow that is not release.yml.
 RELEASE_ONLY = re.compile(r"factory-release|RELEASE_APP_|RELEASE_TOKEN|release\.move", re.I)
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
-EVAL_ACTIONS = {"checkout", "upload"}
+EVAL_ACTIONS = {"checkout", "upload", "ledger"}
+# The dispatch's inputs, each by what it is given: the Release it judges, and the set, the review Intent's by default.
+EVAL_INPUTS = {"release": [("required", "true"), ("type", "string")],
+               "set": [("default", "pr-review"), ("required", "false"), ("type", "string")]}
 # The model's credential, an organisation secret no branch policy narrows (decision 0053): named in eval.yml's run step
 # and in the Run's jobs' workflow, run-jobs.yml, and in no other workflow; run.yml, a shim, names no secret. Within
 # run-jobs.yml, that only its run step names it is that workflow's own check, "Harness: run and apply for the review Intent, and the model holds no credential that can
@@ -1348,13 +1357,16 @@ def _commits(text: str, entries: list, jobs: list) -> list:
     return whys
 
 
-def _kind(step: dict) -> str:
-    """What one step of the eval job is: the listed checkout, the upload, one of harness.eval's steps, or None."""
+def _kind(step: dict, entries: list = ()) -> str:
+    """What one step of the eval job is: the listed checkout, the upload of the ledger or of the report, by the name it
+    gives the artifact, one of harness.eval's steps, or None."""
     uses = step.get("uses", {}).get("value", "") if "uses" in step else None
     if uses is not None and "run" not in step:
         if (uses, step["uses"]["comment"]) == CHECKOUT:
             return "checkout"
-        return "upload" if (uses, step["uses"]["comment"]) == UPLOAD else None
+        named = [e["value"] for e in entries if e["step"] == step["uses"]["step"] and e["path"][-1:] == ["with"]
+                 and e["key"] == "name"]
+        return None if (uses, step["uses"]["comment"]) != UPLOAD else "ledger" if named == ["eval-ledger"] else "upload"
     command = _lines(step.get("run"))
     if "uses" not in step and step.get("run", {}).get("value") == "|" and command == CLI_INSTALL_RUN:
         return "install"
@@ -1367,10 +1379,10 @@ def _kind(step: dict) -> str:
 
 def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
     """What is wrong with eval.yml's shape (issue 309, ruling 10), each a sentence. It runs on `workflow_dispatch` alone,
-    with one input, the Release it judges, and one job, `eval`, on the environment `factory-eval`, granted
+    with two inputs, the Release it judges and the set, and one job, `eval`, on the environment `factory-eval`, granted
     `contents: read` alone and given no env: of its own. Its steps are EVAL_ORDER, each given exactly what EVAL_GIVEN
     says and nothing else: the Maintainer's token for the held-out home by `fetch` alone, the model's
-    credential by `run` alone, so no step holds both, and the upload takes the report alone. Every other spelling is
+    credential by `run` alone, so no step holds both, the seal given nothing, and each upload takes its one file. Every other spelling is
     refused: a check reads what it names, never what it can guess. The CLI's install is CLI_INSTALL_RUN, word for word,
     given the Engine's pin in config/harness.json and its checksum in CLI_CHECKSUMS, as the Run's jobs' is."""
     entries, bad = read(text)
@@ -1389,9 +1401,11 @@ def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
         problems.append("it holds name: factory, on:, permissions: {} and jobs:, and nothing else above its job")
     events = {e["key"] for e in entries if e["path"] == ["on"]}
     inputs = [e for e in entries if e["path"][:3] == ["on", "workflow_dispatch", "inputs"]]
-    if events != {"workflow_dispatch"} or sorted((e["key"], e["value"]) for e in inputs if len(e["path"]) == 4) != \
-            [("required", "true"), ("type", "string")] or [e["key"] for e in inputs if len(e["path"]) == 3] != ["release"]:
-        problems.append("runs on workflow_dispatch alone, with one input, release, a required string")
+    if events != {"workflow_dispatch"} or [e["key"] for e in inputs if len(e["path"]) == 3] != list(EVAL_INPUTS) or \
+            any(sorted((e["key"], e["value"]) for e in inputs if e["path"][3:] == [name]) != given
+                for name, given in EVAL_INPUTS.items()):
+        problems.append("runs on workflow_dispatch alone, with the inputs release, a required string, and set, an optional "
+                        "string whose default is pr-review")
     if [e["key"] for e in entries if e["path"] == ["jobs"]] != [EVAL_JOB]:
         problems.append("it holds the job %s and no other" % EVAL_JOB)
     inside = {e["key"]: e for e in entries if e["path"] == ["jobs", EVAL_JOB]}
@@ -1404,7 +1418,7 @@ def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
     if granted != [("contents", "read")]:
         problems.append("its job is granted contents: read and nothing else")
     steps = _steps(entries, EVAL_JOB)
-    kinds = [_kind(step) for step in steps]
+    kinds = [_kind(step, entries) for step in steps]
     if tuple(kinds) != EVAL_ORDER:
         problems.append("its steps are %s, in that order, and no other" % ", ".join(EVAL_ORDER))
     for step, kind in zip(steps, kinds):

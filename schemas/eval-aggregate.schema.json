@@ -1,0 +1,450 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "eval-aggregate/1: what the eval job uploads of one run over a gate set (issue 612): the Release and commit it judged, the set by its count and the sha256 of its manifest, and counts alone. No case id, per-case verdict or a case's code is here, and none may be: per-case outcomes under stable ids are what a prompt could be fitted to. Each case's outcome is in the ledger, sealed, which this report binds by two hashes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "release",
+    "commit",
+    "role",
+    "intent",
+    "set",
+    "passed",
+    "kinds",
+    "origin",
+    "faults",
+    "usage",
+    "engine",
+    "bars",
+    "kind_least",
+    "split_ok",
+    "kinds_pass",
+    "blocking_pass",
+    "ledger"
+  ],
+  "properties": {
+    "schema": {
+      "const": "eval-aggregate/1"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "intent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "sha256"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "passed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "kinds": {
+      "description": "Of each kind, its cases, how many passed and their Wilson interval at 95%, each end to four places: raw counts, so that runs on one commit can be pooled (issue 613). Null where a case was not read or its answer is no kind.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "finding",
+        "met"
+      ],
+      "properties": {
+        "finding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cases",
+            "passed",
+            "interval"
+          ],
+          "properties": {
+            "cases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "interval": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "low",
+                "high"
+              ],
+              "properties": {
+                "low": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "high": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        },
+        "met": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cases",
+            "passed",
+            "interval"
+          ],
+          "properties": {
+            "cases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "interval": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "low",
+                "high"
+              ],
+              "properties": {
+                "low": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "high": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "origin": {
+      "description": "The cases the manifest marks natural and those it does not, each counted with how many passed.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "natural",
+        "constructed"
+      ],
+      "properties": {
+        "natural": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cases",
+            "passed"
+          ],
+          "properties": {
+            "cases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "constructed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cases",
+            "passed"
+          ],
+          "properties": {
+            "cases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "faults": {
+      "description": "Each code of a case not read, with how many cases gave it: never which.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "count"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "schema",
+              "not_found",
+              "hash_differs",
+              "too_large",
+              "unanswered",
+              "not_this_set",
+              "facts_not_current",
+              "facts_read_short",
+              "diff_unreadable",
+              "diff_not_content",
+              "pusher_unnamed",
+              "diff_not_whole",
+              "issue_not_whole",
+              "issue_unreadable",
+              "credential_missing",
+              "engine_version",
+              "engine_model",
+              "engine_failed",
+              "no_answer",
+              "engine_timeout",
+              "task_too_large",
+              "rubric_unreadable",
+              "head_unreadable",
+              "answer_off_rubric",
+              "result_not_completed",
+              "finding_not_raised",
+              "finding_uncited",
+              "finding_cites_another",
+              "finding_elsewhere",
+              "category_differs",
+              "severity_differs",
+              "location_differs",
+              "coverage_disagrees",
+              "finding_raised_wrongly",
+              "finding_not_in_hunk",
+              "criterion_not_met",
+              "answer_disagrees_with_verdict",
+              "location_unreadable",
+              "criterion_unknown"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "usage": {
+      "description": "What the Results spent, summed over those whose usage was whole, and how many those were.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "answered",
+        "input_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "output_tokens",
+        "turns",
+        "cost_usd",
+        "seconds"
+      ],
+      "properties": {
+        "answered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_creation_input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_read_input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "engine": {
+      "description": "What answered, as the checkout pinned it: the Engine, its version and model, and the sha256 of the Role's instructions and its rubric; each null where it could not be read.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "model",
+        "prompt_sha256",
+        "rubric_sha256"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z][a-z-]*[a-z]$"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9.-]+$"
+        },
+        "prompt_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rubric_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "bars": {
+      "description": "The bar each kind was held to, as a whole fraction (decision 0150).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding",
+        "met"
+      ],
+      "properties": {
+        "finding": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "met": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "kind_least": {
+      "description": "How many cases of each kind a set must hold (decision 0120).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "split_ok": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "kinds_pass": {
+      "description": "Whether at least the bar of each kind passed (decision 0120): one word for each, never how many. Null where a case was not read or its answer is no kind.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "finding",
+        "met"
+      ],
+      "properties": {
+        "finding": {
+          "type": "boolean"
+        },
+        "met": {
+          "type": "boolean"
+        }
+      }
+    },
+    "blocking_pass": {
+      "description": "Whether every case that expects a blocking Finding passed (decision 0120): one word, never how many, which closes nothing by itself (decision 0150). Null where a case was not read or its answer is no kind.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "ledger": {
+      "description": "The sha256 of the ledger, under its salt, and of its ciphertext, which the seal step writes: a report without both is not a sealed run's.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "salted_sha256",
+        "sealed_sha256"
+      ],
+      "properties": {
+        "salted_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sealed_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}
