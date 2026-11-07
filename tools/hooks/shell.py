@@ -551,7 +551,7 @@ def _held(text: str) -> str:
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
     opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
     ticked = False  # an unquoted backtick has opened and not yet closed
-    held = []       # (from, to) of each $( or backtick double quotes hold: a script with quotes of its own
+    held = []       # where each $( or backtick double quotes hold opens: a script with quotes of its own
     while i < len(text):
         c = text[i]
         if c == "\\" and quote != "'":
@@ -568,11 +568,11 @@ def _held(text: str) -> str:
             continue
         if quote is None:
             if c == "$" and i < braces and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")] \
-                    and any(start < i < end for start, end in held):
+                    and _inside(text, held, i):
                 raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "$" and i >= braces and text.startswith("${", i):
                 braces = _balanced(text, i + 2, "}")
-                if "'" in text[i:braces] and any(start < i < end for start, end in held):
+                if "'" in text[i:braces] and _inside(text, held, i):
                     # A "${...}" in a substitution double quotes hold is read here as unquoted, though it is not: its '
                     # is a character to the shell and would be a quote to this reading (#579).
                     raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
@@ -651,7 +651,7 @@ def _held(text: str) -> str:
             # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
             raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
-            held.append((i, _balanced(text, i + 2, ")") if c == "$" else _balanced(text, i + 1, "`")))
+            held.append(i)      # where it ends is read only if a ${...} with a ' needs it: most commands hold none
             out.append(LIVE[c])
         else:
             out.append(HOLDS.get(c, c))
@@ -813,6 +813,12 @@ _CONNECTOR = re.compile(r"&&|\|\||[;&|\n]")
 # A command substitution that names the branch the shell is on: where it runs, it is HEAD.
 CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s+--abbrev-ref\s+HEAD|"
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
+
+
+def _inside(text: str, held: list, i: int) -> bool:
+    """Whether `i` is inside one of the $( or backticks that open at `held`."""
+    return any(start < i < (_balanced(text, start + 2, ")") if text[start] == "$" else _balanced(text, start + 1, "`"))
+               for start in held if start < i)
 
 
 def _past_tick(text: str, i: int, quote: str) -> bool:
