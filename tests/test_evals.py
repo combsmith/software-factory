@@ -494,6 +494,10 @@ class Scoring(unittest.TestCase):
         first, other = also["expected"]["finding"]["location"], also["expected"]["finding"]["also_at"][0]
         twice = dict(result, findings=[dict(right, location=first), dict(right, ref="n9", criterion=None, location=other)])
         self.assertEqual(eval_result.score(also, twice), {"case": also["id"], "verdict": "fail", "reasons": ["surplus_at_place"]})
+        # Nor is a Finding at an alternate place away from the place: the right one there and one gating elsewhere pass.
+        alternate = dict(result, findings=[dict(right, location=other), dict(right, ref="n9", location=far)])
+        self.assertEqual(eval_result.score(also, alternate),
+                         {"case": also["id"], "verdict": "pass", "reasons": [], "at_alternate": True, "surplus_gating": 1})
         # A clean case is unchanged: any gating Finding already fails it, and none is counted.
         met = load("examples/eval-case.met.json")
         clean = dict(result, findings=[dict(right, severity=s, location=far, ref="n%d" % n) for n, s in enumerate(("major", "blocking"))])
@@ -1010,6 +1014,7 @@ class EvalJob(unittest.TestCase):
         assessed = {one["id"]: ("pass", []), two["id"]: ("unreadable", ["schema"])}
         counted = job.report(kept, found, assessed, True, None, True, None, None, {one["id"]: 1, two["id"]: 0})
         self.assertEqual([c.get("surplus_gating") for c in counted["cases"]], [1, None])
+        self.assertEqual(validate(counted, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
         self.assertEqual(validate(dict(counted, cases=[dict(counted["cases"][0], surplus_gating=0)] + counted["cases"][1:]),
                                   load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()) == [], False)
 
