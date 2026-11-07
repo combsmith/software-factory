@@ -102,8 +102,8 @@ class Module:
             elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 for target in targets:
-                    if isinstance(target, ast.Name):
-                        self.values[target.id] = node.value
+                    if isinstance(target, ast.Name):    # each assignment of one constant, all read as the one
+                        self.values.setdefault(target.id, []).append(node.value)
                         if _text(node.value) is not None:
                             self.texts[target.id] = _text(node.value)
                             if any(isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mod) for n in ast.walk(node.value)):
@@ -119,8 +119,8 @@ class Module:
             methods = {id(n) for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
                        for n in ast.walk(item)}
             self.units[name] = [n for n in ast.walk(node) if id(n) not in methods]
-        for name, value in self.values.items():
-            self.units.setdefault(name, list(ast.walk(value)))
+        for name, values in self.values.items():
+            self.units.setdefault(name, [n for value in values for n in ast.walk(value)])
         for node in tree.body:      # a constant or a class filled at the top level, after it is made, holds what fills it
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 continue
@@ -128,8 +128,10 @@ class Module:
                 self.units[name] = self.units[name] + list(ast.walk(node))
         held = {id(n) for nodes in self.units.values() for n in nodes} | inside
         self.units["<module>"] = [n for n in self.nodes if id(n) not in held]
-        # A name both defined here and imported: which one a function means cannot be told by the syntax alone.
+        # A name both defined here and imported, or defined twice: which one a function means cannot be told by the syntax.
         self.conflicts |= set(self.bindings) & (set(self.functions) | set(self.classes) | set(self.values))
+        defined = [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+        self.conflicts |= {name for name in defined if defined.count(name) > 1 or name in self.values}
 
 
 def _filled_names(node) -> set:
@@ -149,6 +151,8 @@ def _lookup(mods: dict, module: str, name: str, depth: int = 0):
     other = mods.get(module)
     if other is None or depth > 8:
         return None
+    if name in other.conflicts:
+        return ("conflict", module, name)
     if name in other.functions:
         return ("def", module, name)
     if name in other.classes:
@@ -364,8 +368,7 @@ def _loaded(mod: Module) -> list:
         if isinstance(node, ast.Call) and (isinstance(node.func, ast.Name) and node.func.id in ("__import__", "import_module")
                                            or isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"):
             named = _text(node.args[0]) if node.args else None
-            if named is None or named.startswith("adapters"):
-                out.append("%s:%d loads a module by its name, so what it reaches cannot be read; import it" % (mod.rel, node.lineno))
+            out.append((node.lineno, named))
     return out
 
 
@@ -414,7 +417,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         mods[_name(rel)] = Module(rel, tree, known)
     reading = Reading(mods)
     problems += reading.problems
-    writers = set()
+    writers, loads = set(), []
     for mod in mods.values():
         if mod.name != GITHUB:
             problems += _by_hand(mod) + _edited(mod)
@@ -423,7 +426,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if mod.rel not in TEST_IMPORTERS:
             problems += _tests(mod)
         if mod.rel not in NAME_LOADERS:
-            problems += _loaded(mod)
+            loads += [(mod, line, named) for line, named in _loaded(mod)]
         for qual, nodes in mod.units.items():
             for call, which in ([] if (mod.name, qual) in TRANSPORT else reading.sends(mod, nodes)):
                 if which is None:
@@ -446,6 +449,9 @@ def run(root: pathlib.Path = ROOT) -> list:
                          for line in _verbs(mod)]
     reach = reaching(reading.graph, writers)
     writing = {name for (name, _), found in reach.items() if found}
+    for mod, line, named in loads:     # by a name no literal gives, an adapter's, or one of a module that reaches a write
+        if named is None or named.startswith("adapters") or named in writing:
+            problems.append("%s:%d loads a module by its name, so what it reaches cannot be read; import it" % (mod.rel, line))
     for mod, line, module in reading.handed:
         if not _adapter(mod) and (module in writing or module == "adapters" or module.startswith("adapters.")):
             problems.append("%s:%d uses the module %s as a value, so what it reaches cannot be read; name what it calls"

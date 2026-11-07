@@ -8860,12 +8860,16 @@ class Writes(unittest.TestCase):
             "harness/usezz.py": "from adapters.zz import W\n\n\ndef go(t):\n    return W(t)\n",
             "adapters/steps.py": "from adapters import effects\n\nSTEPS = {}\nSTEPS['approve'] = effects.approve\n",
             "harness/usesteps.py": "from adapters import steps\n\n\ndef go(t):\n    return steps.STEPS['approve'](t)\n",
+            # A constant assigned twice holds what each assignment names (Argon).
+            "adapters/twiceconst.py": "from adapters import effects\n\nACT = effects.approve\nACT = None\n",
+            "harness/useact.py": "from adapters import twiceconst\n\n\ndef go(t):\n    return twiceconst.ACT(t)\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
                     "harness/uncalled.py", "harness/fromthere.py", "harness/viaalias.py"):
             self.unlisted(problems, rel)
-        for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py", "harness/usezz.py", "harness/usesteps.py"):
+        for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py", "harness/usezz.py", "harness/usesteps.py",
+                    "harness/useact.py"):
             self.unlisted(problems, rel, "adapters.effects:approve")
 
     def test_what_cannot_be_read_fails(self):
@@ -8885,6 +8889,17 @@ class Writes(unittest.TestCase):
             "adapters/edited.py": "from adapters.github import request\n\n\ndef go(transport):\n    req = request('GET', '/x')\n"
                                   "    req['method'] = 'PATCH'\n    req.update(body={})\n    return transport.send(req)\n",
             "harness/fromtests.py": "from tests import support\n",
+            # Argon: a name defined twice, or defined and assigned; one bound two ways in the module it is imported from; a
+            # load by a name no literal gives, or of a module that reaches a write; an adapter that writes nothing, or the
+            # package itself, handed on.
+            "harness/twodefs.py": "def act():\n    return None\n\n\ndef act():\n    return 1\n\n\ndef go():\n    return act()\n",
+            "harness/defval.py": "def act():\n    return None\n\n\nact = 1\n\n\ndef go():\n    return act\n",
+            "harness/conf.py": "def w():\n    return None\n\n\nfrom adapters.effects import approve as w\n",
+            "harness/useconf.py": "from harness.conf import w\n\n\ndef go(t):\n    return w(t)\n",
+            "harness/loadsvar.py": "import importlib\n\n\ndef go(name):\n    return importlib.import_module(name)\n",
+            "harness/loadsharness.py": "import importlib\n\n\ndef go():\n    return importlib.import_module('harness.approve')\n",
+            "harness/plainvalue.py": "from adapters import items\n\n\ndef go(run):\n    return run(items)\n",
+            "harness/package.py": "import adapters\n\n\ndef go(run):\n    return run(adapters)\n",
         }
         problems = check_writes.run(clone(files))
         for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
@@ -8897,7 +8912,14 @@ class Writes(unittest.TestCase):
                           ("adapters/deco.py:4", "fills STEPS from a function"),
                           ("adapters/edited.py:6", "sets a request's method, path or body after it is built"),
                           ("adapters/edited.py:7", "sets a request's method, path or body after it is built"),
-                          ("harness/fromtests.py:1", "imports tests, a test, which the check does not read")):
+                          ("harness/fromtests.py:1", "imports tests, a test, which the check does not read"),
+                          ("harness/twodefs.py:10", "names act, which the module binds more than one way"),
+                          ("harness/defval.py:9", "names act, which the module binds more than one way"),
+                          ("harness/useconf.py:5", "names w, which the module binds more than one way"),
+                          ("harness/loadsvar.py:5", "loads a module by its name"),
+                          ("harness/loadsharness.py:5", "loads a module by its name"),
+                          ("harness/plainvalue.py:5", "uses the module adapters.items as a value"),
+                          ("harness/package.py:5", "uses the module adapters as a value")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
@@ -8924,6 +8946,7 @@ class Writes(unittest.TestCase):
                  "adapters/built.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK.upper(),'),
                  "adapters/shadow.py": (self.MARKS % self.QUERY).replace("    return", "    MARK = '%s'\n    return" % self.MUTATION),
                  "adapters/spread.py": (self.MARKS % self.QUERY).replace('{"query": MARK,', '{"query": MARK, **ident,'),
+                 "adapters/subs.py": self.MARKS % "subscription S { x }",
                  # A query filled with text may be filled with a mutation (Argon); one filled with a number may not.
                  "adapters/filled.py": (self.MARKS % "query Q { y } %s").replace('MARK = "query Q { y } %s"',
                                                                                  'MARK = "query Q { y } %s" % OTHER'),
@@ -8940,7 +8963,8 @@ class Writes(unittest.TestCase):
         for rel, said in (("adapters/built.py:7", "its GraphQL query is not a text constant"),
                           ("adapters/shadow.py:8", "its GraphQL query is a name the function itself sets"),
                           ("adapters/spread.py:7", "its GraphQL body is not a literal dict"),
-                          ("adapters/filled.py:7", "its GraphQL query is formatted with text")):
+                          ("adapters/filled.py:7", "its GraphQL query is formatted with text"),
+                          ("adapters/subs.py:7", "its GraphQL document is neither a query nor a mutation")):
             self.assertTrue(caught(problems, "%s sends a request whose kind cannot be read: %s" % (rel, said)), (rel, problems))
         # A query by POST is a read, and a token minted or revoked a credential: neither caller is named.
         self.assertFalse(caught(problems, "harness/peekr.py"), problems)
