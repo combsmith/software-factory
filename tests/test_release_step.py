@@ -223,6 +223,7 @@ class Candidate(unittest.TestCase):
         # Ruling 4″: anything but the eval job's own `pass`, for this commit and this Release, keeps the gate closed,
         # and cut.plan reads every such word as eval_gate_closed.
         self.assertEqual(candidate.gate(github.Replay(gate_reads()), REPO, D, VERSION), "pass")
+        self.assertEqual(candidate.gate(github.Replay(gate_reads(document=report(blocking_pass=False))), REPO, D, VERSION), "pass")
         empty = json.dumps(dict(SET, count=0, cases=[])).encode()
         broken = (
             ([manifest(status=404)], "eval_set_unreadable"),
@@ -259,8 +260,8 @@ class Candidate(unittest.TestCase):
             (gate_reads(document=report(kinds_pass={"finding": False, "met": True})), "case_failed"),
             (gate_reads(document=report(kinds_pass={"finding": True, "met": False})), "case_failed"),
             (gate_reads(document=report(kinds_pass=None)), "eval_split_short"),
-            # A case that expects a blocking Finding must pass, whatever the bar, and the word is never a count.
-            (gate_reads(document=report(blocking_pass=False)), "case_failed"),
+            # The word for the cases that expect a blocking Finding is never a count, and a report must say it, though a
+            # false one closes nothing by itself (decision 0150).
             (gate_reads(document=report(blocking_pass=None)), "eval_split_short"),
             (gate_reads(document=report(blocking_pass=1)), "report_unreadable"),
             (gate_reads(document={k: v for k, v in report().items() if k != "blocking_pass"}), "report_unreadable"),
