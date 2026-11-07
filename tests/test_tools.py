@@ -1844,18 +1844,27 @@ class Purity(unittest.TestCase):
                  "def decide(facts):\n    return rules.paused(_decision, facts)\n"}
         self.assertEqual(check_purity.run(tree(files)), [])
 
-    def test_a_chain_of_modules_is_read_in_time(self):
-        # A module re-exported as its own attribute, read down a long chain, is resolved once a level (Muse on PR 591).
-        files = {"kernel/terms.py": "from kernel import terms as a\n\n\ndef code(x):\n    return x\n",
-                 "kernel/x.py": "from kernel import terms\n\n\ndef f(x):\n    return terms" + ".a" * 20 + ".code(x)\n"}
-        started = time.monotonic()
-        self.assertEqual(check_purity.run(tree(files)), [])
-        self.assertLess(time.monotonic() - started, 5)
+    def test_a_chain_of_modules_is_read_once_a_level(self):
+        # A module re-exported as its own attribute, read down a long chain, is resolved once a level, so the reads
+        # grow with the square of the chain, not as a power of two (Muse on PR 591). Counted, not timed.
+        class Counted(dict):
+            reads = 0
+
+            def get(self, *args):
+                Counted.reads += 1
+                return dict.get(self, *args)
+        texts = {"terms.py": "from kernel import terms as a\n\n\ndef code(x):\n    return x\n",
+                 "x.py": "from kernel import terms\n\n\ndef f(x):\n    return terms" + ".a" * 20 + ".code(x)\n"}
+        trees = {n: ast.parse(t) for n, t in texts.items()}
+        tops = Counted({n: check_purity._names(n, t, trees) for n, t in trees.items()})
+        self.assertEqual(check_purity._calls("x.py", trees["x.py"], trees, check_purity._takers(trees), tops), [])
+        self.assertLess(Counted.reads, 20 * 20 * 4)
 
     def test_each_decision_maker_the_kernel_fills_is_a_kernel_function(self):
         # Issue 588: on the Kernel as it stands, the functions that take _decision are the brakes' and run_deferral,
         # and every call of one fills it with decide.py's _decision or the caller's own. A new one is read here first.
-        trees = {p.relative_to(ROOT / "kernel").as_posix(): ast.parse(p.read_text()) for p in (ROOT / "kernel").glob("**/*.py")}
+        trees = {p.relative_to(ROOT / "kernel").as_posix(): ast.parse(p.read_text()) for p in walk.files(ROOT, "kernel")
+                 if p.suffix == ".py"}
         takers = check_purity._takers(trees)
         self.assertEqual(sorted(takers), [("brakes.py", n) for n in ("approval_ceilings", "dequeue_ceiling",
                                                                      "enqueue_ceilings", "on_act", "on_run", "paused",

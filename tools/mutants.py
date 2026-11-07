@@ -13887,7 +13887,7 @@ MUTANTS = ISSUE + [
     ("a module's attribute is read again at each use", 'tools/check_purity.py',
      '        elif outer:\n            kind, detail = tops.get(outer, {}).get(node.attr, (None, None))\n',
      '        elif outer and module_file(node.value, chain):\n            kind, detail = tops.get(outer, {}).get(node.attr, (None, None))\n',
-     ("tests.test_tools.Purity.test_a_chain_of_modules_is_read_in_time",)),
+     ("tests.test_tools.Purity.test_a_chain_of_modules_is_read_once_a_level",)),
     ('the calls go unread', 'tools/check_purity.py',
      '        problems += _calls(name, tree, trees, takers, tops)\n',
      '', ('tests.test_tools.Purity.test_the_kernel_calls_nothing_it_is_given', 'tests.test_tools.Purity.test_what_fills_a_decision_maker_is_a_kernel_function')),

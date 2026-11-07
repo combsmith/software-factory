@@ -14,8 +14,8 @@ Status: accepted. The Factory Builder's story of 2026-11-06, issue 588, "The Ker
 | `BUILTIN_CALLS` | An exact list of the builtins the Kernel may call: those it calls on `main`, and `map` and `filter`. A call of any other builtin, or handing one to be called, is refused | A builtin such as `__build_class__` calls what it is handed, and others reach past the Kernel. A list, as for the methods |
 | `callable` | Joins `FORBIDDEN_NAMES` | The Kernel never asks whether a value is a function, and has no need to. It uses neither `iter` nor a decorator either |
 | On `main` | The check passes as it is. The functions that take `_decision` are the brakes' seven and `kernel/derive.py`'s `run_deferral`, and every call of one passes `kernel/decide.py`'s `_decision`, `kernel/issue.py`'s, or the caller's own | Confirmed across `kernel/` before the rule was written: no other parameter, bound value or method is called |
-| Not held: a handed value's own special methods, such as iterating it, comparing it or making it a string | The facts the Kernel is given are JSON, built by the controller and held to `schemas/facts.schema.json`. Values of that kind have no methods of their own. `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` still holds that the same inputs give the same Decision |
-| Not held: a method whose name is on the list, called on a value that is not of a built-in type | The check reads the syntax tree and does not know types. The facts are JSON, as above |
+| A handed value's own special methods, such as iterating it, comparing it or making it a string | Not held by the check | The facts the Kernel is given are JSON, built by the controller and held to `schemas/facts.schema.json`. Values of that kind have no methods of their own. `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` still holds that the same inputs give the same Decision |
+| A method whose name is on the list, called on a value that is not of a built-in type | Not held by the check | The check reads the syntax tree and does not know types. The facts are JSON, as above |
 
 ## Why
 
