@@ -40,8 +40,8 @@ COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
 # The bar each kind's cases must clear, as whole fractions so that a boundary is exact: those of a criterion met, the clean
 # cases, and those that expect a Finding. A guard against regression, set under the measured recall so that a run's noise
-# alone does not close it, and raised as recall rises; the set's own share is held by neither (decision NNNN, in place of
-# 0120's bar). A case not passed is not passed, whatever it reads as.
+# alone does not close it, and raised as recall rises. The set's own share has no bar but the fewest passes these imply,
+# `least_passed` (decision NNNN, in place of 0120's bar). A case not passed is not passed, whatever it reads as.
 BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}
 # How many cases of each kind a set must hold, those that expect a Finding and those of a criterion met: issue 183's split,
 # held here, where the cases are, since the repo cannot hold a count of them true (decision 0120).
@@ -452,6 +452,16 @@ def _clears(passed: int, of: int, bar: tuple) -> bool:
     return passed * bar[1] >= of * bar[0]
 
 
+def least_passed(count: int, least: int) -> int:
+    """The fewest of `count` cases a set can have passed with each kind on its BAR_OF_A_KIND and holding `least` cases at
+    least: those `least` of each kind, and every other case in the kind whose bar asks fewest of them (decision NNNN). A
+    set too small to hold `least` of each kind is read with no least."""
+    least = least if count >= least * len(KINDS) else 0
+    on = lambda bar, cases: -(-cases * bar[0] // bar[1])        # the fewest of `cases` that clear `bar`, in whole numbers
+    return min(sum(on(BAR_OF_A_KIND[kind], count - least * (len(KINDS) - 1) if kind == rest else least) for kind in KINDS)
+               for rest in KINDS)
+
+
 def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     """`{kind: whether at least its BAR_OF_A_KIND of its cases passed}`, read where the cases are: one word for each, never
     how many (decisions 0120 and NNNN). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
@@ -542,11 +552,12 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
     # A case marked as passed at an alternate place alone is a pass (decision 0143).
     if any(c.get("at_alternate") and c["verdict"] != PASS for c in document["cases"]):
         return "count_differs"
-    # Each kind is held to its own bar, where the cases are. The set's share is held only to the lowest of them, which
-    # every set whose kinds clear their bars clears too, so that a report whose words its own cases cannot bear is not
-    # passed. A blocking case not passed closes nothing by itself (decision NNNN).
+    # Each kind is held to its own bar, where the cases are. The set's share is held only to the fewest passes a set
+    # whose kinds each cleared could hold, of KIND_LEAST each where the report says the split held, so that a report
+    # whose words its own cases cannot bear is not passed. A blocking case not passed closes nothing by itself (decision
+    # NNNN).
     kinds, blocking = document["kinds_pass"], document["blocking_pass"]
-    if not _clears(passed, found["count"], min(BAR_OF_A_KIND.values(), key=lambda bar: bar[0] / bar[1])) \
+    if passed < least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \
             or (kinds is not None and not all(kinds.values())):
         return "case_failed"
     if document["split_ok"] is not True or kinds is None or blocking is None:

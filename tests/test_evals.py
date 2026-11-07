@@ -1067,13 +1067,13 @@ class EvalJob(unittest.TestCase):
         found_of = lambda count: {"role": "pr-review", "intent": "review-change", "count": count,
                                   "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i} for i in range(count)]}
 
-        def read(count, passed, kinds=None, others=(("fail", ["criterion_not_met"]),), blocking=True):
+        def read(count, passed, kinds=None, others=(("fail", ["criterion_not_met"]),), blocking=True, held=True):
             """The verdict on a report of `count` cases, the first `passed` passed and the rest as `others` says in turn."""
             found = found_of(count)
             assessed = {c["id"]: ("pass", []) if i < passed else others[i % len(others)] for i, c in enumerate(found["cases"])}
             told = {"finding": True, "met": True} if kinds is None else kinds
             document = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": count, "sha256": "0" * 64}},
-                                  found, assessed, True, told, blocking)
+                                  found, assessed, held, told, blocking)
             return job.verdict(document, found, "0" * 64, "a" * 40, "factory/v0.1.0")
         # The set's share is no bar of its own: each kind clearing its bar, a set clears at the lowest of them, 30%, and
         # just under it no report of the job's could say each kind cleared, whatever the size.
@@ -1082,6 +1082,21 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(read(count, least - 1), "case_failed", (count, least))
         self.assertEqual(read(42, 42), "pass")
         self.assertEqual(read(40, 35), "pass", "under 0120's 90% of the set, which no longer holds")
+        # Where the split held, each kind holds KIND_LEAST cases, so the fewest passes the two words allow are 90% of
+        # those clean ones and 30% of the rest: a report claiming both with fewer is not passed, as 12 of 40 is not.
+        with mock.patch.object(job, "KIND_LEAST", 20):
+            for count, least in ((40, 24), (50, 27), (41, 25)):
+                self.assertEqual(read(count, least), "pass", (count, least))
+                self.assertEqual(read(count, least - 1), "case_failed", (count, least))
+            self.assertEqual(read(40, 12, blocking=False), "case_failed", "the report the security pass made")
+            self.assertEqual(job.least_passed(40, 20), 24)
+            # A report whose split did not hold is held to the lowest bar of the whole set, and is short all the same.
+            self.assertEqual(read(40, 12, held=False), "eval_split_short")
+            self.assertEqual(read(40, 11, held=False), "case_failed")
+        # The fewest follow the bars, wherever they are set, and a set too small for the split has no least.
+        with mock.patch.object(job, "BAR_OF_A_KIND", {"met": (1, 2), "finding": (4, 5)}):
+            self.assertEqual(job.least_passed(40, 10), 23, "the rest of the set in the clean kind, whose bar asks fewer")
+        self.assertEqual(job.least_passed(30, 20), 9)
         # A word for each kind closes it by itself, every case passed; a report that can't say is short.
         self.assertEqual(read(10, 10, {"finding": False, "met": True}), "case_failed")
         self.assertEqual(read(10, 10, {"finding": True, "met": False}), "case_failed")
@@ -1227,7 +1242,7 @@ class EvalJob(unittest.TestCase):
         # The line says so, as 23 of 24 would not.
         self.assertEqual(self.step(job.judge), "23 of 24 passed; finding_not_raised 1; a blocking case not passed")
 
-    def test_the_job_writes_each_kinds_word_and_the_judge_holds_it(self):  # decision 0120
+    def test_the_job_writes_each_kinds_word_and_the_judge_holds_it(self):  # decisions 0120 and NNNN
         # Plan, fetch, score and judge over a set of 4 cases that expect a Finding and 20 clean ones: each kind is held to
         # its own bar, 30% and 90%.
         from harness import eval as job
