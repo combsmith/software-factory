@@ -4059,13 +4059,22 @@ MUTANTS = ISSUE + [
      '13:07:04 GMT', '23:07:04 GMT', CUT_FIXTURE),
     ('the tag ruleset exempts the Release', 'release/fixtures/cut.v0-1-0.json',
      '"exclude": []', '"exclude": ["refs/tags/factory/v0.1.0"]', CUT_FIXTURE),
-    # The refused rollback's fixture: the rules refuse it for the tags read after it, and it moved and recorded nothing.
+    # The refused rollback's fixture: the rules refuse it for every tag read after it, and it moved and recorded nothing.
     ('a rollback with no earlier Release moved next', 'release/fixtures/rollback.refused.json',
      '"ref": "refs/tags/factory/v0-next",\n              "object": {\n                "sha": "499835d5',
      '"ref": "refs/tags/factory/v0-next",\n              "object": {\n                "sha": "9ca55015', ROLLBACK_FIXTURE),
-    ('the refused rollback recorded a Deployment', 'release/fixtures/rollback.refused.json',
+    ('an earlier Release stood beside the one next names', 'release/fixtures/rollback.refused.json',
+     '            {\n                "ref": "refs/tags/factory/v0.1.0",',
+     '            {"ref": "refs/tags/factory/v0.0.9", "object": {"sha": "9ca550156d2d34672ec6496cacc00b29dc20c76e", '
+     '"type": "commit"}},\n            {\n                "ref": "refs/tags/factory/v0.1.0",', ROLLBACK_FIXTURE),
+    ('the Deployment is dated after the refused rollback', 'release/fixtures/rollback.refused.json',
      '"transient_environment": false,\n                "created_at": "2026-11-07T06:48:42Z"',
      '"transient_environment": false,\n                "created_at": "2026-11-07T19:11:52Z"', ROLLBACK_FIXTURE),
+    ("the Deployment's status is dated after the refused rollback", 'release/fixtures/rollback.refused.json',
+     '"state": "success",\n                "environment": "factory-next",\n                "description": "",\n'
+     '                "created_at": "2026-11-07T06:48:42Z"',
+     '"state": "success",\n                "environment": "factory-next",\n                "description": "",\n'
+     '                "created_at": "2026-11-07T19:11:52Z"', ROLLBACK_FIXTURE),
     ('the tags were read before the rollback ended', 'release/fixtures/rollback.refused.json',
      '"updated_at": "2026-11-07T19:11:56Z"', '"updated_at": "2026-11-07T19:23:56Z"', ROLLBACK_FIXTURE),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.

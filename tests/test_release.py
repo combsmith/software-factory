@@ -390,28 +390,37 @@ class Fixture(unittest.TestCase):
 
     def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
         # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,
-        # as the rules refuse it for the tags read after it, and `next` still names the Release, with its one
+        # as the rules refuse it for every tag read after it, and `next` still names the Release, with its one
         # Deployment, the cut's (#197).
         fixture = json.loads(self.ROLLBACK.read_text())
         self.assertEqual(check_release.fixture_problems(fixture, "rollback.refused.json"), [])
         refused = self.item(fixture, "refused_rollback_with_no_earlier_release")
-        channel = move.next_channel(json.loads(move.RINGS.read_text()))
+        rings = json.loads(move.RINGS.read_text())
+        channel = move.next_channel(rings)
         self.assertEqual((refused["asked"]["command"], refused["asked"]["version"], refused["asked"]["to"]),
                          ("rollback", "", ""))
         self.assertEqual((refused["conclusion"], refused["printed"]),
                          ("failure", {"writes": [], "deployments": [], "refused": cut.NO_EARLIER_RELEASE}))
-        refs = {tag: self.answered(refused, "/repos/%s/git/ref/tags/%s" % (REPO, tag))["body"]["object"]["sha"]
-                for tag in (fixture["version"], channel)}
-        self.assertEqual(refs[channel], refs[fixture["version"]])
-        rings = json.loads(move.RINGS.read_text())
-        self.assertEqual(cut.plan({"command": "rollback", "channel": channel}, refs, {}, move.channels(rings)),
-                         ([], cut.NO_EARLIER_RELEASE))
+        # Every factory/ tag, read as the step's port reads them: one Release, and `next` on its commit.
+        listed = [e for e in refused["exchanges"] if e["request"]["call"].split(" ")[1] == tags.path(REPO)]
+        refs = tags.read(github.Replay(listed), REPO)
+        commit = refs[fixture["version"]]
+        self.assertEqual(refs, {fixture["version"]: commit, channel: commit})
+        for tag in (fixture["version"], channel):
+            with self.subTest(tag=tag):
+                ref = self.answered(refused, "/repos/%s/git/ref/tags/%s" % (REPO, tag))["body"]
+                self.assertEqual(ref["object"]["sha"], commit)
+        step = move.asked({"RELEASE_" + k.upper(): v for k, v in refused["asked"].items()}, channel)
+        self.assertEqual(cut.plan(step, refs, {}, move.channels(rings)), ([], cut.NO_EARLIER_RELEASE))
         run = self.answered(refused, "/repos/%s/actions/runs/%d" % (REPO, refused["run"]))["body"]
+        made = self.item(json.loads(self.CUT.read_text()), "cut_and_move_of_next")
         deployed = self.answered(refused, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]
-        self.assertEqual([(d["sha"], d["description"]) for d in deployed], [(refs[channel], fixture["version"])])
-        self.assertLess(deployed[0]["created_at"], run["created_at"])
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
+                         [(made["printed"]["deployments"][0], commit, fixture["version"])])
         statuses = self.answered(refused, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))["body"]
         self.assertEqual([s["state"] for s in statuses], ["success"])
+        for made_at in [deployed[0]["created_at"]] + [s["created_at"] for s in statuses]:
+            self.assertLess(made_at, run["created_at"])
         # Each read was made after the run had ended: what it shows is what the run left.
         ended = datetime.datetime.strptime(run["updated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
         for e in refused["exchanges"]:

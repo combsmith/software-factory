@@ -370,16 +370,66 @@
               }
             ]
           }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/git/matching-refs/tags/factory (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 07 Nov 2026 19:56:32 GMT",
+              "etag": "W/\"30eb71c91b96815256973dc3461d92e23c32117f3f31b4eafc0093d20b31da1d\"",
+              "last-modified": "Sat, 07 Nov 2026 17:15:21 GMT",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "repo",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "DA0F:24912D:16D70EA:4A83FD1:6AEF8270",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4943",
+              "x-ratelimit-reset": "1794083676",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "57"
+            },
+            "body": [
+              {
+                "ref": "refs/tags/factory/v0-next",
+                "object": {
+                  "sha": "499835d5384ba81c466b17199edcde1848431630",
+                  "type": "commit"
+                }
+              },
+              {
+                "ref": "refs/tags/factory/v0.1.0",
+                "object": {
+                  "sha": "499835d5384ba81c466b17199edcde1848431630",
+                  "type": "commit"
+                }
+              }
+            ]
+          }
         }
       ]
     }
   ],
   "removed": [
     "items[*].exchanges[*].response.headers: every header but those a trial's fixture keeps",
-    "items[*].exchanges[0].response.body: every field of the run but those kept, the actor among them",
+    "items[*].exchanges[0].response.body: every field of the run but those kept, its head commit and the actor among them",
     "items[*].exchanges[1].response.body: every field of the job but those kept, and the name of steps[1] and steps[5], the token's mint and its post step, which tools/redact_trial.py took out as lines naming a token",
     "items[*].exchanges[2].response.body: every line of the job's log but the step's group, its inputs, its last line and its exit; the log is plain text, its colours taken out",
     "items[*].exchanges[*].response.body: of a Deployment and its statuses, every field but those kept, the creator and the URLs among them",
-    "items[*].exchanges[*].response.body: of a tag's ref, every field but the ref and its object's sha and type, the node id and the URLs among them"
+    "items[*].exchanges[*].response.body: of a tag's ref, and of each in the list of them, every field but the ref and its object's sha and type, the node id and the URLs among them"
   ]
 }
