@@ -1744,9 +1744,14 @@ class Identity(unittest.TestCase):
                                  # Substitutions in double quotes, each escaping a ", each level read once (Astra on #520).
                                  (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, ""),
                                  # Quoted words in a backtick, each read up to its close alone (Codex on #604).
-                                 (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 8000, "")):
+                                 (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 8000, ""),
+                                 (lambda n: 'echo "$(echo ' + "${x:-'y'} " * n + ')"; git push', 8000, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
+        # Codex on PR 604: a ${...} after each of many closed substitutions. The check reads each substitution's calls
+        # across the whole text, so the reader is timed on its own.
+        make = lambda n: 'echo "$(date)" ${x:-\'a\'}; ' * n
+        linear(self, lambda n: shell.commands(make(n)), 8000, identity.READ_SECONDS, make(2)[:40])
 
     @wall_clock
     def test_the_readings_sonarcloud_flagged_are_read_in_linear_time(self):

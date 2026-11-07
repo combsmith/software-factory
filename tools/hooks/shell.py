@@ -553,6 +553,7 @@ def _held(text: str) -> str:
     ticked = False  # an unquoted backtick has opened and not yet closed
     held = []       # where each $( or backtick double quotes hold opens: a script with quotes of its own
     held_tick = False   # a backtick double quotes hold has opened and not yet closed
+    seen = {}       # for each held substitution, where it ends and how far its own double quotes are counted
     tick_end = len(text)    # where the unquoted backtick that is open ends: read once, as it opens
     while i < len(text):
         c = text[i]
@@ -570,11 +571,11 @@ def _held(text: str) -> str:
             continue
         if quote is None:
             if c == "$" and i < braces and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")] \
-                    and _inside(text, held, i):
+                    and _inside(text, held, i, seen):
                 raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "$" and i >= braces and text.startswith("${", i):
                 braces = _balanced(text, i + 2, "}")
-                if "'" in text[i:braces] and _inside(text, held, i):
+                if "'" in text[i:braces] and _inside(text, held, i, seen):
                     # A "${...}" in a substitution double quotes hold is read here as unquoted, though it is not: its '
                     # is a character to the shell and would be a quote to this reading (#579).
                     raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
@@ -651,7 +652,7 @@ def _held(text: str) -> str:
             quote, comments = None, False
             out.append(c)
         elif quote == '"' and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")] \
-                and _inside(text, held, i) is not False:     # in a substitution, double quotes of its own hold it
+                and _inside(text, held, i, seen) is not False:     # in a substitution, double quotes of its own hold it
             # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
             raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
@@ -821,17 +822,22 @@ CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 
 
-def _inside(text: str, held: list, i: int):
+def _inside(text: str, held: list, i: int, seen: dict):
     """None where `i` is in none of the $( or backticks that open at `held`; else whether a double quote of the
-    innermost one's own holds it: an odd count of them, since it opened, before `i`."""
-    inner = max((start for start in held if start < i < (_balanced(text, start + 2, ")") if text[start] == "$"
-                                                         else _balanced(text, start + 1, "`"))), default=None)
+    innermost one's own holds it: an odd count of them, since it opened, before `i`. Since `i` only grows, one that
+    closed is dropped from `held`, and `seen` keeps each one's end and its count so far, so each is read once (Codex)."""
+    for start in held:
+        if start not in seen:
+            seen[start] = _balanced(text, start + 2, ")") if text[start] == "$" else _balanced(text, start + 1, "`")
+    held[:] = [start for start in held if seen[start] > i]
+    inner = max((start for start in held if start < i), default=None)
     if inner is None:
         return None
-    quotes, j = 0, inner
+    j, quotes = seen.get((inner, "quotes"), (inner, 0))
     while j < i:
         quotes += text[j] == '"'
         j += 2 if text[j] == "\\" else 1
+    seen[(inner, "quotes")] = (j, quotes)
     return quotes % 2 == 1
 
 
