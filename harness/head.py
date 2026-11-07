@@ -4,7 +4,7 @@
 `unpack(data, sha, into)` writes it into the new folder `into` by hand, member by member, with no library's extraction:
 each header is read and checked before anything is written, and the whole archive is refused at the first member that
 fails. A member is written only as a regular file or a directory, each inside `into`, by a name with no `..`, no absolute
-path and no byte that is not UTF-8, named once; a link is never written, a device or a FIFO refuses the archive, and so
+path, no `.git` and no byte that is not UTF-8, named once; a link is never written, a device or a FIFO refuses the archive, and so
 do more than `MEMBERS` members, more than `UNPACKED` bytes unpacked, or an end that is not two zero blocks and padding.
 The archive is the commit's as git archives it, so a file the commit's .gitattributes marks export-ignore is not in it,
 and one marked export-subst is not as committed (decision 0138): so `tree(transport, repo, sha)` reads the commit's tree,
@@ -114,6 +114,10 @@ def _parts(name: str, top: str) -> list:
     parts = name.rstrip("/").split("/")
     if any(part in ("", ".", "..") for part in parts):
         raise Refused("a member's name climbs, or holds an empty or a dot segment")
+    # Git never archives its own folder, and a head that held one would hand the model a history, a case's answer among
+    # what it could hold (issue 614). Read as a case-blind file system reads it.
+    if any(part.casefold() == ".git" for part in parts):
+        raise Refused("a member's name holds a .git segment")
     if parts[0] != top:
         raise Refused("a member is outside the archive's one folder")
     return parts[1:]

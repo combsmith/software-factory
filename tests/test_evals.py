@@ -1399,6 +1399,65 @@ class EvalJob(unittest.TestCase):
             with mock.patch.object(job, table, getattr(job, table)[1:]):
                 self.assertTrue(validate(job.current_facts(then), known["facts"], schemas=known), table)
 
+    def test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history(self):  # issue 614
+        # What keeps a case's answer from the model is that its Task is built from the case's facts, diff and head alone.
+        # A marker the answer holds reaches neither the Task, nor the prompt, nor any file the read tools can reach, which
+        # are the head's, the folder the CLI is started in; and the head holds no `.git`, whose history could hold it.
+        import os
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        marker = "answer-marker-q7zx"
+        case["expected"]["finding"]["location"] = {"path": "kernel/%s.py" % marker, "start_line": 86}
+        answer = json.dumps(case["expected"], sort_keys=True)
+        seen = {"files": {}, "folders": []}
+
+        class Reading(live.CLI):
+            """The CLI, which reads at its call every file of the folder it is started in, as the read tools may."""
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    for folder, folders, names in os.walk(given["head"]):
+                        seen["folders"] += folders
+                        for name in names:
+                            seen["files"][os.path.join(folder, name)] = pathlib.Path(folder, name).read_bytes().decode("utf-8", "replace")
+                return super().__call__(args, env, timeout, **given)
+        built, answered = [], step.live.answer
+
+        def answering(the_task, *given, **named):
+            built.append(json.dumps(the_task, sort_keys=True))
+            return answered(the_task, *given, **named)
+
+        def scored(heads=None):
+            cases = {case["id"]: (json.dumps(case, indent=2) + "\n").encode()}
+            self.set(cases)
+            self.step(job.plan)
+            self.step(job.fetch, self.home(cases), *([heads] if heads else []))
+            kept_plan = json.loads((self.temp / "heldout" / "plan.json").read_text())
+            (self.temp / "heldout" / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
+            cli = Reading(said=live.answer(live.judged(findings=[], effects={})))
+            with mock.patch.object(step.live, "answer", answering):
+                said = self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
+            return said, cli
+        said, cli = scored()
+        self.assertEqual((said, len(cli.asked()), len(built)), ("scored 1 of 1 cases, 0 passed", 1, 1), "the case is asked of the model")
+        self.assertTrue(seen["files"], "the head is read at the call")
+        for where, text in [("the Task", built[0]), ("the prompt", json.dumps(cli.asked()[0]["args"]))] + sorted(seen["files"].items()):
+            self.assertNotIn(marker, text, where)
+            self.assertNotIn(answer, text, where)
+        self.assertNotIn(".git", [name.casefold() for name in seen["folders"]] + [os.path.basename(f).casefold() for f in seen["files"]])
+        # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
+
+        class Historied(Heads):
+            def send(self, req):
+                from adapters import github
+                from tests import support
+                sha = github.TARBALL.fullmatch(req["path"]).group(3)
+                return {"status": 200, "headers": {}, "body": support.tarball(sha, [("README.md", b"0", b"# a repo\n"),
+                        (".git/HEAD", b"0", b"ref: refs/heads/main\n")]).decode("utf-8", errors="surrogateescape")}
+        said, cli = scored(Historied())
+        self.assertEqual((said, cli.asked()), ("scored 1 of 1 cases, 0 passed", []))
+        self.assertEqual([c["reasons"] for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [["head_unreadable"]])
+
     def test_a_case_the_set_predates_is_filled_where_it_is_read_and_the_live_path_is_not(self):  # decision 0105
         # Each default is what the field says of a pull request of which nothing is known: never reopened, no review past
         # retention, no ruling on a thread. A field a case gives is its own; the live path still refuses such facts.
