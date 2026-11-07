@@ -1,0 +1,30 @@
+# NNNN. A machine user's approval is measured from the act that read the description, and one nothing anchors holds an edit
+
+Status: accepted. The Factory Builder's ruling of 2026-11-07 on issue 195, "The approving act: the machine user approves from a Run with no Engine, bound to the admitted commit", answering the requirement issue 550, "Gaps record 0140 names: edits around the approval and the queue's merge, issues linked by hand", left on it. It amends decision 0135's anchor and the first clause of decision 0140's row "What it does not see". Nothing else in either changes.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| An act's approval | A machine user's approval is measured from the start of the latest `issue-approval` Run on its content that began at or before it, read from this item's run records | The approving act reads the description after its Run starts and before its approval lands. Measured from the approval, an edit in those seconds came before it and held nothing |
+| A browser's approval | One with no such Run, where a record of this item began at or before it, is measured from its own time | Decision 0046 lets the Maintainer approve his own change as the machine user in the browser, and a person reads as they approve. Holding it would hold nearly every such pull request, since a reviewer App edits most descriptions once, seconds after opening (decision 0140) |
+| One nothing anchors | One with no record of this item as old as it is measured from before every time, so any edit holds the item (`description_edited_after_approval`) until a person approves after the edit, as before | Records expire oldest first, and an act's Run starts before its approval, so the act's Run is never gone while a record as old as the approval stays. With none, it may be an act's whose Run is past retention, and falling back to the approval's own time would open the gap again. A record list that cannot be read already defers the item as incomplete facts |
+| The residual | An item whose oldest retained record postdates a browser's approval holds on any edit, and needs a person to look | It fails safe, and only on an item older than the records' retention |
+| A record in the approval's second | It reaches back, as one before it does | An act's Run starts seconds before its approval, and the simulator's world records its act's Run in its approval's own second |
+| What it reads | The run records the Kernel already has, and their `started_at`. `facts/1` gains no field, so the held-out cases are unchanged | A record already says when each Run started |
+| The simulator | `description_anchor` with no records given measures each approval from its own time, which is the world's own reading, as its act's Run starts in its approval's second. `derive` always gives the records. `sim/world.py` and `tests/test_simulator.py`, both protected, are unchanged | The world's approvals all come from its act, so its runs read alike either way |
+| What stays | Decision 0135's rule, the first approval since a person's look and never the latest, the outsider's anchor, and its handling of a second. Decision 0140's other clauses: an edit after the last pass and before the queue's merge, and an issue linked by hand | Only the anchor's time changes |
+
+## Why
+
+Decision 0140 named it: an edit after the approving act's last read and before its approval lands is timed before the approval, and holds nothing. The act re-reads the item and asks the Kernel again before it approves (decision 0055), so the only edit it cannot see is one in its own last seconds. Its Run's start is earlier than that read, so measuring from it errs early, and needs no new fact.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| An act's approval is measured from its Run's start, so an edit between the act's read and its approval holds; an act on other content, one begun after the approval, or a Run of another Intent is not the act that read it | `tests/test_decide.py::test_an_approval_is_anchored_at_the_act_that_read_the_description`, `kernel/derive.py`, mutant: "an act's approval is anchored at the approval", mutant: "an act on other content anchors an approval", mutant: "an act begun after the approval anchors it", mutant: "any Run on the content is the act that read it" |
+| A browser's approval, after a record of the item or in its second, is measured from its own time | `tests/test_decide.py::test_an_approval_is_anchored_at_the_act_that_read_the_description`, `kernel/derive.py`, mutant: "a browser's approval is unanchored", mutant: "a record in the approval's second does not reach back" |
+| An approval with no record of this item as old as it holds any edit until a person approves after it; another item's records do not count | `tests/test_decide.py::test_an_approval_is_anchored_at_the_act_that_read_the_description`, `kernel/derive.py`, mutant: "an approval with no record as old as it is the browser's", mutant: "another item's records reach back before an approval" |
+| The Kernel reads the anchor with the item's run records | `tests/test_decide.py::test_an_approval_is_anchored_at_the_act_that_read_the_description`, `kernel/derive.py`, mutant: "derive reads the description's anchor without the records" |
+| With no records given, each approval is measured from its own time, as the simulator's world reads it | `tests/test_simulator.py::test_the_worlds_reading_of_an_edit_after_the_approval_is_the_kernels`, `kernel/derive.py`, mutant: "with no records given an approval is unanchored" |

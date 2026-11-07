@@ -1783,7 +1783,7 @@ class Convergence(unittest.TestCase):
         # An approval in the second of the look came after it, as far as can be told: it anchors a later edit.
         same = [review(kind="human", name="don-petry", at="2026-10-11T12:05:00Z"), review(at="2026-10-11T12:05:00Z"),
                 review(commit="c0", content="sha256:0000", at="2026-10-11T12:20:00Z")]
-        d = go(facts(reviews=same, description_edited_at="2026-10-11T12:10:00Z"), REVIEWED)
+        d = go(facts(reviews=same, description_edited_at="2026-10-11T12:10:00Z"), [run(at="2026-10-11T12:00:00Z")])
         self.assertEqual(d["reason"], "description_edited_after_approval")
         # An outsider's admitted pull request, approved, then the outsider's own edit: held, as the Lifecycle declares a
         # stranger may hold it (I-28 as narrowed). On an outsider's the anchor is the person's look itself, so an edit
@@ -1828,6 +1828,48 @@ class Convergence(unittest.TestCase):
                 del f["description_edited_at"]
             d = go(f, REVIEWED)
             self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("defer", "description_unreadable", "needs_you"), unreadable)
+
+    def test_an_approval_is_anchored_at_the_act_that_read_the_description(self):  # issue 195, decision 0140
+        # The approving act reads the description after its Run starts and before its approval lands: an edit between
+        # the two is measured against the Run's start, so it holds. A machine user's approval with no act's Run is the
+        # browser's where a record of the item began before it, anchored at its own time (decision 0046); one with no
+        # record as old as it holds, as nothing shows when it read.
+        approval = review(at="2026-10-11T12:15:00Z")
+        act = run(intent="issue-approval", at="2026-10-11T12:14:00Z", name="r2")
+        acted = REVIEWED + [act]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", acted),
+                         "2026-10-11T12:14:00Z")
+        for edited, held in (("2026-10-11T12:14:30Z", True), ("2026-10-11T12:14:00Z", True), ("2026-10-11T12:13:00Z", False)):
+            d = go(facts(reviews=[approval], description_edited_at=edited), acted)
+            self.assertEqual(d["reason"] == "description_edited_after_approval", held, edited)
+        # An act on other content, or one that began after the approval, is not the one that read it: the approval is
+        # the browser's, anchored at its own time, so the same edit holds nothing.
+        for other in (run(intent="issue-approval", content="sha256:0000", at="2026-10-11T12:14:00Z", name="r2"),
+                      run(intent="issue-approval", at="2026-10-11T12:20:00Z", name="r2"),
+                      run(intent="review-change", at="2026-10-11T12:14:00Z", name="r2")):
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [other])
+            self.assertEqual(d.get("action"), "enqueue", other)
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", REVIEWED + [other]),
+                             "2026-10-11T12:15:00Z", other)
+        # The browser's approval, after a record of the item, is anchored at its own time, a record in its own second
+        # among them; an edit before it holds nothing, one after it holds.
+        for records in (REVIEWED, [run(at="2026-10-11T12:15:00Z")]):
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", records),
+                             "2026-10-11T12:15:00Z", records)
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), records)
+            self.assertEqual(d.get("action"), "enqueue", records)
+        # With no record as old as the approval, an act's Run may be past retention: any edit holds, one before it too,
+        # until a person approves after the edit.
+        later = [run(at="2026-10-11T12:16:00Z")]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", later), "")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), later)
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "description_edited_after_approval"))
+        looked = [approval, review(kind="human", name="don-petry", at="2026-10-11T12:20:00Z")]
+        self.assertEqual(go(facts(reviews=looked, description_edited_at="2026-10-11T12:10:00Z"), later).get("action"),
+                         "enqueue")
+        # Only this item's records count, as old as the approval or not.
+        elsewhere = dict(run(at="2026-10-11T12:00:00Z"), item={"repo": "combsmith/other", "number": 9})
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", later + [elsewhere]), "")
 
     def test_approver_is_never_the_author_or_last_pusher(self):  # I-26
         for who in ("author", "last_pusher"):
