@@ -6795,6 +6795,41 @@ fi
                 self.assertIn("could not be made new by this run", told)
                 self.assertEqual(list(elsewhere.iterdir()), [], "a directory was made through the link")
 
+    def test_a_link_in_outs_path_put_there_before_the_run_is_refused_whoever_owns_it(self):
+        # Issue 602 (Argon on #601): before the parents are made, the runner reads the deepest directory of OUT's path that
+        # stands, and the cd that reads it follows a link. One another user put in a sticky directory before the run would
+        # take OUT into a directory of the runner's own, where the check passes. Where the cd went must be the path as
+        # named, so a link as that directory, as OUT's parent or above one that stands is refused, named from / or from
+        # where the run stands, and nothing is made where it leads. Whoever owns the link: a hard link keeps its owner
+        # (the Claude review). A path with . or a doubled / in it, and no link, is made as before.
+        for script in list(self.SANDBOX) + ["trial_p59_read_confinement.sh"]:
+            for named, relative in (("a/new/out", False), ("a/out", False), ("a/deeper/new/out", False),
+                                    ("a/new/out", True), ("./a//deeper/new/out", True)):
+                with self.subTest(script=script, out=named, relative=relative):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    sticky, elsewhere = folder / "sticky", folder / "elsewhere"
+                    sticky.mkdir()
+                    sticky.chmod(0o1777)
+                    (elsewhere / "deeper").mkdir(parents=True)
+                    (sticky / "a").symlink_to(elsewhere)
+                    try:
+                        code, told = self.run_out(script, folder, "sticky/" + named if relative else sticky / named)
+                    finally:
+                        sticky.chmod(0o700)
+                    self.assertEqual(code, 2, told)
+                    self.assertIn("by a link, which another user may have put there", told)
+                    self.assertEqual([p.name for p in elsewhere.iterdir()], ["deeper"], "a directory was made through the link")
+                    self.assertEqual(list((elsewhere / "deeper").iterdir()), [], "a directory was made through the link")
+            # Named from / and from where the run stands: a relative one is read from there, not from / (Astra); and a
+            # directory called -, which cd would take as where it was before (the Claude review).
+            for named, real in (("%s//real/./new/out", "real"), ("./real//./new/out", "real"), ("-/new/out", "-")):
+                with self.subTest(script=script, out=named):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    (folder / real).mkdir()
+                    code, told = self.run_out(script, folder, named.replace("%s", str(folder)))
+                    self.assertNotIn("by a link", told)
+                    self.assertTrue((folder / real / "new" / "out").is_dir(), told)
+
     def test_the_four_that_make_out_later_make_it_for_their_user_alone(self):
         # Issue 424: a parent no other can write to is little use if OUT itself takes the umask.
         for script in self.OTHERS:
