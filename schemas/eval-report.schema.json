@@ -61,7 +61,7 @@
       "description": "Each model the CLI said answered a case, by the id it gave, not the configured name (issue 616): one where the run is whole.",
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string", "pattern": "^[a-z0-9.-]+$" }
+      "items": { "type": "string", "pattern": "^[a-z0-9.-]{1,64}$" }
     },
     "prompt_sha256": {
       "description": "The sha256 of the Role's prompt, roles/<role>/prompt.md, at the commit, or null where there is none.",

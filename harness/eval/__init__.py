@@ -58,7 +58,7 @@ WORD = re.compile(r"[a-z][a-z_]{0,63}")
 # run that failed): any other is `other`, so that whatever a later pin echoes there is never words (the security pass).
 SUBTYPES = ("success", "error_during_execution", "error_max_turns", "error_max_structured_output_retries",
             "error_max_budget_usd")
-MODEL = re.compile(r"[a-z0-9.-]+")      # a model's id as result/1 holds it
+MODEL = re.compile(r"[a-z0-9.-]{1,64}")     # a model's id as result/1 holds it, and no longer than a name is
 # What a case the CLI was never asked used: no turn or cost it could report, and no time (issue 616).
 NOT_ASKED = {"turns": None, "cost_usd": None, "seconds": 0}
 
@@ -527,8 +527,9 @@ def used(usage) -> dict:
 def models(usages: dict) -> list:
     """Each model a case's CLI said answered it, by the id it gave, not the configured name: one, where the run is
     whole (issue 616)."""
-    named = {u.get("answering_model") for u in usages.values() if isinstance(u, dict)}
-    return sorted(m for m in named if isinstance(m, str) and MODEL.fullmatch(m))
+    named = [u.get("answering_model") for u in usages.values() if isinstance(u, dict)]
+    # Held to an id before any is compared, so that one of another shape is left out, not raised on (Astra).
+    return sorted({m for m in named if isinstance(m, str) and MODEL.fullmatch(m)})
 
 
 def identity(root: pathlib.Path, role: str) -> dict:
@@ -639,8 +640,8 @@ def tally(document: dict, configured: str = None) -> str:
                       + (", %d at an alternate place" % alternate if alternate else ""),
                       ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed
                      + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))]
-                     + (["answered by %s, not the configured %s" % (", ".join(document.get("models", [])) or "no model named",
-                                                                     configured)]
+                     # A run no model answered says so by its codes; one another did names it (the Claude review).
+                     + (["answered by %s, not the configured %s" % (", ".join(document["models"]), configured)]
                         if configured is not None and document.get("models") not in ([], [configured]) else []))
 
 

@@ -909,6 +909,21 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.score, lambda case: other if case["id"] == second else result), "scored 2 of 2 cases, 2 passed")
         self.assertEqual(json.loads((self.work / job.REPORT).read_text())["models"], ["claude-opus", "claude-sonnet"])
         self.assertEqual(self.step(job.judge), "2 of 2 passed; no code; answered by claude-opus, claude-sonnet, not the configured claude-opus")
+        # As a live Run is, another model's answer is a failed Result, `engine_model`, which fails the run: what it used is
+        # kept all the same, and the judge's log names the model (Astra, the Claude review).
+        refused = dict(result, status="failed", reason="engine_model", findings=[], dispositions=[], effects={}, coverage=[],
+                       usage=dict(result["usage"], answering_model="claude-sonnet", turns=3, cost_usd=0.25, seconds=8))
+        self.step(job.score, lambda case: refused if case["id"] == second else result)
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["models"], written["cases"][1]["usage"]),
+                         (["claude-opus", "claude-sonnet"], {"turns": 3, "cost_usd": 0.25, "seconds": 8}))
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
+        self.assertIn("engine_model 1", out.getvalue())
+        self.assertIn("; answered by claude-opus, claude-sonnet, not the configured claude-opus\nengine_fault\n", out.getvalue())
+        # A model's id of another shape is left out, not raised on.
+        self.assertEqual(job.models({"a": {"answering_model": []}, "b": {"answering_model": {"x": 1}},
+                                     "c": {"answering_model": "claude-opus"}, "d": {"answering_model": "a" * 65}}), ["claude-opus"])
         # A case never asked used nothing; with no prompt or rubric in the Release, neither is named.
         (self.root / "roles" / "pr-review" / "prompt.md").unlink()
         (self.root / "config" / "rubric-pr-review.json").unlink()
