@@ -1,4 +1,4 @@
-# NNNN. The poller's shim stands on main, and a paused pass dispatches nothing
+# 0159. The poller's shim stands on main, and a paused pass dispatches nothing
 
 Status: accepted. The Factory Builder's rulings of 2026-11-07 on the plan for the shims of "Workflows: the frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape" (issue 196). This is its PR B, the poller's shim, after `docs/decisions/0157-an-acts-shim-is-the-runs-but-for-its-name-and-the-file-it-calls.md` put on `main` the three shims that dispatch a Run. It lands under the repo's own Pause, `FACTORY_PAUSED` set to `true` by the Maintainer, without waiting for the ruleset switch of "The ruleset switch: main requires the machine user's approval of the most recent commit, and slice 1's event is recorded" (issue 198). A live pass that admits nothing is worth seeing before slice 1's event, and a public repo's minutes are free.
 
