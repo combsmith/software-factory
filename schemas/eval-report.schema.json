@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "eval-report/1: what the eval job uploads of one run over a held-out set: the Release and commit it judged, the set by its count and the sha256 of its manifest, and each case by its id and hash with its verdict and the codes that say why it was not read or what the scorer found (decisions 0109 and 0120). Each is a code of this enum. No case's content and no word of the model's is here, and none may be.",
+  "title": "eval-report/1: what the eval job uploads of one run over a held-out set: the Release and commit it judged, the set by its count and the sha256 of its manifest, the models that answered and the Role's prompt and rubric by their sha256, and each case by its id and hash, with what it used, its verdict and the codes that say why it was not read or what the scorer found (decisions 0109 and 0120). Each is a code of this enum. No case's content and no word of the model's is here, and none may be.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -9,6 +9,9 @@
     "commit",
     "role",
     "intent",
+    "models",
+    "prompt_sha256",
+    "rubric_sha256",
     "set",
     "cases",
     "passed",
@@ -54,6 +57,22 @@
         }
       }
     },
+    "models": {
+      "description": "Each model the CLI said answered a case, by the id it gave, not the configured name (issue 616): one where the run is whole.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9.-]+$" }
+    },
+    "prompt_sha256": {
+      "description": "The sha256 of the Role's prompt, roles/<role>/prompt.md, at the commit, or null where there is none.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rubric_sha256": {
+      "description": "The sha256 of the Role's rubric, config/rubric-<role>.json, at the commit, or null where there is none.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "cases": {
       "type": "array",
       "uniqueItems": true,
@@ -64,7 +83,8 @@
           "id",
           "sha256",
           "verdict",
-          "reasons"
+          "reasons",
+          "usage"
         ],
         "properties": {
           "id": {
@@ -127,6 +147,17 @@
                 "location_unreadable",
                 "criterion_unknown"
               ]
+            }
+          },
+          "usage": {
+            "description": "What the case used, from the CLI's own answer: turns and cost in USD, null where the CLI reported none or was never asked, and seconds, 0 where it was never asked (issue 616). Numbers alone.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["turns", "cost_usd", "seconds"],
+            "properties": {
+              "turns": { "type": ["integer", "null"], "minimum": 0 },
+              "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+              "seconds": { "type": "number", "minimum": 0 }
             }
           },
           "at_alternate": {
