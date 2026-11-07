@@ -1,4 +1,4 @@
-# NNNN. A machine user's approval is measured from the act that read the description, and one nothing anchors holds an edit
+# 0158. A machine user's approval is measured from the act that read the description, and one nothing anchors holds an edit
 
 Status: accepted. The Factory Builder's ruling of 2026-11-07 on issue 195, "The approving act: the machine user approves from a Run with no Engine, bound to the admitted commit", answering the requirement issue 550, "Gaps record 0140 names: edits around the approval and the queue's merge, issues linked by hand", left on it. It amends decision 0135's anchor and the first clause of decision 0140's row "What it does not see". Nothing else in either changes.
 
