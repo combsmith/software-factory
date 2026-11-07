@@ -96,7 +96,7 @@ class Transport(unittest.TestCase):
                 github.request("GET", "/x", headers=headers)
 
     def test_the_storage_is_any_productionresults_account_numbered_in_one_to_three_digits(self):
-        # Decision NNNN, the Maintainer's ruling of 2026-11-06: GitHub serves an artifact from sa32, so the storage is
+        # Decision 0151, the Maintainer's ruling of 2026-11-06: GitHub serves an artifact from sa32, so the storage is
         # productionresultssa and one to three digits, with no leading zero; the rest of 0045's row stands.
         for number in ("0", "7", "10", "19", "20", "32", "99", "100", "199", "999"):
             url = "https://productionresultssa%s.blob.core.windows.net/actions-results/0a1b/outcome.zip?sig=redacted" % number

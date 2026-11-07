@@ -1,6 +1,6 @@
 # 0147. The Engine runs the pinned model by its full id, at the tier's effort, and keeps an answer only from that model
 
-Status: replaced by `docs/decisions/NNNN-the-artifact-storage-is-any-productionresults-account-numbered-in-one-to-three-digits.md`, which holds the rule in force.
+Status: replaced by `docs/decisions/0151-the-artifact-storage-is-any-productionresults-account-numbered-in-one-to-three-digits.md`, which holds the rule in force.
 
 ## Decision
 
