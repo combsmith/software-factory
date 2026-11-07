@@ -1,4 +1,4 @@
-# NNNN. The Kernel calls nothing it is given but `_decision`, and what fills `_decision` is a Kernel function
+# 0152. The Kernel calls nothing it is given but `_decision`, and what fills `_decision` is a Kernel function
 
 Status: accepted. The Factory Builder's story of 2026-11-06, issue 588, "The Kernel calls nothing it is given but `_decision`: check_purity refuses a call of a parameter". It widens decision 0001's rule, that the Kernel does no I/O, from what the Kernel imports and names to what it calls.
 
