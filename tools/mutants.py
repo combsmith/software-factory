@@ -97,6 +97,8 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
+NO_ANSWER = ("tests.test_evals.EvalJob.test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history",)
+NO_HISTORY = NO_ANSWER + ("tests.test_harness.Head.test_each_archive_the_unpacker_refuses_it_refuses_whole",)
 CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
@@ -8541,6 +8543,35 @@ MUTANTS = ISSUE + [
      ' or raised["category"] == SECURITY\n', '\n', CLEAN_CASE),
     ("a Finding that would hold a change fails a case that expects one", 'tools/eval_result.py',
      '        if covered != ["finding"]:\n', '        if covered != ["finding"] or any(_gates(f) for f in result["findings"]):\n', CLEAN_CASE),
+    # Issue 614: a Run is given no part of its case's answer, and its head no history.
+    ("the Task carries the case's answer", 'harness/eval/run.py',
+     '        # A diff over the Kernel\'s bound is cut in the Task,', '        the_task["expected"] = case["expected"]\n        # A diff over the Kernel\'s bound is cut in the Task,', NO_ANSWER),
+    ("the Task's texts carry the case's answer", 'harness/eval/run.py',
+     '            if "issue" in case else []\n',
+     '            if "issue" in case else [{"id": "issue:1", "by": {"kind": "human", "name": "a", "can_write": True}, "body": json.dumps(case["expected"])}]\n', NO_ANSWER),
+    ("a part of the case's answer reaches the Task's texts", 'harness/eval/run.py',
+     '            if "issue" in case else []\n',
+     '            if "issue" in case else [{"id": "issue:1", "by": {"kind": "human", "name": "a", "can_write": True}, "body": case["expected"]["criterion"]}]\n', NO_ANSWER),
+    ("the prompt alone carries the case's answer", 'harness/eval/run.py',
+     '            return live.answer(the_task, env, config, watched, clock, head=head)\n',
+     '            return live.answer(the_task, env, config, lambda a, **k: watched(a if a[1:] == ["--version"] else a + [json.dumps(case["expected"])], **k), clock, head=head)\n', NO_ANSWER),
+    ("a part of the case's answer reaches the prompt alone", 'harness/eval/run.py',
+     '            return live.answer(the_task, env, config, watched, clock, head=head)\n',
+     '            return live.answer(the_task, env, config, lambda a, **k: watched(a if a[1:] == ["--version"] else a + [case["expected"]["criterion"]], **k), clock, head=head)\n', NO_ANSWER),
+    ("the head holds the case's answer", 'harness/eval/__init__.py',
+     '        head.unpack(head.fetch(transport, repo, sha), sha, within(folder, ident))\n',
+     '        head.unpack(head.fetch(transport, repo, sha), sha, within(folder, ident))\n        (folder / ident / "answer.json").write_text(json.dumps(case["expected"]))\n', NO_ANSWER),
+    ("a folder of the head is named for the case's answer", 'harness/eval/__init__.py',
+     '        head.unpack(head.fetch(transport, repo, sha), sha, within(folder, ident))\n',
+     '        head.unpack(head.fetch(transport, repo, sha), sha, within(folder, ident))\n        (folder / ident / case["expected"]["criterion"]).mkdir()\n', NO_ANSWER),
+    ("git's folder is refused only with something under it", 'harness/head.py',
+     'if any(part.casefold() == ".git" for part in parts):', 'if any(part.casefold() == ".git" for part in parts[:-1]):',
+     ("tests.test_harness.Head.test_each_archive_the_unpacker_refuses_it_refuses_whole",)),
+    ("the head may hold git's folder", 'harness/head.py',
+     '    if any(part.casefold() == ".git" for part in parts):\n', '    if False:\n', NO_HISTORY),
+    ("git's folder is refused only as git names it", 'harness/head.py',
+     'if any(part.casefold() == ".git" for part in parts):', 'if any(part == ".git" for part in parts):',
+     ("tests.test_harness.Head.test_each_archive_the_unpacker_refuses_it_refuses_whole",)),
     # Issue 574: the eval refuses a Result that posts a Finding off every hunk, as `apply` does, and the prompt says so.
     ("the scorer takes a Result that posts a Finding off every hunk", 'tools/eval_result.py',
      '    if result["status"] == "completed" and _off_hunks(case, result):\n', '    if False:\n', ('tests.test_evals.Scoring.test_a_posted_finding_off_every_hunk_fails_the_case_as_apply_refuses_the_result',)),
