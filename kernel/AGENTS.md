@@ -7,7 +7,7 @@ A queued item is read as if it were not, and stays only if that reading is appro
 
 | Rule | Held by |
 |---|---|
-| No I/O: no file, socket, process, environment variable or clock. The time is the argument `now`. Only `__future__`, `typing` and `kernel` are imported | `tools/check_purity.py` |
+| No I/O: no file, socket, process, environment variable or clock. The time is the argument `now`. Only `__future__` and `kernel` are imported | `tools/check_purity.py` |
 | Nothing is kept: a module holds imports, constants and functions, and no function has a default that can change | `tests/test_tools.py::test_state_kept_between_calls_is_caught` |
 | No call of a parameter but `_decision`, of a value it binds, or of a method `BUILTIN_METHODS` lacks | `tests/test_tools.py::test_the_kernel_calls_nothing_it_is_given`, `tests/test_tools.py::test_what_fills_a_decision_maker_is_a_kernel_function` |
 | Facts in, Decision out, as plain dictionaries and lists. An argument is never changed | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |

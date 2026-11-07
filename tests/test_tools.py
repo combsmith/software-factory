@@ -1717,8 +1717,20 @@ class Purity(unittest.TestCase):
                  "        return x\n    return g\n", "calls fetch, which it is given"),
                 ("def f(fetch):\n    def g(x: fetch()):\n        def fetch():\n            return 1\n"
                  "        return x\n    return g\n", "calls fetch, which it is given"),
-                ("import typing\n\n\ndef f(fetch):\n    return typing.get_type_hints(fetch)\n",
-                 "calls the method get_type_hints")):
+                ("def f(fetch):\n    def g(x=frozenset((run := fetch,))):\n        return x\n    return run()\n",
+                 "calls run, a value it binds"),
+                ("def f(fetch):\n    g = lambda x=(run := fetch): x\n    return run()\n", "calls run, a value it binds"),
+                ("import typing\n\n\ndef f(fetch):\n    return typing.get_type_hints(fetch)\n", "imports typing"),
+                ("from typing import sys\n\n\ndef f():\n    return sys.modules\n", "imports typing"),
+                ("from typing import get_type_hints\n\n\ndef f(fetch):\n    return get_type_hints(fetch)\n", "imports typing"),
+                ("def f(fetch):\n    def g(x: (h := fetch)):\n        return x\n    return h()\n", "calls h, a value it binds"),
+                ("def f(fetch):\n    def g() -> (h := fetch):\n        return 0\n    return h()\n", "calls h, a value it binds"),
+                ("def f(fetch):\n    return __build_class__(fetch, 'X')\n", "calls __build_class__, a builtin"),
+                ("def f(xs):\n    return sorted(xs, key=__build_class__)\n", "hands __build_class__ to be called"),
+                ("from __future__ import annotations\n\n\ndef f():\n    return annotations()\n",
+                 "calls annotations, which it imports but is no function of the Kernel's"),
+                ("from kernel.missing import g\n\n\ndef f():\n    return g()\n",
+                 "calls g, which it imports but is no function of the Kernel's")):
             self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), words), (text, words))
         for text in ("def f(_decision, facts):\n    return _decision(facts)\n",
                      "def f(xs):\n    key = lambda r: r['at']\n    return sorted(xs, key=key), key(xs[0])\n",
@@ -1776,6 +1788,7 @@ class Purity(unittest.TestCase):
             self.assertTrue(caught(got, words), (body, words, got))
         # However the function that takes it is imported, and wherever its place, what fills _decision is read.
         apply = "def apply(facts, _decision):\n    return _decision(facts)\n"
+        update = "def update(facts, _decision):\n    return _decision(facts)\n"
         for files in ({"kernel/brakes.py": brakes, "kernel/decide.py": "from .brakes import paused\n\n\n"
                        "def f(fetch, facts):\n    return paused(fetch, facts)\n"},
                       {"kernel/brakes.py": brakes, "kernel/decide.py": "from . import brakes\n\n\n"
@@ -1796,9 +1809,40 @@ class Purity(unittest.TestCase):
                       {"kernel/brakes.py": brakes, "kernel/__init__.py": "from kernel.brakes import paused\n",
                        "kernel/decide.py": "import kernel as k\n\n\ndef f(fetch, facts):\n    return k.paused(fetch, facts)\n"},
                       {"kernel/brakes.py": brakes, "kernel/other.py": "from kernel.brakes import paused\n",
-                       "kernel/decide.py": "from kernel.other import paused\n\n\ndef f(fetch, facts):\n    return paused(fetch, facts)\n"}):
+                       "kernel/decide.py": "from kernel.other import paused\n\n\ndef f(fetch, facts):\n    return paused(fetch, facts)\n"},
+                      {"kernel/a.py": update, "kernel/other.py": "from kernel import a\n",
+                       "kernel/decide.py": "from kernel.other import a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
+                      {"kernel/a.py": update, "kernel/other.py": "from . import a\n",
+                       "kernel/decide.py": "from .other import a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
+                      {"kernel/a.py": update, "kernel/pkg/__init__.py": "from kernel import a\n",
+                       "kernel/decide.py": "from kernel.pkg import a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
+                      {"kernel/a.py": update, "kernel/o1.py": "from kernel import a\n", "kernel/o2.py": "from kernel.o1 import a\n",
+                       "kernel/decide.py": "import kernel.o2 as o\n\n\ndef f(fetch, facts):\n    return o.a.update(facts, fetch)\n"}):
             got = check_purity.run(tree(files))
             self.assertTrue(caught(got, "gives fetch as _decision"), (files, got))
+        # A value, or a name no module defines, reached through a Kernel module is no Kernel function; and _decision
+        # is never taken as a spread of arguments.
+        terms = "LIMIT = 'x'\n"
+        for body, words in (("def f(facts):\n    return brakes.paused(terms.LIMIT, facts)\n", "gives terms.LIMIT as _decision"),
+                            ("def f(facts):\n    return brakes.paused(terms.NOPE, facts)\n", "gives terms.NOPE as _decision")):
+            got = check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/terms.py": terms,
+                                         "kernel/decide.py": "from kernel import terms\n" + head + body}))
+            self.assertTrue(caught(got, words), (body, got))
+        for taker in ("def paused(*_decision):\n    return _decision\n", "def paused(**_decision):\n    return _decision\n"):
+            self.assertTrue(caught(check_purity.run(tree({"kernel/brakes.py": taker})), "takes _decision as a spread"), taker)
+        # A positional-only _decision is filled by its place alone: a keyword of its name fills another parameter.
+        only = "def paused(_decision, /, **facts):\n    return _decision(facts)\n"
+        got = check_purity.run(tree({"kernel/brakes.py": only, "kernel/decide.py": head +
+                                     "def f(fetch):\n    return paused(fetch, _decision=_decision)\n"}))
+        self.assertTrue(caught(got, "gives fetch as _decision"), got)
+        # A module re-exported by another is a module however it is reached, and is never kept as a value.
+        files = {"kernel/a.py": update, "kernel/other.py": "from kernel import a\n",
+                 "kernel/decide.py": "from kernel.other import a\n\n\ndef f(fetch, facts):\n    m = a\n    return m.update(facts, fetch)\n"}
+        self.assertTrue(caught(check_purity.run(tree(files)), "names the module a"))
+        files = {"kernel/rules.py": brakes, "kernel/other.py": "from kernel import rules\n",
+                 "kernel/decide.py": "from kernel.other import rules\n\n\ndef _decision(facts):\n    return facts\n\n\n"
+                 "def decide(facts):\n    return rules.paused(_decision, facts)\n"}
+        self.assertEqual(check_purity.run(tree(files)), [])
 
     def test_each_decision_maker_the_kernel_fills_is_a_kernel_function(self):
         # Issue 588: on the Kernel as it stands, the functions that take _decision are the brakes' and run_deferral,
