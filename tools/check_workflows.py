@@ -79,9 +79,9 @@ RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.y
 # Each shim, held word for word by a hash taken with the pins left out, as EXEMPT holds ci.yml: a change to one fails
 # until the same pull request records its new hash, and `.github/` is the Maintainer's to approve. The three that
 # dispatch a Run are live, and inert while nothing dispatches them; the poller's is not yet (issue 196's plan).
-SHIMS = {"run.yml": "28b19e2e05b527f1acf4c03e92cd8c89dc2f78c194b74f45f9165a1966bd99e8",
-         "approve.yml": "6ebd528ac85520930f5cf29277e87a95e40a36e588d571221a4fe740dfcd2742",
-         "queue.yml": "9a18fb4019cd916e5727f224f14786c8cfc2fbd598ea934997fd42eae8409a19"}
+SHIMS = {"run.yml": "e0888dab368e920697894e9064a075af9ef070aaaafccff0da748f07d780b78c",
+         "approve.yml": "de636e91105e0f1a0b503680cee262c1466205889d239d2482d314bf34496430",
+         "queue.yml": "f29c8cac13dcd722ccabcfb7143a821feffcc5efa4d2754dc6a1ec53207c51b1"}
 # A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
 # commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309); and the Run's
 # jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196); and the approving
@@ -138,7 +138,7 @@ jobs:
 """
 # The approving act's shim and the queue act's (issue 196's plan, its PR A): each the Run's shim but for its name and
 # the file it calls, so each act's Run is named by the run-name the pass gave it, as the records port reads a Run, holds
-# its item's lane beside the Run's, and starts only from the pass's own token, on a first attempt, never under a Pause
+# its item's lane beside the Run's, and starts only on a dispatch by the account the pass's own token runs as, on a first attempt, never under a Pause
 # (decisions 0055 and 0128).
 APPROVE_SHIM = """name: sf-approve
 run-name: ${{ inputs.name }}

@@ -3443,6 +3443,9 @@ class Workflows(unittest.TestCase):
         for name, called, other in (("approve.yml", "approve-job.yml", "queue-job.yml"),
                                     ("queue.yml", "queue-job.yml", "approve-job.yml")):
             shim = check_workflows.LANE_SHIMS[name][0] % 41898282
+            # The Run's shim, line for line, but for its name and the file it calls.
+            self.assertEqual(shim, (check_workflows.RUN_SHIM % 41898282).replace(
+                "name: sf-run\n", "name: sf-%s\n" % name[:-len(".yml")], 1).replace("/run-jobs.yml@", "/%s@" % called), name)
             self.assertEqual(self.run_tree(shim, token, name), [], name)
             self.assertEqual(check_workflows.lint(shim), [], name)
             for held in ("run-name: ${{ inputs.name }}\n", condition, "      actions: write\n",
@@ -3492,6 +3495,7 @@ class Workflows(unittest.TestCase):
         # run.yml, approve.yml and queue.yml are on main, each its template word for word, its dispatcher the account
         # config/controller.json names, and its bytes the hash SHIMS records; and no hash in SHIMS is of a file not there.
         live = ROOT / ".github" / "workflows"
+        self.assertEqual(set(check_workflows.LANE_SHIMS), {"run.yml", "approve.yml", "queue.yml"})
         for name in check_workflows.LANE_SHIMS:
             text = (live / name).read_text()
             self.assertEqual(check_workflows.shim_problems(name, text), [], name)

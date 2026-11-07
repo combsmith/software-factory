@@ -1,7 +1,8 @@
-# The queue act's shim, frozen: it calls the act's job at the channel, in its item's lane, only when the pass's own
-# token dispatched it, on a first attempt, with no Pause set. Nothing dispatches it while config/controller.json
-# names no queue App (decision 0128). tools/check_workflows.py holds it word for word, as QUEUE_SHIM, and by its
-# hash in SHIMS.
+# The queue act's shim, frozen: it calls the act's job at the channel, in its item's lane, only on a first attempt
+# with no Pause set, dispatched by 41898282, the account the pass's own token runs as (and every workflow's token
+# here, so the check's rule that only the pass job may dispatch is what holds it). Nothing dispatches it while
+# config/controller.json names no queue App (decision 0128). tools/check_workflows.py holds it word for word, as
+# QUEUE_SHIM, and by its hash in SHIMS.
 name: sf-queue
 run-name: ${{ inputs.name }}
 on:

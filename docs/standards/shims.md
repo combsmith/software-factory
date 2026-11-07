@@ -57,9 +57,9 @@ it names, never its own nor `sf-run`, and reads nothing of the run that woke it:
 dispatch takes no input. Its schedule is three lines an hour, none at minute 0. Its job, `pass`, is granted a write,
 `actions: write`, which starts the Runs and the successor with the job's own token (§4.9, P-9); the id `pass` is
 poller.yml's and pass.yml's alone. Two others hold that grant and no other write: `wake`, a Run's last job in
-run-jobs.yml and approve-job.yml, with no secret, environment, checkout or input, since a Run that token started wakes
-nothing when it ends (trial P-55); and `lane`, the calling job in run.yml and approve.yml, since a called job can be
-granted no more than its caller. Each id is those files' alone. Every shim's job holds a group of its own that waits,
+run-jobs.yml, approve-job.yml and queue-job.yml, with no secret, environment, checkout or input, since a Run that token
+started wakes nothing when it ends (trial P-55); and `lane`, the calling job in run.yml, approve.yml and queue.yml,
+since a called job can be granted no more than its caller. Each id is those files' alone. Every shim's job holds a group of its own that waits,
 never cancelling the run in progress.
 
 Org standard: none; the org's workflows do not wake on another's end.
@@ -89,8 +89,12 @@ job, so it holds from `run` to `apply`. An expression may stand whole as the run
 approve.yml and queue.yml, the approving act's shim and the queue act's, are the Run's shim but for their names,
 `sf-approve` and `sf-queue`, and the file each calls, approve-job.yml and queue-job.yml: `APPROVE_SHIM` and `QUEUE_SHIM`
 hold each word for word. So each act's Run is named by the run-name the pass gave it, as the records port reads a Run,
-holds its item's lane beside the Run's, and starts only from the pass's own token, on a first attempt, with no Pause set
-(decisions 0055 and 0128). No file but its own shim calls an act's job, and a job that calls one holds its item's lane.
+holds its item's lane beside the Run's, and starts only on a dispatch by the account the pass's own token runs as, on a
+first attempt, with no Pause set (decisions 0055 and 0128). No file but its own shim calls an act's job, and a job that
+calls one holds its item's lane. That account is every workflow's own token here, not the pass's alone: a dispatch is
+the pass's because no job of the Factory's files but `pass`, `wake` and `lane` is granted `actions: write`. A person
+with write access can still push a workflow of their own that dispatches one, as the workflows' story accepted; the
+act's step then reads the item again and acts only on what the Kernel still wants.
 
 Org standard: none; the org's workflows run no Run.
 Held by: `examples/workflows/invalid/lane.cancels-the-run-in-progress.yml`, `examples/workflows/invalid/lane.one-lane-for-every-item.yml`, `examples/workflows/invalid/lane.a-run-with-no-group.yml`, `examples/workflows/invalid/expression.text-around-the-run-name.yml`, `tests/test_tools.py::test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running`, `tests/test_tools.py::test_every_run_dispatch_carries_an_item_and_the_poller_takes_none`, `tests/test_tools.py::test_a_run_starts_only_from_the_poller_and_never_under_a_pause`, `examples/workflows/invalid/lane.an-act-outside-its-items-lane.yml`, `tests/test_tools.py::test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls`, `tests/test_tools.py::test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes`
