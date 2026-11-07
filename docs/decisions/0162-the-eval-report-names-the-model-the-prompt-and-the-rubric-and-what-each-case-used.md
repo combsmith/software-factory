@@ -1,4 +1,4 @@
-# NNNN. The eval report names the model, the prompt and the rubric, and what each case used
+# 0162. The eval report names the model, the prompt and the rubric, and what each case used
 
 Status: accepted. The Factory Builder's story of 2026-11-07, issue 616, "The eval report records the model, prompt and rubric it ran, and each case's usage", of the gate-v1 set. `config/harness.json` named the model, but `eval-report/1` held no model, prompt or rubric, and nothing of what a case used. So a change between two Releases' scores could come from the model or the prompt and nobody could tell, and the tier's limits could not be tuned from what a run used.
 
