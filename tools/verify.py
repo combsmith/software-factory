@@ -68,11 +68,19 @@ def suite(fast: bool) -> unittest.TestSuite:
     return unittest.TestSuite(item for item in whole if not _modules(item) & slow)
 
 
+def notes() -> list:
+    """What `verify` says of the records before the tests: what they were compared with, and how many Boundary rows
+    name no mutant yet (issue 590)."""
+    return ["%-22s %s" % ("decision base", check_decisions.described()),
+            "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]
+
+
 def main(argv: list) -> int:
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
         return 1 if checks_failed else 0
-    print("%-22s %s" % ("decision base", check_decisions.described()))
+    for line in notes():
+        print(line)
     unverified(check_trials.unverified())
     result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv))
     return 1 if checks_failed or not result.wasSuccessful() else 0

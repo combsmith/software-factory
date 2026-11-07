@@ -29,7 +29,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 | The Lifecycle terminates; the Factory cannot cycle without a bound or a person | `tools/check_lifecycle.py` |
 | Every category of Finding has one owner; no Role judges its own work | `tools/check_authority.py` |
 | Every Kernel rule has a boundary test, and a mutant that the test kills | `tools/mutants.py` |
-| The invariants hold under injected faults, on fixed seeds | `tests/test_simulator.py` |
+| The invariants hold under injected faults, on fixed seeds | `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | Nothing is installed or fetched; no secret is written down; outside `adapters/`, only the callers a check lists reach a GitHub write | `tools/check_repo.py`, `tools/check_writes.py` |
 | A workflow is pinned, least-privileged and holds no logic; every commit a pull request carries names the Maintainer, and a listed account opened it from this repo | `tools/check_workflows.py`, `tools/commits_are_the_maintainers.py` |
 | Every rule, lesson and decision names its check; this file stays short | `tools/check_context.py` |
