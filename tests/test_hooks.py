@@ -1528,16 +1528,23 @@ class Identity(unittest.TestCase):
         # One that begins a word is read as before.
         self.assertEqual(shell.commands("echo `date` > notes.txt"), [(["echo"], []), (["date"], []), ([], [(">", "notes.txt")])])
         # Issue 579: a quote that runs past where its backtick ends, which bash reads apart from it, and a ' in a "${...}",
-        # which bash reads as a quote and zsh as a character, cannot be read, so the hooks ask. A quote that closes in its
-        # backtick, and a "${...}" with no ', are read as before.
+        # which the shell reads as a character and this reading would take as a quote, cannot be read, so the hooks ask.
+        # A quote that closes in its backtick, a "${...}" with no ', and a ${...} with one that no double quote holds,
+        # after a double quote that closed, are read as before (the Claude review).
         for text in ("echo `echo x #\"`echo x`\"`\"`echo x`\"\nrm kernel/gate.py\n# \"",
                      "echo \"${x:-'default'}\" > notes.txt",
-                     "echo \"$(echo \"${?+'$(rm kernel/gate.py)'}\")\""):
+                     "echo \"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"",
+                     # Astra: a single quote that runs past its backtick, and the nested spelling in an outer ${...}.
+                     "echo `echo '`\nrm kernel/gate.py\necho '`",
+                     "echo ${?+\"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"}"):
             with self.assertRaises(ValueError, msg=text):
                 shell.commands(text)
         self.assertEqual(shell.commands("echo `echo \"a b\"` > notes.txt"),
                          [(["echo"], []), (["echo", "a b"], []), ([], [(">", "notes.txt")])])
         self.assertEqual(shell.commands("echo \"${x:-default}\" > notes.txt"), [(["echo", "${x:-default}"], [(">", "notes.txt")])])
+        self.assertEqual(shell.commands("echo \"$x\" ${y:-'z'}"), [(["echo", "$x", "${y:-z}"], [])])
+        self.assertEqual(shell.commands("git commit -m \"msg\" && echo ${FOO:-'x'}"),
+                         [(["git", "commit", "-m", "msg"], []), (["echo", "${FOO:-x}"], [])])
         # A substitution in a ${...} inside a substitution of a here-document's body is read as at the top.
         for command in ('cat <<E\n$(echo ${x:-$(git push origin main)})\nE',
                         'cat <<E\n$(echo ${x:-$(printf "%s" "a (b)"; git push origin main)})\nE'):

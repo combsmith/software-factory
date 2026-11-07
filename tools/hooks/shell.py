@@ -551,6 +551,7 @@ def _held(text: str) -> str:
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
     opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
     ticked = False  # an unquoted backtick has opened and not yet closed
+    held = []       # (from, to) of each $( or backtick double quotes hold: a script with quotes of its own
     while i < len(text):
         c = text[i]
         if c == "\\" and quote != "'":
@@ -566,12 +567,15 @@ def _held(text: str) -> str:
             i += 2
             continue
         if quote is None:
+            if c == "$" and i < braces and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")] \
+                    and any(start < i < end for start, end in held):
+                raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "$" and i >= braces and text.startswith("${", i):
                 braces = _balanced(text, i + 2, "}")
-                if "'" in text[i:braces] and '"' in text[:i]:
-                    # A "${...}" in a substitution in double quotes reads here as unquoted, though it is not: its ' is
-                    # a quote to bash and a character to zsh, so no one reading fits both (#579).
-                    raise ValueError("a ' in a ${...} that double quotes may hold is read one way by bash and another by zsh")
+                if "'" in text[i:braces] and any(start < i < end for start, end in held):
+                    # A "${...}" in a substitution double quotes hold is read here as unquoted, though it is not: its '
+                    # is a character to the shell and would be a quote to this reading (#579).
+                    raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
                 end = len(text) if end < 0 else end
@@ -644,9 +648,10 @@ def _held(text: str) -> str:
             quote, comments = None, False
             out.append(c)
         elif quote == '"' and text.startswith("${", i) and "'" in text[i:_balanced(text, i + 2, "}")]:
-            # In "${...}", bash reads a ' as a quote and zsh as a character, so no one reading fits both (#579).
-            raise ValueError("a ' in a ${...} in double quotes is read one way by bash and another by zsh")
+            # In "${...}" the shell reads a ' as a character, and this reading would take it as a quote (#579).
+            raise ValueError("a ' in a ${...} that double quotes hold is a character to the shell, not a quote")
         elif quote == '"' and (c == "`" or text.startswith("$(", i)):
+            held.append((i, _balanced(text, i + 2, ")") if c == "$" else _balanced(text, i + 1, "`")))
             out.append(LIVE[c])
         else:
             out.append(HOLDS.get(c, c))
