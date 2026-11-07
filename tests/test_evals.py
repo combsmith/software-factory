@@ -1401,8 +1401,9 @@ class EvalJob(unittest.TestCase):
 
     def test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history(self):  # issue 614
         # What keeps a case's answer from the model is that its Task is built from the case's facts, diff and head alone.
-        # A marker the answer holds reaches neither the Task, nor the prompt, nor any file the read tools can reach, which
-        # are the head's, the folder the CLI is started in; and the head holds no `.git`, whose history could hold it.
+        # A marker the answer holds reaches neither the Task, nor the prompt, nor the CLI's environment, nor any file or
+        # folder of the head, the folder the CLI is started in, to which decision 0138 holds the read tools; and the head
+        # holds no `.git`, whose history could hold it.
         import os
         import uuid
         from harness import eval as job
