@@ -1,6 +1,6 @@
 # 0147. The Engine runs the pinned model by its full id, at the tier's effort, and keeps an answer only from that model
 
-Status: accepted. Replaces `docs/decisions/0138-the-review-reads-the-pull-requests-head-with-the-read-tools-alone-held-to-it-by-restricted.md`. The Maintainer's ruling before the factory/v0.1.0 cut, "Pin the model", widened from the harness review by the Factory Builder on 2026-11-05: these choices freeze what the eval measures, so that a score is of one model at one effort. Of 0138 it overturns one thing: the list of names decision 0050's row "The environment" gives the CLI, which 0138 kept, now holds `DISABLE_UPDATES` too. Nothing else in 0138, or in the rows of 0050 it kept, changes.
+Status: replaced by `docs/decisions/NNNN-the-artifact-storage-is-any-productionresults-account-numbered-in-one-to-three-digits.md`, which holds the rule in force.
 
 ## Decision
 
