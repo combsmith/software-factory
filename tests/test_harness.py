@@ -1225,6 +1225,9 @@ class Head(unittest.TestCase):
             ("git's folder named with no slash", support.tarball(sha, [(".git", b"5", b"")]), ".git segment"),
             ("a file named for git's folder", support.tarball(sha, [(".git", b"0", b"gitdir: elsewhere\n")]), ".git segment"),
             ("a file named for git's folder below the top", support.tarball(sha, [("a/.GIT", b"0", b"x")]), ".git segment"),
+            ("a link named for git's folder", support.tarball(sha, [(".git", b"2", b"")]), ".git segment"),
+            ("git's folder named by a pax header", zipper(plain[:-1024] + support.tar_member("pax", b"x", support.pax({"path": top + "/.git/x"}))
+                                                        + support.tar_member("ignored-name", b"0", b"x") + b"\0" * 1024), ".git segment"),
             ("outside the one folder", zipper(plain[:-1024] + support.tar_member("elsewhere/x", b"0", b"x") + b"\0" * 1024),
              "outside the archive's one folder"),
             ("a name that is not UTF-8", zipper(plain[:-1024] + support.tar_member("", b"0", b"x", raw_name=top.encode() + b"/\xff")

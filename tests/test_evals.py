@@ -1414,13 +1414,15 @@ class EvalJob(unittest.TestCase):
         seen = {"files": {}, "folders": []}
 
         class Reading(live.CLI):
-            """The CLI, which reads at its call every file of the folder it is started in, as the read tools may."""
+            """The CLI, which reads at its call every file and folder of the folder it is started in, each by its path
+            there, as the read tools may."""
             def __call__(self, args, env, timeout, **given):
                 if args[1:] != ["--version"]:
                     for folder, folders, names in os.walk(given["head"]):
-                        seen["folders"] += folders
+                        seen["folders"] += [os.path.relpath(os.path.join(folder, name), given["head"]) for name in folders]
                         for name in names:
-                            seen["files"][os.path.join(folder, name)] = pathlib.Path(folder, name).read_bytes().decode("utf-8", "replace")
+                            seen["files"][os.path.relpath(os.path.join(folder, name), given["head"])] = \
+                                pathlib.Path(folder, name).read_bytes().decode("utf-8", "replace")
                 return super().__call__(args, env, timeout, **given)
         built, answered = [], step.live.answer
 
@@ -1444,10 +1446,14 @@ class EvalJob(unittest.TestCase):
         said, cli = scored()
         self.assertEqual((said, len(cli.asked()), len(built)), ("scored 1 of 1 cases, 0 passed", 1, 1), "the case is asked of the model")
         self.assertTrue(seen["files"], "the head is read at the call")
-        for where, text in [("the Task", built[0]), ("the prompt", json.dumps(cli.asked()[0]["args"]))] + sorted(seen["files"].items()):
+        # Each file by its path and its bytes, each folder by its path, and the CLI's environment, as well as the Task
+        # and the prompt.
+        asked = cli.asked()[0]
+        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the environment", json.dumps(asked["env"])),
+                            ("the head's paths", "\n".join(sorted(seen["files"]) + seen["folders"]))] + sorted(seen["files"].items()):
             self.assertNotIn(marker, text, where)
             self.assertNotIn(answer, text, where)
-        self.assertNotIn(".git", [name.casefold() for name in seen["folders"]] + [os.path.basename(f).casefold() for f in seen["files"]])
+        self.assertNotIn(".git", [part.casefold() for path in seen["folders"] + list(seen["files"]) for part in path.split(os.sep)])
         # No part of it, either: cases that differ in their answer alone, each field of it, give the model the same
         # Task, prompt and head, the Run's fresh id and session held still.
         met = {"verdict": "met", "criterion": "PR-5", "finding": None}
@@ -1459,8 +1465,8 @@ class EvalJob(unittest.TestCase):
                 del built[:]
                 said, cli = scored(case=dict(case, expected=expected))
                 self.assertEqual(len(cli.asked()), 1, expected)
-                given.append((built[0], cli.asked()[0]["args"], {os.path.basename(f): t for f, t in seen["files"].items()}))
-        self.assertTrue(given[0][2])
+                given.append((built[0], cli.asked()[0]["args"], cli.asked()[0]["env"], dict(seen["files"]), sorted(seen["folders"])))
+        self.assertTrue(given[0][3])
         self.assertEqual(given[1], given[0])
         self.assertEqual(given[2], given[0])
         # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
