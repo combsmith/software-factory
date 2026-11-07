@@ -4103,7 +4103,8 @@ RECORD_MUTANTS = ('MUTANTS = [\n'
                   ']\n')
 # The tests the records above may name: two that run and one marked @pending.
 RECORD_TESTS = ("class T:\n    def test_y(self):\n        pass\n\n    def test_z(self):\n        pass\n\n"
-                "    @pending\n    def test_later(self):\n        pass\n")
+                "    @pending\n    def test_later(self):\n        pass\n\n\n"
+                "class Active:\n    def test_later(self):\n        pass\n")
 FIRST = "docs/decisions/0001-one-thing.md"
 LATER = "docs/decisions/0002-two-things.md"
 REPLACED = RECORD.replace("Status: accepted.", "Status: replaced by `%s`, which holds\nthe rule in force." % LATER)
@@ -4311,6 +4312,9 @@ class Decisions(unittest.TestCase):
             "a held test beside a pending one": ("`tests/test_x.py::test_y`, `tests/test_x.py::test_later`, not held yet",
                                                  "names no mutant"),
             "a held test beside a wait": ("`tests/test_x.py::test_y`, waiting on `roles/x.py`", "names no mutant"),
+            # A test named in its class is pending only if that class's test is.
+            "a held test whose name another class's pending test has": (
+                "`tests/test_x.py::Active.test_later`, not held yet", "names no mutant"),
             "a held test named another way beside a pending one": (
                 "`./tests/test_x.py::test_y`, `tests/test_x.py::test_later`, not held yet", "names no mutant"),
         }
@@ -4329,6 +4333,10 @@ class Decisions(unittest.TestCase):
                 self.assertEqual(check_decisions.run(edited(history(), {FIRST: row(check)}, commit=True)), [])
         # A record that cannot be read has no rows to hold: it is refused as it is.
         self.assertEqual(check_decisions.boundaries(RECORD.replace("Status: accepted.\n\n", "") + "\nStatus: accepted.\n"), [])
+        # A table indented, as Markdown reads one, has its rows.
+        indented = REPLACING.replace("Replaces", "Adds to").replace(ONE_ROW, "| One thing | `tools/check_x.py` |")
+        indented = indented.replace("\n| ", "\n  | ")
+        self.assertTrue(refused({LATER: indented}, "0002-two-things.md, boundary 1: a new or changed row names no mutant"))
         # A new record's rows are new.
         bare = REPLACING.replace("Replaces", "Adds to").replace(ONE_ROW, "| One thing | `tools/check_x.py` |")
         self.assertTrue(refused({LATER: bare}, "0002-two-things.md, boundary 1: a new or changed row names no mutant"))

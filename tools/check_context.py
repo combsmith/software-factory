@@ -165,7 +165,17 @@ def _is_pending(token: str, root: pathlib.Path, here: pathlib.Path) -> bool:
     target = root / name if (root / name).exists() else here / name
     if not test or not target.is_file():
         return False
-    return re.search(r"@pending\s+def %s\(" % re.escape(test.split(".")[-1]), _text(target)) is not None
+    # A test named in its class is read in that class alone: another class's test of its name says nothing of it.
+    *classes, method = test.split(".")
+    source = _text(target)
+    for cls in classes:
+        found = re.search(r"(?m)^( *)class %s\b.*$" % re.escape(cls), source)
+        if found is None:
+            return False
+        rest = source[found.end():]
+        end = re.search(r"(?m)^ {0,%d}\S" % len(found.group(1)), rest)
+        source = rest[:end.start()] if end else rest
+    return re.search(r"@pending\s+def %s\(" % re.escape(method), source) is not None
 
 
 def _plain(text: str) -> list:

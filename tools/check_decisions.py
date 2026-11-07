@@ -137,8 +137,9 @@ def parse(text: str):
 
 def _body(region: list) -> range:
     """The rows of the first table in `region`, below its header and the line under it."""
-    top = next((i for i, line in enumerate(region) if line.startswith("|")), len(region))
-    bottom = next((i for i in range(top, len(region)) if not region[i].startswith("|")), len(region))
+    # A table may be indented, as Markdown and `check_context` read one (issue 590).
+    top = next((i for i, line in enumerate(region) if line.lstrip().startswith("|")), len(region))
+    bottom = next((i for i in range(top, len(region)) if not region[i].lstrip().startswith("|")), len(region))
     return range(top + 2, bottom)
 
 
