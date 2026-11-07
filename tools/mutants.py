@@ -39,6 +39,15 @@ def moved_after(rel: str, block: str, anchor: str) -> tuple:
     return block + middle, middle + block
 
 
+def lane_if(called: str) -> str:
+    """The `if:` of the shim in tools/check_workflows.py that calls `called`, down to its call: each of the three shims
+    that dispatch a Run writes it the same but for the file it calls, so a mutant of one names it by this."""
+    return ("    if: github.actor_id == '%%d' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || "
+            "vars.FACTORY_PAUSED == 'false')\n    permissions:\n      actions: write\n      contents: read\n"
+            "    concurrency:\n      group: ${{ inputs.item }}\n      cancel-in-progress: false\n"
+            "    uses: combsmith/software-factory/.github/workflows/%s@factory/v0-next\n" % called)
+
+
 def moved_before(rel: str, block: str, anchor: str) -> tuple:
     """(old, new) for a mutant that moves `block` up to just before the `anchor` that comes ahead of it in `rel`;
     STALE, as `moved_after`, if either is not found."""
@@ -9500,8 +9509,12 @@ MUTANTS = ISSUE + [
      ' and name not in PASS_FILES:',
      ' and False:', ('tests.test_tools.Workflows.test_the_pass_job_alone_is_granted_a_write',)),
     ('any shim may name its run', 'tools/check_workflows.py',
-     '    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":',
+     '    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name not in LANE_SHIMS:',
      '    if False:', ('tests.test_tools.Workflows.test_a_shim_is_held_word_for_word',)),
+    ("an act's shim may not name its run", 'tools/check_workflows.py',
+     ' and e["key"] == "run-name" for e in entries) and name not in LANE_SHIMS:',
+     ' and e["key"] == "run-name" for e in entries) and name != "run.yml":',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
     ('the eval workflow may hold another job', 'tools/check_workflows.py',
      '    if [e["key"] for e in entries if e["path"] == ["jobs"]] != [EVAL_JOB]:\n        problems.append("it holds the job %s and no other" % EVAL_JOB)\n',
      '', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
@@ -9527,10 +9540,10 @@ MUTANTS = ISSUE + [
      ' and bool(OUTPUT.match(e["value"]))))',
      ' and bool(WHOLE.match(e["value"]))))', ('tests.test_tools.Workflows.test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running',)),
     ("run.yml is not held to the Run's shim", 'tools/check_workflows.py',
-     '    if name == "run.yml":\n        problems += run_problems(text, root)\n',
+     '    if name in LANE_SHIMS:\n        problems += lane_shim_problems(name, text, root)\n',
      '', ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
     ('run.yml may be anything', 'tools/check_workflows.py',
-     '    if lines != (RUN_SHIM % account["id"]).strip("\\n").split("\\n"):',
+     '    if lines != (shim % account["id"]).strip("\\n").split("\\n"):',
      '    if False:', ('tests.test_tools.Workflows.test_every_run_dispatch_carries_an_item_and_the_poller_takes_none',)),
     ('a run.yml is right with no dispatcher named', 'tools/check_workflows.py',
      '    if not isinstance(account, dict) or type(account.get("id")) is not int:',
@@ -9548,11 +9561,70 @@ MUTANTS = ISSUE + [
      'EVENT_READ = re.compile(r"(?<![./\\w-])github(?![\\w-])(?!\\.token(?![\\w.\\[]))", re.I)',
      'EVENT_READ = re.compile(r"(?<![./\\w-])github(?![\\w-])(?!\\.token)", re.I)', ('tests.test_tools.Workflows.test_only_the_poller_runs_on_workflow_run',)),
     ('a re-run is a Run', 'tools/check_workflows.py',
-     " && github.run_attempt == '1' && (",
-     ' && (', ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
+     lane_if("run-jobs.yml"), lane_if("run-jobs.yml").replace(" && github.run_attempt == '1'", ""),
+     ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
     ("the Run's jobs may be called from any file", 'tools/check_workflows.py',
-     '    elif any(e["key"] == "uses" and e["value"].split("@")[0].endswith("/" + RUN_JOBS) for e in entries):',
-     '    elif False:', ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
+     '        if name != caller and any(e["key"] == "uses"',
+     '        if False and any(e["key"] == "uses"',
+     ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
+] + [(why, 'tools/check_workflows.py', lane_if(called), lane_if(called).replace(old, new),
+      ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',))
+     for why, called, old, new in (
+         ("an approval's re-run is an approval", "approve-job.yml", " && github.run_attempt == '1'", ""),
+         ("the approving act starts from any dispatcher", "approve-job.yml", "github.actor_id == '%d' && ", ""),
+         ("the approving act starts under a Pause", "approve-job.yml",
+          " && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')", ""),
+         ("the approving act's shim calls the Run's jobs", "approve-job.yml", "/approve-job.yml@", "/run-jobs.yml@"),
+         ("the approving act's wake is granted no write", "approve-job.yml", "      actions: write\n", ""),
+         ("the approving act may be cancelled", "approve-job.yml", "cancel-in-progress: false", "cancel-in-progress: true"),
+         ("the queue act starts from any dispatcher", "queue-job.yml", "github.actor_id == '%d' && ", ""),
+         ("the queue act starts under a Pause", "queue-job.yml",
+          " && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')", ""),
+         ("the queue act holds one lane for every item", "queue-job.yml", "group: ${{ inputs.item }}", "group: sf-queue"),
+         ("the queue act's re-run is a queue act", "queue-job.yml", " && github.run_attempt == '1'", ""),
+         ("the queue act's wake is granted no write", "queue-job.yml", "      actions: write\n", ""),
+         ("the queue act's shim calls the approving act's job", "queue-job.yml", "/queue-job.yml@", "/approve-job.yml@"),
+         ("the approving act holds one lane for every item", "approve-job.yml", "group: ${{ inputs.item }}", "group: sf-approve"),
+     )] + [
+    ("only run.yml is held to its shim", 'tools/check_workflows.py',
+     '    if name in LANE_SHIMS:\n        problems += lane_shim_problems(name, text, root)\n',
+     '    if name == "run.yml":\n        problems += lane_shim_problems(name, text, root)\n',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("an approval's name may be left out", 'tools/check_workflows.py',
+     'APPROVE_SHIM = """name: sf-approve\nrun-name: ${{ inputs.name }}\non:\n  workflow_dispatch:\n    inputs:\n      name:\n'
+     '        required: true\n',
+     'APPROVE_SHIM = """name: sf-approve\nrun-name: ${{ inputs.name }}\non:\n  workflow_dispatch:\n    inputs:\n      name:\n'
+     '        required: false\n',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("an act's job may be called from any file", 'tools/check_workflows.py',
+     ',\n           QUEUE_JOB: ("queue.yml", "the queue act\'s job")}', '}',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("the approving act's job may be called from any file", 'tools/check_workflows.py',
+     'CALLERS = {RUN_JOBS: ("run.yml", "the Run\'s jobs"), APPROVE_JOB: ("approve.yml", "the approving act\'s job"),\n           QUEUE_JOB',
+     'CALLERS = {RUN_JOBS: ("run.yml", "the Run\'s jobs"),\n           QUEUE_JOB',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("an act's job may be called outside its lane", 'tools/check_workflows.py',
+     '    return any(uses.split("@")[0].endswith("/" + called) for called in CALLERS)',
+     '    return uses.split("@")[0].endswith("/" + RUN_JOBS)',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("approve.yml is held to the Run's shim", 'tools/check_workflows.py',
+     '"approve.yml": (APPROVE_SHIM,', '"approve.yml": (RUN_SHIM,',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("queue.yml is held to the approving act's shim", 'tools/check_workflows.py',
+     '"queue.yml": (QUEUE_SHIM,', '"queue.yml": (APPROVE_SHIM,',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("the live approving act's shim starts under a Pause", '.github/workflows/approve.yml',
+     " && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')", '',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
+    ("the live queue act's shim starts from any dispatcher", '.github/workflows/queue.yml',
+     "github.actor_id == '41898282' && ", '',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
+    ("the live Run's shim runs a re-run", '.github/workflows/run.yml',
+     " && github.run_attempt == '1'", '',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
+    ("a shim held under no hash of its own stands", 'tools/check_workflows.py',
+     '         "queue.yml": "', '         "queue-old.yml": "',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
     ("a shim's group may be none, or cancel", 'tools/check_workflows.py',
      '        if "concurrency" in inside and not calls_run and (',
      '        if False and (', ('tests.test_tools.Workflows.test_a_shim_holds_no_step_and_calls_the_release_at_its_channel',)),

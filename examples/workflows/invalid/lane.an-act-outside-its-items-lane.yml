@@ -1,0 +1,31 @@
+# Must be rejected. An approval in a lane of its own would run beside a Run of the same item, between its Result and its apply.
+name: sf-approve
+run-name: ${{ inputs.name }}
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  lane:
+    if: github.actor_id == '41898282' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-approve
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/approve-job.yml@factory/v0-next
+    secrets: inherit
+    with:
+      name: ${{ inputs.name }}
+      item: ${{ inputs.item }}
+      pass: ${{ inputs.pass }}
