@@ -13506,7 +13506,7 @@ MUTANTS = ISSUE + [
     # Issue 483: a run the model could not finish is the item's, as P-13's fixture recorded it.
     ("a run the model could not finish is the Factory's", 'harness/engine.py',
      '        if isinstance(said, dict) and said.get("is_error") is True and said.get("subtype") in MODEL_ENDED:\n            reason = "no_answer"\n',
-     '', ('tests.test_harness.Engine',)),
+     '        if False:\n            reason = "no_answer"\n', ('tests.test_harness.Engine',)),
     ("the retries end is the Factory's", 'harness/engine.py',
      'MODEL_ENDED = ("error_max_budget_usd", "error_max_structured_output_retries", "error_max_turns")',
      'MODEL_ENDED = ("error_max_budget_usd", "error_max_turns")', ('tests.test_harness.Engine',)),
