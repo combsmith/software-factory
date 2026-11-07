@@ -21,7 +21,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 
 | Rule | Held by |
 |---|---|
-| The Kernel does no I/O, reads no clock and keeps nothing between calls | `tools/check_purity.py` |
+| The Kernel does no I/O, reads no clock, keeps nothing between calls and calls nothing it is given but `_decision` | `tools/check_purity.py` |
 | State is derived from facts and run records at every call, never stored | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |
 | An unreadable fact yields a deferral or a Hold, never an action | `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit` |
 | A reason is a code, never a sentence, and no text from outside reaches a decision | `tools/check_examples.py` |
