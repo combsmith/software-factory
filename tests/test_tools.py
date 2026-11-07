@@ -8855,12 +8855,17 @@ class Writes(unittest.TestCase):
             "harness/hand.py": "from harness import approve\n\n\ndef port(transport):\n    return approve.Port(transport, 'me')\n",
             "harness/sub.py": "from harness import approve\n\n\nclass Mine(approve.Port):\n    pass\n",
             "harness/usesub.py": "from harness import sub\n\n\ndef port(transport):\n    return sub.Mine(transport, 'me').approve()\n",
+            # A name stored some other way than plainly, and a constant filled after it is made (the second Claude review).
+            "adapters/zz.py": "import os\n\nfrom adapters import effects\n\nif os.environ.get('X'):\n    W = effects.approve\nelse:\n    W = None\n",
+            "harness/usezz.py": "from adapters.zz import W\n\n\ndef go(t):\n    return W(t)\n",
+            "adapters/steps.py": "from adapters import effects\n\nSTEPS = {}\nSTEPS['approve'] = effects.approve\n",
+            "harness/usesteps.py": "from adapters import steps\n\n\ndef go(t):\n    return steps.STEPS['approve'](t)\n",
         }
         problems = check_writes.run(clone(files))
         for rel in ("harness/dotted.py", "harness/aliased.py", "harness/renamed.py", "harness/relative.py", "harness/table.py",
                     "harness/uncalled.py", "harness/fromthere.py", "harness/viaalias.py"):
             self.unlisted(problems, rel)
-        for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py"):
+        for rel in ("harness/hand.py", "harness/sub.py", "harness/usesub.py", "harness/usezz.py", "harness/usesteps.py"):
             self.unlisted(problems, rel, "adapters.effects:approve")
 
     def test_what_cannot_be_read_fails(self):
@@ -8874,6 +8879,12 @@ class Writes(unittest.TestCase):
             "harness/twice.py": "def approve():\n    return None\n\n\ndef act(t):\n    from adapters.effects import approve\n    return approve(t)\n",
             "harness/twice2.py": "def a(t):\n    from adapters.effects import approve as step\n    return step(t)\n\n\ndef b():\n"
                                  "    from kernel.derive import derive as step\n    return step\n",
+            # A constant an adapter fills from a function, a request edited once built, and a test imported (the second
+            # Claude review).
+            "adapters/deco.py": "STEPS = {}\n\n\ndef step(fn):\n    STEPS[fn.__name__] = fn\n    return fn\n",
+            "adapters/edited.py": "from adapters.github import request\n\n\ndef go(transport):\n    req = request('GET', '/x')\n"
+                                  "    req['method'] = 'PATCH'\n    req.update(body={})\n    return transport.send(req)\n",
+            "harness/fromtests.py": "from tests import support\n",
         }
         problems = check_writes.run(clone(files))
         for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
@@ -8882,7 +8893,11 @@ class Writes(unittest.TestCase):
                           ("harness/loads.py:5", "loads a module by its name"),
                           ("harness/missing.py:5", "names no_such_writer, which adapters.effects does not define"),
                           ("harness/twice.py:7", "names approve, which the module binds more than one way"),
-                          ("harness/twice2.py:3", "names step, which the module binds more than one way")):
+                          ("harness/twice2.py:3", "names step, which the module binds more than one way"),
+                          ("adapters/deco.py:4", "fills STEPS from a function"),
+                          ("adapters/edited.py:6", "sets a request's method, path or body after it is built"),
+                          ("adapters/edited.py:7", "sets a request's method, path or body after it is built"),
+                          ("harness/fromtests.py:1", "imports tests, a test, which the check does not read")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
@@ -8912,11 +8927,16 @@ class Writes(unittest.TestCase):
                  # A query filled with text may be filled with a mutation (Argon); one filled with a number may not.
                  "adapters/filled.py": (self.MARKS % "query Q { y } %s").replace('MARK = "query Q { y } %s"',
                                                                                  'MARK = "query Q { y } %s" % OTHER'),
+                 # A credential's path with a hole for text may name another path: it is a write (the second Claude review).
+                 "adapters/creds.py": "from adapters.github import request\n\n\ndef drop(transport, where):\n"
+                                      "    return transport.send(request('DELETE', '/app/installations/%s/access_tokens' % where))\n",
+                 "harness/dropper.py": "from adapters import creds\n\n\ndef go(t):\n    return creds.drop(t, '1')\n",
                  "harness/mint.py": "from adapters import identity\n\n\ndef both(as_app, app, as_token):\n"
                                     "    identity.mint(as_app, app, 'x/y', {})\n    return identity.revoke(as_token)\n"}
         problems = check_writes.run(clone(files))
         self.unlisted(problems, "harness/peekw.py", "adapters.writes:mark")
         self.unlisted(problems, "harness/peekb.py", "adapters.both:mark")
+        self.unlisted(problems, "harness/dropper.py", "adapters.creds:drop")
         for rel, said in (("adapters/built.py:7", "its GraphQL query is not a text constant"),
                           ("adapters/shadow.py:8", "its GraphQL query is a name the function itself sets"),
                           ("adapters/spread.py:7", "its GraphQL body is not a literal dict"),

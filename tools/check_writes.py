@@ -22,7 +22,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 GITHUB = "adapters.github"
 SENDS = ("request", "download", "tarball")      # adapters/github.py's: a request, and the two that are GETs
 VERBS = frozenset({"PO" "ST", "PU" "T", "PAT" "CH", "DEL" "ETE"})     # spelt apart, so this file holds no verb itself
-CREDENTIALS = (re.compile(r"/app/installations/%[sd]/access_tokens"), re.compile(r"/installation/token"))
+CREDENTIALS = (re.compile(r"/app/installations/%d/access_tokens"), re.compile(r"/installation/token"))     # %d: a hole for text
+# could hold another path (the Claude review)
 # The callers outside adapters/ that may reach a write, each with the writers it reaches, by module and function. A
 # change here is a change to who writes to GitHub, and is the Maintainer's (decision NNNN).
 CALLERS = {
@@ -39,6 +40,12 @@ TRANSPORT = {(GITHUB, "Live.send"), (GITHUB, "Replay.send")}
 VERB_HOLDERS = ("tools/hooks/identity.py", "tools/hooks/protected.py")
 # Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one.
 NAME_LOADERS = ("tools/mutants.py",)
+# Python outside tests/ that imports a test: tools/make_corpus.py records the Kernel's decisions from tests/test_decide.py.
+TEST_IMPORTERS = ("tools/make_corpus.py",)
+# What a request is, by its keys: edited after `request` built it, it is sent as edited.
+FIELDS = ("method", "path", "body")
+# The calls that fill a container in place.
+FILLS = ("append", "extend", "insert", "update", "setdefault", "add")
 
 
 def _name(rel: str) -> str:
@@ -114,10 +121,26 @@ class Module:
             self.units[name] = [n for n in ast.walk(node) if id(n) not in methods]
         for name, value in self.values.items():
             self.units.setdefault(name, list(ast.walk(value)))
+        for node in tree.body:      # a constant or a class filled at the top level, after it is made, holds what fills it
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for name in _filled_names(node) & (set(self.values) | set(self.classes)):
+                self.units[name] = self.units[name] + list(ast.walk(node))
         held = {id(n) for nodes in self.units.values() for n in nodes} | inside
         self.units["<module>"] = [n for n in self.nodes if id(n) not in held]
         # A name both defined here and imported: which one a function means cannot be told by the syntax alone.
         self.conflicts |= set(self.bindings) & (set(self.functions) | set(self.classes) | set(self.values))
+
+
+def _filled_names(node) -> set:
+    """The names `node` fills in place: `N[k] = v`, `N.a = v`, or `N.append(v)` and its kind."""
+    out = set()
+    for n in ast.walk(node):
+        target = n.value if isinstance(n, (ast.Subscript, ast.Attribute)) and isinstance(n.ctx, ast.Store) else \
+            n.func.value if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in FILLS else None
+        if isinstance(target, ast.Name):
+            out.add(target.id)
+    return out
 
 
 def _lookup(mods: dict, module: str, name: str, depth: int = 0):
@@ -136,8 +159,10 @@ def _lookup(mods: dict, module: str, name: str, depth: int = 0):
         return _bound(mods, other.bindings[name], depth + 1)
     if "%s.%s" % (module, name) in mods:
         return ("module", "%s.%s" % (module, name))
-    if name in other.stored or (name.startswith("__") and name.endswith("__")):
+    if name.startswith("__") and name.endswith("__"):
         return None
+    if name in other.stored:    # stored some other way, by an if, a tuple or a loop: whatever the top level reaches
+        return ("value", module, "<module>")
     return ("unknown", module, name)
 
 
@@ -301,6 +326,37 @@ def _by_hand(mod: Module) -> list:
     return out
 
 
+def _edited(mod: Module) -> list:
+    """A request's method, path or body set after `request` built it, which is sent as set: what it sends cannot be read."""
+    out = []
+    for node in mod.nodes:
+        key = node.slice if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store) else None
+        if isinstance(key, ast.Constant) and key.value in FIELDS \
+                or isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "update" \
+                and any(k.arg in FIELDS for k in node.keywords):
+            out.append("%s:%d sets a request's method, path or body after it is built, so what it sends cannot be read; build it with "
+                       "adapters/github.py's request" % (mod.rel, node.lineno))
+    return out
+
+
+def _registry(mod: Module) -> list:
+    """In adapters/, a function that fills a constant of its module: what a caller reads from it cannot be read."""
+    out = []
+    for qual, fn in mod.functions.items():
+        for name in sorted(_filled_names(fn) & (set(mod.values) | set(mod.classes))):
+            out.append("%s:%d fills %s from a function, so what a caller reads from it cannot be read; fill it at the "
+                       "top level" % (mod.rel, fn.lineno, name))
+    return out
+
+
+def _tests(mod: Module) -> list:
+    """An import of a test from outside tests/: the check does not read tests/, so what it reaches cannot be told."""
+    return ["%s:%d imports %s, a test, which the check does not read" % (mod.rel, n.lineno, name)
+            for n in mod.nodes for name in ([a.name for a in n.names] if isinstance(n, ast.Import) else
+                                             [n.module or ""] if isinstance(n, ast.ImportFrom) and not n.level else [])
+            if name == "tests" or name.startswith("tests.")]
+
+
 def _loaded(mod: Module) -> list:
     """Where a module is loaded by its name, which the syntax cannot follow when it is no literal or is an adapter."""
     out = []
@@ -361,7 +417,11 @@ def run(root: pathlib.Path = ROOT) -> list:
     writers = set()
     for mod in mods.values():
         if mod.name != GITHUB:
-            problems += _by_hand(mod)
+            problems += _by_hand(mod) + _edited(mod)
+        if _adapter(mod):
+            problems += _registry(mod)
+        if mod.rel not in TEST_IMPORTERS:
+            problems += _tests(mod)
         if mod.rel not in NAME_LOADERS:
             problems += _loaded(mod)
         for qual, nodes in mod.units.items():
