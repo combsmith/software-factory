@@ -1863,6 +1863,16 @@ class Convergence(unittest.TestCase):
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=REVIEWED + [unread]), "")
         d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), REVIEWED + [unread])
         self.assertEqual(d["reason"], "description_edited_after_approval")
+        # So too a re-run whose dispatch is no time, and a record whose time cannot be read at all, which never raises.
+        for odd in (dict(act, started_at="2026-10-11T12:30:00Z", dispatched_at="2026-02-30T12:14:00Z"),
+                    dict(run(at="2026-02-30T12:00:00Z"), run="r9")):
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=acted + [odd]), "", odd)
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), acted + [odd])
+            self.assertEqual(d["reason"], "description_edited_after_approval", odd)
+        # A record reaches back by its start, which the item's lane holds after a running act's end: one dispatched
+        # while an act ran and started after the approval shows nothing of when it read.
+        during = [dict(run(at="2026-10-11T12:16:00Z"), dispatched_at="2026-10-11T12:14:30Z")]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=during), "")
         # An act on other content, or one that began after the approval, is not the one that read it: the approval is
         # the browser's, anchored at its own time, so the same edit holds nothing.
         for other in (run(intent="issue-approval", content="sha256:0000", at="2026-10-11T12:14:00Z", name="r2"),
