@@ -6693,6 +6693,32 @@ fi
                 self.assertIn("could not be made new by this run", told)
                 self.assertEqual(list(elsewhere.iterdir()), [], "a directory was made through the link")
 
+    def test_a_link_above_out_put_there_before_the_run_is_refused_unless_it_is_roots(self):
+        # Issue 602 (Argon on #601): before the parents are made, the runner reads the deepest directory of OUT's path that
+        # stands, and the cd that reads it follows a link. One another user put in a sticky directory before the run would
+        # take OUT into a directory of the runner's own, where the check passes. A link that is not root's, as the deepest
+        # directory that stands or above it, is refused, and nothing is made where it leads. Run as root, the link the test
+        # makes is root's, which the check follows, so it cannot be shown.
+        if os.geteuid() == 0:
+            self.skipTest("a link made as root is root's")
+        for script in list(self.SANDBOX) + ["trial_p59_read_confinement.sh"]:
+            for named in ("a/new/out", "a/out", "a/deeper/new/out"):
+                with self.subTest(script=script, out=named):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    sticky, elsewhere = folder / "sticky", folder / "elsewhere"
+                    sticky.mkdir()
+                    sticky.chmod(0o1777)
+                    (elsewhere / "deeper").mkdir(parents=True)
+                    (sticky / "a").symlink_to(elsewhere)
+                    try:
+                        code, told = self.run_out(script, folder, sticky / named)
+                    finally:
+                        sticky.chmod(0o700)
+                    self.assertEqual(code, 2, told)
+                    self.assertIn("%s is a link that is not root's" % (sticky / "a"), told)
+                    self.assertEqual([p.name for p in elsewhere.iterdir()], ["deeper"], "a directory was made through the link")
+                    self.assertEqual(list((elsewhere / "deeper").iterdir()), [], "a directory was made through the link")
+
     def test_the_four_that_make_out_later_make_it_for_their_user_alone(self):
         # Issue 424: a parent no other can write to is little use if OUT itself takes the umask.
         for script in self.OTHERS:
