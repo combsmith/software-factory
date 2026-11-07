@@ -6,7 +6,7 @@ no module changes another's names. The brakes and the gate, each a protected pat
 only what CONFINED allows, and no module binds a name either of them owns but as its own. It calls
 no function it is given but the parameters CALLABLE_PARAMETERS names, and on a value only the built-in
 types' methods BUILTIN_METHODS names, so that no function handed in can read the world for it. It calls a module only
-at a function the module defines or imports, raises nothing and names no special attribute, and where Python would
+at a function the module defines or imports, raises nothing and names no special name, and where Python would
 import another module than the one it reads, it refuses that (issue 593).
 """
 from __future__ import annotations
@@ -55,6 +55,26 @@ KEYED_BUILTINS = frozenset({"map", "filter", "sorted", "max", "min"})
 # `map(map, [f], [xs])` would call f unread (issue 593).
 UNHANDED_BUILTINS = frozenset({"map", "filter", "type"})
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _special(node) -> list:
+    """The special names, written `__x__`, that a node names: an attribute, a name, a definition, a parameter, a keyword
+    or an import's. Through one a module's names are rewritten, as by `__dict__`, or a name is handed back that no module
+    binds, as by a module's `__getattr__`; the Kernel names none (issue 593). `__future__`, a module an import names, is
+    no import's name."""
+    if isinstance(node, ast.Attribute):
+        words = [node.attr]
+    elif isinstance(node, ast.Name):
+        words = [node.id]
+    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        words = [node.name]
+    elif isinstance(node, (ast.arg, ast.keyword)):
+        words = [node.arg]
+    elif isinstance(node, ast.alias):
+        words = node.name.split(".") + [node.asname]
+    else:
+        return []
+    return [w for w in words if w and len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
 
 def _constant(node) -> bool:
@@ -376,9 +396,10 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             elif kind == "builtin" and f.id not in BUILTIN_CALLS:
                 problems.append("%s:%d calls %s, a builtin BUILTIN_CALLS does not name; a builtin may call what it is "
                                 "handed or reach past the Kernel" % (name, line, f.id))
-            elif kind == "builtin" and f.id == "type" and len(node.args) + len(node.keywords) != 1:
-                problems.append("%s:%d calls type with other than one argument, which makes a class and calls what it "
-                                "is given as a base; the Kernel asks type of one value only" % (name, line))
+            elif kind == "builtin" and f.id == "type" and not (len(node.args) == 1 and not node.keywords and
+                                                                not isinstance(node.args[0], ast.Starred)):
+                problems.append("%s:%d calls type with other than one argument written out, which makes a class and "
+                                "calls what it is given as a base; the Kernel asks type of one value only" % (name, line))
         elif isinstance(f, ast.Attribute):
             if module(f.value, chain) and kernel_function(f, chain) is None:
                 problems.append("%s:%d calls %s, which is no function of that module's; a module of the Kernel's is "
@@ -412,7 +433,7 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
                     any(kw.arg is None for kw in node.keywords)
                 value = said[0] if said else node.args[place] if place is not None and place < len(node.args) and \
                     not spread else None
-                if value is None or isinstance(value, ast.Starred):
+                if value is None:
                     problems.append("%s:%d calls %s, which takes %s, and how it is filled cannot be read; it is given "
                                     "by its name or its place" % (name, line, target[1], word))
                     continue
@@ -542,9 +563,9 @@ def run(root: pathlib.Path = ROOT) -> list:
             if isinstance(node, ast.Raise):
                 problems.append("%s:%d raises, which calls what it raises if that is a class; the Kernel raises "
                                 "nothing, and what it cannot read is a deferral or a Hold" % (name, line))
-            if isinstance(node, ast.Attribute) and node.attr.startswith("__") and node.attr.endswith("__"):
-                problems.append("%s:%d names %s, a special attribute, through which a module's names can be changed "
-                                "or a value's workings reached; the Kernel reads none" % (name, line, node.attr))
+            for word in _special(node):
+                problems.append("%s:%d names %s, a special name, through which a module's names can be changed or a "
+                                "value's workings reached; the Kernel names none" % (name, line, word))
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)):
                 problems.append("%s:%d assigns an attribute, %s; the Kernel changes no module's names and no object "
                                 "it did not make" % (name, line, node.attr))

@@ -1732,7 +1732,7 @@ class Purity(unittest.TestCase):
                 ("from kernel.missing import g\n\n\ndef f():\n    return g()\n",
                  "calls g, which it imports but is no function of the Kernel's"),
                 # Issue 593: a top-level function's default binds in the module, a builtin that calls is never handed,
-                # type makes no class, nothing is raised and no special attribute is named.
+                # type makes no class, nothing is raised and no special name is named.
                 ("def bind(x=frozenset((safe := map,))):\n    return x\n\n\ndef f(fetch, xs):\n    return list(safe(fetch, xs))\n",
                  "calls safe, a value it binds"),
                 ("def bind(x: (safe := map)):\n    return x\n\n\ndef f(fetch, xs):\n    return list(safe(fetch, xs))\n",
@@ -1745,9 +1745,14 @@ class Purity(unittest.TestCase):
                 ("def f(xs):\n    return sorted(xs, key=type)\n", "hands type to be called"),
                 ("def f(cls):\n    return type('X', (cls,), {})\n", "calls type with other than one argument"),
                 ("def f(x):\n    return type(x, metaclass=x)\n", "calls type with other than one argument"),
+                ("def f(parts):\n    return type(*parts)\n", "calls type with other than one argument"),
+                ("def f(parts):\n    return type(**parts)\n", "calls type with other than one argument"),
                 ("def f(cls):\n    raise cls\n", "raises"),
                 ("def f(x):\n    if x:\n        raise ValueError(x)\n    return x\n", "raises"),
-                ("def f(x):\n    return x.__class__\n", "names __class__, a special attribute"),
+                ("def f(x):\n    return x.__class__\n", "names __class__, a special name"),
+                ("def __getattr__(name):\n    return map\n", "names __getattr__, a special name"),
+                ("def f():\n    return __name__\n", "names __name__, a special name"),
+                ("def f(__x__):\n    return 0\n", "names __x__, a special name"),
                 ("def decide(facts, _decision=len):\n    return _decision(facts)\n", "has a default that can change")):
             self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), words), (text, words))
         for text in ("def f(_decision, facts):\n    return _decision(facts)\n",
@@ -1795,7 +1800,9 @@ class Purity(unittest.TestCase):
                             ("def f(xs):\n    return sorted(xs, key=terms.LIMIT)\n", "hands terms.LIMIT to be called"),
                             ("def f(xs):\n    return list(map(annotations, xs))\n", "hands annotations to be called"),
                             ("def f(fetch):\n    return terms.__dict__.update(code=fetch)\n",
-                             "names __dict__, a special attribute")):
+                             "names __dict__, a special name"),
+                            ("from kernel.terms import __dict__ as ns\n\n\ndef f(fetch):\n    return ns.update(code=fetch)\n",
+                             "names __dict__, a special name")):
             got = check_purity.run(tree({"kernel/terms.py": terms + "\n\ndef __getattr__(name):\n    return map\n",
                                          "kernel/x.py": head + body}))
             self.assertTrue(caught(got, words), (body, words, got))
@@ -1816,6 +1823,11 @@ class Purity(unittest.TestCase):
                               "a/__init__.py binds b, which also names the module a/b/__init__.py")):
             got = check_purity.run(tree(files))
             self.assertTrue(caught(got, words), (files, words, got))
+        # A package's __getattr__ would hand back its value for a module the check reads; it names a special name.
+        got = check_purity.run(tree({"kernel/__init__.py": "def __getattr__(name):\n    return list\n",
+                                     "kernel/action.py": module, "kernel/use.py": "from kernel import action\n\n\n"
+                                     "def f(xs):\n    return action.run(xs)\n"}))
+        self.assertTrue(caught(got, "__init__.py:1 names __getattr__, a special name"), got)
         for files in ({"kernel/a/__init__.py": "from . import invoke\n", "kernel/a/invoke.py": module},
                       {"kernel/a/__init__.py": "from kernel.a import invoke\n", "kernel/a/invoke.py": module},
                       {"kernel/a/__init__.py": "import kernel.a.invoke as invoke\n", "kernel/a/invoke.py": module},
