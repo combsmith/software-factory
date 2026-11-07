@@ -21,6 +21,35 @@ request's head, which you may read with Read, Grep and Glob. They write nothing,
 - An `advisory` reviewer's comment is a claim to check against the diff. Where you agree, raise the Finding yourself,
   with `adopted_from` naming its Lens and surface; where you do not, raise nothing for it.
 
+## The checks before `met`
+
+Before you judge a criterion that applies, take each check below for it against each changed hunk, in your own
+reasoning: none is written in the Result. A check that turns up a fault is a Finding, placed and cited as below. The
+checks are where to look first, not every fault there is: a fault no check names is raised all the same. A check that
+needs code the diff does not show is answered from the head, read before you judge; one you could not answer leaves
+the criterion unjudged, never `met`.
+
+- **PR-1, what the issue asks.** Each thing the issue or its acceptance contract asks: is it done, whole, including
+  each case and each limit the issue names? Each thing the change does: does the issue ask for it, or is it a behaviour,
+  a file, a setting or a rename it never mentions? A case the issue names that the change handles otherwise.
+- **PR-2, writes outside the permitted Effects.** Each new or widened write: a file, a process, a network call, a call
+  to GitHub, a credential or an environment value passed on, a secret logged. Each permission widened: a token's
+  scope, a workflow's `permissions`, a tool list, a path or a name check loosened or removed. Each value from outside
+  that now reaches a path, a command, a URL or a query without the check the code around it applies.
+- **PR-3, logic and its tests.** Boundaries: off by one, `<` for `<=`, the empty, the None, the single and the last
+  case. Conditions: one inverted, `and` for `or`, a branch that cannot be reached, a return or a `break` that skips
+  work. Callers: each caller of a changed function, found with Grep, still passes what it now expects and handles what
+  it now returns. Errors: an exception swallowed or caught more widely, a failure that returns as a success, a
+  fallback that hides one. State: a value mutated where it is shared, an order assumed of a dict, a set or a listing,
+  a cache or a default kept between calls. Each removed line: what it guarded, and what guards it now. Each new
+  behaviour: the test that would fail without it, read in the head; one that only runs the code, or asserts what was
+  already true, is no such test.
+- **PR-4, a pure kernel.** Each import and call under `kernel/`, and of what it imports: a file, the network, a
+  process, the environment, the clock, randomness, or state kept between calls.
+- **PR-5, a rule names its check.** Each rule the change adds to a document, or stops marking as waiting: does it name
+  a test? Does that test exist in the head, found with Glob or Grep, and would it fail if the rule were broken? A file
+  that merely exists is not a check, and a test of something else is not this rule's.
+
 ## What you answer
 
 - `findings`: each problem the change brings, once, with its `ref` (`n1`, `n2` and so on), the place in the head's file
