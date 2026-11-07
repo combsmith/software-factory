@@ -1746,6 +1746,7 @@ class Purity(unittest.TestCase):
                 ("def f(cls):\n    return type('X', (cls,), {})\n", "calls type with other than one argument"),
                 ("def f(x):\n    return type(x, metaclass=x)\n", "calls type with other than one argument"),
                 ("def f(parts):\n    return type(*parts)\n", "calls type with other than one argument"),
+                ("def f():\n    return type()\n", "calls type with other than one argument"),
                 ("def f(parts):\n    return type(**parts)\n", "calls type with other than one argument"),
                 ("def f(cls):\n    raise cls\n", "raises"),
                 ("def f(x):\n    if x:\n        raise ValueError(x)\n    return x\n", "raises"),
@@ -1862,7 +1863,9 @@ class Purity(unittest.TestCase):
                 # Issue 593: a caller's _decision that it binds is not its own, and a lambda at the top takes none.
                 ("def f(facts, c):\n    _decision = c['d']\n    return paused(_decision, facts)\n", "gives _decision as _decision"),
                 ("def f(facts, x=lambda _decision: _decision()):\n    return facts\n",
-                 "takes _decision in a function inside another or a lambda")):
+                 "takes _decision in a function inside another or a lambda"),
+                ("def f(fs):\n    return list(map(paused, fs, fs))\n", "names paused without calling it"),
+                ("def f(fs):\n    return sorted(fs, key=brakes.paused)\n", "names paused without calling it")):
             got = check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/decide.py": head + body}))
             self.assertTrue(caught(got, words), (body, words, got))
         # However the function that takes it is imported, and wherever its place, what fills _decision is read.
