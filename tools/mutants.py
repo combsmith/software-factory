@@ -39,6 +39,15 @@ def moved_after(rel: str, block: str, anchor: str) -> tuple:
     return block + middle, middle + block
 
 
+def lane_if(called: str) -> str:
+    """The `if:` of the shim in tools/check_workflows.py that calls `called`, down to its call: each of the three shims
+    that dispatch a Run writes it the same but for the file it calls, so a mutant of one names it by this."""
+    return ("    if: github.actor_id == '%%d' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || "
+            "vars.FACTORY_PAUSED == 'false')\n    permissions:\n      actions: write\n      contents: read\n"
+            "    concurrency:\n      group: ${{ inputs.item }}\n      cancel-in-progress: false\n"
+            "    uses: combsmith/software-factory/.github/workflows/%s@factory/v0-next\n" % called)
+
+
 def moved_before(rel: str, block: str, anchor: str) -> tuple:
     """(old, new) for a mutant that moves `block` up to just before the `anchor` that comes ahead of it in `rel`;
     STALE, as `moved_after`, if either is not found."""
@@ -88,6 +97,7 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
+CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
@@ -4034,6 +4044,20 @@ MUTANTS = ISSUE + [
     ('a directory plans no file', 'tools/check_context.py',
      '    return {word for word in words if "." in word}\n',
      '    return set()\n', ('tests.test_tools.Context',)),
+    # The first cut's fixture: the ruleset that keeps a Release tag immutable, read after the cut (records 0071, 0120).
+    ('a Release tag may be moved', 'release/fixtures/cut.v0-1-0.json',
+     '"enforcement": "active"', '"enforcement": "evaluate"', CUT_FIXTURE),
+    ('an admin may force a Release tag to another commit', 'release/fixtures/cut.v0-1-0.json',
+     '"status": 422', '"status": 200', CUT_FIXTURE),
+    ('the refused PATCH did not force', 'release/fixtures/cut.v0-1-0.json', '"force": true', '"force": false',
+     CUT_FIXTURE),
+    ('the refused PATCH asked for the commit the tag already names', 'release/fixtures/cut.v0-1-0.json',
+     '"sha": "a32c0cebd32a28f0c2e369e2dd3f69a7ebfcbdce"', '"sha": "499835d5384ba81c466b17199edcde1848431630"',
+     CUT_FIXTURE),
+    ('the tag was read before the PATCH it is said to follow', 'release/fixtures/cut.v0-1-0.json',
+     '13:07:04 GMT', '23:07:04 GMT', CUT_FIXTURE),
+    ('the tag ruleset exempts the Release', 'release/fixtures/cut.v0-1-0.json',
+     '"exclude": []', '"exclude": ["refs/tags/factory/v0.1.0"]', CUT_FIXTURE),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a file of tests holds a rule', 'tools/check_context.py',
      '        if not test:\n            problems.append(', '        if False:\n            problems.append(', BARE_TESTS),
@@ -9485,8 +9509,12 @@ MUTANTS = ISSUE + [
      ' and name not in PASS_FILES:',
      ' and False:', ('tests.test_tools.Workflows.test_the_pass_job_alone_is_granted_a_write',)),
     ('any shim may name its run', 'tools/check_workflows.py',
-     '    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":',
+     '    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name not in LANE_SHIMS:',
      '    if False:', ('tests.test_tools.Workflows.test_a_shim_is_held_word_for_word',)),
+    ("an act's shim may not name its run", 'tools/check_workflows.py',
+     ' and e["key"] == "run-name" for e in entries) and name not in LANE_SHIMS:',
+     ' and e["key"] == "run-name" for e in entries) and name != "run.yml":',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
     ('the eval workflow may hold another job', 'tools/check_workflows.py',
      '    if [e["key"] for e in entries if e["path"] == ["jobs"]] != [EVAL_JOB]:\n        problems.append("it holds the job %s and no other" % EVAL_JOB)\n',
      '', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
@@ -9512,10 +9540,10 @@ MUTANTS = ISSUE + [
      ' and bool(OUTPUT.match(e["value"]))))',
      ' and bool(WHOLE.match(e["value"]))))', ('tests.test_tools.Workflows.test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running',)),
     ("run.yml is not held to the Run's shim", 'tools/check_workflows.py',
-     '    if name == "run.yml":\n        problems += run_problems(text, root)\n',
+     '    if name in LANE_SHIMS:\n        problems += lane_shim_problems(name, text, root)\n',
      '', ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
     ('run.yml may be anything', 'tools/check_workflows.py',
-     '    if lines != (RUN_SHIM % account["id"]).strip("\\n").split("\\n"):',
+     '    if lines != (shim % account["id"]).strip("\\n").split("\\n"):',
      '    if False:', ('tests.test_tools.Workflows.test_every_run_dispatch_carries_an_item_and_the_poller_takes_none',)),
     ('a run.yml is right with no dispatcher named', 'tools/check_workflows.py',
      '    if not isinstance(account, dict) or type(account.get("id")) is not int:',
@@ -9533,11 +9561,70 @@ MUTANTS = ISSUE + [
      'EVENT_READ = re.compile(r"(?<![./\\w-])github(?![\\w-])(?!\\.token(?![\\w.\\[]))", re.I)',
      'EVENT_READ = re.compile(r"(?<![./\\w-])github(?![\\w-])(?!\\.token)", re.I)', ('tests.test_tools.Workflows.test_only_the_poller_runs_on_workflow_run',)),
     ('a re-run is a Run', 'tools/check_workflows.py',
-     " && github.run_attempt == '1' && (",
-     ' && (', ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
+     lane_if("run-jobs.yml"), lane_if("run-jobs.yml").replace(" && github.run_attempt == '1'", ""),
+     ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
     ("the Run's jobs may be called from any file", 'tools/check_workflows.py',
-     '    elif any(e["key"] == "uses" and e["value"].split("@")[0].endswith("/" + RUN_JOBS) for e in entries):',
-     '    elif False:', ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
+     '        if name != caller and any(e["key"] == "uses"',
+     '        if False and any(e["key"] == "uses"',
+     ('tests.test_tools.Workflows.test_a_run_starts_only_from_the_poller_and_never_under_a_pause',)),
+] + [(why, 'tools/check_workflows.py', lane_if(called), lane_if(called).replace(old, new),
+      ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',))
+     for why, called, old, new in (
+         ("an approval's re-run is an approval", "approve-job.yml", " && github.run_attempt == '1'", ""),
+         ("the approving act starts from any dispatcher", "approve-job.yml", "github.actor_id == '%d' && ", ""),
+         ("the approving act starts under a Pause", "approve-job.yml",
+          " && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')", ""),
+         ("the approving act's shim calls the Run's jobs", "approve-job.yml", "/approve-job.yml@", "/run-jobs.yml@"),
+         ("the approving act's wake is granted no write", "approve-job.yml", "      actions: write\n", ""),
+         ("the approving act may be cancelled", "approve-job.yml", "cancel-in-progress: false", "cancel-in-progress: true"),
+         ("the queue act starts from any dispatcher", "queue-job.yml", "github.actor_id == '%d' && ", ""),
+         ("the queue act starts under a Pause", "queue-job.yml",
+          " && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')", ""),
+         ("the queue act holds one lane for every item", "queue-job.yml", "group: ${{ inputs.item }}", "group: sf-queue"),
+         ("the queue act's re-run is a queue act", "queue-job.yml", " && github.run_attempt == '1'", ""),
+         ("the queue act's wake is granted no write", "queue-job.yml", "      actions: write\n", ""),
+         ("the queue act's shim calls the approving act's job", "queue-job.yml", "/queue-job.yml@", "/approve-job.yml@"),
+         ("the approving act holds one lane for every item", "approve-job.yml", "group: ${{ inputs.item }}", "group: sf-approve"),
+     )] + [
+    ("only run.yml is held to its shim", 'tools/check_workflows.py',
+     '    if name in LANE_SHIMS:\n        problems += lane_shim_problems(name, text, root)\n',
+     '    if name == "run.yml":\n        problems += lane_shim_problems(name, text, root)\n',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("an approval's name may be left out", 'tools/check_workflows.py',
+     'APPROVE_SHIM = """name: sf-approve\nrun-name: ${{ inputs.name }}\non:\n  workflow_dispatch:\n    inputs:\n      name:\n'
+     '        required: true\n',
+     'APPROVE_SHIM = """name: sf-approve\nrun-name: ${{ inputs.name }}\non:\n  workflow_dispatch:\n    inputs:\n      name:\n'
+     '        required: false\n',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("an act's job may be called from any file", 'tools/check_workflows.py',
+     ',\n           QUEUE_JOB: ("queue.yml", "the queue act\'s job")}', '}',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("the approving act's job may be called from any file", 'tools/check_workflows.py',
+     'CALLERS = {RUN_JOBS: ("run.yml", "the Run\'s jobs"), APPROVE_JOB: ("approve.yml", "the approving act\'s job"),\n           QUEUE_JOB',
+     'CALLERS = {RUN_JOBS: ("run.yml", "the Run\'s jobs"),\n           QUEUE_JOB',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("an act's job may be called outside its lane", 'tools/check_workflows.py',
+     '    return any(uses.split("@")[0].endswith("/" + called) for called in CALLERS)',
+     '    return uses.split("@")[0].endswith("/" + RUN_JOBS)',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("approve.yml is held to the Run's shim", 'tools/check_workflows.py',
+     '"approve.yml": (APPROVE_SHIM,', '"approve.yml": (RUN_SHIM,',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("queue.yml is held to the approving act's shim", 'tools/check_workflows.py',
+     '"queue.yml": (QUEUE_SHIM,', '"queue.yml": (APPROVE_SHIM,',
+     ('tests.test_tools.Workflows.test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls',)),
+    ("the live approving act's shim starts under a Pause", '.github/workflows/approve.yml',
+     " && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')", '',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
+    ("the live queue act's shim starts from any dispatcher", '.github/workflows/queue.yml',
+     "github.actor_id == '41898282' && ", '',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
+    ("the live Run's shim runs a re-run", '.github/workflows/run.yml',
+     " && github.run_attempt == '1'", '',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
+    ("a shim held under no hash of its own stands", 'tools/check_workflows.py',
+     '         "queue.yml": "', '         "queue-old.yml": "',
+     ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
     ("a shim's group may be none, or cancel", 'tools/check_workflows.py',
      '        if "concurrency" in inside and not calls_run and (',
      '        if False and (', ('tests.test_tools.Workflows.test_a_shim_holds_no_step_and_calls_the_release_at_its_channel',)),
@@ -13663,6 +13750,42 @@ MUTANTS = ISSUE + [
      'rest += [target for _, target in redirected] + ([] if at in quiet else [_bare(w) for w in marked])', 'rest += [target for _, target in redirected] + ([] if at in quiet else [shell.unmarked(w) for w in marked])', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
     ("every reason goes with the script's", 'tools/hooks/identity.py',
      'for why in dict.fromkeys(blind) if names or why != UNSEEN_SCRIPT]', 'for why in dict.fromkeys(blind) if names]', (IDENTITY_TESTS + 'test_a_read_beside_a_script_names_no_commit_or_push',)),
+    # Issue 579: a quote past its backtick's end, and a ' in a "${...}", cannot be read.
+    ('a quote that runs past its backtick is read on', 'tools/hooks/shell.py',
+     '            if c in "\'\\"" and ticked and _past_tick(text, i, c, tick_end):\n', '            if False:\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('a quote that closes in its backtick is read as one that runs past it', 'tools/hooks/shell.py',
+     '    return end >= tick\n', '    return True\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('a single quote that runs past its backtick is read on', 'tools/hooks/shell.py',
+     '    return end >= tick\n', '    return end >= tick and quote == \'"\'\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('where a backtick ends is not read', 'tools/hooks/shell.py',
+     '                tick_end = _tick_end(text, i) if ticked else len(text)\n', '                tick_end = len(text)\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ' in a double-quoted ${...} is read", 'tools/hooks/shell.py',
+     '            if "\'" in text[i:end] and _inside(text, held, i, seen) is not False:', '            if False:', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ${...} a substitution's own quotes do not hold is read as double-quoted", 'tools/hooks/shell.py',
+     '            if "\'" in text[i:end] and _inside(text, held, i, seen) is not False:', '            if "\'" in text[i:end]:', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ' in a ${...} a substitution in double quotes holds is read", 'tools/hooks/shell.py',
+     '                if braced and _inside(text, held, i, seen):\n', '                if False:\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('a substitution double quotes hold is not kept', 'tools/hooks/shell.py',
+     '                held.append(i)', '                pass', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('a backtick that closes in double quotes is kept as one that opens', 'tools/hooks/shell.py',
+     '            if c == "$" or not held_tick:\n', '            if True:\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ' in a ${...} inside another is read", 'tools/hooks/shell.py',
+     '            if c == "$" and i < braces and braced and', '            if False and i < braces and braced and', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a substitution's own double quotes are not counted", 'tools/hooks/shell.py',
+     '        quotes += text[j] == \'"\'\n', '        quotes += 0\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('a place in a substitution is read as double-quoted whatever its quotes', 'tools/hooks/shell.py',
+     '    return quotes % 2 == 1\n', '    return True\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a script the shell runs and the reader cannot read is a here-document's data", 'tools/hooks/shell.py',
+     '    except Unread:\n        raise\n', '', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ${...} with a ' is passed over as inside one with none", 'tools/hooks/shell.py',
+     '            clean = end\n', '            clean = len(text)\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a quote past its backtick, which the shell runs past, is a here-document's data", 'tools/hooks/shell.py',
+     'raise Unread("a quote in a backtick runs past', 'raise ValueError("a quote in a backtick runs past', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ("a ' in a double-quoted ${...}, which the shell runs, is a here-document's data", 'tools/hooks/shell.py',
+     '                raise Unread("a \' in a ${...} that double quotes hold is a character to the shell, not a quote")\n            # With no',
+     '                raise ValueError("a \' in a ${...} that double quotes hold is a character to the shell, not a quote")\n            # With no', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
+    ('a substitution that has closed is read as holding what follows it', 'tools/hooks/shell.py',
+     '    held[:] = [start for start in held if seen[start] > i]\n', '', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),
     # Issue 410: a backtick glued to a redirection, a nested ${...}, and what only prints beside a script.
     ("a backtick inside a word leaves the word read as what came before it", 'tools/hooks/shell.py',
      '                    out.append("$")\n', '                    pass\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),

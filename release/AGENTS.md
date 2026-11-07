@@ -1,11 +1,10 @@
 # release/
 
-How the Factory ships itself. `rings.json` names the two Channels, what each serves, and the evidence a Release needs
-from `next` before it reaches `stable`. `cut.py` holds the rules that cut a Release and move or roll back a Channel,
+How the Factory ships itself. `rings.json` names the two Channels, what each serves, and the evidence a Release needs from `next` before it reaches `stable`. `cut.py` holds the rules that cut a Release and move or roll back a Channel,
 pure: it is given the refs and the facts, and returns the writes or one code. `current.py` names a commit's one
 Release. `move.py` prints a step's plan from what was read, and runs the step: it sends each write, reads it back and records the Deployment. The
 tags themselves are read by `adapters/tags.py`; `fixtures/` keeps what GitHub answered a Release's reads and steps. How to cut, and who may, is the skill `.claude/skills/cut-a-release/SKILL.md`.
-Not built yet, by the stories that hold their rules: promote.py, cutover.py, fixtures/cut.v0-1-0.json.
+Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 
 | Rule | Held by |
 |---|---|
@@ -25,6 +24,7 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py, fix
 | A fixture holds no credential, and no header a trial's fixture drops | `tests/test_release.py::test_the_refs_github_answered_are_read_as_the_port_reads_them` |
 | A fixture of a Release's runs keeps its schema, and says nothing its exchanges do not show; its log keeps the step's lines alone | `tests/test_release.py::test_an_item_that_says_other_than_its_own_exchanges_is_refused` |
 | The first cut was refused by the closed gate, and wrote no tag and no Deployment (`fixtures/gate.v0-1-0.json`) | `tests/test_release.py::test_the_first_cut_was_refused_by_the_closed_gate_and_wrote_nothing` |
+| The cut after it moved `next` and recorded its Deployment, and its Release is neither moved nor cut again (`fixtures/cut.v0-1-0.json`) | `tests/test_release.py::test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again` |
 | The step sends each write through the token it is given, reads it back, and records each move of `next` | `tests/test_release_step.py::test_a_cut_creates_the_release_moves_next_reads_each_back_and_records_the_deployment` |
 | It stops at the first write GitHub refused, or not read back, read twice, on its commit as the one Release planned | `tests/test_release_step.py::test_a_write_not_read_back_stops_the_step_there` |
 | It moves `next` only from where the plan read it (decision 0080) | `tests/test_release_step.py::test_next_moved_since_the_plan_stops_the_step_before_it_moves` |

@@ -3248,10 +3248,10 @@ class Workflows(unittest.TestCase):
         scalar = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: workflow_dispatch\n")
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/x.yml": scalar}))),
                                "x.yml: a shim is held word for word"))
-        # Only the Run's shim names its run.
+        # Only a shim that dispatches a Run names its run: the Run's and each act's, never the poller.
         named = POLLER.replace("name: sf-poller\n", "name: sf-poller\nrun-name: x\n")
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": named}))),
-                               "poller.yml: only run.yml names its run"))
+                               "poller.yml: only a shim that dispatches a Run, run.yml, approve.yml, queue.yml, names"))
         with mock.patch.dict(check_workflows.SHIMS, {"poller.yml": held}):
             self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": POLLER}))),
                                     "poller.yml"))
@@ -3371,15 +3371,15 @@ class Workflows(unittest.TestCase):
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
             "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"))})
 
-    def run_tree(self, text: str, account) -> list:
+    def run_tree(self, text: str, account, name: str = "run.yml") -> list:
         config = json.loads((ROOT / "config" / "controller.json").read_text())
         config["accounts"]["workflow_token"] = account
         base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD,
                 "config/controller.json": json.dumps(config)}
         held = hashlib.sha256(check_workflows.PIN.sub("@PIN", text).encode()).hexdigest()
-        with mock.patch.dict(check_workflows.SHIMS, {"run.yml": held}):
-            return [p for p in check_workflows.run(tree(dict(base, **{".github/workflows/run.yml": text})))
-                    if p.startswith(".github/workflows/run.yml")]
+        with mock.patch.dict(check_workflows.SHIMS, {name: held}):
+            return [p for p in check_workflows.run(tree(dict(base, **{".github/workflows/" + name: text})))
+                    if p.startswith(".github/workflows/" + name)]
 
     def test_every_run_dispatch_carries_an_item_and_the_poller_takes_none(self):
         # Decision 0036: a Run is dispatched with three required inputs, its name, its item and its pass, so every Role
@@ -3432,6 +3432,76 @@ class Workflows(unittest.TestCase):
             problems = check_workflows.run(tree(dict(elsewhere, **{".github/workflows/other.yml": other})))
             self.assertTrue(caught(problems, "other.yml: only run.yml calls the Run's jobs"), problems)
         self.assertEqual(self.run_tree("# The Run's shim.\n" + run, token), [])
+
+    def test_an_acts_shim_is_the_runs_but_for_its_name_and_the_file_it_calls(self):  # issue 196's plan, PR A
+        # The approving act's shim and the queue act's (decisions 0055 and 0128): each names its run by the run-name the
+        # pass gave it, as the records port reads a Run, holds its item's lane beside the Run's, grants its act's wake
+        # its write, and starts only from the pass's own token, on a first attempt, with no Pause set.
+        token = {"type": "Bot", "id": 41898282}
+        condition = ("    if: github.actor_id == '41898282' && github.run_attempt == '1' && "
+                     "(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')\n")
+        for name, called, other in (("approve.yml", "approve-job.yml", "queue-job.yml"),
+                                    ("queue.yml", "queue-job.yml", "approve-job.yml")):
+            shim = check_workflows.LANE_SHIMS[name][0] % 41898282
+            # The Run's shim, line for line, but for its name and the file it calls.
+            self.assertEqual(shim, (check_workflows.RUN_SHIM % 41898282).replace(
+                "name: sf-run\n", "name: sf-%s\n" % name[:-len(".yml")], 1).replace("/run-jobs.yml@", "/%s@" % called), name)
+            self.assertEqual(self.run_tree(shim, token, name), [], name)
+            self.assertEqual(check_workflows.lint(shim), [], name)
+            for held in ("run-name: ${{ inputs.name }}\n", condition, "      actions: write\n",
+                         "      group: ${{ inputs.item }}\n      cancel-in-progress: false\n",
+                         "    uses: combsmith/software-factory/.github/workflows/%s@factory/v0-next\n" % called):
+                self.assertIn(held, shim, (name, held))
+            broken = {
+                "another dispatcher": shim.replace("41898282", "41898283"),
+                "no Pause": shim.replace(condition, "    if: github.actor_id == '41898282' && github.run_attempt == '1'\n"),
+                "a re-run": shim.replace(" && github.run_attempt == '1'", ""),
+                "any value but true": shim.replace("(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')",
+                                                   "vars.FACTORY_PAUSED != 'true'"),
+                "either": shim.replace("' && github", "' || github"),
+                "no condition": shim.replace(condition, ""),
+                "the Run's jobs": shim.replace(called, "run-jobs.yml"),
+                "the other act's job": shim.replace(called, other),
+                "unnamed": shim.replace("run-name: ${{ inputs.name }}\n", ""),
+                "a lane for every item": shim.replace("group: ${{ inputs.item }}", "group: sf-act"),
+                "a Run cancelled": shim.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+                "no write for its wake": shim.replace("      actions: write\n", ""),
+                "no item": shim.replace("      item:\n        required: true\n        type: string\n", ""),
+                "another channel": shim.replace("@factory/v0-next", "@main"),
+            }
+            for why, text in broken.items():
+                self.assertNotEqual(text, shim, (name, why))
+                self.assertTrue(self.run_tree(text, token, name), (name, why))
+            for account in (None, {"type": "Bot", "id": 41898283}, {"type": "Bot", "id": "41898282"}):
+                self.assertTrue(self.run_tree(shim, account, name), (name, account))
+        # Each act's job is called from its own shim alone, and only in its item's lane.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        for called, caller, what in (("approve-job.yml", "approve.yml", "the approving act's job"),
+                                     ("queue-job.yml", "queue.yml", "the queue act's job")):
+            other = GOOD.replace("  checks:\n", "  lane:\n    permissions:\n      contents: read\n    concurrency:\n"
+                                 "      group: ${{ inputs.item }}\n      cancel-in-progress: false\n"
+                                 "    uses: combsmith/software-factory/.github/workflows/%s@factory/v0-next\n"
+                                 "  checks:\n" % called, 1)
+            problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": other})))
+            self.assertTrue(caught(problems, "other.yml: only %s calls %s" % (caller, what)), problems)
+            self.assertNotIn("lane", {r for r, _ in check_workflows.lint(other)}, called)
+            for lane in ("group: sf-act", "group: ${{ inputs.name }}"):
+                self.assertIn("lane", {r for r, _ in check_workflows.lint(other.replace("group: ${{ inputs.item }}", lane))},
+                              (called, lane))
+            self.assertIn("lane", {r for r, _ in check_workflows.lint(other.replace(
+                "cancel-in-progress: false", "cancel-in-progress: true"))}, called)
+
+    def test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes(self):  # issue 196's plan, PR A
+        # run.yml, approve.yml and queue.yml are on main, each its template word for word, its dispatcher the account
+        # config/controller.json names, and its bytes the hash SHIMS records; and no hash in SHIMS is of a file not there.
+        live = ROOT / ".github" / "workflows"
+        self.assertEqual(set(check_workflows.LANE_SHIMS), {"run.yml", "approve.yml", "queue.yml"})
+        for name in check_workflows.LANE_SHIMS:
+            text = (live / name).read_text()
+            self.assertEqual(check_workflows.shim_problems(name, text), [], name)
+            self.assertEqual(hashlib.sha256(check_workflows.PIN.sub("@PIN", text).encode()).hexdigest(),
+                             check_workflows.SHIMS[name], name)
+        self.assertLessEqual(set(check_workflows.SHIMS), {path.name for path in live.glob("*.yml")})
 
     def test_no_step_sets_the_scrub_or_hands_the_model_a_tool_list(self):
         # Decision 0050: the scrub is the Engine's to set, beside --tools "", and a step can pass the CLI no argument;

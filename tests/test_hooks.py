@@ -1527,6 +1527,38 @@ class Identity(unittest.TestCase):
         self.assertIn((["#x"], [(">", "kernel/gate.py")]), shell.commands("echo `date`#x > kernel/gate.py"))
         # One that begins a word is read as before.
         self.assertEqual(shell.commands("echo `date` > notes.txt"), [(["echo"], []), (["date"], []), ([], [(">", "notes.txt")])])
+        # Issue 579: a quote that runs past where its backtick ends, which bash reads apart from it, and a ' in a "${...}",
+        # which the shell reads as a character and this reading would take as a quote, cannot be read, so the hooks ask.
+        # A quote that closes in its backtick, a "${...}" with no ', and a ${...} with one that no double quote holds,
+        # after a double quote that closed, are read as before (the Claude review).
+        for text in ("echo `echo x #\"`echo x`\"`\"`echo x`\"\nrm kernel/gate.py\n# \"",
+                     "echo \"${x:-'default'}\" > notes.txt",
+                     "echo \"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"",
+                     # Astra: a single quote that runs past its backtick, and the nested spelling in an outer ${...}.
+                     "echo `echo '`\nrm kernel/gate.py\necho '`",
+                     "echo ${?+\"$(echo \"${?+'$(rm kernel/gate.py)'}\")\"}",
+                     # Astra on the last head: the same in a backtick double quotes hold, and after a quoted word.
+                     "echo \"`echo \"${?+'$(rm kernel/gate.py)'}\"`\"",
+                     "echo \"$(echo \"a\" \"${x:-'y'}\")\"",
+                     # Codex: one after a "${...}" with no ', which is not read again, nor what it holds.
+                     "echo \"${x:-a}\" \"${y:-'z'}\" > notes.txt"):
+            with self.assertRaises(ValueError, msg=text):
+                shell.commands(text)
+        # What the shell runs and the reader cannot read is no here-document's data, as a script the shell fails is (Codex).
+        with self.assertRaises(shell.Unread):
+            shell.without_heredocs("cat <<EOF\n$(echo \"${x:-'default'}\"; rm kernel/gate.py)\nEOF")
+        with self.assertRaises(shell.Unread):       # a quote past its backtick is such a script too (Astra)
+            shell.commands("echo `echo '`\nrm kernel/gate.py\n# '`")
+        self.assertEqual(shell.commands("echo `echo \"a b\"` > notes.txt"),
+                         [(["echo"], []), (["echo", "a b"], []), ([], [(">", "notes.txt")])])
+        self.assertEqual(shell.commands("echo \"${x:-default}\" > notes.txt"), [(["echo", "${x:-default}"], [(">", "notes.txt")])])
+        self.assertEqual(shell.commands("echo \"$x\" ${y:-'z'}"), [(["echo", "$x", "${y:-z}"], [])])
+        # A backtick that closes in double quotes is no new substitution, so what follows them is unquoted (Codex).
+        self.assertEqual(shell.commands("echo \"`date`\"; echo ${y:-'z'}")[-1], (["echo", "${y:-z}"], []))
+        # A ${...} in a substitution, which no double quote of its own holds, has quotes of its own (Astra).
+        self.assertEqual(len(shell.commands("echo \"$(echo ${x:-'default'})\"")), 2)
+        self.assertEqual(shell.commands("git commit -m \"msg\" && echo ${FOO:-'x'}"),
+                         [(["git", "commit", "-m", "msg"], []), (["echo", "${FOO:-x}"], [])])
         # A substitution in a ${...} inside a substitution of a here-document's body is read as at the top.
         for command in ('cat <<E\n$(echo ${x:-$(git push origin main)})\nE',
                         'cat <<E\n$(echo ${x:-$(printf "%s" "a (b)"; git push origin main)})\nE'):
@@ -1717,9 +1749,19 @@ class Identity(unittest.TestCase):
                                  (lambda n: "cat <<EOF\n$(echo " + "${x:-" * n + "y" + "}" * n + ")\nEOF\ngit push", 400,
                                   "command_unreadable"),
                                  # Substitutions in double quotes, each escaping a ", each level read once (Astra on #520).
-                                 (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, "")):
+                                 (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, ""),
+                                 # Quoted words in a backtick, each read up to its close alone (Codex on #604).
+                                 (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 8000, ""),
+                                 (lambda n: 'echo "$(echo ' + "${x:-'y'} " * n + ')"; git push', 8000, ""),
+                                 (lambda n: 'echo "' + ("${x:-" + "a " * 20) * n + "}" * n + '"; git push', 800, ""),
+                                 (lambda n: 'echo "$(echo ' + ("${x:-" + "a " * 20) * n + "'y'" + "}" * n + ')"; git push',
+                                  800, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
+        # Codex on PR 604: a ${...} after each of many closed substitutions. The check reads each substitution's calls
+        # across the whole text, so the reader is timed on its own.
+        make = lambda n: 'echo "$(date)" ${x:-\'a\'}; ' * n
+        linear(self, lambda n: shell.commands(make(n)), 8000, identity.READ_SECONDS, make(2)[:40])
 
     @wall_clock
     def test_the_readings_sonarcloud_flagged_are_read_in_linear_time(self):
