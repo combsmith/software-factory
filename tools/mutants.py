@@ -11869,6 +11869,13 @@ MUTANTS = ISSUE + [
      'mkdir -m 700 -- "$here/$part"', 'mkdir -p -m 700 -- "$here/$part"', ('tests.test_tools.OutputMadeAlone.test_a_link_put_where_a_sandbox_trial_makes_a_parent_is_refused_not_followed',)),
     ('P-51 follows a link put where it makes a parent', 'tools/trial_p51_sandbox_writes.sh',
      'mkdir -m 700 -- "$here/$part"', 'mkdir -p -m 700 -- "$here/$part"', ('tests.test_tools.OutputMadeAlone.test_a_link_put_where_a_sandbox_trial_makes_a_parent_is_refused_not_followed',)),
+    # Issue 586: P-59 makes OUT's parents as P-50 and P-51 do.
+    ('P-59 follows a link put where it makes a parent', 'tools/trial_p59_read_confinement.sh',
+     'mkdir -m 700 -- "$here/$part"', 'mkdir -p -m 700 -- "$here/$part"', ('tests.test_tools.OutputMadeAlone.test_a_link_put_where_a_sandbox_trial_makes_a_parent_is_refused_not_followed',)),
+    ("P-59 makes OUT's parents by the umask", 'tools/trial_p59_read_confinement.sh',
+     'mkdir -m 700 -- "$here/$part"', 'mkdir -- "$here/$part"', ('tests.test_tools.OutputMadeAlone.test_a_refused_sandbox_trial_leaves_no_directory_behind',)),
+    ('P-59 takes an OUT with a newline in it', 'tools/trial_p59_read_confinement.sh',
+     'case "$1" in *$\'\\n\'*) refuse', 'case "$1" in *$\'\\a\'*) refuse', ('tests.test_tools.OutputMadeAlone.test_a_refused_sandbox_trial_leaves_no_directory_behind',)),
     ('P-51 takes an OUT with .. in it', 'tools/trial_p51_sandbox_writes.sh',
      'case "/$1/" in */../*) refuse', 'case "/$1/" in */nothing/*) refuse', ('tests.test_tools.OutputMadeAlone.test_a_refused_sandbox_trial_leaves_no_directory_behind',)),
     ("P-51 makes OUT's parents by the umask", 'tools/trial_p51_sandbox_writes.sh',
