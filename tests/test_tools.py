@@ -6718,12 +6718,14 @@ fi
                     self.assertIn("by a link, which another user may have put there", told)
                     self.assertEqual([p.name for p in elsewhere.iterdir()], ["deeper"], "a directory was made through the link")
                     self.assertEqual(list((elsewhere / "deeper").iterdir()), [], "a directory was made through the link")
-            with self.subTest(script=script, out="with . and //"):
-                folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-                (folder / "real").mkdir()
-                code, told = self.run_out(script, folder, "%s//real/./new/out" % folder)
-                self.assertNotIn("by a link", told)
-                self.assertTrue((folder / "real" / "new" / "out").is_dir(), told)
+            # Named from / and from where the run stands: a relative one is read from there, not from / (Astra).
+            for named in ("%s//real/./new/out", "./real//./new/out"):
+                with self.subTest(script=script, out=named):
+                    folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+                    (folder / "real").mkdir()
+                    code, told = self.run_out(script, folder, named.replace("%s", str(folder)))
+                    self.assertNotIn("by a link", told)
+                    self.assertTrue((folder / "real" / "new" / "out").is_dir(), told)
 
     def test_the_four_that_make_out_later_make_it_for_their_user_alone(self):
         # Issue 424: a parent no other can write to is little use if OUT itself takes the umask.
