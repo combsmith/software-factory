@@ -83,24 +83,25 @@ check_above() {
         above=$(dirname -- "$above")
     done
 }
-# A link in OUT's path as named, at or above the deepest directory that stands, is followed by the cd that reads it, so
-# one another user put there before the run would take OUT elsewhere, and the check reads only where it leads. One that
-# is not root's is refused: root's, such as macOS's /tmp and /var, no other user can put there (issue 602).
-check_links() {
-    local named=$1 found
-    while [[ "$named" != . && "$named" != / ]]; do
-        found=$(find "$named" -maxdepth 0 -type l ! -user 0 -print) || found="find failed"
-        [[ -z "$found" ]] || refuse "$named is a link that is not root's, which another user may have put there, or could not be read; name OUT by the directory it leads to"
-        named=$(dirname -- "$named")
-    done
-}
 uid=$(id -u)
 near=$(dirname -- "$1")
 until [[ -d "$near" || "$near" == . ]]; do near=$(dirname -- "$near"); done
 here=$(CDPATH= cd -- "$near" && pwd -P)
 here=${here%/}       # / as nothing, so what is made in it is /NAME; read once, by the check and by what is made
 check_above "${here:-/}"
-check_links "$near"
+# The cd above follows a link, so one another user put in OUT's path before the run would take OUT elsewhere, and the
+# check would read only where it leads (issue 602). What it reached must be the path as named, from where the run
+# stands, without . or a doubled /: a link that took it elsewhere is refused, whoever owns it, since a hard link keeps
+# its owner wherever it is put. macOS's /tmp, /var and /etc lead to /private, and only from /. What is compared is what
+# the cd reached, and what is made is made in it, so a link put or taken away since changes neither.
+case "$near" in /*) named=$near ;; *) named=$(pwd -P)/$near ;; esac
+plain=""
+IFS=/ read -r -a steps <<< "$named"
+for step in ${steps[@]+"${steps[@]}"}; do
+    [[ -z "$step" || "$step" == . ]] || plain=$plain/$step
+done
+case "$plain" in /tmp | /tmp/* | /var | /var/* | /etc | /etc/*) [[ "$here" != "/private$plain" ]] || plain=/private$plain ;; esac
+[[ "$here" == "$plain" ]] || refuse "$near leads to ${here:-/} by a link, which another user may have put there; name OUT under ${here:-/} itself"
 # OUT is made here, by this script alone: one made since it was found absent is refused, never written into. What this
 # makes above it is made one directory at a time inside the one the check read, never through the path as given, so a
 # link put in its way is refused, not followed (issue 502); each is its user's alone, and read too.
