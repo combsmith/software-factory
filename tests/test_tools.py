@@ -4311,6 +4311,8 @@ class Decisions(unittest.TestCase):
             "a held test beside a pending one": ("`tests/test_x.py::test_y`, `tests/test_x.py::test_later`, not held yet",
                                                  "names no mutant"),
             "a held test beside a wait": ("`tests/test_x.py::test_y`, waiting on `roles/x.py`", "names no mutant"),
+            "a held test named another way beside a pending one": (
+                "`./tests/test_x.py::test_y`, `tests/test_x.py::test_later`, not held yet", "names no mutant"),
         }
         for name, (check, words) in refusals.items():
             with self.subTest(name):
@@ -4336,6 +4338,11 @@ class Decisions(unittest.TestCase):
                                                               '("tests.test_x.T.test_y",)),\n]\n'), "share a description")):
             with self.subTest(words):
                 self.assertTrue(refused({"tools/mutants.py": broken}, words))
+        # They are read again once the file holds other mutants, in the same tree.
+        root = edited(history(), {FIRST: row(x + '`tests/test_x.py::test_z`, mutant: "another thing is undone"')})
+        self.assertEqual(check_decisions.run(root), [])
+        (root / "tools/mutants.py").write_text(RECORD_MUTANTS.replace('"another thing is undone"', '"another thing is gone"'))
+        self.assertTrue(caught(check_decisions.run(root), 'mutant "another thing is undone", which tools/mutants.py does not hold'))
         # They are not read where no row needs them.
         plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
         self.assertEqual(check_decisions.run(edited(history({FIRST: plain}), {
@@ -4355,6 +4362,10 @@ class Decisions(unittest.TestCase):
             with self.subTest(check):
                 self.assertTrue(refused({FIRST: plain.replace("`tests/test_x.py`", check)}, "boundary 1: a new or changed",
                                         base={FIRST: plain}))
+        # A file that is not a test's, now named by a function of it, is a change.
+        tool = RECORD.replace(ONE_ROW, "| One thing | `tools/check_x.py` |")
+        self.assertTrue(refused({FIRST: tool.replace("`tools/check_x.py`", "`tools/check_x.py::helper`")},
+                                "boundary 1: a new or changed", base={FIRST: tool}))
         named = plain.replace("`tests/test_x.py`", "`tests/test_x.py::test_y`")
         self.assertTrue(refused({FIRST: named.replace("::test_y", "::test_z")}, "boundary 1: a new or changed",
                                 base={FIRST: named}))

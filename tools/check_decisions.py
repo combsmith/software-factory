@@ -20,6 +20,7 @@ skipped; `verify` says so. In GitHub Actions a missing `.git` fails, so CI canno
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import pathlib
@@ -46,7 +47,7 @@ BOUNDARIES = "## Boundaries"
 TICKED = re.compile(r"`([^`\n]+)`")
 # A mutant a row names, by its description in tools/mutants.py, and a test, as path::name (issue 590).
 MUTANT = re.compile(r'mutant: "([^"\n]+)"')
-TEST = re.compile(r"`(tests/[\w./-]+\.py)::([\w.]+)`")
+TEST = re.compile(r"`([\w./-]+\.py)::([\w.]+)`")
 
 
 class Unreadable(Exception):
@@ -157,16 +158,25 @@ def _tokens(cell: str) -> set:
     return set(TICKED.findall(cell))
 
 
+def _named_tests(cell: str) -> list:
+    """(path, name) of each test a cell names as path::name, its path as the repo holds it, under `tests/`."""
+    return [(path, name) for path, name in ((_path(p), n) for p, n in TEST.findall(cell)) if path.split("/")[0] == "tests"]
+
+
 def _tests(cell: str) -> list:
     """(module, name) of each test a cell names as path::name."""
-    return [("tests." + path[len("tests/"):-len(".py")].replace("/", "."), name) for path, name in TEST.findall(cell)]
+    return [(path[:-len(".py")].replace("/", "."), name) for path, name in _named_tests(cell)]
 
 
 def _exempt(cell: str, root: pathlib.Path) -> bool:
     """Whether a row has no test that can kill a mutant yet: it waits on a planned part, or says it is not held yet,
     and every test it names is marked @pending (issue 590)."""
     return bool(WAITING.search(cell) or PENDING in cell) and \
-        all(_is_pending("%s::%s" % (path, name), root, root) for path, name in TEST.findall(cell))
+        all(_is_pending("%s::%s" % (path, name), root, root) for path, name in _named_tests(cell))
+
+
+def _is_tests(token: str) -> bool:
+    return _path(token.partition("::")[0]).split("/")[0] == "tests"
 
 
 def _same_check(old: str, new: str) -> bool:
@@ -174,7 +184,7 @@ def _same_check(old: str, new: str) -> bool:
     named as a test of that file; the same mutants; and the same wait or the same word that it is not held yet, so a
     rule that stops waiting is a changed row (issue 590)."""
     was = _tokens(old)
-    now = {t.partition("::")[0] if "::" in t and t.partition("::")[0] in was else t for t in _tokens(new)}
+    now = {t.partition("::")[0] if "::" in t and t.partition("::")[0] in was and _is_tests(t) else t for t in _tokens(new)}
     return (now == was and MUTANT.findall(old) == MUTANT.findall(new)
             and WAITING.findall(old) == WAITING.findall(new) and (PENDING in old) == (PENDING in new))
 
@@ -195,9 +205,13 @@ def _changed(old: list, new: list) -> list:
 
 
 def _mutants(root: pathlib.Path) -> dict:
-    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once per root. Two
+    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once for each root and
+    each text of the file. Two
     that share a description name no one mutant. Raises Unreadable."""
-    key = str(root.resolve())
+    try:
+        key = (str(root.resolve()), hashlib.sha256((root / "tools" / "mutants.py").read_bytes()).hexdigest())
+    except OSError as err:
+        raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
     if key not in _READ:
         try:
             if root.resolve() == ROOT.resolve():
