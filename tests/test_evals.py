@@ -2427,6 +2427,7 @@ class EvalJob(unittest.TestCase):
         recips = [asked[0][0][i + 1] for i, a in enumerate(asked[0][0]) if a == "-recip"]
         self.assertEqual([os.path.dirname(r) for r in recips], [os.path.realpath(str(self.temp / "heldout"))] * 2)
         sealed = self.work / seal.SEALED
+        self.assertEqual(sealed.stat().st_mode & 0o777, 0o600)    # the upload reads it as the runner's user, as it is
         self.assertEqual(opened(sealed, keys / "first.crt", first_key), plain)
         self.assertEqual(opened(sealed, keys / "second.crt", second_key), plain)
         self.assertNotIn(b"poc-two", sealed.read_bytes())

@@ -130,7 +130,7 @@ def step(env, root, workspace, call=subprocess.run):
     with open(os.open(checked, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(data)
     sealed = seal(checked, certs, sealing, call)
-    with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644), "wb") as out:
+    with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as out:
         out.write(sealed)
     written["ledger"]["sealed_sha256"] = hashlib.sha256(sealed).hexdigest()
     _write(workspace, REPORT, written)
