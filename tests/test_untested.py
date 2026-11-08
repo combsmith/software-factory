@@ -8,7 +8,6 @@ import pathlib
 import re
 import subprocess
 import tempfile
-import time
 import unittest
 from unittest import mock
 
@@ -71,10 +70,11 @@ def change(base: dict, head: dict, message: str = "the change") -> tuple:
     return made, root, first, git(root, "rev-parse", "HEAD").strip()
 
 
-def checked(base: dict, head: dict, message: str = "the change", seconds: float = 600) -> dict:
+def checked(base: dict, head: dict, message: str = "the change", deadline: float = float("inf")) -> dict:
+    """`untested.check` of the change, its deadline never reached unless one is given: no test here reads the clock."""
     made, root, first, last = change(base, head, message)
     with made:
-        return untested.check(root, first, last, time.monotonic() + seconds, workers=2)
+        return untested.check(root, first, last, deadline, workers=2)
 
 
 def outcomes(found: dict) -> list:
@@ -176,7 +176,7 @@ class Reverts(unittest.TestCase):
             self.spent = spent
             made_at, root, first, last = change({}, {"pkg/f40.py": made(40), "pkg/f41.py": made(41), "tests/test_f.py": test})
             with made_at:
-                found = untested.check(root, first, last, time.monotonic() + 600, run=run, workers=1)
+                found = untested.check(root, first, last, float("inf"), run=run, workers=1)
             by_path = {h["path"]: h for h in found["hunks"]}
             self.assertEqual((by_path["pkg/f40.py"]["outcome"], by_path["pkg/f40.py"].get("by")), ("UNCHECKED", "revert"))
             self.assertEqual((by_path["pkg/f41.py"]["outcome"], by_path["pkg/f41.py"]["by"]), f41)
@@ -191,7 +191,7 @@ class Reverts(unittest.TestCase):
 
     def test_no_run_of_the_tests_begins_past_the_budget(self):
         base = {"pkg/calc.py": CALC, "tests/test_calc.py": CALC_TEST}
-        found = checked(base, {"pkg/calc.py": CALC.replace("x * 2", "x * 3")}, seconds=-1)
+        found = checked(base, {"pkg/calc.py": CALC.replace("x * 2", "x * 3")}, deadline=float("-inf"))
         self.assertEqual([(h["outcome"], h["why"]) for h in found["hunks"]], [("UNCHECKED", "over budget")])
 
     def test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read(self):
