@@ -626,13 +626,14 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
             said = [r for (h, _, _), r in zip(made_of, results) if h is hunk]
             kinds = [outcome for outcome, _ in said]
             ran = [kind for kind in kinds if kind in ("killed", "SURVIVED", "FLAKY", "ERROR")]
-            # A mutant that hung or failed to run is an ERROR, never a kill, whatever its neighbours did.
-            outcome = next((kind for kind in ("SURVIVED", "FLAKY", "ERROR", "killed") if kind in kinds), hunk["outcome"])
+            # A mutant that hung or failed to run is an ERROR, and one the budget left is UNCHECKED: never a kill, whatever
+            # its neighbours did.
+            outcome = next((kind for kind in ("SURVIVED", "FLAKY", "ERROR", "UNCHECKED", "killed") if kind in kinds),
+                           hunk["outcome"])
             hunk.setdefault("tried", []).append("mutants")
             hunk.update(by="mutants", mutants=len(said), outcome=outcome,
-                        why="%d of %d mutants of its added lines ran" % (len(ran), len(said)) if ran else hunk["why"])
-            if not ran and said and all(said_one == ("UNCHECKED", "over budget") for said_one in said):
-                hunk.update(outcome="UNCHECKED", why="over budget")
+                        why="over budget" if outcome == "UNCHECKED" else
+                        "%d of %d mutants of its added lines ran" % (len(ran), len(said)) if ran else hunk["why"])
         for hunk in todo:
             if hunk["outcome"] in UNRUN:
                 hunk.update(outcome="UNCHECKED", why="%s: %s" % (hunk["outcome"], hunk["why"]))

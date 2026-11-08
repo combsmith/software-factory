@@ -181,9 +181,14 @@ class Reverts(unittest.TestCase):
                 raise untested.OverBudget()
             if self.mode == "mixed" and texts != heads:     # a mutant: the dropped statement hangs, the rest are noticed
                 return (None, "") if "    pass\n" in texts["f41.py"] else (1, NOTICED)
+            if self.mode == "partial" and texts != heads:   # a mutant: the first is noticed, the budget leaves the rest
+                if "    pass\n" in texts["f41.py"]:
+                    return 1, NOTICED
+                if not only:
+                    raise untested.OverBudget()
             return 0, "OK\n"
         for mode, f41 in (("survive", ("SURVIVED", "mutants")), ("spent", ("UNCHECKED", "mutants")),
-                          ("mixed", ("ERROR", "mutants"))):
+                          ("mixed", ("ERROR", "mutants")), ("partial", ("UNCHECKED", "mutants"))):
             self.mode = mode
             made_at, root, first, last = change({}, {"pkg/f40.py": made(40), "pkg/f41.py": made(41), "tests/test_f.py": test})
             with made_at:
@@ -191,7 +196,7 @@ class Reverts(unittest.TestCase):
             by_path = {h["path"]: h for h in found["hunks"]}
             self.assertEqual((by_path["pkg/f40.py"]["outcome"], by_path["pkg/f40.py"].get("by")), ("UNCHECKED", "revert"))
             self.assertEqual((by_path["pkg/f41.py"]["outcome"], by_path["pkg/f41.py"]["by"]), f41)
-            if mode == "spent":
+            if mode in ("spent", "partial"):
                 self.assertEqual(by_path["pkg/f41.py"]["why"], "over budget")
                 self.assertEqual(untested.counts(found, 0)["over_budget"], 1)
 
