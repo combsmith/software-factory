@@ -511,14 +511,18 @@ class Simulation(unittest.TestCase):
         # The queue's merge objects to a description edited since the approval in the world's own words, so those words
         # must be the Kernel's anchor: any person's approval is a look, a colleague's too, and one a person dismissed since
         # is taken back; with no machine approval since the look but one before it, the look itself anchors.
-        from kernel import derive
 
         def review(by, at, dismissed_by=None):
             return {"by": dict(by), "state": "dismissed" if dismissed_by else "approved", "commit": "c1",
                     "content_id": "sha256:00c1", "submitted_at": world.World.at(at), "dismissed_by":
                     dict(dismissed_by) if dismissed_by else None, "dismissed_from": "approved" if dismissed_by else None}
 
+        def run(at, intent=terms.ISSUE_APPROVAL, content="sha256:00c1"):
+            return {"run": "r%d" % at, "item": dict(world.ITEM), "role": "pr-review", "intent": intent, "content_id": content,
+                    "status": "completed", "conclusion": "success", "outcome": None, "started_at": world.World.at(at)}
+
         machine, person, colleague = world.MACHINE, world.MAINTAINER, world.COLLEAGUE
+        # As the world runs, each machine approval's act starts in its own second: the readings agree as they did.
         for reviews, edited, held in (
                 ([review(machine, 15)], 20, True),
                 ([review(machine, 15, dismissed_by=person)], 20, True),
@@ -537,11 +541,29 @@ class Simulation(unittest.TestCase):
                 # In one second no order can be told: an edit in the anchor's second, and an approval in the look's.
                 ([review(machine, 15)], 15, True),
                 ([review(person, 10), review(machine, 10), review(machine, 15)], 12, True)):
-            w = World(1, faults=False, people=False)
-            w.reviews, w.edited = reviews, world.World.at(edited)
-            anchor = derive.description_anchor(w.facts(), w.edited)
-            kernel = anchor is not None and w.edited >= anchor
-            self.assertEqual((w.edited_since_approval(), kernel), (held, held), (reviews, edited))
+            acts = [run(int(rv["submitted_at"][14:16])) for rv in reviews if rv["by"] == machine]
+            self.assertEqual(self.read(reviews, edited, acts), (held, held), (reviews, edited))
+        # Issue 608: an approval is dated by the act's Run that read the description, as the Kernel dates it (decision
+        # 0158). An act that started before it reaches back; the latest act on its content counts, and no other Run does;
+        # with no act, a Run of the item as old as it dates it at its own time, and with none, before every time.
+        for runs, edited, held in (
+                ([run(12)], 13, True),
+                ([run(8), run(12)], 10, False),
+                ([run(10), run(13, intent="review-change")], 12, True),
+                ([run(10), run(13, content="sha256:00c2")], 12, True),
+                ([run(5, intent="review-change")], 10, False),
+                ([], 10, True),
+                ([run(16)], 10, True)):
+            self.assertEqual(self.read([review(machine, 15)], edited, runs), (held, held), (runs, edited))
+
+    @staticmethod
+    def read(reviews, edited, runs):
+        """The world's reading of an edit at `edited` and the Kernel's, from the same reviews and run records."""
+        from kernel import derive
+        w = World(1, faults=False, people=False)
+        w.reviews, w.edited, w.runs = reviews, world.World.at(edited), runs
+        anchor = derive.description_anchor(w.facts(), w.edited, runs=w.records())
+        return w.edited_since_approval(), anchor is not None and w.edited >= anchor
 
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
