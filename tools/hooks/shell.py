@@ -177,7 +177,7 @@ def _nested(script: str, room: list, comments: bool = True) -> str:
                 if _left_open(inner):
                     # The shell ends a backtick before it reads its quotes, fails this one and runs what follows: a
                     # script that would be data in a body is one the hook cannot read (#605 (d)).
-                    raise Unread("a quote in a backtick runs past where the backtick ends")
+                    raise Unread("a quote in a backtick in a substitution runs past where the backtick ends")
             else:
                 end = _balanced(script, i + 2, ")")
                 inner = script[i + 2:end - 1] if script[end - 1:end] == ")" else script[i + 2:]
