@@ -98,6 +98,8 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
 APART = ("tests.test_evals.EvalJob.test_each_head_is_unpacked_apart_from_the_cases",)
+SCRATCH_PARTS = ("tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read",)
+CANARY_APART = ("tests.test_evals.EvalJob.test_the_canarys_head_is_apart_from_its_case",)
 NO_ANSWER = ("tests.test_evals.EvalJob.test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history",)
 NO_HISTORY = NO_ANSWER + ("tests.test_harness.Head.test_each_archive_the_unpacker_refuses_it_refuses_whole",)
 SURPLUS = ("tests.test_evals.Scoring.test_a_result_that_hedges_at_the_place_or_gates_elsewhere_fails_its_case",)
@@ -8581,6 +8583,20 @@ MUTANTS = ISSUE + [
      'code = head_of(data, heads_place(env, workspace), entry["id"], heads)', 'code = head_of(data, place / "heads", entry["id"], heads)', APART),
     ("the run step looks for each head in the scratch", 'harness/eval/run.py',
      'reviewer(env, kept["release"], began, call, clock, heads_place(env, workspace))', 'reviewer(env, kept["release"], began, call, clock, place / "heads")', APART),
+    # Issue 626: the scratch is read part by part, the plan makes the heads folder new, and the canary's head is apart.
+    ("the scratch is held to the workspace by its separator", 'harness/eval/__init__.py',
+     '    if os.path.commonpath([place, inside]) in (place, inside):\n',
+     '    if place == inside or place.startswith(inside + os.sep) or inside.startswith(place + os.sep):\n', SCRATCH_PARTS),
+    ("the plan makes no heads folder", 'harness/eval/__init__.py', '        heads.mkdir(mode=0o700)\n', '', APART),
+    ("a heads folder an earlier job left is taken", 'harness/eval/__init__.py',
+     '        heads.mkdir(mode=0o700)\n', '        heads.mkdir(mode=0o700, exist_ok=True)\n', APART),
+    ("the heads folder is made open to all", 'harness/eval/__init__.py', '        heads.mkdir(mode=0o700)\n', '        heads.mkdir(mode=0o755)\n', APART),
+    ("a scratch an earlier job left is taken", 'harness/eval/__init__.py',
+     '        place.mkdir(mode=0o700)\n', '        place.mkdir(mode=0o700, exist_ok=True)\n', APART),
+    ("the scratch is made before the heads", 'harness/eval/__init__.py',
+     '        heads.mkdir(mode=0o700)\n        place.mkdir(mode=0o700)\n', '        place.mkdir(mode=0o700)\n        heads.mkdir(mode=0o700)\n', APART),
+    ("the canary unpacks its head beside its case", 'harness/eval/canary.py',
+     'tempfile.TemporaryDirectory() as unpacked:', 'tempfile.TemporaryDirectory(dir=scratch) as unpacked:', CANARY_APART),
     # Issue 614: a Run is given no part of its case's answer, and its head no history.
     ("the Task carries the case's answer", 'harness/eval/run.py',
      '        # A diff over the Kernel\'s bound is cut in the Task,', '        the_task["expected"] = case["expected"]\n        # A diff over the Kernel\'s bound is cut in the Task,', NO_ANSWER),
@@ -8755,7 +8771,7 @@ MUTANTS = ISSUE + [
      '    if not (isinstance(commit, str) and COMMIT.fullmatch(commit)):\n',
      '    if not isinstance(commit, str):\n', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
     ('the scratch may be in the workspace', 'harness/eval/__init__.py',
-     '    if place == inside or place.startswith(inside + os.sep) or inside.startswith(place + os.sep):\n',
+     '    if os.path.commonpath([place, inside]) in (place, inside):\n',
      '    if place == inside:\n', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
     ('a relative scratch is used', 'harness/eval/__init__.py',
      ' or not os.path.isabs(temp):',
@@ -8827,11 +8843,10 @@ MUTANTS = ISSUE + [
      '(case["role"], case["intent"]) != (found["role"], found["intent"])',
      'case["intent"] != found["intent"]', ('tests.test_evals.EvalJob.test_a_case_that_is_no_case_of_this_set_is_unreadable',)),
     ('a workspace inside the scratch is allowed', 'harness/eval/__init__.py',
-     ' or inside.startswith(place + os.sep):',
-     ':', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
+     '    if os.path.commonpath([place, inside]) in (place, inside):\n', '    if os.path.commonpath([place, inside]) == inside:\n', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
     ('a workspace that is the scratch is allowed', 'harness/eval/__init__.py',
-     '    if place == inside or place.startswith',
-     '    if place.startswith', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
+     '    if os.path.commonpath([place, inside]) in (place, inside):\n',
+     '    if place != inside and os.path.commonpath([place, inside]) in (place, inside):\n', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read',)),
     ("another workflow may name the model's credential", 'tools/check_workflows.py',
      '                if MODEL_SECRET.search(line) and path.name not in MODEL_WORKFLOWS:\n',
      '                if False:\n', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
