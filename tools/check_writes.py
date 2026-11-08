@@ -49,8 +49,9 @@ TEST_IMPORTERS = ("tools/make_corpus.py",)
 RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.py", "tools/commits_are_the_maintainers.py",
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
            "tools/hooks/rules_changed.py", "tools/mutants.py")
-# A command's name as a string: gh or git alone, or opening a command line. Spelt apart, so this file holds neither.
-COMMANDS = re.compile(r"(g" r"h|gi" r"t)(\s|$)")
+# A command's name as a string: gh or git alone, by a path or not, or opening a command line. Spelt apart, so this file
+# holds neither.
+COMMANDS = re.compile(r"\s*(\S*/)?(g" r"h|gi" r"t)(\.exe)?(\s|$)")
 # What a request is, by its keys: edited after `request` built it, it is sent as edited.
 FIELDS = ("method", "path", "body")
 # A module's names as a value: what is read from them cannot be.
@@ -186,9 +187,11 @@ def _lookup(mods: dict, module: str, name: str, seen: frozenset = frozenset()):
     """What `name` is in `module`: ("def"|"class"|"value", module, name), ("module", name, ""), ("unknown", module, name),
     or None for what this check does not read: a module outside the repo, or a name its top level stores some other way."""
     other = mods.get(module)
-    if other is None:       # a namespace package holds its modules, and nothing else the syntax can read
+    if other is None:       # a namespace package holds its modules, and nothing else: any other name it lacks
         whole = "%s.%s" % (module, name)
-        return ("module", whole, "") if _package(mods, whole) else None
+        if _package(mods, whole):
+            return ("module", whole, "")
+        return ("unknown", module, name) if _package(mods, module) else None
     if (module, name) in seen:      # a re-export that comes back to itself
         return ("unknown", module, name)
     seen = seen | {(module, name)}
@@ -481,30 +484,50 @@ def _tests(mod: Module) -> list:
             if name == "tests" or name.startswith("tests.")]
 
 
-def _loaded(mod: Module) -> list:
-    """Each line that imports importlib or builtins, names __import__, or reads sys's modules: a module loaded or taken
-    by its name is one the syntax cannot follow."""
+def _sys(mods: dict, mod: Module, name: str, seen: frozenset = frozenset()) -> bool:
+    """Whether `name` in `mod` is the module sys, imported here or re-exported from a module of the repo's."""
+    bound = mod.bindings.get(name)
+    if bound == ("module", "sys"):
+        return True
+    if bound and bound[0] == "attr" and bound[1] in mods and (bound[1], bound[2]) not in seen:
+        return _sys(mods, mods[bound[1]], bound[2], seen | {(bound[1], bound[2])})
+    return False
+
+
+def _loaded(mods: dict, mod: Module) -> list:
+    """Each line that imports importlib or builtins, names __import__, or reads sys's modules, by any name or by an
+    import of all of sys: a module loaded or taken by its name is one the syntax cannot follow."""
     return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Import) and any(a.name.split(".")[0] in LOADER_MODULES for a in n.names)
                    or isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in LOADER_MODULES
                    or isinstance(n, ast.Name) and n.id == "__import__"
-                   or isinstance(n, ast.ImportFrom) and n.module == "sys" and any(a.name == "modules" for a in n.names)
+                   or isinstance(n, ast.ImportFrom) and n.module == "sys" and any(a.name in ("modules", "*") for a in n.names)
                    or isinstance(n, ast.Attribute) and n.attr == "modules" and isinstance(n.value, ast.Name)
-                   and mod.bindings.get(n.value.id) == ("module", "sys")})
+                   and _sys(mods, mod, n.value.id)})
 
 
 def _class_set(mods: dict, mod: Module) -> list:
     """An attribute set by `setattr`, or set on a class from a function or from another module than the class's to
     anything but text: what a caller reaches through the class cannot be read (issue 596)."""
     inside = {id(n) for fn in mod.functions.values() for n in ast.walk(fn)}
+    # A name any function binds, its parameters and what it or a function in it assigns, may shadow a text constant.
+    bound = {}
+    for fn in mod.functions.values():
+        names = {m.id for m in ast.walk(fn) if isinstance(m, ast.Name) and isinstance(m.ctx, ast.Store)} \
+            | {a.arg for a in ast.walk(fn) if isinstance(a, ast.arg)}
+        bound.update((id(n), names) for n in ast.walk(fn))
     out = []
     for node in mod.nodes:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr":
             out.append("%s:%d sets an attribute by setattr, so what it reaches cannot be read; assign it where it is "
                        "defined" % (mod.rel, node.lineno))
         if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) or node.value is None or _text(node.value) is not None \
-                or isinstance(node.value, ast.Name) and node.value.id in mod.texts:
+                or isinstance(node.value, ast.Name) and node.value.id in mod.texts and node.value.id not in bound.get(id(node), ()):
             continue
-        for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+        targets = list(node.targets if isinstance(node, ast.Assign) else [node.target])
+        while any(isinstance(target, (ast.Tuple, ast.List, ast.Starred)) for target in targets):     # a, Port.w = ...
+            targets = [part for target in targets for part in (target.elts if isinstance(target, (ast.Tuple, ast.List))
+                       else [target.value] if isinstance(target, ast.Starred) else [target])]
+        for target in targets:
             got = _resolve(mods, mod, target.value) if isinstance(target, ast.Attribute) else None
             if got and got[0] == "class" and (got[1] != mod.name or id(target) in inside):
                 out.append("%s:%d sets %s on the class %s from outside its module's top level, so what it reaches "
@@ -567,7 +590,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         mods[_name(rel)] = Module(rel, tree, known)
     reading = Reading(mods)
     problems += reading.problems
-    writers = set()
+    writers, commanding = set(), set()
     for mod in mods.values():
         if mod.name != GITHUB:
             problems += _by_hand(mod) + _edited(mod)
@@ -577,8 +600,10 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems += _tests(mod)
         if mod.rel not in NAME_LOADERS:
             problems += ["%s:%d loads a module by its name, or may, so what it reaches cannot be read; import it" % (mod.rel, line)
-                         for line in _loaded(mod)]
+                         for line in _loaded(mods, mod)]
         problems += _class_set(mods, mod)
+        if _commands(mod):
+            commanding.add(mod.rel)
         if mod.rel not in RUNNERS:
             problems += ["%s:%d names gh or git as a command, which may write to GitHub past adapters/; a write is an "
                          "adapter's, and Python that runs either to read is named in tools/check_writes.py's RUNNERS"
@@ -623,4 +648,5 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s reaches %s, and CALLERS lists %s; name what it reaches, in the change that changes it" %
                             (node_mod.rel, ", ".join(sorted(found)) or "no write", ", ".join(sorted(listed))))
     problems += ["CALLERS names %s, which is not here; take it off" % rel for rel in sorted(CALLERS) if _name(rel) not in mods]
+    problems += ["RUNNERS names %s, which holds no command; take it off" % rel for rel in RUNNERS if rel not in commanding]
     return problems
