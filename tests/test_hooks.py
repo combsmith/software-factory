@@ -3850,8 +3850,24 @@ def fed_rules_changed():
     return hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where)), clean
 
 
-FED = {"identity": fed_identity, "protected": fed_protected, "after_edit": fed_after_edit,
-       "before_stop": fed_before_stop, "rules_changed": fed_rules_changed}
+def said(done) -> dict:
+    """What a hook wrote on standard output, read as JSON; {} where it wrote none, or wrote something else."""
+    try:
+        return json.loads(done.stdout) if done.stdout else {}
+    except ValueError:
+        return {}
+
+
+# Each hook's cases, and how it must answer the violation: the identity hook refuses, the protected hook asks, the
+# checks' hooks send the agent back, and the stop's list of rules tells the person. Any other answer, an allow among
+# them, is no enforcement.
+FED = {"identity": (fed_identity, lambda done: done.returncode == 2 and "account_is_machine_user" in done.stderr),
+       "protected": (fed_protected, lambda done: done.returncode == 0 and said(done).get("hookSpecificOutput", {}).get(
+           "permissionDecision") == "ask"),
+       "after_edit": (fed_after_edit, lambda done: done.returncode == 2 and "The checks fail after this edit" in done.stderr),
+       "before_stop": (fed_before_stop, lambda done: done.returncode == 2 and "make checks in" in done.stderr),
+       "rules_changed": (fed_rules_changed, lambda done: done.returncode == 0 and "lifecycle/issue.json" in said(
+           done).get("systemMessage", ""))}
 
 
 class Settings(unittest.TestCase):
@@ -3862,11 +3878,9 @@ class Settings(unittest.TestCase):
         hooks |= {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
         self.assertEqual(set(FED), hooks)
         for name in sorted(hooks):
-            violation, clean = FED[name]()
-            # Spoken up about: refused, sent back, asked or told, never a crash; clean: nothing at all.
-            self.assertNotEqual((violation.returncode, violation.stdout, violation.stderr), (0, "", ""), name)
-            self.assertIn(violation.returncode, (0, 2), name)
-            self.assertNotIn("Traceback", violation.stderr, name)
+            fed, enforced = FED[name]
+            violation, clean = fed()
+            self.assertTrue(enforced(violation), "%s: %r" % (name, violation))
             self.assertEqual((clean.returncode, clean.stdout, clean.stderr), (0, "", ""), name)
 
     def test_the_hook_that_asks_blocks_when_it_fails_to_answer(self):

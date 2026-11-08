@@ -306,6 +306,12 @@ class Simulation(unittest.TestCase):
 
     def test_an_approval_killed_with_no_outcome_is_bounded(self):  # I-8, issue 595
         # Killed with its apply, it leaves no outcome: it counts toward max_attempts all the same (issue 286).
+        w = World(SEEDS[0], approval_fails="killed")
+        for _ in range(250):
+            w.step()
+        killed = [r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL and r["status"] == "completed"]
+        self.assertTrue(killed)
+        self.assertEqual({(r["conclusion"], r["outcome"]) for r in killed}, {("failure", None)})
         self.rests_on_its_bound(dict(approval_fails="killed"), "attempts_exhausted")
 
     def test_an_approval_that_keeps_failing_for_the_environment_is_bounded(self):  # I-8
