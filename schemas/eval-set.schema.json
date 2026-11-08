@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "eval-set/1: what this repo holds of a held-out eval set: the Role and Intent it tests, the count of cases, and each case's id and the sha256 of its file in the private home. No case content is here, and none may be.",
+  "title": "eval-set/1: what this repo holds of a held-out eval set: the Role and Intent it tests, the count of cases, and each case's id and the sha256 of its file in the private home. A gate set says so, and of each case whether it is natural: a fresh set the gate reads, whose report is of counts alone (issue 612). No case content is here, and none may be.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -26,6 +26,10 @@
       "type": "integer",
       "minimum": 0
     },
+    "gate": {
+      "description": "Whether this is a gate set, whose report is eval-aggregate/1, of counts alone; absent, a development set, whose report is eval-report/1.",
+      "type": "boolean"
+    },
     "cases": {
       "type": "array",
       "uniqueItems": true,
@@ -44,6 +48,10 @@
           "sha256": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "natural": {
+            "description": "Whether the case was taken from a change as it was made, or built for the set: counted apart in a gate set's report, and never given to the Role.",
+            "type": "boolean"
           }
         }
       }

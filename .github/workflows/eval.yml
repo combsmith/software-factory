@@ -4,8 +4,10 @@
 # actions, in the order tools/check_workflows.py holds:
 # the set planned before any credential is used; the CLI installed at the Engine's pin by its checksum, with the package
 # the scrub needs, as root and before anything is here; each case fetched with the Maintainer's read-only token for the
-# home, held by that step alone, into a scratch directory outside the workspace; each case given to the review Intent with the model's credential alone, as a live Run is; the report, of
-# hashes, verdicts and codes alone, uploaded whatever the verdicts; and the run judged by the gate's own test.
+# home, held by that step alone, into a scratch directory outside the workspace; each case given to the review Intent with the model's credential alone, as a live Run is; for a
+# gate set, its ledger sealed to the Maintainer's certificates and the ciphertext uploaded; the report, of hashes,
+# verdicts and codes alone, or of counts alone for a gate set, uploaded whatever the verdicts; and the run judged by the
+# gate's own test. The dispatch names the set, the review Intent's where it names none (issue 612).
 # Nothing of a case, a Result or the home reaches the log: each step prints counts and codes.
 name: factory
 on:
@@ -14,6 +16,10 @@ on:
       release:
         required: true
         type: string
+      set:
+        required: false
+        type: string
+        default: pr-review
 permissions: {}
 jobs:
   eval:
@@ -22,6 +28,8 @@ jobs:
     permissions:
       contents: read
     environment: factory-eval
+    outputs:
+      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,6 +38,7 @@ jobs:
         timeout-minutes: 1
         env:
           RELEASE: ${{ inputs.release }}
+          EVAL_SET: ${{ inputs.set }}
       - env:
           CLI_VERSION: "2.1.306"
           CLI_CHECKSUM: "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe"
@@ -49,10 +58,19 @@ jobs:
           HELDOUT_OWNER: ${{ secrets.HELDOUT_OWNER }}
           HELDOUT_REPO: ${{ secrets.HELDOUT_REPO }}
       - run: python3 -m harness.eval.run
-        timeout-minutes: 110
+        timeout-minutes: 109
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CLI: /usr/local/bin/claude
+      - run: python3 -m harness.eval.seal
+        id: seal
+        timeout-minutes: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-ledger
+          path: eval-ledger.cms
+          if-no-files-found: ignore
+          retention-days: 90
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: eval-report

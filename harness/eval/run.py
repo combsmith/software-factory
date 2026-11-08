@@ -25,9 +25,9 @@ from harness import engine, run as live, task as tasks
 from harness.eval import Stop, _planned, exit_with, heads_place, score
 
 # The seconds the job may spend before the last case is started, counted from when `plan` was made: the job's 120
-# minutes (tools/check_workflows.py, EVAL_RUNNER) less ten for the checkout before it, the upload and judge after the
-# step, and the slack of a runner's clock. The fetch and the install spend it, as the cases do.
-BUDGET = 110 * 60
+# minutes (tools/check_workflows.py, EVAL_RUNNER) less eleven for the checkout before it, the seal, the uploads and judge
+# after the step, and the slack of a runner's clock. The fetch and the install spend it, as the cases do.
+BUDGET = 109 * 60
 # What a case may cost beyond its tier's own seconds: the Engine asks the CLI its version before the call and after it,
 # each within this many seconds (harness/engine.py).
 VERSION_READS = 2 * 30
