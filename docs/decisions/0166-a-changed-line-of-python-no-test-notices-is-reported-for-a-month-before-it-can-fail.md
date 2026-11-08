@@ -1,4 +1,4 @@
-# NNNN. A changed line of Python no test notices is reported for a month before it can fail
+# 0166. A changed line of Python no test notices is reported for a month before it can fail
 
 Status: accepted. The Factory Builder's rulings of 2026-11-07 on the design note for "A changed line of Python that no test notices fails verify, unless the change says it keeps behaviour" (issue 589). This is its advisory check: a workflow of its own, `untested`, that reads every pull request, fails none, and reports what it finds for a month, from the day it merges.
 
