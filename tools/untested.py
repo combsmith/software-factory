@@ -337,15 +337,24 @@ def crashed(output: str) -> str:
 
 
 def bounded(deadline: float):
-    """A run of the tests as tools/mutants.py's `suite` makes it, which begins no run of the suite past `deadline`,
-    a time.monotonic(), but the run of one test alone that confirms a kill."""
+    """A run of the tests as tools/mutants.py's `suite` makes it, which begins no run of the suite past `deadline`, a
+    time.monotonic(), but the run of one test alone that confirms a kill; and no run of any kind lasts past one
+    TIMEOUT after it, each cut to what is left, so that the job ends inside its step's limit with its counts written."""
+    end = deadline + mutants.TIMEOUT
+
+    def left(limit: float) -> float:
+        rest = end - time.monotonic()
+        if rest <= 0:
+            raise OverBudget()
+        return min(limit, rest)
+
     def run(cwd: pathlib.Path, timeout: float = mutants.TIMEOUT, first: tuple = (), only=None) -> tuple:
         def one(args: list) -> tuple:
             if time.monotonic() > deadline:
                 raise OverBudget()
-            return mutants._unittest(cwd, timeout, args)
+            return mutants._unittest(cwd, left(timeout), args)
         if only:
-            return mutants._unittest(cwd, timeout, ["-q", "-f", *((only,) if isinstance(only, str) else only)])
+            return mutants._unittest(cwd, left(timeout), ["-q", "-f", *((only,) if isinstance(only, str) else only)])
         if first:
             status, output = one(["-q", "-f", *first])
             if status != 0:

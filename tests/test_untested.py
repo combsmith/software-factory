@@ -184,6 +184,20 @@ class Reverts(unittest.TestCase):
                 self.assertEqual(by_path["pkg/f41.py"]["why"], "over budget")
                 self.assertEqual(untested.counts(found, 0)["over_budget"], 1)
 
+    def test_no_run_lasts_past_one_timeout_after_the_budget(self):
+        seen = []
+        with mock.patch.object(untested.time, "monotonic", return_value=1000.0), \
+                mock.patch.object(untested.mutants, "_unittest", lambda cwd, timeout, args: seen.append(timeout) or (0, "")):
+            late = untested.bounded(900.0)      # past the budget, within one TIMEOUT of it
+            self.assertEqual(late(pathlib.Path("."), only="tests.test_x"), (0, ""))
+            self.assertEqual(seen, [900.0 + untested.mutants.TIMEOUT - 1000.0])
+            with self.assertRaises(untested.OverBudget):
+                late(pathlib.Path("."), first=("tests.test_x",))
+            with self.assertRaises(untested.OverBudget):
+                untested.bounded(1000.0 - untested.mutants.TIMEOUT)(pathlib.Path("."), only="tests.test_x")
+            untested.bounded(2000.0)(pathlib.Path("."), only="tests.test_x")
+        self.assertEqual(seen[-1], untested.mutants.TIMEOUT)
+
     def test_a_path_a_pull_request_names_is_read_only_in_plain_characters(self):
         found = checked({}, {"pkg/odd name.py": "x = 1\n", "pkg/plain.py": "x = 1\n"})
         self.assertEqual(found["skipped"]["unsafe_path"], 1)
