@@ -1023,10 +1023,8 @@ def approval_anchor(review: dict, runs):
     act that read, and where a record's start, or both its times, cannot be read: an unreadable fact holds. Records expire oldest first, and an act's Run is made before its approval: it is not
     gone while a record made before it stays. A Run made while the act ran waits in the item's lane, but its record's
     start is when it was made (trials/P-44.json), so it may reach back once the act's Run is past retention: a residual
-    the record names. With no records given, the approval's own time (`description_anchor`)."""
+    the record names."""
     at = review["submitted_at"]
-    if runs is None:
-        return at
     if any(made_at(r) is None or not is_time(r["started_at"]) for r in runs):
         return ""
     mine = [r for r in runs if r["intent"] == t.ISSUE_APPROVAL and r["content_id"] == review["content_id"]]
@@ -1040,15 +1038,14 @@ def approval_anchor(review: dict, runs):
     return at if any(r["started_at"] <= at for r in runs) else ""
 
 
-def description_anchor(facts: dict, edited: str, *, runs=None):
+def description_anchor(facts: dict, edited: str, *, runs: list):
     """The time the description's edit at `edited` is measured against: on an outsider's pull request, a person's last
     look up to the edit, by approving or by admitting it; on any other, the time the machine user's first approval,
     dismissed since or not, from the second of the last look before the edit, last read it (`approval_anchor`, from
     this item's run records); or None where there is neither, or a person looked after the edit. In one second no order
     can be told, so the reading that stops work wins: a look in the edit's second saw nothing, an approval in a look's
-    second came after it, and an edit in the anchor's second after that. `runs` is given by name, and `derive` always
-    gives it, an empty list included: its default is only for the simulator's world, whose act's Run starts in its
-    approval's own second."""
+    second came after it, and an edit in the anchor's second after that. `runs`, the run records, is given by name, an
+    empty list included: it has no default, so no caller measures an approval from its own time unread (issue 608)."""
     approved = ("approved",)
     # A person's approval is a look, dismissed since or not, unless a person dismissed it, taking the look back.
     looks = [rv["submitted_at"] for rv in facts["reviews"]
@@ -1070,7 +1067,7 @@ def description_anchor(facts: dict, edited: str, *, runs=None):
                if rv["by"]["kind"] == t.MACHINE_USER and approved[0] in (rv["state"], rv["dismissed_from"])]
     firsts = [rv for rv in machine if last is None or rv["submitted_at"] >= last]
     if firsts:
-        mine = None if runs is None else runs_on(runs, facts)
+        mine = runs_on(runs, facts)
         return min(approval_anchor(rv, mine) for rv in firsts)
     # No approval since the look, but one before it, which the item may still merge on: the look is the anchor, so an
     # edit after it holds.

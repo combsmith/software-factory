@@ -61,7 +61,8 @@ def _special(node) -> list:
     """The special names, written `__x__`, that a node holds: any name in it, but a constant's value. Through one a
     module's names are rewritten, as by `__dict__`, or a name is handed back that no module binds, as by a module's
     `__getattr__`; the Kernel names none (issue 593). An import's names are read with it, so that a problem has its
-    line, and `__future__`, the module `from __future__ import` names, is the one allowed."""
+    line, and `__future__`, the module an absolute `from __future__ import` names, is the one allowed: a relative one
+    names a module of the Kernel's (issue 600)."""
     if isinstance(node, (ast.Constant, ast.alias)):
         return []
     words = []
@@ -69,7 +70,7 @@ def _special(node) -> list:
         for part in value if isinstance(value, list) else [value]:
             if isinstance(part, ast.alias):
                 part = part.name + "." + (part.asname or "")
-            if isinstance(part, str) and not (field == "module" and part == "__future__"):
+            if isinstance(part, str) and not (field == "module" and part == "__future__" and not node.level):
                 words += part.split(".")
     return [w for w in words if len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
