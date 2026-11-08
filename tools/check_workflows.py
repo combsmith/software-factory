@@ -689,7 +689,11 @@ CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_
                    "sudo mv /tmp/claude /usr/local/bin/claude",
                    "sudo apt-get update -q",
                    "sudo apt-get install -y --no-install-recommends bubblewrap"]
-EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
+EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "outputs", "steps"}
+# The job's one output, the sealed ledger's sha256, which the seal step alone sets, under the one id a step may take: the
+# Maintainer's ruling on issue 612 keeps it for whatever stores the ciphertext, once that is decided.
+EVAL_OUTPUTS = {"ledger_sha256": "${{ steps.seal.outputs.ledger_sha256 }}"}
+EVAL_IDS = {"seal": "seal"}
 # Its runner, the one the CLI's linux-x64 install is for, and its timeout, which the run step's budget is held inside
 # (harness/eval/run.py, BUDGET): a shorter one would end the job before the report is uploaded (issue 309, ruling 9).
 EVAL_RUNNER = {"runs-on": "ubuntu-24.04", "timeout-minutes": "120"}
@@ -1415,6 +1419,8 @@ def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
                         % (", ".join(sorted(EVAL_JOB_KEYS)), EVAL_ENVIRONMENT))
     if {k: inside[k]["value"] for k in EVAL_RUNNER if k in inside} != EVAL_RUNNER:
         problems.append("its job runs on %(runs-on)s, with a timeout of %(timeout-minutes)s minutes" % EVAL_RUNNER)
+    if {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", EVAL_JOB, "outputs"]} != EVAL_OUTPUTS:
+        problems.append("its job has one output, ledger_sha256, the seal step's")
     granted = sorted((e["key"], e["value"]) for e in entries if e["path"] == ["jobs", EVAL_JOB, "permissions"])
     if granted != [("contents", "read")]:
         problems.append("its job is granted contents: read and nothing else")
@@ -1426,9 +1432,11 @@ def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
         if kind is None:
             continue
         number = next(iter(step.values()))["step"]
-        own = set(step) - EVAL_STEP_KEYS
+        own = set(step) - EVAL_STEP_KEYS - ({"id"} if kind in EVAL_IDS else set())
         if own:
             problems.append("its %s step has a key it may not: %s" % (kind, ", ".join(sorted(own))))
+        if kind in EVAL_IDS and step.get("id", {}).get("value") != EVAL_IDS[kind]:
+            problems.append("its %s step has the id %s" % (kind, EVAL_IDS[kind]))
         for under in ("with", "env"):
             given = {e["key"]: e["value"] for e in entries if e["step"] == number
                      and e["path"] == ["jobs", EVAL_JOB, "steps", under]}

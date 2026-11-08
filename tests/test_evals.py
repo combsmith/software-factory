@@ -682,7 +682,7 @@ class TheSet(unittest.TestCase):
             "the set kept from the plan": (EVAL_WORKFLOW.replace("          EVAL_SET: ${{ inputs.set }}\n", ""),
                                            "its plan step is given under env"),
             # The seal, given nothing, after the run and before the uploads; the ledger's upload, its ciphertext alone.
-            "no seal": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.seal\n        timeout-minutes: 1\n", ""),
+            "no seal": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.seal\n        id: seal\n        timeout-minutes: 1\n", ""),
                         "in that order"),
             "the seal given the model's credential": (EVAL_WORKFLOW.replace(
                 "      - run: python3 -m harness.eval.seal\n", "      - run: python3 -m harness.eval.seal\n        env:\n" + model),
@@ -692,6 +692,17 @@ class TheSet(unittest.TestCase):
             "a development set's run failed for no ledger": (EVAL_WORKFLOW.replace("if-no-files-found: ignore",
                                                                                    "if-no-files-found: error"),
                                                              "its ledger step is given under with"),
+            # The job's one output, the sealed ledger's hash, which the seal step alone sets, under the one id a step may take.
+            "no output": (EVAL_WORKFLOW.replace("    outputs:\n      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n", ""),
+                          "its job has exactly"),
+            "an output of the fetch": (EVAL_WORKFLOW.replace("steps.seal.outputs.ledger_sha256", "steps.home.outputs.token"),
+                                       "its job has one output"),
+            "a second output": (EVAL_WORKFLOW.replace("      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n",
+                                                      "      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n"
+                                                      "      token: ${{ secrets.HELDOUT_TOKEN }}\n"), "its job has one output"),
+            "the seal under another id": (EVAL_WORKFLOW.replace("        id: seal\n", "        id: sealing\n"),
+                                          "its seal step has the id seal"),
+            "the seal with no id": (EVAL_WORKFLOW.replace("        id: seal\n", ""), "its seal step has the id seal"),
             "the report under the ledger's name": (EVAL_WORKFLOW.replace("name: eval-report", "name: eval-ledger"),
                                                    "in that order"),
             "the fetch first": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.plan\n        env:\n"
@@ -2400,9 +2411,13 @@ class EvalJob(unittest.TestCase):
         pin(self.root, {"first": first, "second": second})
         self.gate_run()
         plain = (self.temp / "heldout" / job.LEDGER).read_bytes()
-        asked = []
-        self.assertEqual(self.step(seal.step, lambda args, **given: asked.append((args, given)) or subprocess.run(args, **given)),
+        asked, outputs = [], pathlib.Path(self.dir.name) / "outputs"
+        outputs.write_text("earlier=1\n")
+        self.assertEqual(self.step(seal.step, lambda args, **given: asked.append((args, given)) or subprocess.run(args, **given),
+                                   env={"GITHUB_OUTPUT": str(outputs)}),
                          "sealed the ledger to 2 recipients")
+        # openssl reads the copy of the ledger the report's hash was checked against, never the path again.
+        self.assertEqual(os.path.basename(asked[0][0][asked[0][0].index("-in") + 1]), "ledger-checked.json")
         # Each recipient by RSA-OAEP, the content by AES-256, openssl given no input and no environment but its path,
         # and each certificate as the copy of the bytes that were checked against their pin.
         self.assertEqual([a for a in asked[0][0] if a.startswith(("-aes", "rsa_"))],
@@ -2419,6 +2434,8 @@ class EvalJob(unittest.TestCase):
         self.assertEqual([p.name for p in (self.temp / "heldout").iterdir() if "ledger" in p.name], [])
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual(written["ledger"]["sealed_sha256"], hashlib.sha256(sealed.read_bytes()).hexdigest())
+        # The job's output is the same hash, after what the runner's file held.
+        self.assertEqual(outputs.read_text(), "earlier=1\nledger_sha256=%s\n" % written["ledger"]["sealed_sha256"])
         self.assertEqual(validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
         self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
         # A development set has no ledger, and the step seals nothing.
@@ -2603,6 +2620,7 @@ class EvalJob(unittest.TestCase):
                 (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
                 (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
                 (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None), "eval_split_short"),
+                (dict(copy.deepcopy(good), kinds=None, split_ok=None, blocking_pass=None), "count_differs"),
                 (self.aggregate_of(finding=(19, 6), met=(21, 19), natural=(30, 18))[2], "count_differs"),
                 (changed(["bars", "finding"], [2, 10]), "bars_differ"),
                 (changed(["kind_least"], 0), "bars_differ"),

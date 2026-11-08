@@ -6,7 +6,9 @@ this step takes whatever the verdicts. The report is given the ciphertext's sha2
 that a check that holds no key can hold a ledger to the report it backs; a gate set's report without it is unreadable
 to the gate. The plaintext is removed once sealed. No key that opens a ledger is in the job or the repo: only the
 Maintainer's certificates, each pinned by its sha256 in a protected path under `.github/`, so that a session's edit of
-who can read the ledgers is asked about, and a merge of one is his. Nothing here is given a credential.
+who can read the ledgers is asked about, and a merge of one is his. Nothing here is given a credential. The ciphertext
+lives only as the run's artifact, under its retention, until where ledgers are kept is decided (the Maintainer's ruling
+on issue 612); its sha256 is the job's output, `ledger_sha256`, and the report's.
 
 A development set has no ledger, its report being its cases': the step seals nothing. A gate set with no certificate
 pinned, or one that is not the one pinned, fails the run by a code, and nothing is uploaded but what was before. A
@@ -132,6 +134,11 @@ def step(env, root, workspace, call=subprocess.run):
         out.write(sealed)
     written["ledger"]["sealed_sha256"] = hashlib.sha256(sealed).hexdigest()
     _write(workspace, REPORT, written)
+    # And as the job's output, `ledger_sha256`, where the runner names its file of outputs: a hash, which says nothing.
+    output = env.get("GITHUB_OUTPUT")
+    if isinstance(output, str) and os.path.isabs(output):
+        with open(output, "a", encoding="utf-8") as out:
+            out.write("ledger_sha256=%s\n" % written["ledger"]["sealed_sha256"])
     for done in (within(place, LEDGER), checked, sealing):
         os.remove(done)
     return "sealed the ledger to %d recipients" % len(certs)
