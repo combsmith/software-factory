@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from tools import untested
 
@@ -104,6 +105,8 @@ class Reverts(unittest.TestCase):
                 + "\n\ndef pick(a, b):\n    return a if a > b else b\n"}
         found = checked(base, head)
         self.assertEqual(outcomes(found), [("pkg/calc.py", 6, "killed", "revert"), ("pkg/calc.py", 11, "killed", "file")])
+        said = untested.counts(found, 0)
+        self.assertEqual((said["killed"], said["killed_by_file"]), (1, 1))
         self.assertEqual(untested.crashed(CRASHED), "NameError")
         self.assertEqual(untested.crashed(CRASHED.replace("ERROR:", "FAIL:")), "")
         self.assertEqual(untested.crashed(CRASHED.replace("NameError", "AttributeError")), "")
@@ -116,6 +119,7 @@ class Reverts(unittest.TestCase):
         found = checked({}, {"pkg/small.py": "def f(x):\n    return x\n", "tests/test_small.py": test % "small",
                              "pkg/large.py": large, "tests/test_large.py": test % "large"})
         by_path = {h["path"]: h for h in found["hunks"]}
+        self.assertEqual(sorted(by_path), ["pkg/large.py", "pkg/small.py"])      # never tests/
         self.assertEqual((by_path["pkg/small.py"]["outcome"], by_path["pkg/small.py"]["why"].split(":")[0]),
                          ("UNCHECKED", "CRASHED"))
         self.assertEqual((by_path["pkg/large.py"]["by"], by_path["pkg/large.py"]["mutants"]), ("mutants", untested.MOST))
@@ -133,6 +137,51 @@ class Reverts(unittest.TestCase):
         many = "def f(x):\n" + "".join("    x = x + %d\n" % n for n in range(20))
         self.assertEqual(len(untested.candidates(many, {"new": 2, "new_n": 20})), untested.MOST)
 
+    def test_a_hunk_that_only_removes_is_put_back_where_it_was(self):
+        self.assertEqual(untested.revert(["a\n", "c\n"], ["a\n", "b\n", "c\n"], {"old": 2, "old_n": 1, "new": 1, "new_n": 0}),
+                         ["a\n", "b\n", "c\n"])
+        base = {"pkg/calc.py": CALC.replace('two."""\n', 'two."""\n    noted = 1\n').replace("(x):\n", "(x):\n    x = x + 1\n"),
+                "tests/test_calc.py": CALC_TEST + "        self.assertEqual(calc.doubled(2), 4)\n"}
+        found = checked(base, {"pkg/calc.py": CALC})
+        self.assertEqual([(h["new"], h["removes"], h["outcome"], h["by"]) for h in found["hunks"]],
+                         [(5, True, "SURVIVED", "revert"), (11, True, "killed", "revert")])
+        log = "\n".join(untested.report(found, 1)[0])
+        self.assertIn("::warning file=pkg/calc.py,line=6,endLine=6::", log)
+        self.assertIn("Behaviour-preserving: pkg/calc.py:6-6", log)
+        self.assertEqual(untested.counts(found, 1)["survived_removing"], 1)
+
+    def test_an_edit_that_does_not_parse_or_import_is_never_a_kill(self):
+        listed = "def f():\n    return (1,\n            0,\n            2)\n"
+        test = "import unittest\n\nfrom pkg import a\n\n\nclass A(unittest.TestCase):\n    def test_f(self):\n" \
+               "        self.assertEqual(list(a.f()), [1, 0, 2])\n"
+        found = checked({"pkg/a.py": "import json_not_here\n\n\n" + listed, "tests/test_a.py": test},
+                        {"pkg/a.py": "\n\n" + listed.replace("(1,", "[1,").replace("2)", "2]")})
+        self.assertEqual([(h["new"], h["outcome"], h["why"].split(":")[0]) for h in found["hunks"]],
+                         [(0, "UNCHECKED", "UNIMPORTABLE"), (4, "UNCHECKED", "UNPARSABLE"), (6, "UNCHECKED", "UNPARSABLE")])
+
+    def test_a_hunk_of_more_than_forty_added_lines_alone_falls_back_to_mutants(self):
+        made = lambda n: "def f(x):\n    return x\n" + "".join("y%d = %d\n" % (k, k) for k in range(n - 2))
+        test = "import unittest\n\nfrom pkg import f40, f41\n\n\nclass T(unittest.TestCase):\n    def test_f(self):\n" \
+               "        f40.f(1), f41.f(1)\n"
+
+        def run(work, first=(), only=None, **given):
+            if any(not (work / "pkg" / name).read_text().strip() for name in ("f40.py", "f41.py")):
+                return 1, CRASHED
+            if self.spent and not only:      # as bounded() runs it, a kill's confirmation is never cut
+                raise untested.OverBudget()
+            return 0, "OK\n"
+        for spent, f41 in ((False, ("SURVIVED", "mutants")), (True, ("UNCHECKED", "mutants"))):
+            self.spent = spent
+            made_at, root, first, last = change({}, {"pkg/f40.py": made(40), "pkg/f41.py": made(41), "tests/test_f.py": test})
+            with made_at:
+                found = untested.check(root, first, last, time.monotonic() + 600, run=run, workers=1)
+            by_path = {h["path"]: h for h in found["hunks"]}
+            self.assertEqual((by_path["pkg/f40.py"]["outcome"], by_path["pkg/f40.py"].get("by")), ("UNCHECKED", "revert"))
+            self.assertEqual((by_path["pkg/f41.py"]["outcome"], by_path["pkg/f41.py"]["by"]), f41)
+            if spent:
+                self.assertEqual(by_path["pkg/f41.py"]["why"], "over budget")
+                self.assertEqual(untested.counts(found, 0)["over_budget"], 1)
+
     def test_a_path_a_pull_request_names_is_read_only_in_plain_characters(self):
         found = checked({}, {"pkg/odd name.py": "x = 1\n", "pkg/plain.py": "x = 1\n"})
         self.assertEqual(found["skipped"]["unsafe_path"], 1)
@@ -144,13 +193,16 @@ class Reverts(unittest.TestCase):
         self.assertEqual([(h["outcome"], h["why"]) for h in found["hunks"]], [("UNCHECKED", "over budget")])
 
     def test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read(self):
-        text = "ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n    3,\n]\n\n\ndef run():\n    return 4\n"
-        spans = untested.data_lines(text)
-        self.assertEqual(spans, [(1, 3), (4, 7)])
-        self.assertTrue(untested.is_data({"new": 5, "new_n": 2}, spans))
-        self.assertTrue(untested.is_data({"new": 6, "new_n": 0}, spans))
-        self.assertFalse(untested.is_data({"new": 11, "new_n": 1}, spans))
-        self.assertFalse(untested.is_data({"new": 7, "new_n": 3}, spans))
+        text = ("ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n    # a note\n    3 if os.environ else 2,\n] + [m for m in (\n"
+                "    (4, f(5)),\n) if m]\n\n\ndef run():\n    return 4\n")
+        data = untested.data_lines(text)
+        self.assertEqual(data, {2, 5, 6, 9})
+        self.assertTrue(untested.is_data({"new": 5, "new_n": 2, "old": 5, "old_n": 1}, data, data))
+        self.assertTrue(untested.is_data({"new": 8, "new_n": 0, "old": 9, "old_n": 1}, data, data))
+        for hunk in ({"new": 7, "new_n": 1, "old": 7, "old_n": 1}, {"new": 8, "new_n": 1, "old": 8, "old_n": 1},
+                     {"new": 10, "new_n": 1, "old": 10, "old_n": 1}, {"new": 14, "new_n": 1, "old": 14, "old_n": 1},
+                     {"new": 5, "new_n": 1, "old": 7, "old_n": 1}):
+            self.assertFalse(untested.is_data(hunk, data, data), hunk)
 
 
 CRASHED = ("=" * 70 + "\nERROR: test_x (tests.test_calc.Calc)\n" + "-" * 70 + "\nTraceback (most recent call last):\n"
@@ -188,6 +240,9 @@ class Trailers(unittest.TestCase):
         found = checked(base, {"pkg/calc.py": CALC.replace("x * 2", "x + x")}, message)
         self.assertEqual([(h["outcome"], h["covered"]) for h in found["hunks"]], [("SURVIVED", True)])
         self.assertEqual(found["problems"], [])
+        reworded = checked(base, {"pkg/calc.py": CALC.replace("The bigger", "Which is bigger")},
+                           "Reworded\n\nBehaviour-preserving: pkg/calc.py:5-5\n")
+        self.assertEqual((reworded["hunks"], reworded["problems"]), ([], []))
 
 
 class FirstTests(unittest.TestCase):
@@ -224,9 +279,23 @@ class Job(unittest.TestCase):
         for environ, said in (({"EVENT": "merge_group", "BASE_SHA": "a", "HEAD_SHA": "b"}, "does not run"),
                               ({"EVENT": "pull_request"}, "could not run")):
             out = io.StringIO()
-            with contextlib.redirect_stdout(out):
+            with mock.patch.dict(os.environ), contextlib.redirect_stdout(out):
                 self.assertEqual(untested.main(environ), 0)
             self.assertIn(said, out.getvalue())
+
+    def test_the_heads_tests_are_given_no_file_the_runner_reads_back(self):
+        given = {name: "/nowhere/" + name for name in ("GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH",
+                                                       "GITHUB_STATE")}
+        seen = {}
+
+        def check(*args, **kwargs):
+            seen.update(os.environ)
+            return {"hunks": [], "problems": [], "skipped": {}, "trailers": 0}
+        with mock.patch.dict(os.environ, given), mock.patch.object(untested, "check", check), \
+                mock.patch.object(untested, "git", lambda *args: ""), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(untested.main(dict(given, EVENT="pull_request", BASE_SHA="a", HEAD_SHA="b")), 0)
+        self.assertTrue(seen)
+        self.assertEqual(set(given) & set(seen), set())
 
     def test_a_survivor_is_warned_of_on_its_lines_and_told_its_trailer(self):
         found = {"hunks": [{"path": "pkg/a.py", "new": 4, "new_n": 2, "removes": False, "outcome": "SURVIVED", "why": "",

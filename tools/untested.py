@@ -143,20 +143,51 @@ def shape(text: str) -> str:
     return ast.dump(tree)
 
 
-def data_lines(text: str) -> list:
-    """The lines, first and last, of each list DATA names in tools/mutants.py's `text`."""
+def data_lines(text: str) -> set:
+    """The lines of tools/mutants.py's `text` that are its data: each line of an entry of a list or a tuple within an
+    assignment to a name DATA names, where the entry is a literal, as `_literal` reads one, and each blank or comment
+    line of the assignment. Code in such an assignment, a comprehension's clause or a condition, is not data."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return []
-    return [(node.lineno, node.end_lineno) for node in tree.body if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id in DATA[1] for target in node.targets)]
+        return set()
+    lines, found = text.splitlines(), set()
+    for node in tree.body:
+        if not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
+                                                     for target in node.targets)):
+            continue
+        for inner in ast.walk(node.value):
+            if isinstance(inner, (ast.List, ast.Tuple)):
+                for item in inner.elts:
+                    if _literal(item):
+                        found.update(range(item.lineno, item.end_lineno + 1))
+        found.update(at for at in range(node.lineno, node.end_lineno + 1)
+                     if not lines[at - 1].strip() or lines[at - 1].strip().startswith("#"))
+    return found
 
 
-def is_data(hunk: dict, spans: list) -> bool:
-    """Whether every line `hunk` touches on the head's side lies in one of `spans`."""
-    first, last = (hunk["new"], hunk["new"] + hunk["new_n"] - 1) if hunk["new_n"] else (hunk["new"], hunk["new"])
-    return any(start <= first and last <= end for start, end in spans)
+def _literal(node) -> bool:
+    """Whether `node` is made of constants, names and attributes alone, in tuples, lists, sums, products, and calls of
+    such a name or attribute given no keyword, each maybe unpacked: a mutant's entry, as its helpers build one, and
+    nothing that decides."""
+    if isinstance(node, (ast.Constant, ast.Name)):
+        return True
+    if isinstance(node, (ast.Attribute, ast.Starred)):
+        return _literal(node.value)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return all(_literal(item) for item in node.elts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mult)):
+        return _literal(node.left) and _literal(node.right)
+    if isinstance(node, ast.Call):
+        return _literal(node.func) and not node.keywords and all(_literal(arg) for arg in node.args)
+    return False
+
+
+def is_data(hunk: dict, head_lines: set, base_lines: set) -> bool:
+    """Whether every line `hunk` adds is data at the head, and every line it removes was data at the base."""
+    new = set(range(hunk["new"], hunk["new"] + hunk["new_n"]))
+    old = set(range(hunk["old"], hunk["old"] + hunk["old_n"]))
+    return bool(new | old) and new <= head_lines and old <= base_lines
 
 
 def imports(tree: ast.AST, own: str) -> dict:
@@ -412,17 +443,16 @@ def _quiet(node) -> bool:
 
 COMPARE = re.compile(r" (<=|>=|<|>) ")
 SWAP = {"<": "<=", "<=": "<", ">": ">=", ">=": ">"}
-CONDITION = re.compile(r"^(\s*)(if|elif|while) (.*):(\s*(?:#.*)?)$")
 
 
 def _mutated(node, line: str):
     """One mutant of `line`, where the statement `node` starts, or None where none of the four fits."""
     one_line = getattr(node, "end_lineno", None) == node.lineno
     test = getattr(node, "test", None)
-    if isinstance(node, (ast.If, ast.While)) and test is not None and test.end_lineno == node.lineno:
-        match = CONDITION.match(line.rstrip("\n"))
-        if match:
-            return "%s%s not (%s):%s\n" % match.groups()
+    if isinstance(node, (ast.If, ast.While)) and test is not None and test.lineno == test.end_lineno == node.lineno:
+        raw = line.encode()     # the offsets are of UTF-8 bytes
+        return (raw[:test.col_offset] + b"not (" + raw[test.col_offset:test.end_col_offset] + b")"
+                + raw[test.end_col_offset:]).decode()
     compare = COMPARE.search(line)
     if compare and any(isinstance(inner, ast.Compare) for inner in ast.walk(node)):
         return line[:compare.start()] + " %s " % SWAP[compare.group(1)] + line[compare.end():]
@@ -485,7 +515,7 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
     run = run or bounded(deadline)
     workers = workers or min(os.cpu_count() or 1, mutants.WORKERS)
     since = git(root, "merge-base", base, head).strip()
-    every, skipped = [], {"unsafe_path": 0, "deleted": 0, "same": 0, "data": 0, "unparsed_head": 0}
+    every, read, skipped = [], [], {"unsafe_path": 0, "deleted": 0, "same": 0, "data": 0, "unparsed_head": 0}
     with tempfile.TemporaryDirectory() as made:
         tree = pathlib.Path(made) / "head"
         tree.mkdir()
@@ -507,14 +537,15 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
             except ValueError:
                 base_text = ""     # a file the change adds
             diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", since, head, "--", rel)
-            spans = data_lines(head_text) if rel == DATA[0] else []
+            data = (data_lines(head_text), data_lines(base_text)) if rel == DATA[0] else (set(), set())
             texts[rel] = (head_text, base_text)
             try:
                 head_shape = shape(head_text)
             except (SyntaxError, ValueError):
                 head_shape = None
             for hunk in hunks(diff, rel):
-                if is_data(hunk, spans):
+                read.append(hunk)
+                if is_data(hunk, *data):
                     skipped["data"] += 1
                     continue
                 hunk["text"] = "".join(revert(head_text.splitlines(keepends=True), base_text.splitlines(keepends=True), hunk))
@@ -563,10 +594,13 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
             outcome = "SURVIVED" if "SURVIVED" in ran else "FLAKY" if "FLAKY" in ran else "killed" if ran else hunk["outcome"]
             hunk.update(by="mutants", mutants=len(said), outcome=outcome,
                         why="%d of %d mutants of its added lines ran" % (len(ran), len(said)) if ran else hunk["why"])
+            if not ran and said and all(said_one == ("UNCHECKED", "over budget") for said_one in said):
+                hunk.update(outcome="UNCHECKED", why="over budget")
         for hunk in todo:
             if hunk["outcome"] in UNRUN:
                 hunk.update(outcome="UNCHECKED", why="%s: %s" % (hunk["outcome"], hunk["why"]))
-    spans, problems = read_trailers(trailers(root, head), every)
+    # A trailer is held to every hunk of the change, those never run among them, so that one on a docstring is no problem.
+    spans, problems = read_trailers(trailers(root, head), read)
     for hunk in every:
         hunk["covered"] = hunk["outcome"] in ("SURVIVED", "UNCHECKED") and covered(hunk, spans)
         hunk.pop("text", None)
@@ -577,7 +611,9 @@ def counts(found: dict, seconds: float) -> dict:
     """The numbers the weekly list in issue 589 is made from."""
     every = found["hunks"]
     by = lambda outcome: [h for h in every if h["outcome"] == outcome]
-    return {"hunks": len(every), "killed": len(by("killed")), "survived": len(by("SURVIVED")),
+    # A kill of the file's revert may be a neighbour's: it is never counted as the hunk's own.
+    return {"hunks": len(every), "killed": len([h for h in by("killed") if h.get("by") != "file"]),
+            "killed_by_file": len([h for h in by("killed") if h.get("by") == "file"]), "survived": len(by("SURVIVED")),
             "survived_removing": len([h for h in by("SURVIVED") if h["removes"]]),
             "unchecked": len(by("UNCHECKED")), "over_budget": len([h for h in by("UNCHECKED") if h["why"] == "over budget"]),
             "flaky": len(by("FLAKY")), "error": len(by("ERROR")),
@@ -602,7 +638,7 @@ def report(found: dict, seconds: float) -> tuple:
                                        ("only removes", hunk["removes"]), ("covered by its trailer", hunk["covered"])) if on]
         log.append("%-10s %s%s%s" % (hunk["outcome"], span, " (%s)" % _flat(hunk["why"]) if hunk["why"] else "",
                                        "; " + ", ".join(notes) if notes else ""))
-        if hunk["outcome"] != "killed":
+        if hunk["outcome"] != "killed" or hunk.get("by") == "file":
             rows.append("| %s | `%s` | %s |" % (hunk["outcome"], span, ", ".join(notes)))
         if hunk["outcome"] == "SURVIVED" and not hunk["covered"]:
             first = hunk["new"] if hunk["new_n"] else hunk["new"] + 1
@@ -613,7 +649,8 @@ def report(found: dict, seconds: float) -> tuple:
     total = counts(found, seconds)
     log.append("%s %s" % (SUMMARY, json.dumps(total, sort_keys=True)))
     summary = ["## untested (advisory)", "",
-               "%(hunks)d hunks read: %(killed)d noticed by a test, %(survived)d survived, %(unchecked)d unchecked, "
+               "%(hunks)d hunks read: %(killed)d noticed by a test, %(killed_by_file)d only with their file's every hunk, "
+               "%(survived)d survived, %(unchecked)d unchecked, "
                "%(flaky)d flaky, %(error)d in error, in %(seconds)d s." % total, ""]
     if rows:
         summary += ["| Outcome | Lines | Notes |", "|---|---|---|"] + rows + [""]
