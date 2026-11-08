@@ -1,6 +1,6 @@
 # 0158. A machine user's approval is measured from the act that read the description, and one nothing anchors holds an edit
 
-Status: replaced by `docs/decisions/NNNN-the-simulators-world-dates-an-approval-by-the-acts-run-and-the-kernels-anchor-takes-the-records-always.md`.
+Status: replaced by `docs/decisions/NNNN-the-simulators-world-dates-an-approval-by-the-acts-run-and-the-kernels-anchor-takes-the-records-always.md`, which holds the rule in force.
 
 ## Decision
 
