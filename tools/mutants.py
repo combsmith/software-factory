@@ -100,6 +100,7 @@ CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case
 SURPLUS = ("tests.test_evals.Scoring.test_a_result_that_hedges_at_the_place_or_gates_elsewhere_fails_its_case",)
 SURPLUS_JOB = ("tests.test_evals.EvalJob.test_the_report_counts_each_cases_gating_findings_away_from_the_place",)
 CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
+ROLLBACK_FIXTURE = ("tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
@@ -4060,6 +4061,24 @@ MUTANTS = ISSUE + [
      '13:07:04 GMT', '23:07:04 GMT', CUT_FIXTURE),
     ('the tag ruleset exempts the Release', 'release/fixtures/cut.v0-1-0.json',
      '"exclude": []', '"exclude": ["refs/tags/factory/v0.1.0"]', CUT_FIXTURE),
+    # The refused rollback's fixture: the rules refuse it for every tag read after it, and it moved and recorded nothing.
+    ('a rollback with no earlier Release moved next', 'release/fixtures/rollback.refused.json',
+     '"ref": "refs/tags/factory/v0-next",\n              "object": {\n                "sha": "499835d5',
+     '"ref": "refs/tags/factory/v0-next",\n              "object": {\n                "sha": "9ca55015', ROLLBACK_FIXTURE),
+    ('an earlier Release stood beside the one next names', 'release/fixtures/rollback.refused.json',
+     '            {\n                "ref": "refs/tags/factory/v0.1.0",',
+     '            {"ref": "refs/tags/factory/v0.0.9", "object": {"sha": "9ca550156d2d34672ec6496cacc00b29dc20c76e", '
+     '"type": "commit"}},\n            {\n                "ref": "refs/tags/factory/v0.1.0",', ROLLBACK_FIXTURE),
+    ('the Deployment is dated after the refused rollback', 'release/fixtures/rollback.refused.json',
+     '"transient_environment": false,\n                "created_at": "2026-11-07T06:48:42Z"',
+     '"transient_environment": false,\n                "created_at": "2026-11-07T19:11:52Z"', ROLLBACK_FIXTURE),
+    ("the Deployment's status is dated after the refused rollback", 'release/fixtures/rollback.refused.json',
+     '"state": "success",\n                "environment": "factory-next",\n                "description": "",\n'
+     '                "created_at": "2026-11-07T06:48:42Z"',
+     '"state": "success",\n                "environment": "factory-next",\n                "description": "",\n'
+     '                "created_at": "2026-11-07T19:11:52Z"', ROLLBACK_FIXTURE),
+    ('the tags were read before the rollback ended', 'release/fixtures/rollback.refused.json',
+     '"updated_at": "2026-11-07T19:11:56Z"', '"updated_at": "2026-11-07T19:23:56Z"', ROLLBACK_FIXTURE),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a file of tests holds a rule', 'tools/check_context.py',
      '        if not test:\n            problems.append(', '        if False:\n            problems.append(', BARE_TESTS),
@@ -9668,6 +9687,23 @@ MUTANTS = ISSUE + [
     ("the live Run's shim runs a re-run", '.github/workflows/run.yml',
      " && github.run_attempt == '1'", '',
      ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),
+    ("poller.yml is not held to its shim", 'tools/check_workflows.py',
+     '    if name == WAKES:\n        problems += poller_problems(text)\n', '', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
+    ("the poller may be anything", 'tools/check_workflows.py',
+     '    if _held(text) != _held(POLLER_SHIM):', '    if False:', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
+    ("the poller's template drops a tick", 'tools/check_workflows.py',
+     '    - cron: "53 * * * *"\n  workflow_dispatch:\n', '  workflow_dispatch:\n', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
+    ("the poller's template wakes on a Run's end", 'tools/check_workflows.py',
+     '      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n',
+     '      - ci\n      - sf-run\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
+    ("the live poller takes an input", '.github/workflows/poller.yml',
+     '  workflow_dispatch:\n', '  workflow_dispatch:\n    inputs:\n      item:\n        type: string\n', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
+    ("the live poller wakes on no tick", '.github/workflows/poller.yml',
+     '  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n', '', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
+    ("the live poller's pass may be cancelled", '.github/workflows/poller.yml',
+     'cancel-in-progress: false', 'cancel-in-progress: true', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
+    ("the live poller calls another file than the pass", '.github/workflows/poller.yml',
+     '/pass.yml@', '/eval.yml@', ('tests.test_tools.Workflows.test_the_pollers_shim_stands_as_its_template_and_its_hash',)),
     ("a shim held under no hash of its own stands", 'tools/check_workflows.py',
      '         "queue.yml": "', '         "queue-old.yml": "',
      ('tests.test_tools.Workflows.test_the_shims_that_dispatch_a_run_stand_as_their_templates_and_their_hashes',)),

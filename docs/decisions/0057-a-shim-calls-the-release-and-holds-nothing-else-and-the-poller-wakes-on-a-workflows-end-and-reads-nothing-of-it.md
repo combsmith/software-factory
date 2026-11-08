@@ -29,4 +29,4 @@ The Factory's workflow files make it live, so their rules land first and can fai
 | Only the poller runs on `workflow_run`, on a completion of what it names, never its own, with no input, reading nothing of the run | `tests/test_tools.py::test_only_the_poller_runs_on_workflow_run` |
 | The pass job alone is granted a write | `tests/test_tools.py::test_the_pass_job_alone_is_granted_a_write` |
 | Each rule has a counter-example that breaks it and no other | `examples/workflows/invalid/shim.a-step-in-the-shim.yml`, `examples/workflows/invalid/wake.woken-by-its-own-end.yml`, `examples/workflows/invalid/permissions.actions-write-beyond-the-pass.yml` |
-| The poller's shim, as ruling 4 gives it, is held | waiting on `.github/workflows/poller.yml` |
+| The poller's shim, as ruling 4 gives it, is held | `tests/test_tools.py::test_the_pollers_shim_stands_as_its_template_and_its_hash`, `tools/check_workflows.py`, `.github/workflows/poller.yml`; mutant: "the poller may be anything"; mutant: "the live poller's pass may be cancelled" |
