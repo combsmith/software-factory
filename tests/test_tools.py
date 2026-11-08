@@ -3503,6 +3503,38 @@ class Workflows(unittest.TestCase):
                              check_workflows.SHIMS[name], name)
         self.assertLessEqual(set(check_workflows.SHIMS), {path.name for path in live.glob("*.yml")})
 
+    def test_the_pollers_shim_stands_as_its_template_and_its_hash(self):  # issue 196's plan, PR B
+        # poller.yml is on main as ruling 4 gives it, with record 0115's amendments: POLLER_SHIM word for word but for
+        # its comments, calling the pass, and its bytes the hash SHIMS records.
+        self.assertEqual(check_workflows.POLLER_SHIM, POLLER)
+        text = (ROOT / ".github" / "workflows" / "poller.yml").read_text()
+        self.assertEqual(check_workflows.shim_problems("poller.yml", text), [])
+        self.assertEqual(hashlib.sha256(check_workflows.PIN.sub("@PIN", text).encode()).hexdigest(),
+                         check_workflows.SHIMS["poller.yml"])
+        self.assertIn("    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n", text)
+        self.assertEqual(check_workflows.poller_problems("# A note.\n" + POLLER), [])
+        ticks = '  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n'
+        ends = "  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\n"
+        broken = {
+            "a tick moved": POLLER.replace("13 * * * *", "14 * * * *"),
+            "a tick dropped": POLLER.replace('    - cron: "53 * * * *"\n', ""),
+            "no tick": POLLER.replace(ticks, ""),
+            "no dispatch": POLLER.replace("  workflow_dispatch:\n", ""),
+            "an input": POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n"
+                                                                  "        type: string\n"),
+            "a Run's end": POLLER.replace("      - ci\n", "      - ci\n      - sf-run\n"),
+            "another workflow's end": POLLER.replace("      - ci\n", "      - ci\n      - sonarcloud\n"),
+            "no end": POLLER.replace(ends, ""),
+            "the pass cancelled": POLLER.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+            "another group": POLLER.replace("group: sf-poller", "group: sf-pass"),
+            "another file": POLLER.replace("/pass.yml@", "/eval.yml@"),
+            "no secrets": POLLER.replace("    secrets: inherit\n", ""),
+        }
+        for why, changed in broken.items():
+            self.assertNotEqual(changed, POLLER, why)
+            self.assertTrue(caught(check_workflows.poller_problems(changed), "the poller's shim"), why)
+            self.assertTrue(caught(check_workflows.shim_problems("poller.yml", changed), "the poller's shim"), why)
+
     def test_no_step_sets_the_scrub_or_hands_the_model_a_tool_list(self):
         # Decision 0050: the scrub is the Engine's to set, beside --tools "", and a step can pass the CLI no argument;
         # and the step that holds the model's credential is handed no tool list, by a name or a value.

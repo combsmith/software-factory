@@ -77,11 +77,12 @@ SHIM_SECRETS = "    secrets: inherit"
 # The one channel every shim calls (decision 0006), the Release's tag, never a local path, which would run main's copy.
 RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.yml@factory/v0-next$")
 # Each shim, held word for word by a hash taken with the pins left out, as EXEMPT holds ci.yml: a change to one fails
-# until the same pull request records its new hash, and `.github/` is the Maintainer's to approve. The three that
-# dispatch a Run are live, and inert while nothing dispatches them; the poller's is not yet (issue 196's plan).
+# until the same pull request records its new hash, and `.github/` is the Maintainer's to approve. All four are live:
+# the poller's runs passes, which under the repo's Pause dispatch nothing (issue 196's plan).
 SHIMS = {"run.yml": "e0888dab368e920697894e9064a075af9ef070aaaafccff0da748f07d780b78c",
          "approve.yml": "de636e91105e0f1a0b503680cee262c1466205889d239d2482d314bf34496430",
-         "queue.yml": "f29c8cac13dcd722ccabcfb7143a821feffcc5efa4d2754dc6a1ec53207c51b1"}
+         "queue.yml": "f29c8cac13dcd722ccabcfb7143a821feffcc5efa4d2754dc6a1ec53207c51b1",
+         "poller.yml": "532e4f106a48c208c1dc632e1c10271bc884d022d7a4966824cfc8357053c322"}
 # A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
 # commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309); and the Run's
 # jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196); and the approving
@@ -208,6 +209,34 @@ LANE_SHIMS = {"run.yml": (RUN_SHIM, "the Run's shim"), "approve.yml": (APPROVE_S
               "queue.yml": (QUEUE_SHIM, "the queue act's shim")}
 CALLERS = {RUN_JOBS: ("run.yml", "the Run's jobs"), APPROVE_JOB: ("approve.yml", "the approving act's job"),
            QUEUE_JOB: ("queue.yml", "the queue act's job")}
+# The poller's shim, as issue 196's ruling 4 gives it, with record 0115's amendments: `sf-run` out of what it wakes on,
+# since a Run's own `wake` job dispatches the poller, and `secrets: inherit` in. Three schedule lines an hour, none at
+# minute 0 (decision 0043); a dispatch with no input; the ends of `factory` and `ci`; one pass running and one waiting.
+POLLER_SHIM = """name: sf-poller
+on:
+  schedule:
+    - cron: "13 * * * *"
+    - cron: "33 * * * *"
+    - cron: "53 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - factory
+      - ci
+    types:
+      - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next
+    secrets: inherit
+"""
 # The github context named in any form an expression can write it, by a dot, an index, a bracket, an argument or whole,
 # in any case, but its token, which is the pass job's own; outside comments. A path such as .github/workflows/ is no
 # read of it. The poller and the pass it calls read nothing of the run that woke them.
@@ -1608,6 +1637,13 @@ def approve_job_problems(text: str) -> list:
     return []
 
 
+def poller_problems(text: str) -> list:
+    """What is wrong with poller.yml: anything but POLLER_SHIM, word for word but for its comments."""
+    if _held(text) != _held(POLLER_SHIM):
+        return ["it is not the poller's shim, word for word: its schedule, its dispatch, the ends it wakes on, its pass"]
+    return []
+
+
 def queue_job_problems(text: str) -> list:
     """What is wrong with queue-job.yml: anything but QUEUE_JOB_FILE, word for word but for its comments."""
     if _held(text) != _held(QUEUE_JOB_FILE):
@@ -1637,6 +1673,8 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
         problems.append("only %s wakes on another workflow's end" % WAKES)
     if name in LANE_SHIMS:
         problems += lane_shim_problems(name, text, root)
+    if name == WAKES:
+        problems += poller_problems(text)
     for called, (caller, what) in CALLERS.items():
         if name != caller and any(e["key"] == "uses" and e["value"].split("@")[0].endswith("/" + called) for e in entries):
             problems.append("only %s calls %s, from the pass's own token and never under a Pause" % (caller, what))

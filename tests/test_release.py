@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import copy
+import datetime
 import email.utils
 import io
 import json
@@ -318,6 +319,7 @@ class Fixture(unittest.TestCase):
     ruling 9′, as amended on 2026-11-03), read through the Maintainer's login."""
     PATH = ROOT / "release" / "fixtures" / "gate.v0-1-0.json"
     CUT = ROOT / "release" / "fixtures" / "cut.v0-1-0.json"
+    ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
 
     def item(self, fixture, name):
         found = [item for item in fixture["items"] if item["item"] == name]
@@ -385,6 +387,45 @@ class Fixture(unittest.TestCase):
         self.assertLessEqual({"update", "deletion"}, {rule["type"] for rule in rules["rules"]})
         self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
         self.assertEqual(rules["conditions"]["ref_name"]["exclude"], [])
+
+    def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
+        # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,
+        # as the rules refuse it for every tag read after it, and `next` still names the Release, with its one
+        # Deployment, the cut's (#197).
+        fixture = json.loads(self.ROLLBACK.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, "rollback.refused.json"), [])
+        refused = self.item(fixture, "refused_rollback_with_no_earlier_release")
+        rings = json.loads(move.RINGS.read_text())
+        channel = move.next_channel(rings)
+        self.assertEqual((refused["asked"]["command"], refused["asked"]["version"], refused["asked"]["to"]),
+                         ("rollback", "", ""))
+        self.assertEqual((refused["conclusion"], refused["printed"]),
+                         ("failure", {"writes": [], "deployments": [], "refused": cut.NO_EARLIER_RELEASE}))
+        # Every factory/ tag, read as the step's port reads them: one Release, and `next` on its commit.
+        listed = [e for e in refused["exchanges"] if e["request"]["call"].split(" ")[1] == tags.path(REPO)]
+        refs = tags.read(github.Replay(listed), REPO)
+        commit = refs[fixture["version"]]
+        self.assertEqual(refs, {fixture["version"]: commit, channel: commit})
+        for tag in (fixture["version"], channel):
+            with self.subTest(tag=tag):
+                ref = self.answered(refused, "/repos/%s/git/ref/tags/%s" % (REPO, tag))["body"]
+                self.assertEqual(ref["object"]["sha"], commit)
+        step = move.asked({"RELEASE_" + k.upper(): v for k, v in refused["asked"].items()}, channel)
+        self.assertEqual(cut.plan(step, refs, {}, move.channels(rings)), ([], cut.NO_EARLIER_RELEASE))
+        run = self.answered(refused, "/repos/%s/actions/runs/%d" % (REPO, refused["run"]))["body"]
+        made = self.item(json.loads(self.CUT.read_text()), "cut_and_move_of_next")
+        deployed = self.answered(refused, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
+                         [(made["printed"]["deployments"][0], commit, fixture["version"])])
+        statuses = self.answered(refused, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))["body"]
+        self.assertEqual([s["state"] for s in statuses], ["success"])
+        for made_at in [deployed[0]["created_at"]] + [s["created_at"] for s in statuses]:
+            self.assertLess(made_at, run["created_at"])
+        # Each read was made after the run had ended: what it shows is what the run left.
+        ended = datetime.datetime.strptime(run["updated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        for e in refused["exchanges"]:
+            with self.subTest(call=e["request"]["call"]):
+                self.assertGreater(email.utils.parsedate_to_datetime(e["response"]["headers"]["date"]), ended)
 
     def test_an_item_that_says_other_than_its_own_exchanges_is_refused(self):
         fixture = json.loads(self.PATH.read_text())
