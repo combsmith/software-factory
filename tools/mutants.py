@@ -97,6 +97,7 @@ SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding
         "tests.test_evals.Scoring.test_a_finding_no_finding_cited_says_where_it_went", ALSO_AT[0])
 ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted",)
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
+APART = ("tests.test_evals.EvalJob.test_each_head_is_unpacked_apart_from_the_cases",)
 NO_ANSWER = ("tests.test_evals.EvalJob.test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history",)
 NO_HISTORY = NO_ANSWER + ("tests.test_harness.Head.test_each_archive_the_unpacker_refuses_it_refuses_whole",)
 SURPLUS = ("tests.test_evals.Scoring.test_a_result_that_hedges_at_the_place_or_gates_elsewhere_fails_its_case",)
@@ -7180,10 +7181,10 @@ MUTANTS = ISSUE + [
      '        head_.unpack(tarred, sha, os.path.join(folder, "head"))',
      '        pass', ('tests.test_steps.Reader.test_the_reader_writes_the_tasks_inputs',)),
     ("the eval fetch reads no case's head", 'harness/eval/__init__.py',
-     '        if data is not None and heads is not None:\n            code = head_of(data, place, entry["id"], heads)\n',
+     '        if data is not None and heads is not None:\n            code = head_of(data, heads_place(env, workspace), entry["id"], heads)\n',
      '', ('tests.test_evals.EvalJob.test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate',)),
     ('a case is asked without its head', 'harness/eval/run.py',
-     '        head = os.path.join(str(place), "heads", case["id"]) if place is not None else None',
+     '        head = os.path.join(str(heads), case["id"]) if heads is not None else None',
      '        head = None', ('tests.test_evals.EvalJob.test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate',)),
     ("a case's head is kept after it is asked", 'harness/eval/run.py',
      '                shutil.rmtree(head, ignore_errors=True)',
@@ -8179,7 +8180,7 @@ MUTANTS = ISSUE + [
      '                   "sudo apt-get update -q",\n', '',
      ("tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone",)),
     ('the canary hides what the CLI said', 'harness/eval/canary.py',
-     'told(call), clock, place)', 'call, clock, place)', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
+     'told(call), clock, pathlib.Path(unpacked))', 'call, clock, pathlib.Path(unpacked))', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ('the canary says all the CLI said', 'harness/eval/canary.py',
      'said[-TAIL:]', 'said', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     # SonarCloud's S8786 on a workflow's environment: the pattern stays linear.
@@ -8559,6 +8560,27 @@ MUTANTS = ISSUE + [
      ' or raised["category"] == SECURITY\n', '\n', CLEAN_CASE),
     ("a Finding that would hold a change fails a case that expects one", 'tools/eval_result.py',
      '        if covered != ["finding"]:\n', '        if covered != ["finding"] or any(_gates(f) for f in result["findings"]):\n', CLEAN_CASE),
+    # Issue 623: each head is unpacked apart from the cases.
+    ("the heads are unpacked beside the cases", 'harness/eval/__init__.py',
+     '    heads = os.path.realpath(os.path.join(env["RUNNER_TEMP"], "heads"))\n', '    heads = os.path.join(str(place), "heads")\n', APART),
+    ("the heads are put beside the cases past the check", 'harness/eval/__init__.py',
+     '    return pathlib.Path(heads)\n', '    return place / "heads"\n', APART),
+    ("a heads folder inside the scratch is taken", 'harness/eval/__init__.py',
+     '    for other in (os.path.realpath(str(workspace)), str(place)):\n', '    for other in (os.path.realpath(str(workspace)),):\n', APART),
+    ("a heads folder inside the workspace is taken", 'harness/eval/__init__.py',
+     '    for other in (os.path.realpath(str(workspace)), str(place)):\n', '    for other in (str(place),):\n', APART),
+    ("a heads folder that holds the scratch is taken", 'harness/eval/__init__.py',
+     '        if os.path.commonpath([heads, other]) in (heads, other):\n', '        if os.path.commonpath([heads, other]) == other:\n', APART),
+    ("a heads folder that is the scratch is taken", 'harness/eval/__init__.py',
+     '        if os.path.commonpath([heads, other]) in (heads, other):\n',
+     '        if heads != other and os.path.commonpath([heads, other]) in (heads, other):\n', APART),
+    ("the root is read as holding nothing", 'harness/eval/__init__.py',
+     '        if os.path.commonpath([heads, other]) in (heads, other):\n',
+     '        if heads == other or heads.startswith(other + os.sep) or other.startswith(heads + os.sep):\n', APART),
+    ("the fetch unpacks each head in the scratch", 'harness/eval/__init__.py',
+     'code = head_of(data, heads_place(env, workspace), entry["id"], heads)', 'code = head_of(data, place / "heads", entry["id"], heads)', APART),
+    ("the run step looks for each head in the scratch", 'harness/eval/run.py',
+     'reviewer(env, kept["release"], began, call, clock, heads_place(env, workspace))', 'reviewer(env, kept["release"], began, call, clock, place / "heads")', APART),
     # Issue 614: a Run is given no part of its case's answer, and its head no history.
     ("the Task carries the case's answer", 'harness/eval/run.py',
      '        # A diff over the Kernel\'s bound is cut in the Task,', '        the_task["expected"] = case["expected"]\n        # A diff over the Kernel\'s bound is cut in the Task,', NO_ANSWER),
@@ -11862,8 +11884,8 @@ MUTANTS = ISSUE + [
      '            interrupted = True\n',
      '            pass\n', ('tests.test_evals.EvalJob.test_an_interrupt_asks_nothing_more_and_the_report_is_written',)),
     ('the step gives each Task another Release', 'harness/eval/run.py',
-     'reviewer(env, kept["release"], began, call, clock, place)',
-     'reviewer(env, "factory/v0.0.1", began, call, clock, place)', ('tests.test_evals.EvalJob.test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run',)),
+     'reviewer(env, kept["release"], began, call, clock, heads_place(env, workspace))',
+     'reviewer(env, "factory/v0.0.1", began, call, clock, heads_place(env, workspace))', ('tests.test_evals.EvalJob.test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run',)),
     ('every case shares one Run id', 'harness/eval/run.py',
      'for b in os.urandom(20))',
      'for b in bytes(20))', ('tests.test_evals.EvalJob.test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run',)),

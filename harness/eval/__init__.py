@@ -143,6 +143,20 @@ def scratch(env: dict, workspace: pathlib.Path) -> pathlib.Path:
     return pathlib.Path(place)
 
 
+def heads_place(env: dict, workspace: pathlib.Path) -> pathlib.Path:
+    """The directory each case's head is unpacked in, whose folder of a case the CLI starts in: `heads` under the
+    runner's own temporary directory, beside the scratch, never inside it nor holding it, and outside the workspace. No
+    case file is in it or under a folder above it but the runner's temporary directory, so the read tools' confinement
+    (decision 0138) is not the only thing between the model and the answers (issue 623)."""
+    place = scratch(env, workspace)
+    heads = os.path.realpath(os.path.join(env["RUNNER_TEMP"], "heads"))
+    # Read part by part, so that the root, whose own path ends in its separator, holds every other.
+    for other in (os.path.realpath(str(workspace)), str(place)):
+        if os.path.commonpath([heads, other]) in (heads, other):
+            raise Stop("scratch_in_workspace")
+    return pathlib.Path(heads)
+
+
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*(\.json)?")
 
 
@@ -268,8 +282,8 @@ def seen_of(review) -> dict:
     return said
 
 
-def head_of(data: bytes, place: pathlib.Path, ident: str, transport):
-    """The head a case names, its tarball read through `transport` and unpacked into `heads/` under its id, or the code
+def head_of(data: bytes, folder: pathlib.Path, ident: str, transport):
+    """The head a case names, its tarball read through `transport` and unpacked into `folder` under its id, or the code
     `head_unreadable` when it cannot be read or unpacked whole; None, and nothing read, for a case with no head to read,
     which its schema refuses after (decision 0138). Nothing of the head is printed or kept but its files there."""
     from harness import head
@@ -280,7 +294,6 @@ def head_of(data: bytes, place: pathlib.Path, ident: str, transport):
         return None
     if not (isinstance(sha, str) and COMMIT.fullmatch(sha) and isinstance(repo, str)):
         return None
-    folder = place / "heads"
     folder.mkdir(mode=0o700, exist_ok=True)
     try:
         head.unpack(head.fetch(transport, repo, sha), sha, within(folder, ident))
@@ -294,7 +307,8 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
     """Each case the set names, read from the home into the scratch directory as the bytes its manifest hashed, and
     why each that is not there is not: `fetched.json`, by id, a code or null, and `fetch-causes.json`, by id, what a read
     that raised raised, by its class and place alone. Each case's head is read through `heads`, with no credential, and
-    a case whose head cannot be read whole is not there either, `head_unreadable`."""
+    a case whose head cannot be read whole is not there either, `head_unreadable`. Heads are unpacked in `heads_place`,
+    apart from the cases (issue 623)."""
     from adapters import heldout
     _, found, place = _planned(env, root, workspace)
     why, causes = {}, {}
@@ -306,7 +320,7 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
             data, code = None, "unanswered"
             causes[entry["id"]] = cause_of(err)
         if data is not None and heads is not None:
-            code = head_of(data, place, entry["id"], heads)
+            code = head_of(data, heads_place(env, workspace), entry["id"], heads)
         why[entry["id"]] = code
         if data is not None and code is None:
             path = within(place / "cases", "%s.json" % entry["id"])

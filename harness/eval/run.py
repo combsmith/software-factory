@@ -4,7 +4,8 @@ What is measured is what runs (design §3.14, issue 309's ruling 5). A case's Ta
 the function a live Run's is built by, from the case's facts and its diff, with the Release's own configuration and the
 Role's manifest; only the admission is the case's own, its content the case's facts give, and its Run a fresh id. It
 is answered by `harness/run.answer`, as a live Run is: the same pin, the tier's limits, the read tools held to the case's
-head, which `fetch` unpacked under `heads/`, and the scrub (decision 0138); each head is removed once its case is asked.
+head, which `fetch` unpacked in `heads_place`, apart from the cases (issue 623), and the scrub (decision 0138); each head
+is removed once its case is asked.
 The step holds the model's credential and the CLI's path alone (`tools/check_workflows.py`), and stops starting cases
 when the time it has left is less than a case's tier allows, so that the job ends before its own timeout: a case not
 reached is unanswered, and the run fails.
@@ -21,7 +22,7 @@ import subprocess
 import time
 
 from harness import engine, run as live, task as tasks
-from harness.eval import Stop, _planned, exit_with, score
+from harness.eval import Stop, _planned, exit_with, heads_place, score
 
 # The seconds the job may spend before the last case is started, counted from when `plan` was made: the job's 120
 # minutes (tools/check_workflows.py, EVAL_RUNNER) less eleven for the checkout before it, the seal, the uploads and judge
@@ -38,13 +39,13 @@ def run_id() -> str:
     return "r_" + "".join(ALPHABET[b % 32] for b in os.urandom(20))
 
 
-def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, place=None):
+def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, heads=None):
     """The review Intent, as `assess` asks it: a case's `result/1`, or Stop with the code that says why there is none.
     Its Task is the case's, built as a live Run's; a case its Task is refused for is `not_this_set`, and one whose diff is
     over the bound `diff_not_whole`, and nothing is asked of the model: `harness.eval.case_fault` has told the rest apart. The
     configuration and the manifest are the checkout's own, the Release's, as a live Run's are. `began` is when `plan`
     was made, by `clock`, the runner's own: no case is started once less time is left of BUDGET than it may take. A case's
-    head is the folder `heads/<id>` under `place`, the scratch directory, as `fetch` unpacked it (decision 0138)."""
+    head is the folder `<id>` in `heads`, as `fetch` unpacked it there (decision 0138, issue 623)."""
     config = dict(live.configuration(), release=release)
     with open(os.path.join(str(live.ROOT), "roles", "pr-review.json"), encoding="utf-8") as f:
         manifest = json.load(f)
@@ -92,7 +93,7 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, pl
             raise Stop("issue_not_whole")
         if deadline - clock() < the_task["limits"]["seconds"] + VERSION_READS:
             raise Stop("unanswered")
-        head = os.path.join(str(place), "heads", case["id"]) if place is not None else None
+        head = os.path.join(str(heads), case["id"]) if heads is not None else None
         try:
             return live.answer(the_task, env, config, watched, clock, head=head)
         finally:
@@ -107,7 +108,7 @@ def step(env, root, workspace, call=None, clock=time.time):
     began = kept.get("planned_at")
     if not isinstance(began, int) or isinstance(began, bool):
         raise Stop("scratch_unreadable")
-    return score(env, root, workspace, reviewer(env, kept["release"], began, call, clock, place))
+    return score(env, root, workspace, reviewer(env, kept["release"], began, call, clock, heads_place(env, workspace)))
 
 
 if __name__ == "__main__":
