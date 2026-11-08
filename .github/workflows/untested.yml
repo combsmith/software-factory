@@ -1,0 +1,26 @@
+# The advisory check of "A changed line of Python that no test notices fails verify, unless the change says it keeps behaviour" (issue 589).
+# `untested` checks out the base and runs the base's tools/untested.py on an export of the head, as `commits` runs the base's tool, so that a change cannot set the rules it is read by (decision 0023). It reverts each changed hunk of Python outside tests/ and sees whether a test notices.
+# For its first month it is advisory: it is in no job's `needs`, it reads only a pull request and says on a merge group that it did not run there, and it ends green whatever it finds, writing its survivors, what it could not check and the trailers it read to the job's summary. Its budget is 20 minutes of edits; a run already started may take one run of the suite past it, at most 10 minutes, so the step has 33 and the job 35.
+name: untested
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  untested:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      EVENT: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      - run: python3 -m tools.untested
+        timeout-minutes: 33
