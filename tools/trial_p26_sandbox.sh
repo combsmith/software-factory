@@ -126,8 +126,8 @@ while :; do
     else
         found="ls failed"
     fi
-    [ -z "$found" ] || refuse "$above is another user's, or can be written by other users and is not sticky, or an ACL may let them; name a directory under one only you can write to"
-    [ "$above" = / ] && break
+    [[ -z "$found" ]] || refuse "$above is another user's, or can be written by other users and is not sticky, or an ACL may let them; name a directory under one only you can write to"
+    [[ "$above" != / ]] || break
     above=$(dirname -- "$above")
 done
 
