@@ -1,4 +1,4 @@
-# NNNN. Each case's head is unpacked apart from the set's cases
+# 0163. Each case's head is unpacked apart from the set's cases
 
 Status: accepted. The Factory Builder's story of 2026-11-07, issue 623, "Each case's head is unpacked outside the folder that holds the set's case files". It is a sub-issue of issue 562, due before the first gate-v1 run. It amends decision 0138's row "The eval case" where it says the fetch unpacks each head into a folder of its own under the scratch directory: the folder is now beside the scratch. Nothing else in it changes.
 
