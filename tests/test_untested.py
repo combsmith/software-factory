@@ -204,10 +204,25 @@ class Reverts(unittest.TestCase):
             self.assertEqual(seen, [900.0 + untested.mutants.TIMEOUT - 1000.0])
             with self.assertRaises(untested.OverBudget):
                 late(pathlib.Path("."), first=("tests.test_x",))
+            self.assertEqual(len(seen), 1)      # the named tests did not begin
             with self.assertRaises(untested.OverBudget):
                 untested.bounded(1000.0 - untested.mutants.TIMEOUT)(pathlib.Path("."), only="tests.test_x")
             untested.bounded(2000.0)(pathlib.Path("."), only="tests.test_x")
         self.assertEqual(seen[-1], untested.mutants.TIMEOUT)
+
+    def test_no_import_of_an_edit_is_probed_past_the_budget(self):
+        made = tempfile.TemporaryDirectory()
+        self.addCleanup(made.cleanup)
+        root = pathlib.Path(made.name) / "head"
+        tree(root, {"pkg/__init__.py": "", "pkg/a.py": "A = 1\n"})
+        probed = []
+
+        def run(work, **given):
+            raise AssertionError("no run of the tests past the budget")
+        with mock.patch.object(untested, "importable", lambda work, module: probed.append(module) or True):
+            said = untested.edit("an edit", "pkg/a.py", "A = 1\n", "A = 2\n", (), root, run,
+                                 untested.mutants.Trees(root, made.name), True, float("-inf"))
+        self.assertEqual((said, probed), (("UNCHECKED", "over budget"), []))
 
     def test_the_suite_is_not_read_past_the_budget(self):
         read = []
