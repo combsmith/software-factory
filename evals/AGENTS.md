@@ -8,9 +8,8 @@ and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Main
 
 | Rule | Held by |
 |---|---|
-| A manifest is `eval-set/1`, and its count is its list's length | `tests/test_evals.py::test_the_manifest_counts_its_cases_and_holds_no_case` |
+| A manifest is `eval-set/1`, its count its list's length; a new file here joins `LIVE` in `tools/check_examples.py`, with its schema | `tests/test_evals.py::test_the_manifest_counts_its_cases_and_holds_no_case`, `tools/check_examples.py` |
 | Nothing lives here but a manifest in `LIVE` and these rules, and no file here, of any name, holds a case or a diff | `tests/test_evals.py::test_a_case_dropped_under_evals_in_any_file_is_caught` |
-| A new file here is added to `LIVE` in `tools/check_examples.py`, with its schema | `tools/check_examples.py` |
 | A Result passes a case by raising the Finding it expects, in its category, severity and place, with the coverage agreeing | `tests/test_evals.py::test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails` |
 | A case may name each place its fault is rightly put, in `also_at`; a Finding at any is at the place, and every place must be readable (decision 0143) | `tests/test_evals.py::test_a_finding_at_any_place_the_case_gives_is_at_the_place` |
 | A right change passes by covering its criterion as met, with nothing that would hold it (decision 0144) | `tests/test_evals.py::test_a_right_change_is_scored_by_its_coverage`, `tests/test_evals.py::test_a_gating_finding_fails_a_clean_case` |
@@ -31,6 +30,7 @@ and each run of a fresh agent on it, made by `tools/context_eval.sh` at the Main
 | The job reads and writes a file of its own directory alone, named by one part | `tests/test_evals.py::test_the_job_reads_and_writes_a_file_of_its_own_directory_alone` |
 | A case is reviewed by the Task and the Engine a live Run is, with nothing of the home reaching the CLI | `tests/test_evals.py::test_a_case_is_reviewed_by_the_task_and_the_engine_a_live_run_is` |
 | A case that names other content, or comes too late, is not reviewed; the step's time is held inside the job's | `tests/test_evals.py::test_a_case_that_names_other_content_or_comes_too_late_is_not_reviewed` |
+| The report names the model that answered, the prompt and rubric by sha256, and each case's turns, cost and seconds; another model is said in the run line | `tests/test_evals.py::test_a_report_names_the_model_prompt_and_rubric_and_what_each_case_used` |
 | The report is written whatever a case raised | `tests/test_evals.py::test_the_run_step_writes_the_report_whatever_a_case_raised` |
 | A step of the job prints counts and codes, never what it raised | `tests/test_evals.py::test_a_step_says_counts_and_codes_and_never_what_it_raised` |
 | The review Intent's set has its cases, and the cutover waits on them | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases`, for the set; the cutover's own gate waiting on `release/cutover.py` |

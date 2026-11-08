@@ -58,6 +58,9 @@ WORD = re.compile(r"[a-z][a-z_]{0,63}")
 # run that failed): any other is `other`, so that whatever a later pin echoes there is never words (the security pass).
 SUBTYPES = ("success", "error_during_execution", "error_max_turns", "error_max_structured_output_retries",
             "error_max_budget_usd")
+MODEL = re.compile(r"[a-z0-9.-]{1,64}")     # a model's id as result/1 holds it, and no longer than a name is
+# What a case the CLI was never asked used: no turn or cost it could report, and no time (issue 616).
+NOT_ASKED = {"turns": None, "cost_usd": None, "seconds": 0}
 
 
 class Stop(Exception):
@@ -348,7 +351,7 @@ def case_fault(case: dict):
 
 
 def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = None, alternates: set = None,
-           surplus: dict = None) -> dict:
+           surplus: dict = None, usages: dict = None) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
     `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
@@ -356,12 +359,14 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
     is off its rubric is `unreadable`, `answer_off_rubric`; every other is given to `review`, which returns its `result/1`,
     and scored against the case by `tools/eval_result.py`. What `cause_of` and `seen_of` say of a case unanswered, or
     stopped by the Engine, goes in `causes`, by id, where one is given; the id of each pass the scorer marks
-    `at_alternate`, in `alternates` (decision 0143); and how many gating Findings the scorer counts away from every
-    place a case gives, in `surplus`, by id (issue 610)."""
+    `at_alternate`, in `alternates` (decision 0143); how many gating Findings the scorer counts away from every
+    place a case gives, in `surplus`, by id (issue 610); and the `usage` of each Result `review` returned, in
+    `usages`, by id, where one is given (issue 616)."""
     assessed, interrupted = {}, False
     causes = {} if causes is None else causes
     alternates = set() if alternates is None else alternates
     surplus = {} if surplus is None else surplus
+    usages = {} if usages is None else usages
     for entry in found["cases"]:
         code = why.get(entry["id"], "not_found") if isinstance(why, dict) else "not_found"
         if interrupted:
@@ -412,6 +417,8 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
             assessed[entry["id"]] = ("unreadable", ["unanswered"])
             causes[entry["id"]] = cause_of(err)
             continue
+        if isinstance(result, dict) and isinstance(result.get("usage"), dict):
+            usages[entry["id"]] = result["usage"]
         if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
             assessed[entry["id"]] = ("unreadable", [result["reason"]])
             causes[entry["id"]] = seen_of(review)
@@ -524,21 +531,56 @@ def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
     return all(assessed[case] == (PASS, []) for case in blocking_cases(found, expected))
 
 
+def used(usage) -> dict:
+    """What a Result's `usage` says a case used, as the report holds it: its turns, its cost in USD and its seconds, each
+    a number or, for the first two, none where the CLI reported none; NOT_ASKED where it is no usage (issue 616)."""
+    if not isinstance(usage, dict):
+        return dict(NOT_ASKED)
+    turns, cost, seconds = usage.get("turns"), usage.get("cost_usd"), usage.get("seconds")
+    number = lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < float("inf")
+    return {"turns": turns if type(turns) is int and turns >= 0 else None, "cost_usd": cost if number(cost) else None,
+            "seconds": seconds if number(seconds) else 0}
+
+
+def models(usages: dict) -> list:
+    """Each model a case's CLI said answered it, by the id it gave, not the configured name: one, where the run is
+    whole (issue 616)."""
+    named = [u.get("answering_model") for u in usages.values() if isinstance(u, dict)]
+    # Held to an id before any is compared, so that one of another shape is left out, not raised on (Astra).
+    return sorted({m for m in named if isinstance(m, str) and MODEL.fullmatch(m)})
+
+
+def identity(root: pathlib.Path, role: str) -> dict:
+    """The sha256 of the Role's prompt and of its rubric at the commit checked out, the files `harness/run.instructions`
+    tells the model, or None of one that is not there (issue 616)."""
+    def digest(path: pathlib.Path):
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+    return {"prompt_sha256": digest(root / "roles" / role / "prompt.md"),
+            "rubric_sha256": digest(root / "config" / ("rubric-%s.json" % role))}
+
+
 def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None,
-           causes: dict = None, alternates: set = None, surplus: dict = None) -> dict:
-    """The `eval-report/1` of this run: the plan's Release, commit and set, each case by id and hash, in the manifest's
-    order, with its verdict and codes and, where one was found, its cause, its mark where it passed at an alternate
-    place alone (decision 0143), and how many gating Findings it drew away from every place (issue 610), whether the
-    set holds `split_ok`'s kinds,
-    whether each cleared its bar, and whether every case that expects a blocking Finding passed."""
-    causes, alternates, surplus = causes or {}, alternates or set(), surplus or {}
-    cases = [dict({"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1]},
+           causes: dict = None, alternates: set = None, surplus: dict = None, usages: dict = None,
+           ran: dict = None) -> dict:
+    """The `eval-report/1` of this run: the plan's Release, commit and set, the models the CLI said answered and the
+    prompt and rubric by `ran`, `identity`'s, each case by id and hash, in the manifest's order, with its verdict and
+    codes, what it used and, where one was found, its cause, its mark where it passed at an alternate place alone
+    (decision 0143), and how many gating Findings it drew away from every place (issue 610), whether the set holds
+    `split_ok`'s kinds, whether each cleared its bar, and whether every case that expects a blocking Finding passed."""
+    causes, alternates, surplus, usages = causes or {}, alternates or set(), surplus or {}, usages or {}
+    ran = ran or {"prompt_sha256": None, "rubric_sha256": None}
+    cases = [dict({"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1],
+                   "usage": used(usages.get(e["id"]))},
                   **({"cause": causes[e["id"]]} if causes.get(e["id"]) else {}),
                   **({"at_alternate": True} if e["id"] in alternates and assessed[e["id"]] == (PASS, []) else {}),
                   **({"surplus_gating": surplus[e["id"]]} if surplus.get(e["id"]) else {}))
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
-            "intent": found["intent"], "set": dict(kept["set"]), "cases": cases,
+            "intent": found["intent"], "set": dict(kept["set"]), "models": models(usages),
+            "prompt_sha256": ran["prompt_sha256"], "rubric_sha256": ran["rubric_sha256"], "cases": cases,
             "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held, "kinds_pass": kinds, "blocking_pass": blocking}
 
 
@@ -595,19 +637,21 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     except Stop:
         causes = {}
     causes = dict(causes) if isinstance(causes, dict) else {}
-    alternates, surplus = set(), {}
-    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus)
+    alternates, surplus, usages = set(), {}, {}
+    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages)
     written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
-                     blocking_pass(found, place, assessed), causes, alternates, surplus)
+                     blocking_pass(found, place, assessed), causes, alternates, surplus, usages,
+                     identity(root, found["role"]))
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
 
-def tally(document: dict) -> str:
+def tally(document: dict, configured: str = None) -> str:
     """One line of a report that holds to its schema: how many cases passed, how many carry each code, each kind under
     its bar, which closes the gate, and a blocking case not passed, which does not by itself (decision 0150), as a share
-    alone may not say why, how many passed at an alternate place alone (decision 0143), and how many gating Findings
-    were put away from every place a case gives (issue 610)."""
+    alone may not say why, how many passed at an alternate place alone (decision 0143), how many gating Findings
+    were put away from every place a case gives (issue 610), and the models that answered where they are not the
+    `configured` one alone (issue 616)."""
     codes = [code for case in document["cases"] for code in case["reasons"]]
     alternate = len([case for case in document["cases"] if case.get("at_alternate") and case["verdict"] == PASS])
     away = sum(case.get("surplus_gating", 0) for case in document["cases"])
@@ -619,7 +663,19 @@ def tally(document: dict) -> str:
                       + (", %d at an alternate place" % alternate if alternate else "")
                       + (", %d gating away from the place" % away if away else ""),
                       ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed
-                     + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))])
+                     + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))]
+                     # A run no model answered says so by its codes; one another did names it (the Claude review).
+                     + (["answered by %s, not the configured %s" % (", ".join(document["models"]), configured)]
+                        if configured is not None and document.get("models") not in ([], [configured]) else []))
+
+
+def configured_model(root: pathlib.Path):
+    """The model the Release's configuration names, `config/harness.json`'s, or None where it cannot be read."""
+    try:
+        model = json.loads((root / "config" / "harness.json").read_text(encoding="utf-8"))["engine"]["model"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return model if isinstance(model, str) and MODEL.fullmatch(model) else None
 
 
 def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
@@ -635,9 +691,9 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         # Either comes only once `verdict` has held the report to its schema, so what is printed is the enum's codes,
         # whatever wrote the report. A run that clears the bar says the same line, as its cases not passed still count.
         if said in ("engine_fault", "run_fault", "case_failed"):
-            print(tally(written))
+            print(tally(written, configured_model(root)))
         raise Stop(said)
-    return tally(written)
+    return tally(written, configured_model(root))
 
 
 def main(step, *given) -> int:
