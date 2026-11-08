@@ -1218,6 +1218,16 @@ class Head(unittest.TestCase):
             ("a name that climbs", support.tarball(sha, [("../x", b"0", b"x")]), "climbs"),
             ("a dot segment", support.tarball(sha, [("./x", b"0", b"x")]), "climbs"),
             ("an empty segment", support.tarball(sha, [("a//x", b"0", b"x")]), "climbs"),
+            # No history reaches the head: git's own folder, at its top or below, in any case (issue 614).
+            ("git's folder", support.tarball(sha, [(".git/", b"5", b"")]), ".git segment"),
+            ("a file in git's folder", support.tarball(sha, [(".git/HEAD", b"0", b"ref: refs/heads/main\n")]), ".git segment"),
+            ("git's folder below the top", support.tarball(sha, [("a/.Git/config", b"0", b"x")]), ".git segment"),
+            ("git's folder named with no slash", support.tarball(sha, [(".git", b"5", b"")]), ".git segment"),
+            ("a file named for git's folder", support.tarball(sha, [(".git", b"0", b"gitdir: elsewhere\n")]), ".git segment"),
+            ("a file named for git's folder below the top", support.tarball(sha, [("a/.GIT", b"0", b"x")]), ".git segment"),
+            ("a link named for git's folder", support.tarball(sha, [(".git", b"2", b"")]), ".git segment"),
+            ("git's folder named by a pax header", zipper(plain[:-1024] + support.tar_member("pax", b"x", support.pax({"path": top + "/.git/x"}))
+                                                        + support.tar_member("ignored-name", b"0", b"x") + b"\0" * 1024), ".git segment"),
             ("outside the one folder", zipper(plain[:-1024] + support.tar_member("elsewhere/x", b"0", b"x") + b"\0" * 1024),
              "outside the archive's one folder"),
             ("a name that is not UTF-8", zipper(plain[:-1024] + support.tar_member("", b"0", b"x", raw_name=top.encode() + b"/\xff")
