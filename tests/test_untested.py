@@ -91,6 +91,16 @@ class Reverts(unittest.TestCase):
                                                ("pkg/calc.py", 12, "SURVIVED", "revert")], repr(ending))
             self.assertEqual(found["skipped"]["same"], 1)      # the annotation
 
+    def test_a_line_is_what_git_numbers_one_and_not_each_break_python_splits_on(self):
+        label = 'LABEL = "a b\x0cc"\n\n\ndef f():\n    return %d\n'
+        test = "import unittest\n\nfrom pkg import label\n\n\nclass L(unittest.TestCase):\n    def test_f(self):\n" \
+               "        self.assertEqual(label.f(), 2)\n"
+        found = checked({"pkg/label.py": label % 1, "tests/test_label.py": test}, {"pkg/label.py": label % 2})
+        self.assertEqual((outcomes(found), found["skipped"]["same"]), ([("pkg/label.py", 5, "killed", "revert")], 0))
+        made = dict(untested.candidates(label % 2, {"new": 5, "new_n": 1}))
+        self.assertEqual(made[5].split("\n")[4], "    return 3")
+        self.assertEqual(untested.data_lines('MUTANTS = [\n    "a b",\n\n    2,\n]\n'), {2, 3, 4})
+
     def test_a_hunk_that_changes_nothing_python_sees_is_never_run(self):
         same = untested.shape(CALC)
         for text in (CALC.replace("The bigger of the two.", "Which is bigger."), CALC.replace("-> int:", "-> float:"),
@@ -113,6 +123,8 @@ class Reverts(unittest.TestCase):
         self.assertEqual(untested.crashed(CRASHED), "NameError")
         self.assertEqual(untested.crashed(CRASHED.replace("ERROR:", "FAIL:")), "")
         self.assertEqual(untested.crashed(CRASHED.replace("NameError", "AttributeError")), "")
+        long = CRASHED.replace("tests.test_calc.Calc", "tests.test_calc." + "Calc" * 60)     # past the width of a log's line
+        self.assertEqual(untested.crashed(long), "NameError")
 
     def test_a_small_hunk_no_edit_of_which_runs_is_unchecked_and_a_large_one_gets_mutants(self):
         test = "import unittest\n\nfrom pkg.%s import f\n\n\nclass T(unittest.TestCase):\n    def test_f(self):\n" \
@@ -296,6 +308,19 @@ class Trailers(unittest.TestCase):
             self.assertEqual(len(problems), 1, value)
             self.assertIn(said, problems[0], value)
         self.assertNotIn("::", untested.read_trailers(["::warning::x"], self.HUNKS)[1][0])
+
+    def test_a_trailers_span_is_never_read_line_by_line(self):
+        def short(*args):
+            made = range(*args)     # this module's own, which the patch leaves as it is
+            if len(made) > 10 ** 6:
+                raise AssertionError("a range of %d lines" % len(made))
+            return made
+        far = 10 ** 12
+        with mock.patch.object(untested, "range", short, create=True):
+            said = [untested.read_trailers([value], self.HUNKS) for value in ("pkg/a.py:12-%d" % far, "pkg/a.py:22-%d" % far)]
+        self.assertEqual(said[0], ([("pkg/a.py", 12, far)], []))
+        self.assertEqual(said[1][0], [])
+        self.assertIn("names lines no hunk changed", said[1][1][0])
 
     def test_the_head_commits_trailer_covers_its_survivor(self):
         base = {"pkg/calc.py": CALC, "tests/test_calc.py": CALC_TEST}

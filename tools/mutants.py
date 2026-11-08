@@ -14912,6 +14912,16 @@ MUTANTS = ISSUE + [
     ("verify needs the advisory job", ".github/workflows/verify.yml",
      "      - mutants\n    if: always()\n", "      - mutants\n      - untested\n    if: always()\n",
      ("Job.test_the_job_runs_the_bases_tool_on_both_events_and_no_job_needs_it",)),
+    ("a source's lines are split on every break Python knows", "tools/untested.py",
+     '    return [line for line in re.split(r"(?<=\\n)", text) if line]\n', "    return text.splitlines(keepends=True)\n",
+     ("Reverts.test_a_line_is_what_git_numbers_one_and_not_each_break_python_splits_on",)),
+    ("a crash is read from the failure a log's line cuts", "tools/untested.py",
+     '    error = next((line for line in lines[past:] if line and line[0] != " " and not line.startswith("Traceback")), "")\n',
+     '    error = (mutants.failures([output]) or [""])[0].split(": ", 1)[-1]\n',
+     ("Reverts.test_an_edit_a_crash_alone_notices_falls_back_to_its_files_revert",)),
+    ("a trailer's span is read line by line", "tools/untested.py",
+     "        if not any(start <= line <= end for line in touched):", "        if not touched & set(range(start, end + 1)):",
+     ("Trailers.test_a_trailers_span_is_never_read_line_by_line",)),
 )]
 
 

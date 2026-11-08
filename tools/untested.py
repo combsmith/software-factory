@@ -116,6 +116,12 @@ def hunks(diff: str, rel: str) -> list:
     return found
 
 
+def source_lines(text: str) -> list:
+    """The lines of `text` as git and Python number them, each with its ending: ended by a newline alone, never by
+    the other breaks str.splitlines knows, as a form feed or U+2028 in a string."""
+    return [line for line in re.split(r"(?<=\n)", text) if line]
+
+
 def revert(head_lines: list, base_lines: list, hunk: dict) -> list:
     """The head's lines with `hunk` put back as the base had it. A hunk that adds no line stands after its line."""
     old = base_lines[hunk["old"] - 1:hunk["old"] - 1 + hunk["old_n"]] if hunk["old_n"] else []
@@ -152,7 +158,7 @@ def data_lines(text: str) -> set:
         tree = ast.parse(text)
     except SyntaxError:
         return set()
-    lines, found, code = text.splitlines(), set(), set()
+    lines, found, code = source_lines(text), set(), set()
     for node in tree.body:
         if not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
                                                      for target in node.targets)):
@@ -326,12 +332,14 @@ def _is_case(node) -> bool:
 
 
 def crashed(output: str) -> str:
-    """The exception in CRASH the one failure in `output` is, where it is an ERROR of one; else ""."""
+    """The exception in CRASH the one failure in `output` is, where it is an ERROR of one; else "". Read from the whole
+    of unittest's output, not from tools/mutants.py's `failures`, which cuts a long test's name before its exception."""
     kind = KIND.search(output)
     if kind is None or kind.group(1) != "ERROR":
         return ""
-    said = mutants.failures([output])
-    error = said[0].split(": ", 1)[1] if said and ": " in said[0] else ""
+    lines = output[kind.end():].split("\n")
+    past = lines.index("-" * 70) + 1 if "-" * 70 in lines else len(lines)
+    error = next((line for line in lines[past:] if line and line[0] != " " and not line.startswith("Traceback")), "")
     name = error.split(":", 1)[0].strip().rsplit(".", 1)[-1]
     return name if name in CRASH else ""
 
@@ -430,7 +438,7 @@ def candidates(text: str, hunk: dict) -> list:
         tree = ast.parse(text)
     except SyntaxError:
         return []
-    lines, head = text.splitlines(keepends=True), shape(text)
+    lines, head = source_lines(text), shape(text)
     first, last = hunk["new"], hunk["new"] + hunk["new_n"] - 1
     starts = {}
     for node in ast.walk(tree):
@@ -523,7 +531,7 @@ def read_trailers(said: list, every: list) -> tuple:
             problems.append("the %s trailer %s names a file this change leaves as it was" % (TRAILER, value))
             continue
         touched = set().union(*(changed_lines(hunk) for hunk in every if hunk["path"] == path))
-        if not touched & set(range(start, end + 1)):
+        if not any(start <= line <= end for line in touched):      # never every line of a span a trailer names
             problems.append("the %s trailer %s names lines no hunk changed" % (TRAILER, value))
             continue
         spans.append((path, start, end))
@@ -580,7 +588,7 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
                 if is_data(hunk, *data):
                     skipped["data"] += 1
                     continue
-                hunk["text"] = "".join(revert(head_text.splitlines(keepends=True), base_text.splitlines(keepends=True), hunk))
+                hunk["text"] = "".join(revert(source_lines(head_text), source_lines(base_text), hunk))
                 if head_shape is None:
                     skipped["unparsed_head"] += 1
                     hunk.update(outcome="UNCHECKED", why="the head's file does not parse")
