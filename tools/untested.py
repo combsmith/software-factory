@@ -381,7 +381,7 @@ def importable(work: pathlib.Path, module: str) -> bool:
 
 
 def edit(name: str, rel: str, head_text: str, new_text: str, tests: tuple, root: pathlib.Path, run, trees,
-         guard_import: bool) -> tuple:
+         guard_import: bool, deadline: float = float("inf")) -> tuple:
     """(outcome, why) of one edit of `rel`, `head_text` made `new_text`, through tools/mutants.py's `attempt`."""
     try:
         ast.parse(new_text, rel)
@@ -391,6 +391,8 @@ def edit(name: str, rel: str, head_text: str, new_text: str, tests: tuple, root:
 
     def recording(work: pathlib.Path, **given) -> tuple:
         if guard_import and not checked:
+            if time.monotonic() > deadline:     # an import that hangs takes IMPORT_SECONDS: none begins past the budget
+                raise OverBudget()
             checked.append(True)
             if not importable(work, module_of(rel)):
                 raise Unimportable()
@@ -420,13 +422,13 @@ def edit(name: str, rel: str, head_text: str, new_text: str, tests: tuple, root:
 def candidates(text: str, hunk: dict) -> list:
     """Mutants of the lines `hunk` adds to `text`, the head's, each the whole text with one line changed: a condition
     negated, a comparison off by one, a statement dropped, a constant changed. A line that is only a string, a call
-    that prints or logs, or a raise, is not mutated: its mutants are the commonest equivalent ones. At most MOST,
-    spread among the lines."""
+    that prints or logs, or a raise, is not mutated: its mutants are the commonest equivalent ones; nor is one Python
+    would read as the head, as an annotation never evaluated. At most MOST, spread among the lines."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return []
-    lines = text.splitlines(keepends=True)
+    lines, head = text.splitlines(keepends=True), shape(text)
     first, last = hunk["new"], hunk["new"] + hunk["new_n"] - 1
     starts = {}
     for node in ast.walk(tree):
@@ -439,7 +441,13 @@ def candidates(text: str, hunk: dict) -> list:
             continue
         made = _mutated(node, line)
         if made is not None and made != line:
-            found.append((at, lines[:at - 1] + [made] + lines[at:]))
+            changed = lines[:at - 1] + [made] + lines[at:]
+            try:
+                same = shape("".join(changed)) == head
+            except (SyntaxError, ValueError):
+                continue
+            if not same:    # a mutant Python reads as the head, of an annotation never evaluated, is no edit
+                found.append((at, changed))
     if len(found) > MOST:
         found = [found[round(i * (len(found) - 1) / (MOST - 1))] for i in range(MOST)]
     return [(at, "".join(changed)) for at, changed in found]
@@ -579,12 +587,12 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
                     pass
                 every.append(hunk)
         tests = {rel: first_tests(tree, rel) for rel in texts}
-        guard = {rel: importable(tree, module_of(rel)) for rel in texts}
+        guard = {rel: time.monotonic() <= deadline and importable(tree, module_of(rel)) for rel in texts}
         trees = mutants.Trees(tree, made)
 
         def run_edit(item: tuple) -> tuple:
             name, rel, new_text = item
-            return edit(name, rel, texts[rel][0], new_text, tests[rel], tree, run, trees, guard[rel])
+            return edit(name, rel, texts[rel][0], new_text, tests[rel], tree, run, trees, guard[rel], deadline)
 
         def many(items: list) -> list:
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:

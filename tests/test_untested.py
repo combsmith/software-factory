@@ -134,6 +134,8 @@ class Reverts(unittest.TestCase):
         self.assertIn("        x = x + 3\n", made[3])
         self.assertIn("    return x < 3\n", made[8])
         self.assertIn("    pass\n", dict(untested.candidates("def f(x):\n    g(x)\n", {"new": 2, "new_n": 1}))[2])
+        annotated = "from __future__ import annotations\n\n\ndef f(x: Literal[0]) -> int:\n    return x + 1\n"
+        self.assertEqual(sorted(dict(untested.candidates(annotated, {"new": 4, "new_n": 2}))), [5])
         many = "def f(x):\n" + "".join("    x = x + %d\n" % n for n in range(20))
         self.assertEqual(len(untested.candidates(many, {"new": 2, "new_n": 20})), untested.MOST)
 
@@ -205,8 +207,11 @@ class Reverts(unittest.TestCase):
 
     def test_no_run_of_the_tests_begins_past_the_budget(self):
         base = {"pkg/calc.py": CALC, "tests/test_calc.py": CALC_TEST}
-        found = checked(base, {"pkg/calc.py": CALC.replace("x * 2", "x * 3")}, deadline=float("-inf"))
+        probed = []
+        with mock.patch.object(untested, "importable", lambda work, module: probed.append(module) or True):
+            found = checked(base, {"pkg/calc.py": CALC.replace("x * 2", "x * 3")}, deadline=float("-inf"))
         self.assertEqual([(h["outcome"], h["why"]) for h in found["hunks"]], [("UNCHECKED", "over budget")])
+        self.assertEqual(probed, [])        # no import is probed past the budget, the head's or an edit's
 
     def test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read(self):
         text = ("ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n    # a note\n    3 if os.environ else 2,\n] + [m for m in (\n"
