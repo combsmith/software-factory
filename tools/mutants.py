@@ -15095,7 +15095,7 @@ MUTANTS = ISSUE + [
      "start <= min(lines) and max(lines) <= end", "start <= max(lines) and min(lines) <= end",
      ("Trailers.test_a_trailer_covers_a_hunk_only_when_it_holds_every_line_the_hunk_changed",)),
     ("a trailer that names no changed line stands", "tools/untested.py",
-     "        if not touched & set(range(start, end + 1)):\n", "        if False:\n",
+     "        if not any(start <= line <= end for line in touched):", "        if False:",
      ("Trailers.test_a_trailer_that_names_no_changed_line_or_cannot_be_read_is_a_problem",)),
     ("a trailer that names a file the change leaves stands", "tools/untested.py",
      "        if path not in paths:\n", "        if False:\n",
