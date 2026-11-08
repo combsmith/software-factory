@@ -601,9 +601,14 @@ def _positional(words: list) -> list:
     return out
 
 
-def _defined(name: str, text: str) -> bool:
-    """Whether `text` may define a function called `name`: name() or function name, anywhere in it."""
-    return re.search(r"(?<![\w/.-])%s\s*\(\s*\)|\bfunction\s+%s\b" % (re.escape(name), re.escape(name)), text) is not None
+def _defined(name: str, text: str, seen: dict = None) -> bool:
+    """Whether `text` may define a function called `name`: name() or function name, anywhere in it. `seen` keeps each
+    name's answer for this `text`, so a command of many short ones is searched once a name, not once a command (#605)."""
+    seen = {} if seen is None else seen
+    if name not in seen:
+        seen[name] = re.search(r"(?<![\w/.-])%s\s*\(\s*\)|\bfunction\s+%s\b" % (re.escape(name), re.escape(name)),
+                               text) is not None
+    return seen[name]
 
 
 def _bodies(text: str) -> str:
@@ -652,6 +657,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     previous, depth = None, 0   # where the command stood before its last placed cd, for cd -; compounds opened
     reading = set()     # the commands, by where they stand in `commands`, that only read (_only_reads)
     printing = set()    # those that only print, to nowhere a script reads, outside any subshell (TEXT_ONLY)
+    defines = {}        # for each program that only prints, whether the command may define a function of its name
     for index, (raw, redirections, marked) in enumerate(commands):
         spend()
         if raw is None:     # a mark: what runs in a subshell is its own, so a cd in it is theirs alone (shell.SCOPE)
@@ -725,7 +731,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         # does what assigns as it prints, echo "${x:=git push}", or a function of that name (Argon).
         if at is None and program in TEXT_ONLY and not scoped and not (
                 program == "printf" and any(w.startswith("-") for w in words[start + 1:])) and not any(
-                "${" in w and "=" in w for w in marked) and not _defined(program, text):
+                "${" in w and "=" in w for w in marked) and not _defined(program, text, defines):
             printing.add(index)
         if at is None:
             # A substitution is read as a command of its own below; its text is not the wrapper's to read as a push.

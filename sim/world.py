@@ -1367,21 +1367,36 @@ class World:
     def edited_since_approval(self) -> bool:
         """Whether the description was edited at or after the machine user's first approval since the Maintainer last
         looked, or, where none has come since but one came before, the look itself, in the world's own words. A look is
-        any person's approval, the Maintainer's or a colleague's; one a person dismissed since is taken back. As the
-        Kernel reads it (`kernel/derive.py`'s `description_anchor`), a look after the edit clears it."""
+        any person's approval, the Maintainer's or a colleague's; one a person dismissed since is taken back. Each
+        approval is dated by when it read the description (`read_at`). As the Kernel reads it (`kernel/derive.py`'s
+        `description_anchor`), a look after the edit clears it."""
         looks = [rv["submitted_at"] for rv in self.reviews if self.is_person(rv["by"])
                  and "approved" in (rv["state"], rv["dismissed_from"])
                  and not (rv["dismissed_by"] is not None and self.is_person(rv["dismissed_by"]))]
-        machine = [rv["submitted_at"] for rv in self.reviews if rv["by"]["name"] == CONFIG["approver"]
+        machine = [rv for rv in self.reviews if rv["by"]["name"] == CONFIG["approver"]
                    and "approved" in (rv["state"], rv["dismissed_from"])]
         if any(look > self.edited for look in looks):
             return False
         # A look in the edit's second saw nothing of it: only a look before the edit moves the anchor.
         before = [look for look in looks if look < self.edited]
         look = max(before) if before else None
-        since = [at for at in machine if look is None or at >= look]
-        anchor = min(since) if since else (look if machine else None)
+        since = [rv for rv in machine if look is None or rv["submitted_at"] >= look]
+        anchor = min(self.read_at(rv) for rv in since) if since else (look if machine else None)
         return anchor is not None and self.edited >= anchor
+
+    def read_at(self, review: dict) -> str:
+        """When a machine approval last read the description, in the world's own words: the start of the latest approving
+        act's Run on its content that started no later than it; else its own time, where a run of the item started no
+        later, as a person approving in the browser reads as they approve; else "", before every time (issue 608). The
+        world's act starts in its approval's own second, so it reads its approval's own time. The Kernel's reading has
+        branches the world needs none of, as it makes no such record: a dispatch, a re-run, another item, a start that is
+        no time."""
+        at = review["submitted_at"]
+        acts = [r["started_at"] for r in self.runs if r["intent"] == t.ISSUE_APPROVAL
+                and r["content_id"] == review["content_id"] and r["started_at"] <= at]
+        if acts:
+            return max(acts)
+        return at if any(r["started_at"] <= at for r in self.runs) else ""
 
     def verdict(self):
         """The Maintainer's latest verdict, dismissed or not, or None. A comment is none, dismissed or not.

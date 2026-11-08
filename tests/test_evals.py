@@ -3005,6 +3005,7 @@ class EvalJob(unittest.TestCase):
                 # A gate set's report is of counts alone, and a development set's is per case: neither stands for the other.
                 (loaded("examples/eval-report.json"), "report_of_another_kind"),
                 (changed(["ledger", "sealed_sha256"], KeyError), "report_unreadable"),
+                (changed(["models"], KeyError), "report_unreadable"),
                 (changed(["cases"], [{"id": "c-0", "verdict": "pass"}]), "report_unreadable"),
                 (changed(["faults"], [{"code": "case c-0 timed out", "count": 1}]), "report_unreadable"),
                 (changed(["commit"], "b" * 40), "another_commit"),
