@@ -948,6 +948,76 @@ class EvalJob(unittest.TestCase):
         self.assertNotIn("diff", (self.work / job.REPORT).read_text())
         self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
 
+    def test_a_report_names_the_model_prompt_and_rubric_and_what_each_case_used(self):  # issue 616
+        # A change of score between two Releases can come from the model or the prompt: the report names the model by the
+        # id the CLI gave and the prompt and rubric by their sha256 at the commit, and each case's turns, cost and
+        # seconds, as numbers, from the CLI's own answer. A case never asked used nothing; one model that is not the
+        # configured one is said in the run line.
+        from harness import eval as job
+        (self.root / "roles" / "pr-review").mkdir(parents=True)
+        (self.root / "roles" / "pr-review" / "prompt.md").write_bytes(b"Review the change.\n")
+        (self.root / "config").mkdir()
+        (self.root / "config" / "rubric-pr-review.json").write_bytes(b'{"role": "pr-review"}\n')
+        (self.root / "config" / "harness.json").write_text(json.dumps({"engine": {"model": "claude-opus"}}))
+        self.step(job.plan)
+        self.step(job.fetch, self.home(self.cases))
+        first, second = list(self.cases)
+        result = example_result()
+        answers = {first: result, second: dict(result, usage=dict(result["usage"], turns=None, cost_usd=None, seconds=9.5))}
+        self.assertEqual(self.step(job.score, lambda case: answers[case["id"]]), "scored 2 of 2 cases, 2 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual((written["models"], written["prompt_sha256"], written["rubric_sha256"]),
+                         (["claude-opus"], hashlib.sha256(b"Review the change.\n").hexdigest(),
+                          hashlib.sha256(b'{"role": "pr-review"}\n').hexdigest()))
+        self.assertEqual([c["usage"] for c in written["cases"]],
+                         [{"turns": 2, "cost_usd": 0.167688, "seconds": 2.714}, {"turns": None, "cost_usd": None, "seconds": 9.5}])
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
+        # Another model, by the CLI's own word: the run line says so, and the report names it.
+        other = dict(result, usage=dict(result["usage"], answering_model="claude-sonnet"))
+        self.assertEqual(self.step(job.score, lambda case: other if case["id"] == second else result), "scored 2 of 2 cases, 2 passed")
+        self.assertEqual(json.loads((self.work / job.REPORT).read_text())["models"], ["claude-opus", "claude-sonnet"])
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code; answered by claude-opus, claude-sonnet, not the configured claude-opus")
+        # As a live Run is, another model's answer is a failed Result, `engine_model`, which fails the run: what it used is
+        # kept all the same, and the judge's log names the model (Astra, the Claude review).
+        refused = dict(result, status="failed", reason="engine_model", findings=[], dispositions=[], effects={}, coverage=[],
+                       usage=dict(result["usage"], answering_model="claude-sonnet", turns=3, cost_usd=0.25, seconds=8))
+        self.step(job.score, lambda case: refused if case["id"] == second else result)
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["models"], written["cases"][1]["usage"]),
+                         (["claude-opus", "claude-sonnet"], {"turns": 3, "cost_usd": 0.25, "seconds": 8}))
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
+        self.assertIn("engine_model 1", out.getvalue())
+        self.assertIn("; answered by claude-opus, claude-sonnet, not the configured claude-opus\nengine_fault\n", out.getvalue())
+        # A model's id of another shape is left out, not raised on.
+        self.assertEqual(job.models({"a": {"answering_model": []}, "b": {"answering_model": {"x": 1}},
+                                     "c": {"answering_model": "claude-opus"}, "d": {"answering_model": "a" * 65}}), ["claude-opus"])
+        # A case never asked used nothing; with no prompt or rubric in the Release, neither is named.
+        (self.root / "roles" / "pr-review" / "prompt.md").unlink()
+        (self.root / "config" / "rubric-pr-review.json").unlink()
+        self.assertEqual(self.step(job.score, lambda case: (_ for _ in ()).throw(job.Stop("not_this_set"))),
+                         "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual((written["models"], written["prompt_sha256"], written["rubric_sha256"]), ([], None, None))
+        self.assertEqual([c["usage"] for c in written["cases"]], [{"turns": None, "cost_usd": None, "seconds": 0}] * 2)
+        # What a Result says it used that is no number is none.
+        self.assertEqual(job.used({"turns": True, "cost_usd": "0.17", "seconds": -1}), {"turns": None, "cost_usd": None, "seconds": 0})
+        # The schema holds each field, as numbers and ids alone: a report without one, or with words in one, is refused.
+        schema = load("schemas/eval-report.schema.json")
+        case, usage = written["cases"][0], written["cases"][0]["usage"]
+        for name, bad in (("no models", {k: v for k, v in written.items() if k != "models"}),
+                          ("no prompt hash", {k: v for k, v in written.items() if k != "prompt_sha256"}),
+                          ("no rubric hash", {k: v for k, v in written.items() if k != "rubric_sha256"}),
+                          ("a model in words", dict(written, models=["Claude Opus"])),
+                          ("a prompt hash in words", dict(written, prompt_sha256="the prompt of 7 November")),
+                          ("a case with no usage", dict(written, cases=[{k: v for k, v in case.items() if k != "usage"}])),
+                          ("no seconds", dict(written, cases=[dict(case, usage={"turns": None, "cost_usd": None})])),
+                          ("a cost in words", dict(written, cases=[dict(case, usage=dict(usage, cost_usd="0.17"))])),
+                          ("turns in words", dict(written, cases=[dict(case, usage=dict(usage, turns="two"))]))):
+            self.assertNotEqual(validate(bad, schema, schemas=eval_result.schemas()), [], name)
+
     def test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted(self):  # decision 0143
         # How much of a score `also_at` gave can be counted from the report, by a mark that says no place.
         from harness import eval as job
@@ -1054,9 +1124,10 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 2 passed\neval_split_short\n")
             written = json.loads((self.work / job.REPORT).read_text())
             self.assertIs(written["split_ok"], False)
-            self.assertEqual(sorted(written), ["blocking_pass", "cases", "commit", "intent", "kinds_pass", "passed", "release", "role",
-                                               "schema", "set", "split_ok"], "no count of a kind, nor any field of one")
-            self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "verdict"])
+            self.assertEqual(sorted(written), ["blocking_pass", "cases", "commit", "intent", "kinds_pass", "models", "passed",
+                                               "prompt_sha256", "release", "role", "rubric_sha256", "schema", "set", "split_ok"],
+                             "no count of a kind, nor any field of one")
+            self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "usage", "verdict"])
             self.assertEqual(self.step(job.judge), "eval_split_short")
         # The answer of a case that is read as no kind, or not read at all, says nothing: its run fails by that case.
         first = next(iter(self.cases))
