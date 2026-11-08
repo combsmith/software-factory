@@ -1586,11 +1586,15 @@ class Identity(unittest.TestCase):
                      # A # in a ${...}, or after a substitution's ), begins no comment, and its " is one (Astra, the
                      # security pass): main asked about both, by its count.
                      'echo "$(echo ${x:- #} "\n' + rm + '")"',
-                     'echo "$(echo $(date)#"; echo ' + rm + ';")"'):
+                     'echo "$(echo $(date)#"; echo ' + rm + ';")"',
+                     # A ${...} inside a nested one, then one after it: the held one's quote is back (the Claude review).
+                     'echo "$(echo "$(echo ${x:-\'a\'})' + rm + '")"'):
             with self.assertRaises(shell.Unread, msg=text):
                 shell.commands(text)
         # One that a nested substitution's own quotes leave unquoted is read as before.
         self.assertIn(["date"], [w for w, _ in shell.commands('echo "$(echo "$(date)" ${x:-\'y\'})"')])
+        # So is one inside a nested one, which opens unquoted whatever quote holds it; main refused it, by its count.
+        self.assertIn(["echo", "${x:-a}"], [w for w, _ in shell.commands('echo "$(echo "$(echo ${x:-\'a\'})")"')])
 
     def test_whether_a_command_defines_a_printers_name_is_searched_once_a_name(self):  # issue 605
         # Whether a command defines a function of a printer's name is searched once for each name, not once for each
