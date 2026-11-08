@@ -1,4 +1,4 @@
-# NNNN. The eval job reads a named set, and a gate set's report is counts alone, its ledger sealed to the Maintainer's certificates
+# 0164. The eval job reads a named set, and a gate set's report is counts alone, its ledger sealed to the Maintainer's certificates
 
 Status: accepted. The Factory Builder's ruling of 2026-11-07 on issue 612, "The eval job reads a named set, and a gate set's report is aggregates only", on the builder's design and the Solution Architect's ruling on where the ledger goes, and the Maintainer's ruling of 2026-11-07 on it: seal now, decide storage later. It lands the seal, with no new credential, and no job, environment, token or write that would store a ledger elsewhere. For a gate set alone, it amends decision 0099's row "What the report says" and decision 0150's row "Where it is computed", each where it keeps a count of a kind out of the report. A development set's report, `eval-report/1`, and everything else in either, are unchanged.
 
