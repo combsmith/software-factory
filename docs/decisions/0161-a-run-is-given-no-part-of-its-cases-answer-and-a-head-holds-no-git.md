@@ -1,4 +1,4 @@
-# NNNN. A Run is given no part of its case's answer, and a head holds no `.git`
+# 0161. A Run is given no part of its case's answer, and a head holds no `.git`
 
 Status: accepted. The Factory Builder's story of 2026-11-07, issue 614, "A test that a Run is given no part of a case's `expected`, and that its head holds no `.git`". It tests what keeps a held-out case's answer from the model, which nothing tested.
 
