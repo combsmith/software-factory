@@ -1,4 +1,4 @@
-# NNNN. A case that expects a Finding takes one Finding at its place, and one gating Finding away from it
+# 0160. A case that expects a Finding takes one Finding at its place, and one gating Finding away from it
 
 Status: accepted. The Factory Builder's story of 2026-11-07, issue 610, "The scorer bounds surplus Findings at and away from the expected place". It bounds what decision 0143 left unbounded: a case is passed by the nearest of the Findings that cite its criterion, so extra Findings cost nothing.
 
