@@ -922,6 +922,11 @@ class EvalJob(unittest.TestCase):
         # And a scratch linked to the root, which holds the workspace though its own path ends in its separator.
         os.symlink(os.sep, str(self.temp / "heldout"))
         self.assertEqual(self.step(job.plan), "scratch_in_workspace")
+        # The scratch itself refuses each, not the heads beside it alone, which the plan places after it (issue 626).
+        for temp in (self.temp, self.work, self.work / "deeper"):
+            with self.assertRaises(job.Stop) as stopped:
+                job.scratch(dict(self.env, RUNNER_TEMP=str(temp)), self.work)
+            self.assertEqual(stopped.exception.code, "scratch_in_workspace", temp)
         os.unlink(str(self.temp / "heldout"))
         # A manifest that is no eval-set/1, or miscounts its cases, or names one id twice, is no set.
         manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
@@ -2074,6 +2079,9 @@ class EvalJob(unittest.TestCase):
         with mock.patch.object(step, "run_id", lambda: live.RUN), mock.patch.object(job, "assess", assessing), \
                 mock.patch("sys.stdout", io.StringIO()):
             self.assertEqual(canary.review(dict(live.JOB), cli, live.Clock(*[float(i) for i in range(9)]), Heads()), 0)
+        self.assertIn("cases", kept, "the canary's case is assessed")
+        self.assertEqual(len(cli.asked()), 1, "the model is asked once")
+        self.assertIn("head", cli.asked()[0], "the CLI is asked, in a head")
         head = os.path.realpath(cli.asked()[0]["head"])
         self.assertEqual(os.path.commonpath([head, kept["cases"]]), os.path.realpath(tempfile.gettempdir()))
 
@@ -2472,6 +2480,7 @@ class EvalJob(unittest.TestCase):
         self.clean()
         (self.temp / "heads").mkdir()
         self.assertEqual(self.step(plan), "scratch_unreadable")
+        self.assertFalse((self.temp / "heldout").exists(), "and leaves no scratch")
 
     def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
         # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its

@@ -167,12 +167,13 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     found, digest = manifest(root)
     if found["count"] == 0:
         raise Stop("eval_set_empty")
-    place = scratch(env, workspace)
+    # The heads beside the scratch, made new as it is: a folder an earlier job left is no head of this run. Both are
+    # placed, and the heads made, first, so that a heads folder that stops the plan leaves no scratch (issue 626).
+    place, heads = scratch(env, workspace), heads_place(env, workspace)
     try:
+        heads.mkdir(mode=0o700)
         place.mkdir(mode=0o700)
         (place / "cases").mkdir(mode=0o700)
-        # The heads beside it, made new as it is: a folder an earlier job left is no head of this run (issue 626).
-        heads_place(env, workspace).mkdir(mode=0o700)
     except OSError:
         raise Stop("scratch_unreadable") from None
     # When the plan was made, the job's own start to within its checkout: the run step's time is counted from it, so
