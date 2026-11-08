@@ -360,6 +360,8 @@ def bounded(deadline: float):
             if status != 0:
                 return status, output
         status, output = 0, ""
+        if time.monotonic() > deadline:     # reading the suite imports every test module, under a TIMEOUT of its own
+            raise OverBudget()
         for part in mutants.whole_suite(cwd):
             status, output = one(["-q", "-f", *part])
             if status != 0:
@@ -540,7 +542,8 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
     run = run or bounded(deadline)
     workers = workers or min(os.cpu_count() or 1, mutants.WORKERS)
     since = git(root, "merge-base", base, head).strip()
-    every, read, skipped = [], [], {"unsafe_path": 0, "deleted": 0, "same": 0, "data": 0, "unparsed_head": 0}
+    every, read, skipped = [], [], {"unsafe_path": 0, "deleted": 0, "same": 0, "data": 0, "unparsed_head": 0,
+                                 "undecodable": 0}
     with tempfile.TemporaryDirectory() as made:
         tree = pathlib.Path(made) / "head"
         tree.mkdir()
@@ -556,7 +559,11 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
             if not target.is_file():
                 skipped["deleted"] += 1
                 continue
-            head_text = target.read_text()
+            try:
+                head_text = target.read_bytes().decode()    # its line endings as they are, as `attempt` reads it
+            except UnicodeDecodeError:
+                skipped["undecodable"] += 1
+                continue
             try:
                 base_text = git(root, "show", "%s:%s" % (since, rel))
             except ValueError:
@@ -617,8 +624,10 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
         results = many([(NAME % (h["path"], at, at, " (a mutant)"), h["path"], text) for h, at, text in made_of])
         for hunk in large:
             said = [r for (h, _, _), r in zip(made_of, results) if h is hunk]
-            ran = [outcome for outcome, _ in said if outcome in ("killed", "SURVIVED", "FLAKY")]
-            outcome = "SURVIVED" if "SURVIVED" in ran else "FLAKY" if "FLAKY" in ran else "killed" if ran else hunk["outcome"]
+            kinds = [outcome for outcome, _ in said]
+            ran = [kind for kind in kinds if kind in ("killed", "SURVIVED", "FLAKY", "ERROR")]
+            # A mutant that hung or failed to run is an ERROR, never a kill, whatever its neighbours did.
+            outcome = next((kind for kind in ("SURVIVED", "FLAKY", "ERROR", "killed") if kind in kinds), hunk["outcome"])
             hunk.setdefault("tried", []).append("mutants")
             hunk.update(by="mutants", mutants=len(said), outcome=outcome,
                         why="%d of %d mutants of its added lines ran" % (len(ran), len(said)) if ran else hunk["why"])

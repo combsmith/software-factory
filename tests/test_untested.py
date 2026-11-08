@@ -83,10 +83,13 @@ def outcomes(found: dict) -> list:
 
 class Reverts(unittest.TestCase):
     def test_a_revert_no_test_notices_survives_and_one_a_test_notices_is_killed(self):
-        base = {"pkg/calc.py": CALC.replace("if a > b:", "if a < b:"), "tests/test_calc.py": CALC_TEST}
-        found = checked(base, {"pkg/calc.py": CALC.replace("-> int:", "-> float:").replace("x * 2", "x * 3")})
-        self.assertEqual(outcomes(found), [("pkg/calc.py", 6, "killed", "revert"), ("pkg/calc.py", 12, "SURVIVED", "revert")])
-        self.assertEqual(found["skipped"]["same"], 1)      # the annotation
+        for ending in ("\n", "\r\n"):    # a file's line endings, kept as they are
+            calc = CALC.replace("\n", ending)
+            base = {"pkg/calc.py": calc.replace("if a > b:", "if a < b:"), "tests/test_calc.py": CALC_TEST}
+            found = checked(base, {"pkg/calc.py": calc.replace("-> int:", "-> float:").replace("x * 2", "x * 3")})
+            self.assertEqual(outcomes(found), [("pkg/calc.py", 6, "killed", "revert"),
+                                               ("pkg/calc.py", 12, "SURVIVED", "revert")], repr(ending))
+            self.assertEqual(found["skipped"]["same"], 1)      # the annotation
 
     def test_a_hunk_that_changes_nothing_python_sees_is_never_run(self):
         same = untested.shape(CALC)
@@ -168,21 +171,27 @@ class Reverts(unittest.TestCase):
         test = "import unittest\n\nfrom pkg import f40, f41\n\n\nclass T(unittest.TestCase):\n    def test_f(self):\n" \
                "        f40.f(1), f41.f(1)\n"
 
+        heads = {"f40.py": made(40), "f41.py": made(41)}
+
         def run(work, first=(), only=None, **given):
-            if any(not (work / "pkg" / name).read_text().strip() for name in ("f40.py", "f41.py")):
+            texts = {name: (work / "pkg" / name).read_text() for name in heads}
+            if any(not text.strip() for text in texts.values()):
                 return 1, CRASHED
-            if self.spent and not only:      # as bounded() runs it, a kill's confirmation is never cut
+            if self.mode == "spent" and not only:      # as bounded() runs it, a kill's confirmation is never cut
                 raise untested.OverBudget()
+            if self.mode == "mixed" and texts != heads:     # a mutant: the dropped statement hangs, the rest are noticed
+                return (None, "") if "    pass\n" in texts["f41.py"] else (1, NOTICED)
             return 0, "OK\n"
-        for spent, f41 in ((False, ("SURVIVED", "mutants")), (True, ("UNCHECKED", "mutants"))):
-            self.spent = spent
+        for mode, f41 in (("survive", ("SURVIVED", "mutants")), ("spent", ("UNCHECKED", "mutants")),
+                          ("mixed", ("ERROR", "mutants"))):
+            self.mode = mode
             made_at, root, first, last = change({}, {"pkg/f40.py": made(40), "pkg/f41.py": made(41), "tests/test_f.py": test})
             with made_at:
                 found = untested.check(root, first, last, float("inf"), run=run, workers=1)
             by_path = {h["path"]: h for h in found["hunks"]}
             self.assertEqual((by_path["pkg/f40.py"]["outcome"], by_path["pkg/f40.py"].get("by")), ("UNCHECKED", "revert"))
             self.assertEqual((by_path["pkg/f41.py"]["outcome"], by_path["pkg/f41.py"]["by"]), f41)
-            if spent:
+            if mode == "spent":
                 self.assertEqual(by_path["pkg/f41.py"]["why"], "over budget")
                 self.assertEqual(untested.counts(found, 0)["over_budget"], 1)
 
@@ -199,6 +208,15 @@ class Reverts(unittest.TestCase):
                 untested.bounded(1000.0 - untested.mutants.TIMEOUT)(pathlib.Path("."), only="tests.test_x")
             untested.bounded(2000.0)(pathlib.Path("."), only="tests.test_x")
         self.assertEqual(seen[-1], untested.mutants.TIMEOUT)
+
+    def test_the_suite_is_not_read_past_the_budget(self):
+        read = []
+        with mock.patch.object(untested.time, "monotonic", side_effect=[998.0, 998.0, 1000.0]), \
+                mock.patch.object(untested.mutants, "_unittest", lambda cwd, timeout, args: (0, "")), \
+                mock.patch.object(untested.mutants, "whole_suite", lambda cwd: read.append(cwd) or []):
+            with self.assertRaises(untested.OverBudget):
+                untested.bounded(999.0)(pathlib.Path("."), first=("tests.test_x",))
+        self.assertEqual(read, [])
 
     def test_a_path_a_pull_request_names_is_read_only_in_plain_characters(self):
         found = checked({}, {"pkg/odd name.py": "x = 1\n", "pkg/plain.py": "x = 1\n"})
@@ -231,6 +249,8 @@ class Reverts(unittest.TestCase):
 CRASHED = ("=" * 70 + "\nERROR: test_x (tests.test_calc.Calc)\n" + "-" * 70 + "\nTraceback (most recent call last):\n"
            "  File \"x.py\", line 1, in test_x\nNameError: name 'pick' is not defined\n\n" + "-" * 70 +
            "\nRan 1 test in 0.001s\n\nFAILED (errors=1)\n")
+NOTICED = CRASHED.replace("ERROR:", "FAIL:").replace("NameError: name 'pick' is not defined", "AssertionError: 1 != 2") \
+    .replace("errors=1", "failures=1")
 
 
 class Trailers(unittest.TestCase):
