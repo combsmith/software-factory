@@ -15146,7 +15146,7 @@ MUTANTS = ISSUE + [
      '    return [line for line in re.split(r"(?<=\\n)", text) if line]\n', "    return text.splitlines(keepends=True)\n",
      ("Reverts.test_a_line_is_what_git_numbers_one_and_not_each_break_python_splits_on",)),
     ("a crash is read from the failure a log's line cuts", "tools/untested.py",
-     '    error = next((line for line in lines[past:] if line and line[0] != " " and not line.startswith("Traceback")), "")\n',
+     '    error = next((line for line in lines[past:] if line and line[0] != " " and not line.startswith("Trace' 'back")), "")\n',
      '    error = (mutants.failures([output]) or [""])[0].split(": ", 1)[-1]\n',
      ("Reverts.test_an_edit_a_crash_alone_notices_falls_back_to_its_files_revert",)),
     ("a trailer's span is read line by line", "tools/untested.py",
