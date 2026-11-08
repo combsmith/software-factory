@@ -47,7 +47,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # is held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
-              "eval-set", "eval-report", "eval-aggregate", "rings")
+              "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"

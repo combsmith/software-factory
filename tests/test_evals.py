@@ -860,6 +860,9 @@ class EvalJob(unittest.TestCase):
         least = mock.patch.object(job, "KIND_LEAST", 0)
         least.start()
         self.addCleanup(least.stop)
+        origin = mock.patch.object(job, "ORIGIN_LEAST", 0)
+        origin.start()
+        self.addCleanup(origin.stop)
 
     def tearDown(self):
         self.dir.cleanup()
@@ -2303,6 +2306,38 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(self.step(job.plan, env={"EVAL_SET": name}), "eval_set_unreadable", name)
             self.assertEqual(list(self.temp.iterdir()), [], name)
 
+    def test_no_set_but_a_gate_set_names_a_case_of_one(self):  # issue 612, the security read
+        # A set that is not a gate set, and names a gate set's case by its id or its hash, would report it case by case.
+        from harness import eval as job
+        self.set(self.cases, name="pr-review-gate", gate=True)
+        one, two = list(self.cases.items())
+        for cases, code in (({one[0]: one[1]}, "eval_set_overlaps_a_gate_set"),
+                            ({one[0]: b"other bytes"}, "eval_set_overlaps_a_gate_set"),
+                            ({"poc-another": one[1]}, "eval_set_overlaps_a_gate_set"),
+                            ({"poc-another": b"other bytes"}, "planned 1 cases")):
+            self.set(cases)
+            self.assertEqual(self.step(job.plan), code, cases)
+            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+        # The gate set itself is run, and another gate set beside it may share a case.
+        self.set(self.cases)
+        self.set(self.cases, name="pr-review-later", gate=True)
+        self.assertEqual(self.step(job.plan, env={"EVAL_SET": "pr-review-gate"}), "planned 2 cases")
+        shutil.rmtree(str(self.temp / "heldout"))
+        # Every manifest is read, and one that cannot be read stops the run.
+        (self.root / "evals" / "pr-review-later" / "cases.json").write_text("{")
+        self.set({"poc-another": b"other bytes"})
+        self.assertEqual(self.step(job.plan), "eval_set_unreadable")
+
+    def test_a_gate_set_marks_no_group_of_natural_cases_or_others_too_small_to_hide_one(self):  # issue 612
+        from harness import eval as job
+        three = dict(self.cases, **{"poc-three": self.cases[list(self.cases)[1]].replace(b"poc-two", b"poc-three")})
+        with mock.patch.object(job, "ORIGIN_LEAST", 2):
+            for natural, code in (((list(three)[0],), "eval_set_unreadable"), (tuple(three)[:2], "eval_set_unreadable"),
+                                  ((), "planned 3 cases"), (tuple(three), "planned 3 cases")):
+                self.set(three, gate=True, natural=natural)
+                self.assertEqual(self.step(job.plan), code, natural)
+                shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)
+
     def gate_run(self, natural=None):
         """A gate set of the two cases, planned, fetched and scored as passed: what `score` left in the scratch."""
         from harness import eval as job
@@ -2370,8 +2405,8 @@ class EvalJob(unittest.TestCase):
                          "sealed the ledger to 2 recipients")
         # Each recipient by RSA-OAEP, the content by AES-256, openssl given no input and no environment but its path,
         # and each certificate as the copy of the bytes that were checked against their pin.
-        self.assertEqual([a for a in asked[0][0] if a in ("-aes256", "rsa_padding_mode:oaep")],
-                         ["-aes256", "rsa_padding_mode:oaep", "rsa_padding_mode:oaep"])
+        self.assertEqual([a for a in asked[0][0] if a.startswith(("-aes", "rsa_"))],
+                         ["-aes256"] + ["rsa_padding_mode:oaep", "rsa_oaep_md:sha256", "rsa_mgf1_md:sha256"] * 2)
         self.assertEqual([given["env"] for _, given in asked], [{"PATH": "/usr/bin:/bin"}] * 2)
         self.assertEqual([given["stdin"] for _, given in asked], [subprocess.DEVNULL] * 2)
         recips = [asked[0][0][i + 1] for i, a in enumerate(asked[0][0]) if a == "-recip"]
@@ -2381,7 +2416,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(opened(sealed, keys / "second.crt", second_key), plain)
         self.assertNotIn(b"poc-two", sealed.read_bytes())
         # The plaintext is gone, and the report binds the ciphertext, whole, for the gate.
-        self.assertFalse((self.temp / "heldout" / job.LEDGER).exists())
+        self.assertEqual([p.name for p in (self.temp / "heldout").iterdir() if "ledger" in p.name], [])
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual(written["ledger"]["sealed_sha256"], hashlib.sha256(sealed.read_bytes()).hexdigest())
         self.assertEqual(validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
@@ -2401,6 +2436,9 @@ class EvalJob(unittest.TestCase):
     def test_the_seal_refuses_a_certificate_not_pinned_and_a_ledger_not_sealed_whole(self):  # issue 612
         from harness import eval as job
         from harness.eval import seal
+        # Its pins are read from a path the session hooks protect, so that an edit of who can read a ledger is asked about.
+        protected = [entry["path"] for entry in load("config/hooks.json")["protected"]]
+        self.assertTrue(any(seal.RECIPIENTS.as_posix().startswith(path) for path in protected if path.endswith("/")))
         keys = pathlib.Path(self.dir.name) / "keys"
         keys.mkdir()
         (first, _), (other, _) = recipient(keys, "first"), recipient(keys, "other")
@@ -2408,7 +2446,8 @@ class EvalJob(unittest.TestCase):
         place = self.temp / "heldout"
 
         def sealed_with(recipients=None, certs=None, call=subprocess.run):
-            for old in place.glob("recipient-*.crt"):
+            for old in list(place.glob("recipient-*.crt")) + list(place.glob("ledger-checked.json")) + \
+                    list(place.glob(seal.SEALED)):
                 old.unlink()
             shutil.rmtree(str(self.root / "config"), ignore_errors=True)
             shutil.rmtree(str(self.root / ".github"), ignore_errors=True)
@@ -2442,11 +2481,19 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(seal.step), "recipient_unreadable")
         # An openssl that fails, or seals with no OAEP or another cipher, has sealed nothing the step will take.
         failing = lambda args, **given: subprocess.CompletedProcess(args, 1, b"", b"")
-        no_oaep = lambda args, **given: subprocess.run([a for a in args if a not in ("-keyopt", "rsa_padding_mode:oaep")], **given)
+        def without(*dropped):
+            """openssl as the step calls it, each keyopt in `dropped` left out."""
+            def call(args, **given):
+                kept = [a for i, a in enumerate(args) if a not in dropped and not (a == "-keyopt" and args[i + 1] in dropped)]
+                return subprocess.run(kept, **given)
+            return call
+        no_oaep = without("rsa_padding_mode:oaep", "rsa_oaep_md:sha256", "rsa_mgf1_md:sha256")
+        sha1 = without("rsa_oaep_md:sha256")
         weaker = lambda args, **given: subprocess.run(["-aes128" if a == "-aes256" else a for a in args], **given)
         raising = lambda args, **given: (_ for _ in ()).throw(subprocess.TimeoutExpired(args, 60))
-        for call in (failing, no_oaep, weaker, raising):
+        for call in (failing, no_oaep, sha1, weaker, raising):
             self.assertEqual(sealed_with(call=call), "ledger_not_sealed")
+            self.assertFalse(os.path.lexists(str(self.work / seal.SEALED)))
         self.assertTrue((place / job.LEDGER).exists())
         # The ledger sealed is the one the report hashed, of a gate set's report.
         written = json.loads((self.work / job.REPORT).read_text())
@@ -2456,6 +2503,22 @@ class EvalJob(unittest.TestCase):
         (self.work / job.REPORT).write_text(json.dumps(written))
         (place / job.LEDGER).unlink()
         self.assertEqual(sealed_with(), "ledger_unreadable")
+        # A file or a link already where the ledger is uploaded from is refused, before anything is read, for either kind
+        # of set: the upload would take it as it is, and a link would be written through.
+        (place / "outside.json").write_text("{}")
+        for kind in ("gate", "development"):
+            self.set(self.cases, gate=kind == "gate", natural=list(self.cases)[:1])
+            plan = json.loads((place / "plan.json").read_text())
+            plan["set"]["sha256"] = job.manifest(self.root)[1]
+            (place / "plan.json").write_text(json.dumps(plan))
+            for planted in ("file", "link"):
+                if planted == "file":
+                    (self.work / seal.SEALED).write_bytes(b"what the checkout held")
+                else:
+                    (self.work / seal.SEALED).symlink_to(place / "outside.json")
+                self.assertEqual(self.step(seal.step), "ledger_in_workspace", (kind, planted))
+                self.assertEqual((place / "outside.json").read_text(), "{}")
+                (self.work / seal.SEALED).unlink()
 
     def aggregate_of(self, finding=(20, 6), met=(20, 18), natural=(30, 18), faults=()):
         """A gate set of `finding` and `met` cases, `(cases, passed)` of each, and `natural` of them marked so, `(cases,
@@ -2536,6 +2599,10 @@ class EvalJob(unittest.TestCase):
                 (changed(["kinds_pass", "finding"], False), "count_differs"),
                 (changed(["kinds"], None), "count_differs"),
                 (changed(["kinds_pass"], None), "count_differs"),
+                # Where no kind was read, the job says nothing of the split or the blocking cases either.
+                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None), "eval_split_short"),
                 (self.aggregate_of(finding=(19, 6), met=(21, 19), natural=(30, 18))[2], "count_differs"),
                 (changed(["bars", "finding"], [2, 10]), "bars_differ"),
                 (changed(["kind_least"], 0), "bars_differ"),

@@ -671,8 +671,9 @@ SCAN = "ci.yml"
 EVAL_JOB, EVAL_WORKFLOW = "eval", "eval.yml"
 EVAL_ENVIRONMENT = "factory-eval"
 EVAL_STEP = "python3 -m harness.eval.%s"
-# The one upload the eval job may run, by its commit, as CHECKOUT is the one checkout: an action in the one job that
-# holds both credentials can read them both (decision 0053), so a bump of it edits this too.
+# The one upload action the eval job may run, by its commit, as CHECKOUT is the one checkout, for the ledger and for the
+# report: an action in the one job that holds both credentials can read them both (decision 0053), so a bump of it edits
+# this too.
 UPLOAD = ("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", "# v7.0.2")
 # A gate set's ledger is sealed after the run and its ciphertext uploaded before the report (issue 612).
 EVAL_ORDER = ("checkout", "plan", "install", "fetch", "run", "seal", "ledger", "upload", "judge")

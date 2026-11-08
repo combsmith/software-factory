@@ -48,6 +48,9 @@ REPORT = "eval-report.json"
 AGGREGATE = "eval-aggregate/1"
 LEDGER = "ledger.json"
 Z = 1.959964                # a Wilson interval's, at 95%
+# The fewest cases a gate set may mark natural, or not, where it marks any: a group of one would tell its case's verdict
+# by its count, under the case's public id (issue 612, the security read).
+ORIGIN_LEAST = 10
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
@@ -113,6 +116,9 @@ def held(data: bytes) -> tuple:
             len({c["id"] for c in found["cases"]}) != len(found["cases"]) or \
             (gate_set(found) and not all("natural" in c for c in found["cases"])):
         raise Stop("eval_set_unreadable")
+    natural = len([c for c in found["cases"] if c.get("natural") is True])
+    if gate_set(found) and any(0 < group < ORIGIN_LEAST for group in (natural, found["count"] - natural)):
+        raise Stop("eval_set_unreadable")
     return found, hashlib.sha256(data).hexdigest()
 
 
@@ -174,6 +180,7 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     found, digest = manifest(root, name)
     if found["count"] == 0:
         raise Stop("eval_set_empty")
+    held_out(root, name, found)
     place = scratch(env, workspace)
     try:
         place.mkdir(mode=0o700)
@@ -185,6 +192,21 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     _write(place, "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
                                  "name": name, "set": {"count": found["count"], "sha256": digest}, "planned_at": now()})
     return "planned %d cases" % found["count"]
+
+
+def held_out(root: pathlib.Path, name: str, found: dict) -> None:
+    """Stop, `eval_set_overlaps_a_gate_set`, where a set other than a gate set names a case of one, by its id or its
+    hash: its report, case by case, would tell what the gate set's keeps back. Every other manifest under `evals/` is
+    read, and one that cannot be read stops the run too."""
+    if gate_set(found):
+        return
+    mine = {c["id"] for c in found["cases"]} | {c["sha256"] for c in found["cases"]}
+    for other in sorted((root / SETS).glob("*/cases.json")):
+        if other.parent.name == name:
+            continue
+        theirs, _ = manifest(root, other.parent.name)
+        if gate_set(theirs) and mine & ({c["id"] for c in theirs["cases"]} | {c["sha256"] for c in theirs["cases"]}):
+            raise Stop("eval_set_overlaps_a_gate_set")
 
 
 def now() -> int:
@@ -675,6 +697,9 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
         return "count_differs"
     kinds, words = document["kinds"], document["kinds_pass"]
     if (kinds is None) != (words is None):
+        return "count_differs"
+    # Where no kind could be read, the job says nothing of the split or of the blocking cases either.
+    if kinds is None and (document["split_ok"] is not None or document["blocking_pass"] is not None):
         return "count_differs"
     if kinds is not None and (
             sum(kinds[k]["cases"] for k in KINDS) != found["count"] or sum(kinds[k]["passed"] for k in KINDS) != passed

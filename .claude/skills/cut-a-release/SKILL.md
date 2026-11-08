@@ -31,6 +31,7 @@ next, and roll back in one action".
   It guards against regression and sits under the measured recall, so a Release can go out with cases not passed, a
   blocking one among them: read the judge's line. A closed gate refuses every cut and move,
   `eval_gate_closed`: a gate-deciding Intent does not serve without its eval set (design section 9.1).
+  The gate reads the commit's latest successful eval dispatch, so the review Intent's set, `pr-review`, is dispatched last.
 - **The release key's environment.** Only `factory-release`'s deployment branches keep the App's key from another ref's copy
   of a workflow, and nothing in the repo can hold them. Have the Maintainer run `sh tools/environments_drift.sh` at a terminal, and stop if it says anything but `no drift`.
 - **Which step.** A cut, a move forward to an existing Release, or a rollback.
