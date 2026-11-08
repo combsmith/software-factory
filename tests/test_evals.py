@@ -1004,6 +1004,19 @@ class EvalJob(unittest.TestCase):
         self.assertEqual([c["usage"] for c in written["cases"]], [{"turns": None, "cost_usd": None, "seconds": 0}] * 2)
         # What a Result says it used that is no number is none.
         self.assertEqual(job.used({"turns": True, "cost_usd": "0.17", "seconds": -1}), {"turns": None, "cost_usd": None, "seconds": 0})
+        # The schema holds each field, as numbers and ids alone: a report without one, or with words in one, is refused.
+        schema = load("schemas/eval-report.schema.json")
+        case, usage = written["cases"][0], written["cases"][0]["usage"]
+        for name, bad in (("no models", {k: v for k, v in written.items() if k != "models"}),
+                          ("no prompt hash", {k: v for k, v in written.items() if k != "prompt_sha256"}),
+                          ("no rubric hash", {k: v for k, v in written.items() if k != "rubric_sha256"}),
+                          ("a model in words", dict(written, models=["Claude Opus"])),
+                          ("a prompt hash in words", dict(written, prompt_sha256="the prompt of 7 November")),
+                          ("a case with no usage", dict(written, cases=[{k: v for k, v in case.items() if k != "usage"}])),
+                          ("no seconds", dict(written, cases=[dict(case, usage={"turns": None, "cost_usd": None})])),
+                          ("a cost in words", dict(written, cases=[dict(case, usage=dict(usage, cost_usd="0.17"))])),
+                          ("turns in words", dict(written, cases=[dict(case, usage=dict(usage, turns="two"))]))):
+            self.assertNotEqual(validate(bad, schema, schemas=eval_result.schemas()), [], name)
 
     def test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted(self):  # decision 0143
         # How much of a score `also_at` gave can be counted from the report, by a mark that says no place.
