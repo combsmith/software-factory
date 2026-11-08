@@ -1,4 +1,4 @@
-# NNNN. The writes check holds four more routes: a namespace package, sys's modules, a class's attribute set from outside, and gh or git run from Python
+# 0167. The writes check holds four more routes: a namespace package, sys's modules, a class's attribute set from outside, and gh or git run from Python
 
 Status: accepted. The Factory Builder's story of 2026-11-08, issue 596, "check_writes: further ways a write could be reached past the check, written to hide it", raised by the reads of issue 587, "Only the write steps call a write: a check that keeps GitHub writes to an allowlist of callers". It amends decision 0153's rows "Not held here: code written to hide a write" and "Not held here: `gh` run from Python".
 
