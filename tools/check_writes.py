@@ -8,9 +8,11 @@ through any number of calls, modules and re-exports. Outside `adapters/` and the
 reach a writer, each exactly the writers it lists: a new caller, or a caller reaching a new writer, fails until
 CALLERS names it in the same change, and a listing no longer true fails too. What the syntax cannot read is a problem,
 never a pass: a method or a query that is not a literal, a name a module does not define, a module that reaches a write
-handed on as a value, a request built by hand, an adapter loaded by name or taken from `sys.modules`, a class's
-attribute set by `setattr` or from outside the class's own module's top level, or `gh` or `git` run from Python but
-where RUNNERS allows it. A package with no `__init__.py`, which Python imports as a namespace package, is read as one.
+handed on as a value, a request built by hand, an adapter loaded by name or taken from `sys.modules` by any way the
+syntax names, a class's attribute set by `setattr` or from outside the class's own module's top level by any name for
+the class, an attribute or a key set from another module on what a module of the repo's defines, or `gh` or `git` run
+from Python, or from a shell's command line, but where RUNNERS allows it, and code run from text. A package with no `__init__.py`, which Python
+imports as a namespace package, is read as one.
 """
 from __future__ import annotations
 
@@ -44,20 +46,27 @@ VERB_HOLDERS = ("tools/hooks/identity.py", "tools/hooks/protected.py")
 NAME_LOADERS = ("tools/mutants.py",)
 # Python outside tests/ that imports a test: tools/make_corpus.py records the Kernel's decisions from tests/test_decide.py.
 TEST_IMPORTERS = ("tools/make_corpus.py",)
+# Python that sets a name of another module's: tools/make_corpus.py records the Kernel's decisions by putting its recorder
+# in sim.world's place (issue 640). A new one is the Maintainer's to allow.
+PATCHERS = ("tools/make_corpus.py",)
 # Python that may hold `gh` or `git` as a command's name: each runs git to read, or reads a command it is given, and none
 # runs gh or git to write to GitHub, which is an adapter's (issue 596). A new one is the Maintainer's to allow.
 RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.py", "tools/commits_are_the_maintainers.py",
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
            "tools/hooks/rules_changed.py", "tools/mutants.py", "tools/untested.py")
-# A command's name as a string: gh or git alone, by a path or not, or opening a command line. Spelt apart, so this file
-# holds neither.
-COMMANDS = re.compile(r"\s*(\S*/)?(g" r"h|gi" r"t)(\s|$)")
+# A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line,
+# a shell's command after its `;`, `&`, `|` or `(`, after `env` or a variable's assignment, or quoted as a word (issue
+# 640). Spelt apart, so this file holds neither.
+_NAME = r"(\S*[/\\])?(g" r"h|gi" r"t)(\.exe)?"
+COMMANDS = re.compile(r"(?i)(^\s*|[;&|(]\s*|\benv\s+|\b\w+=\S*\s+)%s(\s|$)|[\"']%s[\"']" % (_NAME, _NAME))
 # What a request is, by its keys: edited after `request` built it, it is sent as edited.
 FIELDS = ("method", "path", "body")
 # A module's names as a value: what is read from them cannot be.
 NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
 # The modules by which code loads a module by its name.
 LOADER_MODULES = ("importlib", "builtins")
+# What runs code a string holds (issue 640).
+TEXT_RUNNERS = ("exec", "eval", "compile")
 # What opens a scope of its own inside a function.
 SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.ClassDef)
 # The calls on a request that only read it.
@@ -350,7 +359,7 @@ class Reading:
                                      % (mod.rel, node.lineno, got[2], got[1]))
         if qual == "<module>":
             self.problems += ["%s:%d imports * from %s, so what it reaches cannot be read; name what it imports"
-                              % (mod.rel, line, source) for line, source in mod.stars if source in self.mods]
+                              % (mod.rel, line, source) for line, source in mod.stars if _package(self.mods, source)]
         return out
 
     def sends(self, mod: Module, nodes: list) -> list:
@@ -487,8 +496,8 @@ def _tests(mod: Module) -> list:
 def _sys(mods: dict, mod: Module, name: str, seen: frozenset = frozenset()) -> bool:
     """Whether `name` in `mod` is the module sys, imported here or re-exported from a module of the repo's."""
     bound = mod.bindings.get(name)
-    if bound == ("module", "sys"):
-        return True
+    if bound == ("module", "sys") or bound and bound[0] == "attr" and bound[2] == "sys" and bound[1] not in mods:
+        return True     # import sys, or from os import sys (issue 640)
     if bound and bound[0] == "attr" and bound[1] in mods and (bound[1], bound[2]) not in seen:
         return _sys(mods, mods[bound[1]], bound[2], seen | {(bound[1], bound[2])})
     return False
@@ -496,43 +505,116 @@ def _sys(mods: dict, mod: Module, name: str, seen: frozenset = frozenset()) -> b
 
 def _loaded(mods: dict, mod: Module) -> list:
     """Each line that imports importlib or builtins, names __import__, or reads sys's modules, by any name or by an
-    import of all of sys: a module loaded or taken by its name is one the syntax cannot follow."""
+    import of all of sys; that names sys as a value or its namespace, `s = sys` or `getattr(sys, 'modules')`; or that
+    reaches sys through another module, `os.sys` or `getattr(os, 'sys')`: a module loaded or taken by its name is one the
+    syntax cannot follow."""
+    held = {id(n.value) for n in mod.nodes if isinstance(n, ast.Attribute) and n.attr not in NAMESPACES}
     return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Import) and any(a.name.split(".")[0] in LOADER_MODULES for a in n.names)
                    or isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in LOADER_MODULES
                    or isinstance(n, ast.Name) and n.id == "__import__"
                    or isinstance(n, ast.ImportFrom) and n.module == "sys" and any(a.name in ("modules", "*") for a in n.names)
                    or isinstance(n, ast.Attribute) and n.attr == "modules" and isinstance(n.value, ast.Name)
-                   and _sys(mods, mod, n.value.id)})
+                   and _sys(mods, mod, n.value.id)
+                   or isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and id(n) not in held and _sys(mods, mod, n.id)
+                   or isinstance(n, ast.Attribute) and n.attr == "sys"
+                   or isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "getattr" and len(n.args) > 1
+                   and isinstance(n.args[1], ast.Constant) and n.args[1].value in ("sys", "modules")})
 
 
-def _class_set(mods: dict, mod: Module) -> list:
+def _runs_text(mod: Module) -> list:
+    """The lines of `mod` that name exec, eval or compile: what code a string holds is not syntax this check reads."""
+    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Name) and n.id in TEXT_RUNNERS})
+
+
+def _class_of(mods: dict, mod: Module, node, fn=None, seen: frozenset = frozenset()):
+    """The class `node` names, as `_lookup` gives it: by its own name, by a module's constant that is it, `P = Port`, or
+    by a name the function `fn` assigns it or takes it as a default for, `cls=Port` (issue 640); or None."""
+    got = _resolve(mods, mod, node)
+    if got and got[0] == "class":
+        return got
+    values = []
+    if got and got[0] == "value" and got[2] in mods[got[1]].values and (got[1], got[2]) not in seen:
+        seen, values = seen | {(got[1], got[2])}, [(mods[got[1]], v) for v in mods[got[1]].values[got[2]]]
+    if isinstance(node, ast.Name) and fn is not None:
+        args = fn.args.posonlyargs + fn.args.args
+        values += [(mod, d) for a, d in zip(args[len(args) - len(fn.args.defaults):], fn.args.defaults) if a.arg == node.id]
+        values += [(mod, d) for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults) if d is not None and a.arg == node.id]
+        values += [(mod, n.value) for n in ast.walk(fn) if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None
+                   and any(isinstance(t, ast.Name) and t.id == node.id for t in (n.targets if isinstance(n, ast.Assign) else [n.target]))]
+    for where, value in values:
+        found = _class_of(mods, where, value, None, seen)
+        if found:
+            return found
+    return None
+
+
+def _owner(mods: dict, mod: Module, node, local) -> tuple:
+    """What a module of the repo's other than `mod` defines, or is, that `node` names, keys and attributes set on it
+    aside, as `_lookup` gives it; or None. A name the function round it binds, in `local`, is the function's own."""
+    root = node
+    while isinstance(root, (ast.Attribute, ast.Subscript)):
+        root = root.value
+    if isinstance(root, ast.Name) and root.id in local:
+        return None
+    while isinstance(node, (ast.Name, ast.Attribute, ast.Subscript)):
+        got = _resolve(mods, mod, node) if not isinstance(node, ast.Subscript) else None
+        if got:
+            return got if got[0] in ("value", "class", "def", "module") and got[1] != mod.name else None
+        node = node.value if not isinstance(node, ast.Name) else None
+    return None
+
+
+def _class_set(mods: dict, mod: Module) -> tuple:
     """An attribute set by `setattr`, or set on a class from a function or from another module than the class's to
-    anything but text: what a caller reaches through the class cannot be read (issue 596)."""
-    inside = {id(n) for fn in mod.functions.values() for n in ast.walk(fn)}
-    # A name any function binds, its parameters and what it or a function in it assigns, may shadow a text constant.
-    bound = {}
-    for fn in mod.functions.values():
+    anything but text, by an assignment, a `for` or a `with`, and the class named by any name for it; one set on
+    `type(x)` or `x.__class__`; and an attribute or a key set from another module on what a module of the repo's
+    defines: what a caller reaches through it cannot be read (issues 596, 640). The last are given apart, as PATCHERS
+    may set them."""
+    home, bound = {}, {}    # the innermost function each node is in, and the names the functions round it bind
+    for fn in (n for n in mod.nodes if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))):     # outer first
+        # Its parameters, and what it or a function in it assigns, defines or catches, may shadow a text constant.
         names = {m.id for m in ast.walk(fn) if isinstance(m, ast.Name) and isinstance(m.ctx, ast.Store)} \
-            | {a.arg for a in ast.walk(fn) if isinstance(a, ast.arg)}
-        bound.update((id(n), names) for n in ast.walk(fn))
-    out = []
+            | {a.arg for a in ast.walk(fn) if isinstance(a, ast.arg)} \
+            | {m.name for m in ast.walk(fn) if m is not fn and isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))} \
+            | {m.name for m in ast.walk(fn) if isinstance(m, ast.ExceptHandler) and m.name}
+        for n in ast.walk(fn):
+            home[id(n)], bound[id(n)] = fn, bound.get(id(n), set()) | names
+    out, patched = [], []
     for node in mod.nodes:
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr":
-            out.append("%s:%d sets an attribute by setattr, so what it reaches cannot be read; assign it where it is "
+        if isinstance(node, ast.Name) and node.id == "setattr" or isinstance(node, ast.Attribute) and node.attr == "__setattr__":
+            out.append("%s:%d sets an attribute by setattr, or may, so what it reaches cannot be read; assign it where it is "
                        "defined" % (mod.rel, node.lineno))
-        if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) or node.value is None or _text(node.value) is not None \
-                or isinstance(node.value, ast.Name) and node.value.id in mod.texts and node.value.id not in bound.get(id(node), ()):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and node.value is not None:
+            if _text(node.value) is not None or isinstance(node.value, ast.Name) and node.value.id in mod.texts \
+                    and node.value.id not in bound.get(id(node), ()):
+                continue
+            targets = list(node.targets if isinstance(node, ast.Assign) else [node.target])
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):      # for Port.w in [...]
+            targets = [node.target]
+        elif isinstance(node, (ast.With, ast.AsyncWith)):       # with x as Port.w
+            targets = [item.optional_vars for item in node.items if item.optional_vars is not None]
+        else:
             continue
-        targets = list(node.targets if isinstance(node, ast.Assign) else [node.target])
         while any(isinstance(target, (ast.Tuple, ast.List, ast.Starred)) for target in targets):     # a, Port.w = ...
             targets = [part for target in targets for part in (target.elts if isinstance(target, (ast.Tuple, ast.List))
                        else [target.value] if isinstance(target, ast.Starred) else [target])]
         for target in targets:
-            got = _resolve(mods, mod, target.value) if isinstance(target, ast.Attribute) else None
-            if got and got[0] == "class" and (got[1] != mod.name or id(target) in inside):
+            if not isinstance(target, (ast.Attribute, ast.Subscript)):
+                continue
+            fn, obj = home.get(id(target)), target.value
+            got = _class_of(mods, mod, obj, fn) if isinstance(target, ast.Attribute) else None
+            other = _owner(mods, mod, obj, bound.get(id(target), set()))
+            if isinstance(target, ast.Attribute) and (isinstance(obj, ast.Call) and isinstance(obj.func, ast.Name)
+                                                      and obj.func.id == "type" or isinstance(obj, ast.Attribute) and obj.attr == "__class__"):
+                out.append("%s:%d sets %s on an object's class, so what it reaches cannot be read; assign it in the class"
+                           % (mod.rel, target.lineno, target.attr))
+            elif got and (got[1] != mod.name or fn is not None):
                 out.append("%s:%d sets %s on the class %s from outside its module's top level, so what it reaches "
-                           "cannot be read; assign it in the class" % (mod.rel, node.lineno, target.attr, got[2]))
-    return out
+                           "cannot be read; assign it in the class" % (mod.rel, target.lineno, target.attr, got[2]))
+            elif other:
+                patched.append("%s:%d sets an attribute or a key of %s from another module, so what it reaches cannot be "
+                               "read; set it in its own module" % (mod.rel, target.lineno, ".".join(p for p in other[1:] if p)))
+    return out, patched
 
 
 def _commands(mod: Module) -> list:
@@ -541,8 +623,9 @@ def _commands(mod: Module) -> list:
     docs = {id(n.body[0].value) for n in mod.nodes
             if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body
             and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
-    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Constant) and isinstance(n.value, str)
-                   and COMMANDS.match(n.value) and id(n) not in docs})
+    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Constant) and isinstance(n.value, (str, bytes))
+                   and COMMANDS.search(n.value.decode("latin-1") if isinstance(n.value, bytes) else n.value)
+                   and id(n) not in docs})
 
 
 def _verbs(mod: Module) -> list:
@@ -590,7 +673,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         mods[_name(rel)] = Module(rel, tree, known)
     reading = Reading(mods)
     problems += reading.problems
-    writers, commanding = set(), set()
+    writers, commanding, patching = set(), set(), set()
     for mod in mods.values():
         if mod.name != GITHUB:
             problems += _by_hand(mod) + _edited(mod)
@@ -601,7 +684,11 @@ def run(root: pathlib.Path = ROOT) -> list:
         if mod.rel not in NAME_LOADERS:
             problems += ["%s:%d loads a module by its name, or may, so what it reaches cannot be read; import it" % (mod.rel, line)
                          for line in _loaded(mods, mod)]
-        problems += _class_set(mods, mod)
+        problems += ["%s:%d runs code from text, so what it reaches cannot be read" % (mod.rel, line) for line in _runs_text(mod)]
+        sets, patched = _class_set(mods, mod)
+        problems += sets + ([] if mod.rel in PATCHERS else patched)
+        if patched:
+            patching.add(mod.rel)
         if _commands(mod):
             commanding.add(mod.rel)
         if mod.rel not in RUNNERS:
@@ -649,4 +736,6 @@ def run(root: pathlib.Path = ROOT) -> list:
                             (node_mod.rel, ", ".join(sorted(found)) or "no write", ", ".join(sorted(listed))))
     problems += ["CALLERS names %s, which is not here; take it off" % rel for rel in sorted(CALLERS) if _name(rel) not in mods]
     problems += ["RUNNERS names %s, which holds no command; take it off" % rel for rel in RUNNERS if rel not in commanding]
+    problems += ["PATCHERS names %s, which sets no name of another module's; take it off" % rel for rel in PATCHERS
+                 if rel not in patching]
     return problems
