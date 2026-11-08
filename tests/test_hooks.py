@@ -1582,7 +1582,11 @@ class Identity(unittest.TestCase):
                      'echo "$(echo # "\necho "' + rm + '")"',
                      'echo "$(echo \'"\' "\'"; echo "' + rm + '")"',
                      'echo "$(echo "$(echo \'"\')' + rm + '")"',
-                     'echo "$(echo "`echo \'"\'`' + rm + '")"'):
+                     'echo "$(echo "`echo \'"\'`' + rm + '")"',
+                     # A # in a ${...}, or after a substitution's ), begins no comment, and its " is one (Astra, the
+                     # security pass): main asked about both, by its count.
+                     'echo "$(echo ${x:- #} "\n' + rm + '")"',
+                     'echo "$(echo $(date)#"; echo ' + rm + ';")"'):
             with self.assertRaises(shell.Unread, msg=text):
                 shell.commands(text)
         # One that a nested substitution's own quotes leave unquoted is read as before.

@@ -847,18 +847,19 @@ def _ends(text: str, start: int, seen: dict) -> int:
 def _inside(text: str, held: list, i: int, seen: dict):
     """None where `i` is in none of the $( or backticks that open at `held`; else whether a double quote of the
     innermost one's own holds it, read as the shell reads its quotes: one in a substitution nested in it is that one's
-    own, and a comment or single quotes outside its double quotes hold none (#605). Since `i` only grows, one that
-    closed is dropped from `held`, and `seen` keeps each one's end and how far its quotes are read, so each is read once
-    (Codex)."""
+    own, and a comment or single quotes outside its double quotes hold none (#605). A comment begins where _held begins
+    one, outside a ${...}. Since `i` only grows, one that closed is dropped from `held`, and `seen` keeps each one's end
+    and how far its quotes are read, so each is read once (Codex)."""
     held[:] = [start for start in held if _ends(text, start, seen) > i]
     inner = max((start for start in held if start < i), default=None)
     if inner is None:
         return None
-    # nested: for each substitution in it that `i` is inside, where it ends and the quote it opened in.
-    j, quoted, nested = seen.get((inner, "quotes"), (inner + (2 if text[inner] == "$" else 1), False, []))
+    # braces: how many unquoted ${ are open; nested: for each substitution in it that `i` is inside, where it ends and
+    # the quote and braces it opened in.
+    j, quoted, braces, nested = seen.get((inner, "quotes"), (inner + (2 if text[inner] == "$" else 1), False, 0, []))
     while j < i:
         if nested and j >= nested[-1][0] - 1:      # the ) or backtick that ends a nested one
-            end, quoted = nested.pop()
+            end, quoted, braces = nested.pop()
             j = max(j, end)
             continue
         c = text[j]
@@ -868,21 +869,23 @@ def _inside(text: str, held: list, i: int, seen: dict):
             if _ends(text, j, seen) <= i:
                 j = seen[j]
             else:
-                nested.append((seen[j], quoted))
-                j, quoted = j + (1 if c == "`" else 2), False
+                nested.append((seen[j], quoted, braces))
+                j, quoted, braces = j + (1 if c == "`" else 2), False, 0
         elif c == '"':
             j, quoted = j + 1, not quoted
         elif quoted:
             j += 1
+        elif text.startswith("${", j) or (c == "}" and braces):    # a # in a ${...} is no comment (Astra)
+            j, braces = j + (2 if c == "$" else 1), braces + (1 if c == "$" else -1)
         elif c == "'":      # single quotes hold every character to the next one
             close = text.find("'", j + 1)
             j = len(text) if close < 0 else close + 1
-        elif c == "#" and text[j - 1] in " \t\n;&|()":     # a comment runs to the end of its line
+        elif c == "#" and not braces and text[j - 1] in COMMENTS_AFTER:     # $(x)#y is one word (the security pass)
             close = text.find("\n", j)
             j = len(text) if close < 0 else close
         else:
             j += 1
-    seen[(inner, "quotes")] = (j, quoted, nested)
+    seen[(inner, "quotes")] = (j, quoted, braces, nested)
     return quoted
 
 
