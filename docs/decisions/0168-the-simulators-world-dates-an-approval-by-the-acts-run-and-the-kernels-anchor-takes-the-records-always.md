@@ -1,4 +1,4 @@
-# NNNN. A machine user's approval is measured from the act that read the description, in the Kernel and the simulator's world alike, and one nothing anchors holds an edit
+# 0168. A machine user's approval is measured from the act that read the description, in the Kernel and the simulator's world alike, and one nothing anchors holds an edit
 
 Status: accepted. Replaces `docs/decisions/0158-a-machine-users-approval-is-measured-from-the-act-that-read-the-description-and-one-nothing-anchors-holds-an-edit.md`. The Factory Builder's story of 2026-11-08, issue 608, "The simulator's world reads the description's anchor from the act's Run, and the Kernel's default goes", on the ruling of 2026-11-07 on issue 195, "The approving act: the machine user approves from a Run with no Engine, bound to the admitted commit". Decision 0158 holds that ruling; this record holds it again, but that the simulator's world reads the anchor as the Kernel does and the Kernel's default is gone. Like it, this amends decision 0135's anchor and the first clause of decision 0140's row "What it does not see".
 
