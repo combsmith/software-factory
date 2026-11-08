@@ -304,6 +304,10 @@ class Simulation(unittest.TestCase):
     def test_an_approval_that_never_lands_is_bounded(self):  # I-8
         self.rests_on_its_bound(dict(approval_fails="item"), "attempts_exhausted")
 
+    def test_an_approval_killed_with_no_outcome_is_bounded(self):  # I-8, issue 595
+        # Killed with its apply, it leaves no outcome: it counts toward max_attempts all the same (issue 286).
+        self.rests_on_its_bound(dict(approval_fails="killed"), "attempts_exhausted")
+
     def test_an_approval_that_keeps_failing_for_the_environment_is_bounded(self):  # I-8
         # Not an attempt and never an act: the Run ceiling bounds it.
         self.rests_on_its_bound(dict(approval_fails="environment"), "run_ceiling")

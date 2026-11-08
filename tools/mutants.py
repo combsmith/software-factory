@@ -5169,6 +5169,12 @@ MUTANTS = ISSUE + [
     ("a Run that ran and left no outcome is no attempt", "kernel/brakes.py",
      ' or (r.get("outcome") is None and r["conclusion"] in t.RAN_AND_DIED))]', ")]",
      ("tests.test_decide.AReviewThatReported.test_a_run_that_ran_and_left_no_outcome_is_an_attempt",)),
+    # Issue 595: an approval killed with no outcome counts toward max_attempts, in the Kernel and in the simulator.
+    ("an approval killed with no outcome is no attempt", "kernel/brakes.py",
+     'r.get("outcome") is None and r["conclusion"] in t.RAN_AND_DIED',
+     'r.get("outcome") is None and r["conclusion"] in t.RAN_AND_DIED and intent != t.ISSUE_APPROVAL',
+     ("tests.test_decide.Ceilings.test_an_approval_that_ran_and_left_no_outcome_is_an_attempt",
+      "tests.test_simulator.Simulation.test_an_approval_killed_with_no_outcome_is_bounded")),
     ("a Run cancelled with no outcome is an attempt", "kernel/brakes.py",
      'r.get("outcome") is None and r["conclusion"] in t.RAN_AND_DIED', 'r.get("outcome") is None',
      ("tests.test_decide.AReviewThatReported.test_a_review_run_that_failed_has_not_reported",

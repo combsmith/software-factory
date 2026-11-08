@@ -175,7 +175,8 @@ class World:
         self.seed, self.faults, self.people = seed, faults, people
         self.dismisses_stale = seed % DISMISSES_STALE[0] == DISMISSES_STALE[1]
         # Worlds that never end on their own: an approval that never lands, failing every time with the
-        # fault `approval_fails` names ("item" or "environment"), and a queue that ejects every time.
+        # fault `approval_fails` names ("item", "environment", or "killed", which leaves no outcome), and a queue
+        # that ejects every time.
         self.approval_fails, self.queue_merges = approval_fails, queue_merges
         self.minute = 0
         self.content = 1
@@ -890,7 +891,8 @@ class World:
             fault = self.pick(["item", "environment", "capacity"])
         if fault is not None:
             # GitHub: an_approval_can_fail_to_land
-            run.update(conclusion="failure", outcome=fault)
+            # Killed with its apply, it leaves no outcome, and is an attempt all the same (issue 286; issue 595).
+            run.update(conclusion="failure", outcome=None if fault == "killed" else fault)
             self.note("run %s: the approval did not land" % run["run"])
         else:
             # GitHub: the_machine_users_approval_counts
