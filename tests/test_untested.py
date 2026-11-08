@@ -158,6 +158,8 @@ class Reverts(unittest.TestCase):
                         {"pkg/a.py": "\n\n" + listed.replace("(1,", "[1,").replace("2)", "2]")})
         self.assertEqual([(h["new"], h["outcome"], h["why"].split(":")[0]) for h in found["hunks"]],
                          [(0, "UNCHECKED", "UNIMPORTABLE"), (4, "UNCHECKED", "UNPARSABLE"), (6, "UNCHECKED", "UNPARSABLE")])
+        said = untested.counts(found, 0)
+        self.assertEqual((said["fallback_file"], said["fallback_mutants"]), (3, 0))     # tried, and no edit of it ran
 
     def test_a_hunk_of_more_than_forty_added_lines_alone_falls_back_to_mutants(self):
         made = lambda n: "def f(x):\n    return x\n" + "".join("y%d = %d\n" % (k, k) for k in range(n - 2))
@@ -197,6 +199,8 @@ class Reverts(unittest.TestCase):
                 "    (4, f(5)),\n) if m]\n\n\ndef run():\n    return 4\n")
         data = untested.data_lines(text)
         self.assertEqual(data, {2, 5, 6, 9})
+        self.assertEqual(untested.data_lines("MUTANTS = [m for m in (1, 2) if True]\n"), set())
+        self.assertEqual(untested.data_lines("MUTANTS = [\n    (1, 2),\n    (3, 4)] + [\n    (5, 6)]\n"), {2})
         self.assertTrue(untested.is_data({"new": 5, "new_n": 2, "old": 5, "old_n": 1}, data, data))
         self.assertTrue(untested.is_data({"new": 8, "new_n": 0, "old": 9, "old_n": 1}, data, data))
         for hunk in ({"new": 7, "new_n": 1, "old": 7, "old_n": 1}, {"new": 8, "new_n": 1, "old": 8, "old_n": 1},

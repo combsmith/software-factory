@@ -146,34 +146,42 @@ def shape(text: str) -> str:
 def data_lines(text: str) -> set:
     """The lines of tools/mutants.py's `text` that are its data: each line of an entry of a list or a tuple within an
     assignment to a name DATA names, where the entry is a literal, as `_literal` reads one, and each blank or comment
-    line of the assignment. Code in such an assignment, a comprehension's clause or a condition, is not data."""
+    line of the assignment; but no line on which any other part of it starts or ends, so that code there, a
+    comprehension's clause or a condition, beside an entry or not, is never data."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return set()
-    lines, found = text.splitlines(), set()
+    lines, found, code = text.splitlines(), set(), set()
     for node in tree.body:
         if not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
                                                      for target in node.targets)):
             continue
-        for inner in ast.walk(node.value):
-            if isinstance(inner, (ast.List, ast.Tuple)):
-                for item in inner.elts:
-                    if _literal(item):
-                        found.update(range(item.lineno, item.end_lineno + 1))
         found.update(at for at in range(node.lineno, node.end_lineno + 1)
                      if not lines[at - 1].strip() or lines[at - 1].strip().startswith("#"))
-    return found
+        todo = [node.value]
+        while todo:
+            inner = todo.pop()
+            if hasattr(inner, "lineno"):
+                code.update((inner.lineno, inner.end_lineno))
+            for child in ast.iter_child_nodes(inner):
+                if isinstance(inner, (ast.List, ast.Tuple)) and child in inner.elts and _literal(child):
+                    found.update(range(child.lineno, child.end_lineno + 1))
+                else:
+                    todo.append(child)
+    return found - code
 
 
 def _literal(node) -> bool:
-    """Whether `node` is made of constants, names and attributes alone, in tuples, lists, sums, products, and calls of
-    such a name or attribute given no keyword, each maybe unpacked: a mutant's entry, as its helpers build one, and
-    nothing that decides."""
+    """Whether `node` is made of constants, names, attributes and items alone, in tuples, lists, sums, products, and
+    calls of such a name or attribute given no keyword, each maybe unpacked: a mutant's entry, as its helpers build one,
+    and nothing that decides."""
     if isinstance(node, (ast.Constant, ast.Name)):
         return True
     if isinstance(node, (ast.Attribute, ast.Starred)):
         return _literal(node.value)
+    if isinstance(node, ast.Subscript):
+        return _literal(node.value) and _literal(node.slice)
     if isinstance(node, (ast.Tuple, ast.List)):
         return all(_literal(item) for item in node.elts)
     if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mult)):
@@ -582,6 +590,8 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
         whole = sorted({h["path"] for h in todo if h["outcome"] in UNRUN and texts[h["path"]][1] != h["text"]})
         files = dict(zip(whole, many([(NAME % (rel, 1, 1, " (its file)"), rel, texts[rel][1]) for rel in whole])))
         for hunk in todo:
+            if hunk["outcome"] in UNRUN and hunk["path"] in files:
+                hunk.setdefault("tried", []).append("file")
             if hunk["outcome"] in UNRUN and files.get(hunk["path"], ("UNPARSABLE",))[0] not in UNRUN:
                 hunk.update(outcome=files[hunk["path"]][0], why=files[hunk["path"]][1], by="file")
         # The second: mutants of the lines a large hunk adds. Then whatever no edit ran is UNCHECKED, and says why.
@@ -592,6 +602,7 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
             said = [r for (h, _, _), r in zip(made_of, results) if h is hunk]
             ran = [outcome for outcome, _ in said if outcome in ("killed", "SURVIVED", "FLAKY")]
             outcome = "SURVIVED" if "SURVIVED" in ran else "FLAKY" if "FLAKY" in ran else "killed" if ran else hunk["outcome"]
+            hunk.setdefault("tried", []).append("mutants")
             hunk.update(by="mutants", mutants=len(said), outcome=outcome,
                         why="%d of %d mutants of its added lines ran" % (len(ran), len(said)) if ran else hunk["why"])
             if not ran and said and all(said_one == ("UNCHECKED", "over budget") for said_one in said):
@@ -617,8 +628,9 @@ def counts(found: dict, seconds: float) -> dict:
             "survived_removing": len([h for h in by("SURVIVED") if h["removes"]]),
             "unchecked": len(by("UNCHECKED")), "over_budget": len([h for h in by("UNCHECKED") if h["why"] == "over budget"]),
             "flaky": len(by("FLAKY")), "error": len(by("ERROR")),
-            "fallback_file": len([h for h in every if h.get("by") == "file"]),
-            "fallback_mutants": len([h for h in every if h.get("by") == "mutants"]),
+            # Each fallback tried, whatever edit gave the outcome: the month counts how often they run.
+            "fallback_file": len([h for h in every if "file" in h.get("tried", ())]),
+            "fallback_mutants": len([h for h in every if "mutants" in h.get("tried", ())]),
             "covered": len([h for h in every if h["covered"]]), "trailers": found["trailers"],
             "trailer_problems": len(found["problems"]), "seconds": round(seconds), **found["skipped"]}
 
