@@ -1758,6 +1758,11 @@ class Purity(unittest.TestCase):
                 ("import kernel.__init__ as k\n\n\ndef f():\n    return k.g()\n", "names __init__, a special name"),
                 ("from kernel.__init__ import g\n", "names __init__, a special name"),
                 ("from kernel.terms import __dict__ as ns\n", "x.py:1 names __dict__, a special name"),
+                # Issue 600: __future__ is allowed only as the module an absolute import names.
+                ("from .__future__ import g\n", "names __future__, a special name"),
+                ("from kernel.__future__ import g\n", "names __future__, a special name"),
+                ("def f(__future__):\n    return 0\n", "names __future__, a special name"),
+                ("from kernel.terms import run as __future__\n", "names __future__, a special name"),
                 ("def f():\n    global __x__\n    return 0\n", "names __x__, a special name"),
                 ("def f(x):\n    try:\n        return x\n    except ValueError as __e__:\n        return 0\n",
                  "names __e__, a special name"),
@@ -1777,6 +1782,9 @@ class Purity(unittest.TestCase):
                      "def f(xs):\n    return type(xs) is list, list(map(len, xs)), sorted(xs, key=len)\n",
                      "from __future__ import annotations\n\n\ndef f(x):\n    return '__dict__', x\n"):
             self.assertEqual(check_purity.run(tree({"kernel/x.py": text})), [], text)
+        # An import's names are read once, with the import, at its line (issue 600).
+        found = check_purity.run(tree({"kernel/x.py": "from kernel.terms import __dict__ as ns\n"}))
+        self.assertEqual([p.split(" names ")[0] for p in found if "names __dict__" in p], ["x.py:1"])
         # A pattern names an attribute it reads, from Python 3.10 (issue 593).
         if sys.version_info >= (3, 10):
             text = "def f(facts):\n    match facts:\n        case object(__class__=c):\n            return c\n    return 0\n"
