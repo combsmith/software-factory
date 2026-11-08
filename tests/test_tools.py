@@ -9777,6 +9777,16 @@ class Writes(unittest.TestCase):
             "adapters/annotated.py": "from adapters.github import request\n\n\ndef drop(t):\n"
                                      "    req: dict = request('GET', '/repos/x/y/git/refs/heads/topic')\n    alias = req\n"
                                      "    alias.update([('method', 'DELETE')])\n    return t.send(alias)\n",
+            # Issue 596: a module taken from sys's modules, an attribute set by setattr or on a class from outside its
+            # module's top level, and gh or git run from Python.
+            "harness/sysmods.py": "import sys\n\n\ndef go(t):\n    return sys.modules['adapters.' + 'effects'].role_write(t)\n",
+            "harness/sysfrom.py": "from sys import modules as loaded\n\n\ndef go(t):\n    return loaded['adapters.effects'].approve(t)\n",
+            "harness/setter.py": "from adapters import effects\nfrom harness import approve\n\nsetattr(approve.Port, 'w', effects.approve)\n",
+            "harness/portc.py": "class Port:\n    pass\n",
+            "harness/lender.py": "from adapters import effects\nfrom harness.portc import Port\n\nPort.w = effects.approve\n",
+            "harness/selfset.py": "from adapters import effects\n\n\nclass Port:\n    pass\n\n\ndef install():\n    Port.w = effects.approve\n",
+            "harness/shell.py": "import subprocess\n\n\ndef go():\n    return subprocess.run(['gh', 'pr', 'merge', '1'])\n",
+            "harness/shellline.py": "import subprocess\n\n\ndef go():\n    return subprocess.run('git push origin main', shell=True)\n",
         }
         problems = check_writes.run(clone(files))
         for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
@@ -9805,8 +9815,22 @@ class Writes(unittest.TestCase):
                           ("harness/builtinsload.py:1", "loads a module by its name"),
                           ("adapters/annotated.py:7", "changes a request after it is built"),
                           ("harness/plainvalue.py:5", "uses the module adapters.items as a value"),
-                          ("harness/package.py:5", "uses the module adapters as a value")):
+                          ("harness/package.py:5", "uses the module adapters as a value"),
+                          ("harness/sysmods.py:5", "loads a module by its name"),
+                          ("harness/sysfrom.py:1", "loads a module by its name"),
+                          ("harness/setter.py:4", "sets an attribute by setattr"),
+                          ("harness/lender.py:4", "sets w on the class Port from outside its module's top level"),
+                          ("harness/selfset.py:9", "sets w on the class Port from outside its module's top level"),
+                          ("harness/shell.py:5", "names gh or git as a command"),
+                          ("harness/shellline.py:5", "names gh or git as a command")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
+
+    def test_a_namespace_package_is_read_as_one(self):  # issue 596
+        # With no adapters/__init__.py, Python imports adapters as a namespace package: a dotted import of one of its
+        # modules reaches what that module writes.
+        root = clone({"harness/nsdotted.py": "import adapters.effects\n\n\ndef go(t):\n    return adapters.effects.approve(t)\n"})
+        (root / "adapters" / "__init__.py").unlink()
+        self.unlisted(check_writes.run(root), "harness/nsdotted.py", "adapters.effects:approve")
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
