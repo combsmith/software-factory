@@ -1,4 +1,4 @@
-# NNNN. The eval scratch is read part by part, and the plan makes the heads folder new
+# 0165. The eval scratch is read part by part, and the plan makes the heads folder new
 
 Status: accepted. The Factory Builder's story of 2026-11-08, issue 626, "The eval scratch is held part by part, the heads folder is made fresh, and the canary's head is held apart". It follows the reads of issue 623, "Each case's head is unpacked outside the folder that holds the set's case files" (decision 0163).
 
