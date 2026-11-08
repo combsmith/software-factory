@@ -525,10 +525,9 @@ class Command:
         self.asks_of(commands)
         if again and again != commands:
             # Read again from where the command began, so a cd in the first reading moves none in the second; what
-            # either asks about is asked, once.
+            # either asks about is asked (check gives each ask once).
             self.here = start
             self.asks_of(again)
-            self.found[:] = list(dict.fromkeys(self.found))
         return self.found
 
     def asks_of(self, commands: list):
