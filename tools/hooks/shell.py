@@ -854,22 +854,24 @@ def _inside(text: str, held: list, i: int, seen: dict):
     inner = max((start for start in held if start < i), default=None)
     if inner is None:
         return None
-    # braces: how many unquoted ${ are open; nested: for each substitution in it that `i` is inside, where it ends and
-    # the quote and braces it opened in.
+    # braces: how many unquoted ${ are open; nested: for each substitution in it that `i` is inside, where it ends, the
+    # quote and braces it opened in, and where it opens.
     j, quoted, braces, nested = seen.get((inner, "quotes"), (inner + (2 if text[inner] == "$" else 1), False, 0, []))
+    escaped = -1        # where the character after one a backslash holds stands: a # there begins a word (Argon)
     while j < i:
         if nested and j >= nested[-1][0] - 1:      # the ) or backtick that ends a nested one
-            end, quoted, braces = nested.pop()
+            end, quoted, braces, _ = nested.pop()
             j = max(j, end)
             continue
         c = text[j]
+        script = nested[-1][3] if nested else inner     # where the script `j` is in opens
         if c == "\\":
-            j += 2
+            j = escaped = j + 2
         elif c == "`" or text.startswith("$(", j):     # a nested substitution: its quotes are its own
             if _ends(text, j, seen) <= i:
                 j = seen[j]
             else:
-                nested.append((seen[j], quoted, braces))
+                nested.append((seen[j], quoted, braces, j))
                 j, quoted, braces = j + (1 if c == "`" else 2), False, 0
         elif c == '"':
             j, quoted = j + 1, not quoted
@@ -880,9 +882,18 @@ def _inside(text: str, held: list, i: int, seen: dict):
         elif c == "'":      # single quotes hold every character to the next one
             close = text.find("'", j + 1)
             j = len(text) if close < 0 else close + 1
-        elif c == "#" and not braces and text[j - 1] in COMMENTS_AFTER:     # $(x)#y is one word (the security pass)
+        elif c == "#" and not braces and j != escaped and (
+                text[j - 1] in COMMENTS_AFTER or j - 1 == script):     # $(x)#y is one word (the security pass)
             close = text.find("\n", j)
-            j = len(text) if close < 0 else close
+            close = len(text) if close < 0 else close
+            if text[script] == "`":     # a comment in a backtick ends at its first backtick no backslash holds (Argon)
+                k = j
+                while k < close and text[k] != "`":
+                    k += 2 if text[k] == "\\" else 1
+                close = min(k, close)
+                if nested:
+                    nested[-1] = (min(nested[-1][0], close + 1),) + nested[-1][1:]
+            j = close
         else:
             j += 1
     seen[(inner, "quotes")] = (j, quoted, braces, nested)

@@ -1588,7 +1588,12 @@ class Identity(unittest.TestCase):
                      'echo "$(echo ${x:- #} "\n' + rm + '")"',
                      'echo "$(echo $(date)#"; echo ' + rm + ';")"',
                      # A ${...} inside a nested one, then one after it: the held one's quote is back (the Claude review).
-                     'echo "$(echo "$(echo ${x:-\'a\'})' + rm + '")"'):
+                     'echo "$(echo "$(echo ${x:-\'a\'})' + rm + '")"',
+                     # A # after a character a backslash holds begins a word; one that begins a backtick's script is a
+                     # comment, and a comment in a backtick ends at it (Argon).
+                     'echo "$(echo \\ # "' + rm + '"\n)"',
+                     'echo "`# "\necho "' + rm + '"`"',
+                     'echo "$(echo "`echo ${x:-\'a\'} #` ' + rm + '")"'):
             with self.assertRaises(shell.Unread, msg=text):
                 shell.commands(text)
         # One that a nested substitution's own quotes leave unquoted is read as before.
