@@ -2,13 +2,14 @@
 it judges and scored against its rubric, so that what is measured is what runs. Its steps are modules of their own,
 each a `run:` line of `.github/workflows/eval.yml`, in this order:
 
-- `plan` reads the set's manifest at the commit and the Release the dispatch names; a set of no case ends the run here,
-  `eval_set_empty`, before any credential is used (ruling 8);
+- `plan` reads the manifest of the set the dispatch names, `evals/<set>/cases.json`, at the commit, and the Release it
+  names; a set of no case ends the run here, `eval_set_empty`, before any credential is used (ruling 8);
 - `fetch` reads each case from the private home through `adapters/heldout.py`, with the Maintainer's read-only token, into
   a scratch directory outside the workspace, on a runner thrown away when the job ends, and each case's head, the
   commit its diff was taken at, as its tarball with no credential, unpacked by hand beside it (decision 0138);
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
+- `seal`, for a gate set alone, encrypts the ledger `run` left in the scratch to the Maintainer's certificates (issue 612);
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: each
   kind's bar of decision 0150, and no fault of the Engine or the run (decision 0120).
 
@@ -16,7 +17,12 @@ Nothing a step prints is of a case, a Result or the home: counts and codes alone
 exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
 log. Results and cases stay in the scratch directory;
 only `eval-report.json`, of hashes, verdicts, codes and each unanswered case's cause, held to a shape with no words
-(decision 0131), is written where the upload finds it."""
+(decision 0131), is written where the upload finds it.
+
+A set's manifest says whether it is a gate set (issue 612). A development set's report is `eval-report/1`, each case
+by its id. A gate set's is `eval-aggregate/1`, of counts alone, with no case id, per-case verdict or a case's code,
+since per-case outcomes under stable ids are what a prompt could be fitted to; each case's outcome, with its Result, is
+the ledger, kept in the scratch for `seal` and never uploaded but sealed."""
 from __future__ import annotations
 
 import copy
@@ -33,8 +39,18 @@ from tools import eval_result
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-SET = pathlib.Path("evals") / "pr-review" / "cases.json"
+# The sets a dispatch may name: `evals/<set>/cases.json`, the name one part (issue 612). The Release's gate reads the
+# review Intent's, SET.
+SETS, DEFAULT_SET = pathlib.Path("evals"), "pr-review"
+SET_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+SET = SETS / DEFAULT_SET / "cases.json"
 REPORT = "eval-report.json"
+AGGREGATE = "eval-aggregate/1"
+LEDGER = "ledger.json"
+Z = 1.959964                # a Wilson interval's, at 95%
+# The fewest cases a gate set may mark natural, or not, where it marks any: a group of one would tell its case's verdict
+# by its count, under the case's public id (issue 612, the security read).
+ORIGIN_LEAST = 10
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 PASS = "pass"
@@ -79,10 +95,13 @@ def _errors(document, kind: str) -> list:
         return ["no schema"]
 
 
-def manifest(root: pathlib.Path) -> tuple:
-    """`(manifest, sha256 of its bytes)`, the set at the commit checked out, held to `eval-set/1`; Stop otherwise."""
+def manifest(root: pathlib.Path, name: str = DEFAULT_SET) -> tuple:
+    """`(manifest, sha256 of its bytes)`, the set `name` at the commit checked out, held to `eval-set/1`; Stop otherwise,
+    as for a name of more than one part."""
+    if not (isinstance(name, str) and SET_NAME.fullmatch(name)):
+        raise Stop("eval_set_unreadable")
     try:
-        data = (root / SET).read_bytes()
+        data = (root / SETS / name / "cases.json").read_bytes()
     except OSError:
         raise Stop("eval_set_unreadable") from None
     return held(data)
@@ -90,15 +109,26 @@ def manifest(root: pathlib.Path) -> tuple:
 
 def held(data: bytes) -> tuple:
     """`(manifest, sha256 of its bytes)` from the set's bytes, however they were read: the Release's gate reads them at
-    the commit it judges, through the transport. Held to `eval-set/1`; Stop otherwise."""
+    the commit it judges, through the transport. Held to `eval-set/1`, and a gate set to saying of each case whether it
+    is natural; Stop otherwise."""
     try:
         found = json.loads(data.decode("utf-8"))
     except (ValueError, AttributeError, RecursionError):
         raise Stop("eval_set_unreadable") from None
     if _errors(found, "eval-set") or found["count"] != len(found["cases"]) or \
-            len({c["id"] for c in found["cases"]}) != len(found["cases"]):
+            len({c["id"] for c in found["cases"]}) != len(found["cases"]) or \
+            (gate_set(found) and not all("natural" in c for c in found["cases"])):
+        raise Stop("eval_set_unreadable")
+    natural = len([c for c in found["cases"] if c.get("natural") is True])
+    if gate_set(found) and any(0 < group < ORIGIN_LEAST for group in (natural, found["count"] - natural)):
         raise Stop("eval_set_unreadable")
     return found, hashlib.sha256(data).hexdigest()
+
+
+def gate_set(found: dict) -> bool:
+    """Whether a manifest is a gate set's, whose report is of counts alone (issue 612): one that says so. A set that does
+    not is a development set, as every set was before."""
+    return found.get("gate") is True
 
 
 def scratch(env: dict, workspace: pathlib.Path) -> pathlib.Path:
@@ -158,15 +188,17 @@ def _write(directory, name: str, document) -> None:
 
 def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     """What the run judges, kept for the steps after it: the Release the dispatch names, the commit checked out, and
-    the set by its count and hash. A set of no case is `eval_set_empty`, and the run ends before anything is read."""
-    release, commit = env.get("RELEASE"), env.get("GITHUB_SHA")
+    the set it names, `EVAL_SET`, the review Intent's where none is given, by its name, count and hash. A set of no case
+    is `eval_set_empty`, and the run ends before anything is read."""
+    release, commit, name = env.get("RELEASE"), env.get("GITHUB_SHA"), env.get("EVAL_SET", DEFAULT_SET)
     if not (isinstance(release, str) and RELEASE.fullmatch(release)):
         raise Stop("release_unreadable")
     if not (isinstance(commit, str) and COMMIT.fullmatch(commit)):
         raise Stop("commit_unreadable")
-    found, digest = manifest(root)
+    found, digest = manifest(root, name)
     if found["count"] == 0:
         raise Stop("eval_set_empty")
+    held_out(root, name, found)
     # The heads beside the scratch, made new as it is: a folder an earlier job left is no head of this run. Both are
     # placed first, and the heads made first, so that a heads folder left behind stops the plan before any scratch is
     # made; a scratch left behind stops it with the new heads beside it, and either stops the next (issue 626).
@@ -180,8 +212,23 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     # When the plan was made, the job's own start to within its checkout: the run step's time is counted from it, so
     # that the fetch and the install spend it too (the run step's BUDGET).
     _write(place, "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
-                                 "set": {"count": found["count"], "sha256": digest}, "planned_at": now()})
+                                 "name": name, "set": {"count": found["count"], "sha256": digest}, "planned_at": now()})
     return "planned %d cases" % found["count"]
+
+
+def held_out(root: pathlib.Path, name: str, found: dict) -> None:
+    """Stop, `eval_set_overlaps_a_gate_set`, where a set other than a gate set names a case of one, by its id or its
+    hash: its report, case by case, would tell what the gate set's keeps back. Every other manifest under `evals/` is
+    read, and one that cannot be read stops the run too."""
+    if gate_set(found):
+        return
+    mine = {c["id"] for c in found["cases"]} | {c["sha256"] for c in found["cases"]}
+    for other in sorted((root / SETS).glob("*/cases.json")):
+        if other.parent.name == name:
+            continue
+        theirs, _ = manifest(root, other.parent.name)
+        if gate_set(theirs) and mine & ({c["id"] for c in theirs["cases"]} | {c["sha256"] for c in theirs["cases"]}):
+            raise Stop("eval_set_overlaps_a_gate_set")
 
 
 def now() -> int:
@@ -193,8 +240,10 @@ def _planned(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> tuple:
     """`(plan, manifest, scratch)`, the set as `plan` hashed it: a set changed since is no set of this run."""
     place = scratch(env, workspace)
     kept = _read(place, "plan.json")
-    found, digest = manifest(root)
-    if not isinstance(kept, dict) or kept.get("set") != {"count": found["count"], "sha256": digest}:
+    if not isinstance(kept, dict):
+        raise Stop("eval_set_changed")
+    found, digest = manifest(root, kept.get("name"))
+    if kept.get("set") != {"count": found["count"], "sha256": digest}:
         raise Stop("eval_set_changed")
     return kept, found, place
 
@@ -356,7 +405,7 @@ def case_fault(case: dict):
 
 
 def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = None, alternates: set = None,
-           surplus: dict = None, usages: dict = None) -> dict:
+           surplus: dict = None, usages: dict = None, results: dict = None) -> dict:
     """`{id: (verdict, reasons)}` for every case the set names: one not fetched is `unreadable` by its fetch's code;
     the facts of each are filled as `current_facts` says, for all that reads the case after; one whose facts are still no
     `facts/1` is `unreadable`, `facts_not_current`; one that is no `eval-case/1` of this set's Role and Intent is
@@ -365,8 +414,9 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
     and scored against the case by `tools/eval_result.py`. What `cause_of` and `seen_of` say of a case unanswered, or
     stopped by the Engine, goes in `causes`, by id, where one is given; the id of each pass the scorer marks
     `at_alternate`, in `alternates` (decision 0143); how many gating Findings the scorer counts away from every
-    place a case gives, in `surplus`, by id (issue 610); and the `usage` of each Result `review` returned, in
-    `usages`, by id, where one is given (issue 616)."""
+    place a case gives, in `surplus`, by id (issue 610); the `usage` of each Result `review` returned, in `usages`, by
+    id, where one is given (issue 616); and each Result itself, in `results`, by id, where one is given, for a gate set's
+    ledger (issue 612)."""
     assessed, interrupted = {}, False
     causes = {} if causes is None else causes
     alternates = set() if alternates is None else alternates
@@ -424,6 +474,8 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
             continue
         if isinstance(result, dict) and isinstance(result.get("usage"), dict):
             usages[entry["id"]] = result["usage"]
+        if results is not None:
+            results[entry["id"]] = result
         if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
             assessed[entry["id"]] = ("unreadable", [result["reason"]])
             causes[entry["id"]] = seen_of(review)
@@ -589,13 +641,89 @@ def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: di
             "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held, "kinds_pass": kinds, "blocking_pass": blocking}
 
 
-def verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
-    """`pass` only for the report of this set on this commit for this Release, with a case at least, every case the
-    manifest names once by its id and hash, no case stopped by a fault of the Engine or the run, and each kind's
-    BAR_OF_A_KIND of its cases passed (decision 0150); otherwise the one code that says why not.
-    The Release's gate reads the report it downloads with this function too (the ruling on issue 197, 4″)."""
-    if _errors(document, "eval-report"):
-        return "report_unreadable"
+def wilson(passed: int, of: int) -> dict:
+    """The Wilson interval at 95% of `passed` of `of`, each end to four places, so that a report's can be held to its
+    counts exactly; the whole of [0, 1] for no case."""
+    if of == 0:
+        return {"low": 0.0, "high": 1.0}
+    share, z2 = passed / of, Z * Z
+    centre, spread = share + z2 / (2 * of), Z * (share * (1 - share) / of + z2 / (4 * of * of)) ** 0.5
+    return {"low": round(max(0.0, (centre - spread) / (1 + z2 / of)), 4),
+            "high": round(min(1.0, (centre + spread) / (1 + z2 / of)), 4)}
+
+
+def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates: set, results: dict,
+              surplus: dict = None, usages: dict = None) -> dict:
+    """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
+    the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
+    what it holds. It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    natural = {e["id"]: e.get("natural") is True for e in found["cases"]}
+    cases = [dict(case, natural=natural[case["id"]], **({"result": results[case["id"]]} if case["id"] in results else {}))
+             for case in report(kept, found, assessed, causes=causes, alternates=alternates, surplus=surplus,
+                                   usages=usages)["cases"]]
+    return {"schema": "eval-ledger/1", "salt": os.urandom(16).hex(), "release": kept["release"], "commit": kept["commit"],
+            "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases}
+
+
+# What a gate set's report sums of its Results' usage: each a count, and the cost in dollars.
+SUMMED = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens", "turns")
+
+
+def usage_of(results: dict) -> dict:
+    """What the Results the review returned spent, summed: how many said, each count, the cost and the seconds. A Result
+    whose usage is not whole is left out of every sum, and of the count."""
+    said = dict({field: 0 for field in SUMMED}, answered=0, cost_usd=0.0, seconds=0.0)
+    for result in results.values():
+        usage = result.get("usage") if isinstance(result, dict) else None
+        if not isinstance(usage, dict) or not all(type(usage.get(f)) is int and usage[f] >= 0 for f in SUMMED) or \
+                not all(type(usage.get(f)) in (int, float) and usage[f] >= 0 for f in ("cost_usd", "seconds")):
+            continue
+        said["answered"] += 1
+        for field in SUMMED + ("cost_usd", "seconds"):
+            said[field] += usage[field]
+    return dict(said, cost_usd=round(said["cost_usd"], 6), seconds=round(said["seconds"], 3))
+
+
+def engine_of(role: str) -> dict:
+    """What answered, as the checkout pins it: the Engine and its model, and the sha256 of the Role's instructions and of
+    its rubric, each null where it cannot be read."""
+    try:
+        pinned = json.loads((ROOT / "config" / "harness.json").read_text())["engine"]
+        name, version, model = pinned["name"], pinned["version"], pinned["model"]
+    except (OSError, ValueError, KeyError, TypeError):
+        name = version = model = None
+    return dict({"name": name, "version": version, "model": model}, **identity(ROOT, role))
+
+
+def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, results: dict, ledger: bytes,
+              usages: dict = None) -> dict:
+    """The `eval-aggregate/1` of a gate set's run: counts alone, with no case id, per-case verdict or a case's code (issue
+    612). How many passed; of each kind, its cases, its passes and their Wilson interval, null where `kinds_of` can say
+    nothing; the natural cases and those that are not, apart; each code of a case not read, by how many; the usage
+    summed; what answered, as the checkout pins it and as `models` says of `usages` (issue 616); the bars applied; the
+    words `verdict` reads; and the ledger's salted sha256, beside which `seal` writes its ciphertext's. Raw counts, so
+    that reports on one commit can be pooled (issue 613)."""
+    passed = {case for case, said in assessed.items() if said == (PASS, [])}
+    kinds = kinds_of(found, place)
+    counted = None if kinds is None else {
+        kind: {"cases": n, "passed": p, "interval": wilson(p, n)}
+        for kind, n, p in ((k, list(kinds.values()).count(k), len([c for c in passed if kinds[c] == k])) for k in KINDS)}
+    natural = {e["id"] for e in found["cases"] if e.get("natural") is True}
+    origin = {"natural": natural, "constructed": {e["id"] for e in found["cases"]} - natural}
+    codes = [code for verdict_of, reasons in assessed.values() if verdict_of == "unreadable" for code in reasons]
+    return {"schema": AGGREGATE, "release": kept["release"], "commit": kept["commit"], "role": found["role"],
+            "intent": found["intent"], "set": dict(kept["set"]), "passed": len(passed), "kinds": counted,
+            "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
+            "faults": [{"code": code, "count": codes.count(code)} for code in sorted(set(codes))],
+            "usage": usage_of(results), "engine": engine_of(found["role"]), "models": models(usages or {}),
+            "bars": {kind: list(BAR_OF_A_KIND[kind]) for kind in KINDS}, "kind_least": KIND_LEAST,
+            "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
+            "blocking_pass": blocking_pass(found, place, assessed),
+            "ledger": {"salted_sha256": hashlib.sha256(ledger).hexdigest()}}
+
+
+def _judged(document: dict, found: dict, digest: str, commit: str, release: str):
+    """The code that says a report is of another commit, Release or set than the one judged, or None."""
     if document["commit"] != commit:
         return "another_commit"
     if document["release"] != release:
@@ -605,6 +733,72 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
         return "another_set"
     if found["count"] == 0:
         return "eval_set_empty"
+    return None
+
+
+def aggregate_verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
+    """`verdict`'s word on a gate set's report: `pass` only for an `eval-aggregate/1` of this set on this commit for
+    this Release, sealed, with no fault of the Engine or the run, whose counts add up to the set's and to its own words,
+    held to the bars applied here, and each kind's bar cleared (decision 0150); otherwise the one code that says why not."""
+    if _errors(document, "eval-aggregate"):
+        return "report_unreadable"
+    judged = _judged(document, found, digest, commit, release)
+    if judged is not None:
+        return judged
+    codes = [fault["code"] for fault in document["faults"]]
+    if len(set(codes)) != len(codes) or not set(codes) <= eval_result_codes():
+        return "count_differs"
+    if set(codes) & set(ENGINE_FAULTS):
+        return "engine_fault"
+    if set(codes) & set(RUN_FAULTS):
+        return "run_fault"
+    # Each count is the job's: the natural cases are the manifest's, the passes are the report's own, and no case is
+    # both passed and not read. A report whose counts do not add up is not the job's.
+    natural, origin, passed = len([e for e in found["cases"] if e.get("natural") is True]), document["origin"], document["passed"]
+    if (origin["natural"]["cases"], origin["constructed"]["cases"]) != (natural, found["count"] - natural) \
+            or origin["natural"]["passed"] + origin["constructed"]["passed"] != passed \
+            or any(o["passed"] > o["cases"] for o in origin.values()) \
+            or passed + sum(fault["count"] for fault in document["faults"]) > found["count"]:
+        return "count_differs"
+    kinds, words = document["kinds"], document["kinds_pass"]
+    if (kinds is None) != (words is None):
+        return "count_differs"
+    # Where no kind could be read, the job says nothing of the split or of the blocking cases either.
+    if kinds is None and (document["split_ok"] is not None or document["blocking_pass"] is not None):
+        return "count_differs"
+    if kinds is not None and (
+            sum(kinds[k]["cases"] for k in KINDS) != found["count"] or sum(kinds[k]["passed"] for k in KINDS) != passed
+            or any(kinds[k]["passed"] > kinds[k]["cases"] or kinds[k]["interval"] != wilson(kinds[k]["passed"], kinds[k]["cases"])
+                   for k in KINDS)
+            or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], BAR_OF_A_KIND[k]) for k in KINDS}
+            or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < KIND_LEAST)):
+        return "count_differs"
+    if document["bars"] != {kind: list(BAR_OF_A_KIND[kind]) for kind in KINDS} or document["kind_least"] != KIND_LEAST:
+        return "bars_differ"
+    if passed < least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \
+            or (words is not None and not all(words.values())):
+        return "case_failed"
+    if document["split_ok"] is not True or kinds is None or document["blocking_pass"] is None:
+        return "eval_split_short"
+    return PASS
+
+
+def verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
+    """`pass` only for the report of this set on this commit for this Release, with a case at least, every case the
+    manifest names once by its id and hash, no case stopped by a fault of the Engine or the run, and each kind's
+    BAR_OF_A_KIND of its cases passed (decision 0150); otherwise the one code that says why not.
+    The Release's gate reads the report it downloads with this function too (the ruling on issue 197, 4″). A gate set's
+    report is `aggregate_verdict`'s to judge, and a report of the other kind than its set's is `report_of_another_kind`."""
+    said = document.get("schema") if isinstance(document, dict) else None
+    if said in (AGGREGATE, "eval-report/1") and (said == AGGREGATE) != gate_set(found):
+        return "report_of_another_kind"
+    if gate_set(found):
+        return aggregate_verdict(document, found, digest, commit, release)
+    if _errors(document, "eval-report"):
+        return "report_unreadable"
+    judged = _judged(document, found, digest, commit, release)
+    if judged is not None:
+        return judged
     named = sorted((c["id"], c["sha256"]) for c in found["cases"])
     if sorted((c["id"], c["sha256"]) for c in document["cases"]) != named:
         return "cases_differ"
@@ -643,35 +837,77 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
         causes = {}
     causes = dict(causes) if isinstance(causes, dict) else {}
     alternates, surplus, usages = set(), {}, {}
+    if gate_set(found):
+        return written_out(workspace, found,
+                           *gate_scored(kept, found, place, review, causes, alternates, surplus, usages))
     assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages)
     written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
                      blocking_pass(found, place, assessed), causes, alternates, surplus, usages,
                      identity(root, found["role"]))
+    return written_out(workspace, found, assessed, written)
+
+
+def written_out(workspace: pathlib.Path, found: dict, assessed: dict, written: dict) -> str:
+    """The report written where the upload finds it, and the step's line of counts."""
     _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
+
+
+def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: dict, alternates: set, surplus: dict,
+                usages: dict) -> tuple:
+    """`(assessed, report)` of a gate set's run: each case, with its Result, written to the ledger in the scratch, and the
+    report of counts alone that binds it (issue 612)."""
+    results = {}
+    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages, results)
+    ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages), indent=2,
+                         sort_keys=True) + "\n").encode("utf-8")
+    with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
+        out.write(ledger)
+    return assessed, aggregate(kept, found, assessed, place, results, ledger, usages)
+
+
+def closed_of(document: dict) -> list:
+    """What a report says closed the gate, each kind under its bar, and a blocking case not passed, which does not by
+    itself (decision 0150)."""
+    closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
+    closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
+    return closed
+
+
+def answered_by(document: dict, configured: str = None) -> list:
+    """The models that answered, where they are not the `configured` one alone (issue 616)."""
+    # A run no model answered says so by its codes; one another did names it (the Claude review).
+    return (["answered by %s, not the configured %s" % (", ".join(document["models"]), configured)]
+            if configured is not None and document.get("models") not in ([], [configured]) else [])
+
+
+def tally_of_aggregate(document: dict, configured: str = None) -> str:
+    """One line of a gate set's report that holds to its schema: how many passed, each code of a case not read by how
+    many, what `closed_of` says and what `answered_by` does. Counts and codes alone, as the report is."""
+    return "; ".join(["%d of %d passed" % (document["passed"], document["set"]["count"]),
+                      ", ".join("%s %d" % (f["code"], f["count"]) for f in document["faults"]) or "no code"]
+                     + closed_of(document) + answered_by(document, configured))
 
 
 def tally(document: dict, configured: str = None) -> str:
     """One line of a report that holds to its schema: how many cases passed, how many carry each code, each kind under
     its bar, which closes the gate, and a blocking case not passed, which does not by itself (decision 0150), as a share
     alone may not say why, how many passed at an alternate place alone (decision 0143), how many gating Findings
-    were put away from every place a case gives (issue 610), and the models that answered where they are not the
-    `configured` one alone (issue 616)."""
+    were put away from every place a case gives (issue 610), and what `answered_by` says (issue 616). A gate set's
+    report says as much by its counts (`tally_of_aggregate`)."""
+    if document.get("schema") == AGGREGATE:
+        return tally_of_aggregate(document, configured)
     codes = [code for case in document["cases"] for code in case["reasons"]]
     alternate = len([case for case in document["cases"] if case.get("at_alternate") and case["verdict"] == PASS])
     away = sum(case.get("surplus_gating", 0) for case in document["cases"])
-    closed = ["%s under its bar" % kind for kind, ok in sorted((document["kinds_pass"] or {}).items()) if not ok]
-    closed += ["a blocking case not passed"] if document["blocking_pass"] is False else []
+    closed = closed_of(document)
     # Each cause by what it says, held to its schema like the rest, with how many cases gave it.
     causes = [" ".join("%s=%s" % (k, v) for k, v in sorted(case["cause"].items())) for case in document["cases"] if case.get("cause")]
     return "; ".join(["%d of %d passed" % (document["passed"], len(document["cases"]))
                       + (", %d at an alternate place" % alternate if alternate else "")
                       + (", %d gating away from the place" % away if away else ""),
                       ", ".join("%s %d" % (code, codes.count(code)) for code in sorted(set(codes))) or "no code"] + closed
-                     + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))]
-                     # A run no model answered says so by its codes; one another did names it (the Claude review).
-                     + (["answered by %s, not the configured %s" % (", ".join(document["models"]), configured)]
-                        if configured is not None and document.get("models") not in ([], [configured]) else []))
+                     + ["%s %d" % (c, causes.count(c)) for c in sorted(set(causes))] + answered_by(document, configured))
 
 
 def configured_model(root: pathlib.Path):
