@@ -572,13 +572,14 @@ def _clears(passed: int, of: int, bar: tuple) -> bool:
 
 def least_passed(count: int, least: int, bars: dict = None) -> int:
     """The fewest of `count` cases a set can have passed with each kind on its bar, `bars` or BAR_OF_A_KIND, and holding
-    `least` cases at least: those `least` of each kind, and every other case in the kind whose bar asks fewest of them
-    (decision 0150). A set too small to hold `least` of each kind is read with no least."""
+    `least` cases at least, over every split of the cases between the two kinds that does (decision 0150): as each
+    kind's fewest is rounded up, a split between the ends can ask fewer than either end (Codex's read of issue 613). A
+    set too small to hold `least` of each kind is read with no least."""
     bars = BAR_OF_A_KIND if bars is None else bars
     least = least if count >= least * len(KINDS) else 0
     on = lambda bar, cases: -(-cases * bar[0] // bar[1])        # the fewest of `cases` that clear `bar`, in whole numbers
-    return min(sum(on(bars[kind], count - least * (len(KINDS) - 1) if kind == rest else least) for kind in KINDS)
-               for rest in KINDS)
+    finding, met = KINDS
+    return min(on(bars[finding], cases) + on(bars[met], count - cases) for cases in range(least, count - least + 1))
 
 
 def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):

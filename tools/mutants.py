@@ -8380,7 +8380,7 @@ MUTANTS = ISSUE + [
      'if (kinds', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
     ("the split's least is not counted", 'harness/eval/__init__.py', 'KIND_LEAST if document["split_ok"] is True else 0) \\\n            or (kinds', '0) \\\n            or (kinds', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
     ("exactly the fewest passes is not passed", 'harness/eval/__init__.py', 'if passed < least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \\\n            or (kinds', 'if passed <= least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \\\n            or (kinds', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
-    ("the rest of the set goes in the bar that asks most", 'harness/eval/__init__.py', '    return min(sum(on(', '    return max(sum(on(', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
+    ("the rest of the set goes in the bar that asks most", 'harness/eval/__init__.py', '    return min(on(bars[finding], cases)', '    return max(on(bars[finding], cases)', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
     ("the fewest that clear a bar are rounded down", 'harness/eval/__init__.py', '-(-cases * bar[0] // bar[1])', 'cases * bar[0] // bar[1]', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
     ("a set too small for the split keeps its least", 'harness/eval/__init__.py', '    least = least if count >= least * len(KINDS) else 0\n', '', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
     ("a kind's word closes nothing", 'harness/eval/__init__.py',
@@ -9235,6 +9235,9 @@ MUTANTS = ISSUE + [
     ("a set's hash need not be hex", 'adapters/candidate.py',
      ' and eval_gate.SHA256.fullmatch(named["sha256"]))',
      ')', ('tests.test_release_step.Candidate.test_a_gate_set_is_judged_by_every_dispatch_on_the_commit',)),
+    ('the fewest passes are read at the ends of the split alone', 'harness/eval/__init__.py',
+     'for cases in range(least, count - least + 1))',
+     'for cases in (least, count - least))', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
     # Issue 612: a dispatch names its set; a gate set's report is of counts alone, its ledger sealed to pinned certificates.
     ("the sealed ledger's hash is not the job's output", 'harness/eval/seal.py',
      '            out.write("ledger_sha256=%s\\n" % written["ledger"]["sealed_sha256"])\n',

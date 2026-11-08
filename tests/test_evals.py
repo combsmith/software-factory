@@ -3088,6 +3088,10 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(judged(dict(own, kinds_pass={"finding": True, "met": True}), stricter), "count_differs")
         self.assertEqual(judged(good, dict(found, kind_least=21)), "count_differs")
         self.assertEqual(judged(dict(good, kind_least=10), dict(found, kind_least=10)), "pass")
+        # The fewest passes a set's bars allow are read at every split of its kinds, not its ends alone: under bars of
+        # nine in ten each, 60 cases of at least 21 each are passed by 54, 27 of each, where either end asks 55.
+        self.assertEqual((job.least_passed(60, 21, {"finding": (9, 10), "met": (9, 10)}), job.least_passed(40, 20),
+                          job.least_passed(40, 0)), (54, 24, 12))
         # The job reads them too, where the cases are: a least of a kind the set's cases do not hold is a short split.
         self.set(self.cases, gate=True, natural=list(self.cases)[:1])
         manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
