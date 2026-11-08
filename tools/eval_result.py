@@ -27,6 +27,7 @@ def schemas(root: pathlib.Path = ROOT) -> dict:
 SPAN_BEYOND = 15
 MISSES = ("category_differs", "severity_differs", "location_differs")
 WENT = ("finding_not_raised", "finding_elsewhere", "finding_uncited", "finding_cites_another")
+SURPLUS = ("surplus_at_place", "surplus_gating_elsewhere")
 
 
 def _lines(location: dict):
@@ -164,8 +165,9 @@ def off_rubric(case: dict, root: pathlib.Path = ROOT) -> bool:
 
 def score(case: dict, result: dict, known: dict = None) -> dict:
     """{case, verdict, reasons}: `pass`, `fail` with the codes that say why, or `unreadable` when the case or the
-    Result is not what its schema says, or the case's answer does not match its verdict; and `at_alternate`, true, on a
-    pass whose Finding was at a place of `also_at` alone (decision 0143)."""
+    Result is not what its schema says, or the case's answer does not match its verdict; `at_alternate`, true, on a
+    pass whose Finding was at a place of `also_at` alone (decision 0143); and `surplus_gating`, on a case that expects a
+    Finding, how many gating Findings were away from every place it gives, where any were."""
     known = schemas() if known is None else known
     try:
         wrong = validate(case, known["eval-case"], schemas=known) + validate(result, known["result"], schemas=known)
@@ -191,7 +193,7 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     # by that alone, as the live Run would meet it (issue 574). One that did not complete `apply` refuses first as that.
     if result["status"] == "completed" and _off_hunks(case, result):
         return {"case": case["id"], "verdict": FAIL, "reasons": ["finding_not_in_hunk"]}
-    reasons = []
+    reasons, away = [], []
     if result["status"] != "completed":
         reasons.append("result_not_completed")
     citing = [f for f in result["findings"] if f["criterion"] == want["criterion"]]
@@ -205,6 +207,15 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
             reasons += min((_misses(expected, f) for f in citing), key=len)
         if covered != ["finding"]:
             reasons.append("coverage_disagrees")
+        # One Finding is put at the place, whatever it cites: a Result that hedges there over criteria, categories or
+        # severities, one of which matches, judged nothing. Away from every place one gating Finding is allowed, for a
+        # real fault the case's authors could have missed, and no more (issue 610).
+        there = [f for f in result["findings"] if _at(expected, f.get("location", {}))]
+        away = [f for f in result["findings"] if _gates(f) and not _at(expected, f.get("location", {}))]
+        if len(there) > 1:
+            reasons.append(SURPLUS[0])
+        if len(away) > 1:
+            reasons.append(SURPLUS[1])
     else:
         # A clean case holds no fault a gate should stop, so a Finding that would hold it fails the case, whatever
         # criterion it cites or none, as one that cites the case's own criterion does at any severity (decision 0144).
@@ -218,6 +229,9 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     if said["verdict"] == PASS and want["verdict"] == "finding" and not any(
             not _misses(want["finding"], f) and _overlaps(want["finding"]["location"], f.get("location", {})) for f in citing):
         said["at_alternate"] = True
+    # How many gating Findings a case that expects one drew away from every place, so a report can count them.
+    if away:
+        said["surplus_gating"] = len(away)
     return said
 
 

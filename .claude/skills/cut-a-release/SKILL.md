@@ -66,7 +66,8 @@ gh workflow run release.yml -R combsmith/software-factory -f command=move -f to=
 ```
 
 A rollback, with no eval gate, so that it works while the Factory is broken. It moves `next` back to the greatest
-Release below the one it is on unless `to` names another earlier one, and never forward:
+Release below the one it is on unless `to` names another earlier one, and never forward. With no earlier Release it is
+refused `no_earlier_release` and writes nothing (`release/fixtures/rollback.refused.json`):
 
 ```bash
 gh workflow run release.yml -R combsmith/software-factory -f command=rollback

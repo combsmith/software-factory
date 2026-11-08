@@ -31,7 +31,7 @@ reads, so each is fixed before it reads.
 | A Run's `applied/1` is never downloaded under a pass record's bound | `tests/test_adapters.py::test_a_runs_applied_record_is_read_whole_or_not_at_all` |
 | A dismissed review is read as what it was before; one whose state before is not read is short | `tests/test_reconcile.py::test_each_identitys_writes_are_read_by_its_account_never_its_login` |
 | An item that left the open list is read whole by the seen port, or short | `tests/test_reconcile.py::test_an_item_that_left_the_open_list_has_its_timeline_read_here` |
-| The collector reads, with `seen.LEFT`, each item the pass before served that is no longer open | waiting on `.github/workflows/poller.yml` |
+| The collector reads, with `seen.LEFT`, each item the pass before served that is no longer open | `tests/test_controller.py::test_the_entry_gathers_what_reconciliation_reads` for `controller/__main__.py`, which every pass runs, as `.github/workflows/poller.yml` calls it (`tests/test_tools.py::test_the_pollers_shim_stands_as_its_template_and_its_hash`); mutant: "an item that has left is not read"; mutant: "the live poller calls another file than the pass" |
 | The run record keeps when its run was made, and whether its dispatcher re-ran it | `tests/test_adapters.py::test_a_run_named_by_the_second_read_is_a_record` |
 | A dispatch is read by when its run was made, and a re-run by the pass job's token alarms | `tests/test_reconcile.py::test_a_dispatch_is_matched_by_its_run_to_the_pass_that_sent_it` |
 | The activity is asked for a period that covers the window | `tests/test_reconcile.py::test_the_activity_is_asked_for_a_period_that_covers_the_window` |

@@ -124,6 +124,8 @@
                 "coverage_disagrees",
                 "finding_raised_wrongly",
                 "finding_not_in_hunk",
+                "surplus_at_place",
+                "surplus_gating_elsewhere",
                 "criterion_not_met",
                 "answer_disagrees_with_verdict",
                 "location_unreadable",
@@ -166,6 +168,11 @@
                 "const": true
               }
             }
+          },
+          "surplus_gating": {
+            "description": "On a case that expects a Finding, how many gating Findings the Result put away from every place the case gives (issue 610): a count the report can sum, saying no place.",
+            "type": "integer",
+            "minimum": 1
           },
           "natural": {
             "type": "boolean"

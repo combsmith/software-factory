@@ -253,6 +253,8 @@
               "coverage_disagrees",
               "finding_raised_wrongly",
               "finding_not_in_hunk",
+              "surplus_at_place",
+              "surplus_gating_elsewhere",
               "criterion_not_met",
               "answer_disagrees_with_verdict",
               "location_unreadable",
