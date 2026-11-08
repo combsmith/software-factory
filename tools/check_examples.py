@@ -279,6 +279,17 @@ def _bars_stated(root: pathlib.Path, found: dict) -> list:
     return []
 
 
+def _preflight_held(root: pathlib.Path, found: dict) -> list:
+    """A gate set's preflight as its job reads it, `harness.eval.preflight_of`: each a case of the development set, and
+    none a case of any gate set, by its id or its hash (issue 613)."""
+    from harness.eval import Stop, preflight_of
+    try:
+        preflight_of(root, found)
+    except Stop as stop:
+        return ["its preflight is refused where it is read: %s" % stop.code]
+    return []
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
 
@@ -359,7 +370,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
         if kind == "eval-set" and not errors and value.get("gate") is True:
-            errors = _bars_stated(root, value)
+            errors = _bars_stated(root, value) + _preflight_held(root, value)
         for err in errors:
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle", "evals"):

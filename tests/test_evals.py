@@ -929,9 +929,12 @@ class EvalJob(unittest.TestCase):
         one["facts"]["content_id"] = "sha256:" + hashlib.sha256(one["diff"].encode()).hexdigest()
         two = dict(copy.deepcopy(one), id="poc-two")
         self.cases = {c["id"]: (json.dumps(c, indent=2) + "\n").encode() for c in (one, two)}
-        self.set(self.cases)
+        # The development cases a gate set's dispatch asks first, its preflight (issue 613).
+        self.pre = {c["id"]: (json.dumps(c, indent=2) + "\n").encode()
+                    for c in (dict(copy.deepcopy(one), id="poc-pre-%d" % i) for i in range(3))}
         self.env = {"RELEASE": "factory/v0.1.0", "GITHUB_SHA": "a" * 40, "RUNNER_TEMP": str(self.temp),
                     "HELDOUT_OWNER": "o", "HELDOUT_REPO": "home"}
+        self.set(self.cases)
         # These sets stand in with two cases of one kind: the test of the split sets its own least.
         from harness import eval as job
         blocking_least = mock.patch.object(job, "BLOCKING_LEAST", 0)
@@ -952,17 +955,26 @@ class EvalJob(unittest.TestCase):
         for folder in ("heldout", "heads"):
             shutil.rmtree(str(self.temp / folder), ignore_errors=True)
 
-    def set(self, cases: dict, name: str = "pr-review", gate: bool = False, natural=()) -> None:
-        """The manifest of `cases` as the set `name`; a gate set's says so, and marks each case in `natural` natural."""
+    def set(self, cases: dict, name: str = None, gate: bool = False, natural=()) -> None:
+        """The manifest of `cases` as the set `name`, the one the run is dispatched for; a gate set's, `pr-review-gate`
+        where no name is given, says so, marks each case in `natural` natural, and names `pre` as its preflight, which
+        it writes as the development set, `pr-review` (issue 613)."""
         import hashlib
+        name = name or ("pr-review-gate" if gate else "pr-review")
         manifest = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(cases),
                     "cases": [dict({"id": i, "sha256": hashlib.sha256(d).hexdigest()}, **({"natural": i in natural} if gate else {}))
                               for i, d in cases.items()]}
         if gate:
             manifest.update(gate=True, bars={"finding": [3, 10], "met": [9, 10]}, kind_least=0,
-                            record="docs/decisions/0164-the-gate-sets-record.md")
+                            record="docs/decisions/0164-the-gate-sets-record.md", preflight=list(self.pre))
+            self.set(self.pre)
         (self.root / "evals" / name).mkdir(parents=True, exist_ok=True)
         (self.root / "evals" / name / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        self.env["EVAL_SET"] = name
+
+    def path(self) -> pathlib.Path:
+        """The manifest of the set the run is dispatched for."""
+        return self.root / "evals" / self.env["EVAL_SET"] / "cases.json"
 
     def step(self, step, *given, env=None):
         from harness import eval as job
@@ -974,10 +986,11 @@ class EvalJob(unittest.TestCase):
         except job.Stop as stop:
             return stop.code
 
-    def home(self, cases: dict):
+    def home(self, cases: dict, gate: bool = False):
+        """A home that answers for each of `cases`, in order; for a gate set's run, for its preflight first."""
         from adapters import github
         from tests.test_adapters import home_file
-        return github.Replay([home_file(i, d) for i, d in cases.items()])
+        return github.Replay([home_file(i, d) for i, d in (dict(self.pre, **cases) if gate else cases).items()])
 
     def test_a_set_of_no_case_ends_the_run_before_anything_is_read(self):
         import os
@@ -2700,7 +2713,7 @@ class EvalJob(unittest.TestCase):
         # The gate set itself is run, and another gate set beside it may share a case.
         self.set(self.cases)
         self.set(self.cases, name="pr-review-later", gate=True)
-        self.assertEqual(self.step(job.plan, env={"EVAL_SET": "pr-review-gate"}), "planned 2 cases")
+        self.assertEqual(self.step(job.plan, env={"EVAL_SET": "pr-review-gate"}), "planned 2 cases after 3 to preflight")
         self.clean()
         # Every manifest is read, and one that cannot be read stops the run.
         (self.root / "evals" / "pr-review-later" / "cases.json").write_text("{")
@@ -2712,7 +2725,8 @@ class EvalJob(unittest.TestCase):
         three = dict(self.cases, **{"poc-three": self.cases[list(self.cases)[1]].replace(b"poc-two", b"poc-three")})
         with mock.patch.object(job, "ORIGIN_LEAST", 2):
             for natural, code in (((list(three)[0],), "eval_set_unreadable"), (tuple(three)[:2], "eval_set_unreadable"),
-                                  ((), "planned 3 cases"), (tuple(three), "planned 3 cases")):
+                                  ((), "planned 3 cases after 3 to preflight"),
+                                  (tuple(three), "planned 3 cases after 3 to preflight")):
                 self.set(three, gate=True, natural=natural)
                 self.assertEqual(self.step(job.plan), code, natural)
                 self.clean()
@@ -2721,8 +2735,8 @@ class EvalJob(unittest.TestCase):
         """A gate set of the two cases, planned, fetched and scored as passed: what `score` left in the scratch."""
         from harness import eval as job
         self.set(self.cases, gate=True, natural=list(self.cases)[:1] if natural is None else natural)
-        self.assertEqual(self.step(job.plan), "planned 2 cases")
-        self.step(the_fetch(), self.home(self.cases))
+        self.assertEqual(self.step(job.plan), "planned 2 cases after 3 to preflight")
+        self.step(the_fetch(), self.home(self.cases, gate=True))
         result = example_result()
         self.assertEqual(self.step(job.score, lambda case: result), "scored 2 of 2 cases, 2 passed")
         return result
@@ -2733,11 +2747,13 @@ class EvalJob(unittest.TestCase):
         # The report: counts alone, no case's id, hash, verdict or code.
         text = (self.work / job.REPORT).read_text()
         written = json.loads(text)
-        manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
+        manifest = json.loads(self.path().read_text())
         for said in [c["id"] for c in manifest["cases"]] + [c["sha256"] for c in manifest["cases"]] + ['"reasons"', '"cases": [']:
             self.assertNotIn(said, text)
         self.assertEqual((written["schema"], written["passed"], written["origin"], written["faults"]),
                          ("eval-aggregate/1", 2, {"natural": {"cases": 1, "passed": 1}, "constructed": {"cases": 1, "passed": 1}}, []))
+        # Its preflight, counted apart and in nothing else: the usage is of the set's cases alone (issue 613).
+        self.assertEqual(written["preflight"], {"cases": 3, "passed": 3, "faults": []})
         # The interval is Wilson's at 95%: 6 of 20 is 0.1455 to 0.5190, as every table of it gives.
         self.assertEqual((job.wilson(6, 20), job.wilson(2, 2)), ({"low": 0.1455, "high": 0.519}, {"low": 0.3424, "high": 1.0}))
         self.assertEqual(written["kinds"], {"finding": {"cases": 2, "passed": 2, "interval": job.wilson(2, 2)},
@@ -2766,8 +2782,8 @@ class EvalJob(unittest.TestCase):
                          [(list(self.cases)[0], True, "pass", result, job.used(result["usage"])),
                           ("poc-two", False, "pass", result, job.used(result["usage"]))])
         self.assertEqual(written["ledger"]["salted_sha256"], hashlib.sha256(kept.read_bytes()).hexdigest())
-        found = job.manifest(self.root)[0]
-        salts = {job.ledger_of(ledger, found, {c["id"]: ("pass", []) for c in found["cases"]}, {}, set(), {})["salt"]
+        found = job.manifest(self.root, "pr-review-gate")[0]
+        salts = {job.ledger_of(dict(ledger, preflight=[]), found, {c["id"]: ("pass", []) for c in found["cases"]}, {}, set(), {})["salt"]
                  for _ in range(2)} | {ledger["salt"]}
         self.assertEqual(len(salts), 3)
         self.assertEqual(sorted(p.name for p in self.work.iterdir()), [job.REPORT])
@@ -2780,9 +2796,17 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(dict(in_ledger, required=[r for r in in_ledger["required"] if r != "natural"]), per_case)
         self.assertEqual(load("schemas/eval-aggregate.schema.json")["properties"]["faults"]["items"]["properties"]["code"]["enum"],
                          per_case["properties"]["reasons"]["items"]["enum"])
+        # Each case asked first is listed as the set's are, but for whether it is natural, and its codes are theirs.
+        first = copy.deepcopy(load("schemas/eval-ledger.schema.json")["properties"]["preflight"]["items"])
+        self.assertEqual(first["properties"].pop("result")["$ref"], "result.schema.json")
+        self.assertEqual(first, per_case)
+        self.assertEqual(load("schemas/eval-aggregate.schema.json")["properties"]["preflight"]["properties"]["faults"]
+                         ["items"]["properties"]["code"]["enum"], per_case["properties"]["reasons"]["items"]["enum"])
+        self.assertEqual([(c["id"], c["verdict"], c["result"]) for c in ledger["preflight"]],
+                         [(i, "pass", result) for i in self.pre])
         # A gate set says of each case whether it is natural, or it is no set.
         manifest["cases"][1].pop("natural")
-        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(manifest))
+        self.path().write_text(json.dumps(manifest))
         self.assertEqual(self.step(job.judge), "eval_set_unreadable")
 
     def test_the_seal_encrypts_the_ledger_to_each_pinned_certificate_alone(self):  # issue 612
@@ -2821,8 +2845,9 @@ class EvalJob(unittest.TestCase):
         # The job's output is the same hash, after what the runner's file held.
         self.assertEqual(outputs.read_text(), "earlier=1\nledger_sha256=%s\n" % written["ledger"]["sealed_sha256"])
         self.assertEqual(validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
-        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
-        # A development set has no ledger, and the step seals nothing.
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code; preflight 3 of 3 passed")
+        # A development set has no ledger, and the step seals nothing; the gate set of its cases is gone, as none may share one.
+        shutil.rmtree(str(self.root / "evals" / "pr-review-gate"))
         self.set(self.cases)
         self.clean()
         sealed.unlink()
@@ -2910,7 +2935,8 @@ class EvalJob(unittest.TestCase):
         for kind in ("gate", "development"):
             self.set(self.cases, gate=kind == "gate", natural=list(self.cases)[:1])
             plan = json.loads((place / "plan.json").read_text())
-            plan["set"]["sha256"] = job.manifest(self.root)[1]
+            found, plan["set"]["sha256"] = job.manifest(self.root, self.env["EVAL_SET"])
+            plan.update(name=self.env["EVAL_SET"], preflight=job.preflight_of(self.root, found))
             (place / "plan.json").write_text(json.dumps(plan))
             for planted in ("file", "link"):
                 if planted == "file":
@@ -2929,7 +2955,7 @@ class EvalJob(unittest.TestCase):
         found = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "gate": True, "count": count,
                  "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i, "natural": i < natural[0]} for i in range(count)],
                  "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
-                 "record": "docs/decisions/0164-the-gate-sets-record.md"}
+                 "record": "docs/decisions/0164-the-gate-sets-record.md", "preflight": ["p-0", "p-1", "p-2"]}
         passed = finding[1] + met[1]
         report = {"schema": "eval-aggregate/1", "release": "factory/v0.1.0", "commit": "a" * 40, "role": "pr-review",
                   "intent": "review-change", "set": {"count": count, "sha256": "d" * 64}, "passed": passed,
@@ -2938,6 +2964,7 @@ class EvalJob(unittest.TestCase):
                   "origin": {"natural": {"cases": natural[0], "passed": natural[1]},
                              "constructed": {"cases": count - natural[0], "passed": passed - natural[1]}},
                   "faults": [{"code": c, "count": n} for c, n in faults],
+                  "preflight": {"cases": 3, "passed": 3, "faults": []},
                   "usage": {"answered": count, "input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
                             "output_tokens": 1, "turns": count, "cost_usd": 1.5, "seconds": 60.0},
                   "engine": job.engine_of("pr-review"), "models": ["claude-opus"], "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
@@ -3026,7 +3053,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(judged(changed(["blocking_pass"], False)), "pass")
         self.assertEqual(job.tally_of_aggregate(dict(good, faults=[{"code": "criterion_unknown", "count": 2}],
                                                      blocking_pass=False)),
-                         "24 of 40 passed; criterion_unknown 2; a blocking case not passed")
+                         "24 of 40 passed; criterion_unknown 2; preflight 3 of 3 passed; a blocking case not passed")
 
     def test_a_gate_sets_judge_says_counts_and_codes_and_never_a_case(self):  # issue 612
         from harness import eval as job
@@ -3036,12 +3063,24 @@ class EvalJob(unittest.TestCase):
         pin(self.root, {"first": recipient(keys, "first")[0]})
         self.set(self.cases, gate=True)
         self.step(job.plan)
-        self.step(the_fetch(), self.home(dict(list(self.cases.items())[:1])))
+        self.step(the_fetch(), self.home(dict(list(self.cases.items())[:1]), gate=True))
         self.step(job.score, lambda case: example_result())
         self.step(seal.step)
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(job.main(lambda env, root, work: job.judge(self.env, self.root, self.work)), 1)
-        self.assertEqual(out.getvalue(), "1 of 2 passed; unanswered 1\nrun_fault\n")
+        self.assertEqual(out.getvalue(), "1 of 2 passed; unanswered 1; preflight 3 of 3 passed\nrun_fault\n")
+        # One its preflight stopped says so, by its counts too (issue 613).
+        self.clean()
+        for made in (self.work / job.REPORT, self.work / seal.SEALED):
+            made.unlink()
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases, gate=True))
+        self.step(job.score, lambda case: dict(example_result(), findings=[]))
+        self.step(seal.step)
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.judge(self.env, self.root, self.work)), 1)
+        self.assertEqual(out.getvalue(), "0 of 2 passed; unanswered 2; preflight 0 of 3 passed; finding under its bar\n"
+                         "preflight_failed\n")
 
     def test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them(self):  # issue 613
         from harness import eval as job
@@ -3050,7 +3089,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.held(data(found))[0], found)
         self.assertEqual((job.bars_of(found), job.kind_least_of(found)), ({"finding": (3, 10), "met": (9, 10)}, 20))
         # Each a gate set must give, and no other set may: a development set's are BAR_OF_A_KIND and KIND_LEAST.
-        development = {k: v for k, v in found.items() if k not in ("gate", "bars", "kind_least", "record")}
+        development = {k: v for k, v in found.items() if k not in ("gate",) + job.OWN}
         development["cases"] = [{k: v for k, v in c.items() if k != "natural"} for c in found["cases"]]
         self.assertEqual((job.bars_of(development), job.kind_least_of(development)), (job.BAR_OF_A_KIND, job.KIND_LEAST))
         self.assertEqual(job.held(data(development))[0], development)
@@ -3094,22 +3133,22 @@ class EvalJob(unittest.TestCase):
                           job.least_passed(40, 0)), (54, 24, 12))
         # The job reads them too, where the cases are: a least of a kind the set's cases do not hold is a short split.
         self.set(self.cases, gate=True, natural=list(self.cases)[:1])
-        manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
-        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(dict(manifest, kind_least=1)))
+        manifest = json.loads(self.path().read_text())
+        self.path().write_text(json.dumps(dict(manifest, kind_least=1)))
         self.step(job.plan)
-        self.step(the_fetch(), self.home(self.cases))
+        self.step(the_fetch(), self.home(self.cases, gate=True))
         self.step(job.score, lambda case: example_result())
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((written["split_ok"], written["kind_least"]), (False, 1))
         self.clean()
         (self.work / job.REPORT).unlink()
-        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(dict(manifest, bars={"finding": [1, 1],
-                                                                                                     "met": [9, 10]})))
+        self.path().write_text(json.dumps(dict(manifest, bars={"finding": [1, 1], "met": [9, 10]})))
         self.step(job.plan)
-        self.step(the_fetch(), self.home(self.cases))
+        self.step(the_fetch(), self.home(self.cases, gate=True))
         # One of the two passes: under the set's bar of all of them, where BAR_OF_A_KIND's would clear.
         first = list(self.cases)[0]
-        self.step(job.score, lambda case: example_result() if case["id"] == first else dict(example_result(), findings=[]))
+        self.step(job.score, lambda case: example_result() if case["id"] in [first] + list(self.pre)
+                  else dict(example_result(), findings=[]))
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((written["passed"], written["kinds_pass"], written["bars"]["finding"]),
                          (1, {"finding": False, "met": True}, [1, 1]))
@@ -3119,11 +3158,20 @@ class EvalJob(unittest.TestCase):
         (live / "evals" / "gate").mkdir(parents=True)
         (live / "schemas").symlink_to(ROOT / "schemas")
         (live / "evals" / "gate" / "cases.json").write_text(json.dumps(found))
+        (live / "evals" / "pr-review").mkdir()
+        (live / "evals" / "pr-review" / "cases.json").write_text(json.dumps(dict(
+            {k: v for k, v in found.items() if k not in ("gate",) + job.OWN}, count=3,
+            cases=[{"id": i, "sha256": "%064x" % (100 + n)} for n, i in enumerate(found["preflight"])])))
         with mock.patch.dict(check_examples.LIVE, {"evals/gate/cases.json": "eval-set"}, clear=True):
             self.assertIn("evals/gate/cases.json: names no record that states its bars", check_examples.run(live))
             (live / "docs" / "decisions").mkdir(parents=True)
             (live / found["record"]).write_text("%s\n" % job.bars_said(found))
             self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")], [])
+            # And to its preflight, as the job reads it (issue 613).
+            (live / "evals" / "pr-review" / "cases.json").rename(live / "evals" / "pr-review" / "moved.json")
+            self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")],
+                             ["evals/gate/cases.json: its preflight is refused where it is read: eval_set_unreadable"])
+            (live / "evals" / "pr-review" / "moved.json").rename(live / "evals" / "pr-review" / "cases.json")
             # And an example of one is held as the job reads it.
             (live / "examples").mkdir()
             (live / "examples" / "eval-set.gate.json").write_text(json.dumps(dict(found, kind_least=-1, bars={
@@ -3194,6 +3242,148 @@ class EvalJob(unittest.TestCase):
         self.assertEqual((job.pooled([good, missed, good])["blocking_pass"], job.pooled([good] * 3)["blocking_pass"]),
                          (False, True))
         self.assertEqual(judged([good, missed, good]), "pass")
+
+    def test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case(self):  # issue 613
+        from harness import eval as job
+        found, _, _ = self.aggregate_of()
+        data = lambda manifest: json.dumps(manifest).encode()
+        # Three to five, each once, and none of the set's own cases; no other set names any.
+        for preflight in (["p-0", "p-1"], ["p-%d" % i for i in range(6)], ["p-0", "p-0", "p-1"], ["p-0", "p-1", "c-3"], "p-0"):
+            with self.subTest(preflight=preflight), self.assertRaises(job.Stop):
+                job.held(data(dict(found, preflight=preflight)))
+        self.assertEqual(job.held(data(dict(found, preflight=["p-%d" % i for i in range(5)])))[0]["preflight"],
+                         ["p-%d" % i for i in range(5)])
+        development = {k: v for k, v in found.items() if k not in ("gate",) + job.OWN}
+        development["cases"] = [{k: v for k, v in c.items() if k != "natural"} for c in found["cases"]]
+        for manifest in (dict(development, preflight=found["preflight"]), {k: v for k, v in found.items() if k != "preflight"}):
+            with self.subTest(manifest=sorted(manifest)), self.assertRaises(job.Stop):
+                job.held(data(manifest))
+        # The job reads each from the development set, by its hash there, in the gate set's order.
+        self.set(self.cases, gate=True)
+        manifest = json.loads(self.path().read_text())
+        self.path().write_text(json.dumps(dict(manifest, preflight=list(reversed(list(self.pre))))))
+        self.assertEqual(self.step(job.plan), "planned 2 cases after 3 to preflight")
+        kept = json.loads((self.temp / "heldout" / "plan.json").read_text())
+        self.assertEqual(kept["preflight"], [{"id": i, "sha256": hashlib.sha256(d).hexdigest()}
+                                             for i, d in reversed(list(self.pre.items()))])
+        self.clean()
+        development = self.root / "evals" / "pr-review" / "cases.json"
+        named = json.loads(development.read_text())
+        another = self.root / "evals" / "pr-review-later" / "cases.json"
+        another.parent.mkdir()
+        # An id the development set does not name, a development set that is a gate set, or of another Role or Intent,
+        # or none to read, is no set; a case any gate set names, by its id or its hash, is held back from the preflight.
+        for write, code in (
+                (lambda: development.write_text(json.dumps(dict(named, count=2, cases=named["cases"][:2]))), "eval_set_unreadable"),
+                (lambda: development.write_text(json.dumps(dict(manifest, count=3, preflight=["a", "b", "c"], cases=[
+                    dict(c, natural=False) for c in named["cases"]]))), "eval_set_unreadable"),
+                (lambda: development.write_text(json.dumps(dict(named, intent="another-intent"))), "eval_set_unreadable"),
+                (lambda: development.unlink(), "eval_set_unreadable"),
+                (lambda: another.write_text(json.dumps(dict(manifest, cases=[dict(named["cases"][0], natural=False)] +
+                                                             manifest["cases"][1:], preflight=["a", "b", "c"]))),
+                 "eval_set_overlaps_a_gate_set"),
+                (lambda: another.write_text(json.dumps(dict(manifest, cases=[dict(manifest["cases"][0],
+                                                                                  sha256=named["cases"][1]["sha256"])] +
+                                                             manifest["cases"][1:]))), "eval_set_overlaps_a_gate_set"),
+                (lambda: another.write_text("{"), "eval_set_unreadable")):
+            write()
+            with self.subTest(code=code):
+                self.assertEqual(self.step(job.plan), code)
+            self.assertFalse((self.temp / "heldout").exists())
+            development.write_text(json.dumps(named))
+            if another.exists():
+                another.unlink()
+        # A gate set's own case is held back too, by its hash, where it is the development set's under another id.
+        own = dict(named, cases=[dict(named["cases"][0], sha256=manifest["cases"][0]["sha256"])] + named["cases"][1:])
+        development.write_text(json.dumps(own))
+        self.assertEqual(self.step(job.plan), "eval_set_overlaps_a_gate_set")
+        development.write_text(json.dumps(named))
+        # The development set changed after the plan is no set of the run.
+        self.assertEqual(self.step(job.plan), "planned 2 cases after 3 to preflight")
+        development.write_text(json.dumps(dict(named, cases=[dict(named["cases"][0], sha256="0" * 64)] + named["cases"][1:])))
+        self.assertEqual(self.step(the_fetch(), self.home(self.cases, gate=True)), "eval_set_changed")
+        # The check holds a live gate set's preflight as the job reads it.
+        development.write_text(json.dumps(named))
+        self.assertEqual(check_examples._preflight_held(self.root, manifest), [])
+        development.write_text(json.dumps(own))
+        self.assertEqual(check_examples._preflight_held(self.root, manifest),
+                         ["its preflight is refused where it is read: eval_set_overlaps_a_gate_set"])
+
+    def test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it(self):  # issue 613
+        from harness import eval as job
+        missed = dict(example_result(), findings=[])
+        engine = dict(example_result(), status="failed", reason="engine_timeout", findings=[])
+
+        def run(review, home=None):
+            """A gate set's run of `review`, what it asked in order, and its report."""
+            self.clean()
+            for left in (self.work / job.REPORT,):
+                if left.exists():
+                    left.unlink()
+            self.set(self.cases, gate=True)
+            self.assertEqual(self.step(job.plan), "planned 2 cases after 3 to preflight")
+            fetched = self.step(the_fetch(), home or self.home(self.cases, gate=True))
+            asked = []
+            self.step(job.score, lambda case: asked.append(case["id"]) or review(case))
+            return fetched, asked, json.loads((self.work / job.REPORT).read_text())
+        # Fetched apart from the set's cases, and asked first.
+        fetched, asked, written = run(lambda case: example_result())
+        self.assertEqual(fetched, "fetched 2 of 2 cases, 3 of 3 to preflight")
+        self.assertEqual(sorted(p.name for p in (self.temp / "heldout" / job.PREFLIGHT / "cases").iterdir()),
+                         sorted("%s.json" % i for i in self.pre))
+        self.assertEqual(asked, list(self.pre) + list(self.cases))
+        self.assertEqual((written["preflight"], written["passed"]), ({"cases": 3, "passed": 3, "faults": []}, 2))
+        # One the reviewer missed, beside others it passed, is the reviewer's: the dispatch goes on.
+        fetched, asked, written = run(lambda case: missed if case["id"] == "poc-pre-0" else example_result())
+        self.assertEqual((asked, written["preflight"], written["passed"]),
+                         (list(self.pre) + list(self.cases), {"cases": 3, "passed": 2, "faults": []}, 2))
+        # One the Engine stopped, none passed, or one the run could not read, stops it before any of the set's own
+        # cases is asked: each is unanswered, and the gate reads the dispatch as faulted.
+        found, digest = job.manifest(self.root, "pr-review-gate")
+        for review, home, preflight in (
+                (lambda case: engine if case["id"] == "poc-pre-1" else example_result(), None,
+                 {"cases": 3, "passed": 2, "faults": [{"code": "engine_timeout", "count": 1}]}),
+                (lambda case: missed, None, {"cases": 3, "passed": 0, "faults": []}),
+                (lambda case: example_result(), self.home(dict(list(self.pre.items())[1:], **self.cases)),
+                 {"cases": 3, "passed": 2, "faults": [{"code": "unanswered", "count": 1}]})):
+            with self.subTest(preflight=preflight):
+                fetched, asked, written = run(review, home)
+                self.assertEqual(written["preflight"], preflight)
+                self.assertFalse(set(asked) & set(self.cases))
+                self.assertEqual((written["passed"], written["faults"]), (0, [{"code": "unanswered", "count": 2}]))
+                sealed = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
+                self.assertEqual(job.verdict(sealed, found, digest, "a" * 40, "factory/v0.1.0"), "preflight_failed")
+                ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+                self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])
+                self.assertEqual([c["id"] for c in ledger["preflight"]], list(self.pre))
+        # The gate holds the preflight's counts to the set's, and reads one that should have stopped it as stopped,
+        # whatever came after.
+        found, digest, good = self.aggregate_of()
+        judged = lambda report: job.verdict(report, found, digest, "a" * 40, "factory/v0.1.0")
+        for preflight, code in (
+                ({"cases": 3, "passed": 3, "faults": []}, "pass"),
+                ({"cases": 3, "passed": 1, "faults": [{"code": "not_this_set", "count": 2}]}, "pass"),
+                ({"cases": 3, "passed": 2, "faults": [{"code": "not_found", "count": 1}]}, "preflight_failed"),
+                ({"cases": 3, "passed": 2, "faults": [{"code": "engine_timeout", "count": 1}]}, "preflight_failed"),
+                ({"cases": 3, "passed": 0, "faults": []}, "preflight_failed"),
+                ({"cases": 2, "passed": 2, "faults": []}, "count_differs"),
+                ({"cases": 4, "passed": 4, "faults": []}, "count_differs"),
+                ({"cases": 3, "passed": 2, "faults": [{"code": "not_this_set", "count": 2}]}, "count_differs"),
+                ({"cases": 3, "passed": 0, "faults": [{"code": "not_this_set", "count": 1}, {"code": "not_this_set", "count": 2}]},
+                 "count_differs"),
+                ({"cases": 3, "passed": 2, "faults": [{"code": "case p-0 timed out", "count": 1}]}, "report_unreadable"),
+                (None, "report_unreadable")):
+            with self.subTest(preflight=preflight):
+                report = dict(good, preflight=preflight) if preflight is not None else \
+                    {k: v for k, v in good.items() if k != "preflight"}
+                self.assertEqual(judged(report), code)
+        # And the pool reads a stopped dispatch as faulted, and the judge says its counts.
+        stopped = dict(good, preflight={"cases": 3, "passed": 0, "faults": []})
+        self.assertEqual(job.pooled_verdict([good, good, good, stopped], found, digest, "a" * 40, "factory/v0.1.0"),
+                         "eval_dispatch_faulted")
+        self.assertEqual(job.tally_of_aggregate(dict(good, preflight={
+            "cases": 3, "passed": 2, "faults": [{"code": "engine_timeout", "count": 1}]})),
+                         "24 of 40 passed; no code; preflight 2 of 3 passed, engine_timeout 1")
 
 
 if __name__ == "__main__":
