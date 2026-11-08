@@ -168,7 +168,8 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     if found["count"] == 0:
         raise Stop("eval_set_empty")
     # The heads beside the scratch, made new as it is: a folder an earlier job left is no head of this run. Both are
-    # placed, and the heads made, first, so that a heads folder that stops the plan leaves no scratch (issue 626).
+    # placed first, and the heads made first, so that a heads folder left behind stops the plan before any scratch is
+    # made; a scratch left behind stops it with the new heads beside it, and either stops the next (issue 626).
     place, heads = scratch(env, workspace), heads_place(env, workspace)
     try:
         heads.mkdir(mode=0o700)

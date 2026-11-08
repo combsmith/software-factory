@@ -8591,6 +8591,8 @@ MUTANTS = ISSUE + [
     ("a heads folder an earlier job left is taken", 'harness/eval/__init__.py',
      '        heads.mkdir(mode=0o700)\n', '        heads.mkdir(mode=0o700, exist_ok=True)\n', APART),
     ("the heads folder is made open to all", 'harness/eval/__init__.py', '        heads.mkdir(mode=0o700)\n', '        heads.mkdir(mode=0o755)\n', APART),
+    ("a scratch an earlier job left is taken", 'harness/eval/__init__.py',
+     '        place.mkdir(mode=0o700)\n', '        place.mkdir(mode=0o700, exist_ok=True)\n', APART),
     ("the scratch is made before the heads", 'harness/eval/__init__.py',
      '        heads.mkdir(mode=0o700)\n        place.mkdir(mode=0o700)\n', '        place.mkdir(mode=0o700)\n        heads.mkdir(mode=0o700)\n', APART),
     ("the canary unpacks its head beside its case", 'harness/eval/canary.py',

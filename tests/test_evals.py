@@ -2481,6 +2481,10 @@ class EvalJob(unittest.TestCase):
         (self.temp / "heads").mkdir()
         self.assertEqual(self.step(plan), "scratch_unreadable")
         self.assertFalse((self.temp / "heldout").exists(), "and leaves no scratch")
+        # So does a scratch an earlier job left.
+        self.clean()
+        (self.temp / "heldout").mkdir()
+        self.assertEqual(self.step(plan), "scratch_unreadable")
 
     def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
         # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its
