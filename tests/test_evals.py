@@ -1581,9 +1581,9 @@ class EvalJob(unittest.TestCase):
 
     def test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history(self):  # issue 614
         # What keeps a case's answer from the model is that its Task is built from the case's facts, diff and head alone.
-        # A marker the answer holds reaches neither the Task, nor the prompt, nor the CLI's environment, nor any file or
-        # folder of the head, the folder the CLI is started in, to which decision 0138 holds the read tools; and the head
-        # holds no `.git`, whose history could hold it.
+        # A marker the answer holds reaches neither the Task, nor any word of the CLI's call, its prompt and environment
+        # among them, nor any file or folder of the head, the folder the CLI is started in, to which decision 0138 holds
+        # the read tools; and the head holds no `.git`, whose history could hold it.
         import os
         import uuid
         from harness import eval as job
@@ -1636,7 +1636,15 @@ class EvalJob(unittest.TestCase):
         # Each file by its path and its bytes, each folder by its path, and the whole of the CLI's call, its prompt,
         # environment and every other word it is given, as well as the Task.
         asked = cli.asked()[0]
-        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the call", json.dumps(asked, sort_keys=True)),
+
+        def words(value):
+            # Each key and each value as it is given, not as JSON writes it, whose escapes would hide the answer whole.
+            if isinstance(value, dict):
+                return [w for k, v in sorted(value.items()) for w in [str(k)] + words(v)]
+            if isinstance(value, (list, tuple)):
+                return [w for v in value for w in words(v)]
+            return [str(value)]
+        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the call", "\n".join(words(asked))),
                             ("the head's paths", "\n".join(sorted(seen["files"]) + seen["folders"]))] + sorted(seen["files"].items()):
             text = text if isinstance(text, bytes) else text.encode("utf-8")
             self.assertNotIn(marker.encode("utf-8"), text, where)
