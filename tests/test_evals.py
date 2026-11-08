@@ -3278,6 +3278,7 @@ class EvalJob(unittest.TestCase):
                 (lambda: development.write_text(json.dumps(dict(manifest, count=3, preflight=["a", "b", "c"], cases=[
                     dict(c, natural=False) for c in named["cases"]]))), "eval_set_unreadable"),
                 (lambda: development.write_text(json.dumps(dict(named, intent="another-intent"))), "eval_set_unreadable"),
+                (lambda: development.write_text(json.dumps(dict(named, role="another-role"))), "eval_set_unreadable"),
                 (lambda: development.unlink(), "eval_set_unreadable"),
                 (lambda: another.write_text(json.dumps(dict(manifest, cases=[dict(named["cases"][0], natural=False)] +
                                                              manifest["cases"][1:], preflight=["a", "b", "c"]))),
@@ -3285,6 +3286,10 @@ class EvalJob(unittest.TestCase):
                 (lambda: another.write_text(json.dumps(dict(manifest, cases=[dict(manifest["cases"][0],
                                                                                   sha256=named["cases"][1]["sha256"])] +
                                                              manifest["cases"][1:]))), "eval_set_overlaps_a_gate_set"),
+                # By its id alone, under another hash: the home holds one file of an id.
+                (lambda: another.write_text(json.dumps(dict(manifest, cases=[dict(manifest["cases"][0], id=named["cases"][2]["id"])] +
+                                                             manifest["cases"][1:], preflight=["a", "b", "c"]))),
+                 "eval_set_overlaps_a_gate_set"),
                 (lambda: another.write_text("{"), "eval_set_unreadable")):
             write()
             with self.subTest(code=code):
@@ -3356,6 +3361,16 @@ class EvalJob(unittest.TestCase):
                 ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
                 self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])
                 self.assertEqual([c["id"] for c in ledger["preflight"]], list(self.pre))
+        # What a preflight case's read raised is the ledger's, as a case of the set's is.
+        from adapters import heldout
+        self.clean()
+        (self.work / job.REPORT).unlink()
+        self.step(job.plan)
+        with mock.patch.object(heldout, "case", side_effect=OSError("the home's name")):
+            self.step(the_fetch(), self.home(self.cases, gate=True))
+        self.step(job.score, lambda case: example_result())
+        ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+        self.assertEqual({(c["reasons"][0], c["cause"]["exception"]) for c in ledger["preflight"]}, {("unanswered", "OSError")})
         # The gate holds the preflight's counts to the set's, and reads one that should have stopped it as stopped,
         # whatever came after.
         found, digest, good = self.aggregate_of()

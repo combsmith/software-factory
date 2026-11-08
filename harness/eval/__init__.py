@@ -187,8 +187,9 @@ def preflight_of(root: pathlib.Path, found: dict) -> list:
     if not set(found["preflight"]) <= set(entries):
         raise Stop("eval_set_unreadable")
     ahead = [entries[ident] for ident in found["preflight"]]
-    gated = [found] + [m for m in (manifest(root, other.parent.name)[0] for other in sorted((root / SETS).glob("*/cases.json")))
-                       if gate_set(m)]
+    # Every manifest under `evals/`, the dispatched set's own among them, as `found` is always read from there.
+    gated = [m for m in (manifest(root, other.parent.name)[0] for other in sorted((root / SETS).glob("*/cases.json")))
+             if gate_set(m)]
     held_back = {c[key] for m in gated for c in m["cases"] for key in ("id", "sha256")}
     if held_back & {e[key] for e in ahead for key in ("id", "sha256")}:
         raise Stop("eval_set_overlaps_a_gate_set")
@@ -1002,7 +1003,13 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     """`(assessed, report)` of a gate set's run: each case, with its Result, written to the ledger in the scratch, and the
     report of counts alone that binds it (issue 612). The cases its preflight names are asked first, scored apart; where
     `preflight_stops`, none of the set's own is asked, and each is `unanswered` (issue 613)."""
-    results, first, told, spent, answers = {}, dict(found, cases=kept["preflight"]), {}, {}, {}
+    results, first, spent, answers = {}, dict(found, cases=kept["preflight"]), {}, {}
+    # What a preflight case's read raised, as `score` reads the set's own, so that the ledger says why it was not read.
+    try:
+        told = _read(place / PREFLIGHT, "fetch-causes.json")
+    except Stop:
+        told = {}
+    told = dict(told) if isinstance(told, dict) else {}
     ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, usages=spent,
                    results=answers)
     why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
