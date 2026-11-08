@@ -1,4 +1,4 @@
-# NNNN. A gate set's gate pools every dispatch on the commit, under the set's own bars, and a development set stays the best of several
+# 0169. A gate set's gate pools every dispatch on the commit, under the set's own bars, and a development set stays the best of several
 
 Status: accepted. The Factory Builder's ruling of 2026-11-08 on issue 613, "The gate pools k dispatches on one commit and reads all of them", approving lane d's design, defaults 1 to 7, and the Maintainer's condition on it, restated in decision 0164: a gate's bar applies to case-runs summed, and no automated process reads a ledger. It is the first of two pull requests under the issue; the preflight is the second. For a gate set alone, it amends decision 0150's rows "The bar", "Where it sits" and "What the bar does not hold", each where it fixes the bars in `harness/eval/__init__.py` or lets the gate take the newest dispatch that succeeded. A development set, and everything else in 0150 and 0164, are unchanged.
 
