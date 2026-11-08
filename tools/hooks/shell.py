@@ -837,23 +837,53 @@ CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 
 
+def _ends(text: str, start: int, seen: dict) -> int:
+    """Where the $( or backtick that opens at `start` ends, read once and kept in `seen`."""
+    if start not in seen:
+        seen[start] = _balanced(text, start + 2, ")") if text[start] == "$" else _balanced(text, start + 1, "`")
+    return seen[start]
+
+
 def _inside(text: str, held: list, i: int, seen: dict):
     """None where `i` is in none of the $( or backticks that open at `held`; else whether a double quote of the
-    innermost one's own holds it: an odd count of them, since it opened, before `i`. Since `i` only grows, one that
-    closed is dropped from `held`, and `seen` keeps each one's end and its count so far, so each is read once (Codex)."""
-    for start in held:
-        if start not in seen:
-            seen[start] = _balanced(text, start + 2, ")") if text[start] == "$" else _balanced(text, start + 1, "`")
-    held[:] = [start for start in held if seen[start] > i]
+    innermost one's own holds it, read as the shell reads its quotes: one in a substitution nested in it is that one's
+    own, and a comment or single quotes outside its double quotes hold none (#605). Since `i` only grows, one that
+    closed is dropped from `held`, and `seen` keeps each one's end and how far its quotes are read, so each is read once
+    (Codex)."""
+    held[:] = [start for start in held if _ends(text, start, seen) > i]
     inner = max((start for start in held if start < i), default=None)
     if inner is None:
         return None
-    j, quotes = seen.get((inner, "quotes"), (inner, 0))
+    # nested: for each substitution in it that `i` is inside, where it ends and the quote it opened in.
+    j, quoted, nested = seen.get((inner, "quotes"), (inner + (2 if text[inner] == "$" else 1), False, []))
     while j < i:
-        quotes += text[j] == '"'
-        j += 2 if text[j] == "\\" else 1
-    seen[(inner, "quotes")] = (j, quotes)
-    return quotes % 2 == 1
+        if nested and j >= nested[-1][0] - 1:      # the ) or backtick that ends a nested one
+            end, quoted = nested.pop()
+            j = max(j, end)
+            continue
+        c = text[j]
+        if c == "\\":
+            j += 2
+        elif c == "`" or text.startswith("$(", j):     # a nested substitution: its quotes are its own
+            if _ends(text, j, seen) <= i:
+                j = seen[j]
+            else:
+                nested.append((seen[j], quoted))
+                j, quoted = j + (1 if c == "`" else 2), False
+        elif c == '"':
+            j, quoted = j + 1, not quoted
+        elif quoted:
+            j += 1
+        elif c == "'":      # single quotes hold every character to the next one
+            close = text.find("'", j + 1)
+            j = len(text) if close < 0 else close + 1
+        elif c == "#" and text[j - 1] in " \t\n;&|()":     # a comment runs to the end of its line
+            close = text.find("\n", j)
+            j = len(text) if close < 0 else close
+        else:
+            j += 1
+    seen[(inner, "quotes")] = (j, quoted, nested)
+    return quoted
 
 
 def _tick_end(text: str, i: int) -> int:

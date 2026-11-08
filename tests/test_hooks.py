@@ -1574,6 +1574,37 @@ class Identity(unittest.TestCase):
             self.assertIn(["git", "push", "origin", "main"],
                           [w for w, _ in shell.commands(shell.without_heredocs("cat <<E\n%s\nE" % body), scopes=True) if w], body)
 
+    def test_a_substitutions_own_quotes_are_read_as_the_shell_reads_them(self):  # issue 605
+        # A " in a substitution nested in a held one, in a comment, or in single quotes is none of the held one's own
+        # quotes: a ${...} with a ' after it is still double-quoted, which bash runs, and the hooks ask (Astra on #604).
+        rm = "${?+'$(rm kernel/gate.py)'}"
+        for text in ('echo "$(echo "$(echo x # "\n)' + rm + '")"',
+                     'echo "$(echo # "\necho "' + rm + '")"',
+                     'echo "$(echo \'"\' "\'"; echo "' + rm + '")"',
+                     'echo "$(echo "$(echo \'"\')' + rm + '")"',
+                     'echo "$(echo "`echo \'"\'`' + rm + '")"'):
+            with self.assertRaises(shell.Unread, msg=text):
+                shell.commands(text)
+        # One that a nested substitution's own quotes leave unquoted is read as before.
+        self.assertIn(["date"], [w for w, _ in shell.commands('echo "$(echo "$(date)" ${x:-\'y\'})"')])
+
+    def test_whether_a_command_defines_a_printers_name_is_searched_once_a_name(self):  # issue 605
+        # Whether a command defines a function of a printer's name is searched once for each name, not once for each
+        # command that prints, so a command of many short ones reads in linear time.
+        seen = {"echo": True}
+        self.assertTrue(identity._defined("echo", "echo hi", seen))
+        self.assertFalse(identity._defined("printf", "echo hi", seen))
+        self.assertEqual(seen, {"echo": True, "printf": False})
+        searched, search = [], re.search
+
+        def counted(pattern, string, *rest, **given):
+            if isinstance(pattern, str) and "\\bfunction" in pattern:
+                searched.append(pattern)
+            return search(pattern, string, *rest, **given)
+        with mock.patch.object(identity.re, "search", counted):
+            self.assertEqual(self.codes('echo "$(date)" a; ' * 50 + "git push"), "")
+        self.assertEqual(len(searched), 1)
+
     def test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level(self):  # issue 410
         # Codex on #395: a "$(...)" in a substitution's double quotes, whose own quotes hold a ( or a ), in a body, in a
         # word, and a here-document inside "$( )". Each passes, as each would without the nesting.
@@ -1758,10 +1789,11 @@ class Identity(unittest.TestCase):
                                   800, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
-        # Codex on PR 604: a ${...} after each of many closed substitutions. The check reads each substitution's calls
-        # across the whole text, so the reader is timed on its own.
+        # Codex on PR 604: a ${...} after each of many closed substitutions, by the reader and by the whole check, which
+        # searched the whole text once for each command that prints until it kept each name's answer (#605).
         make = lambda n: 'echo "$(date)" ${x:-\'a\'}; ' * n
         linear(self, lambda n: shell.commands(make(n)), 8000, identity.READ_SECONDS, make(2)[:40])
+        linear(self, lambda n: self.codes(make(n) + "git push"), 2000, identity.READ_SECONDS, make(2)[:40])
 
     @wall_clock
     def test_the_readings_sonarcloud_flagged_are_read_in_linear_time(self):
