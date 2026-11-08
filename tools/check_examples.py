@@ -256,6 +256,17 @@ def _reason_unsuited(result: dict) -> list:
     return [] if engine.reason_given(result) else ["$.reason: not one its status may give"]
 
 
+def _held(found: dict) -> list:
+    """A manifest's example as the eval job and the gate read it, `harness.eval.held`, and not by its schema alone: a
+    gate set's groups, bars and least of a kind among it (the Claude review of issue 613)."""
+    from harness.eval import Stop, held
+    try:
+        held(json.dumps(found).encode("utf-8"))
+    except Stop as stop:
+        return ["is refused where it is read: %s" % stop.code]
+    return []
+
+
 def _bars_stated(root: pathlib.Path, found: dict) -> list:
     """A gate set's bars and least of a kind, as its record states them word for word, so that nothing reads a record at
     run time (issue 613)."""
@@ -305,6 +316,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
         errors = errors or (_reason_unsuited(value) if kind == "result" else [])
+        errors = errors or (_held(value) if kind == "eval-set" else [])
         for err in errors:
             problems.append("%s: %s" % (path.name, err))
     for path in sorted((root / "examples" / "invalid").glob("*.json")):

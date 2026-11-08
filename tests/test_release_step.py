@@ -335,7 +335,7 @@ class Candidate(unittest.TestCase):
         def judged(reports, runs=None, head=None):
             """The gate's word on dispatches 1, 2, 3...: each its report of `reports`, oldest first; and whether every
             read was asked."""
-            runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(len(reports))] \
+            runs = [dict(run_of(id=100 + i, run_number=i), status="completed", run_attempt=1) for i in range(len(reports))] \
                 if runs is None else runs
             reads = (head or [named, gate_manifest()]) + [dispatches(runs)]
             for i, document in enumerate(reports):
@@ -358,15 +358,26 @@ class Candidate(unittest.TestCase):
         self.assertEqual(judged([counts(), counts(), engine])[0], "eval_dispatch_faulted")
         for conclusion in ("cancelled", "timed_out", None, "skipped"):
             with self.subTest(conclusion=conclusion):
-                runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(3)]
+                runs = [dict(run_of(id=100 + i, run_number=i), status="completed", run_attempt=1) for i in range(3)]
                 runs[1]["conclusion"] = conclusion
                 self.assertEqual(judged([counts(), counts(), counts()], runs)[0], "eval_dispatch_faulted")
         self.assertEqual(judged([counts(), None, counts()])[0], "eval_dispatch_faulted")
         self.assertEqual(judged([counts(), "not json", counts()])[0], "eval_dispatch_faulted")
         self.assertEqual(judged([counts(), dict(counts(), set="pr-review"), counts()])[0], "eval_dispatch_faulted")
+        # A set named but not by its count and hash alone cannot be told, and is no other set's either.
+        for which in (dict(counts()["set"], name="pr-review-gate"), dict(counts()["set"], sha256="D" * 64),
+                      dict(counts()["set"], count="40")):
+            with self.subTest(which=which):
+                self.assertEqual(judged([counts(), dict(counts(), set=which), counts()])[0], "eval_dispatch_faulted")
+        # A dispatch run again shows its latest attempt alone, which could hide a fault before it: it is a fault itself.
+        for attempt in (2, None, "1", True):
+            with self.subTest(attempt=attempt):
+                runs = [dict(run_of(id=100 + i, run_number=i), status="completed", run_attempt=1) for i in range(3)]
+                runs[1]["run_attempt"] = attempt
+                self.assertEqual(judged([counts(), counts(), counts()], runs)[0], "eval_dispatch_faulted")
         self.assertEqual(judged([counts(), counts()])[0], "eval_pool_short")
         # A run of the job that failed by its own bar is no fault, and is pooled.
-        runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(3)]
+        runs = [dict(run_of(id=100 + i, run_number=i), status="completed", run_attempt=1) for i in range(3)]
         runs[0]["conclusion"] = "failure"
         self.assertEqual(judged([counts(finding=5), counts(finding=7), counts(finding=7)], runs), ("pass", True))
         # Another set's dispatch on the commit is not counted: a development set's report beside three gate set runs.
@@ -376,7 +387,7 @@ class Candidate(unittest.TestCase):
         for change in ({"status": "in_progress"}, {"head_sha": A}, {"path": ".github/workflows/other.yml"},
                        {"event": "push"}, {"id": 0}, {"id": True}, {"run_number": None}):
             with self.subTest(change=change):
-                runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(3)]
+                runs = [dict(run_of(id=100 + i, run_number=i), status="completed", run_attempt=1) for i in range(3)]
                 runs[2].update(change)
                 self.assertEqual(judged([counts(), counts(), counts()], runs)[0], "eval_not_run")
         self.assertEqual(judged([counts()] * 3, runs=[])[0], "eval_pool_short")

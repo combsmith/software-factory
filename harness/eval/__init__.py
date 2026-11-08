@@ -53,6 +53,7 @@ Z = 1.959964                # a Wilson interval's, at 95%
 ORIGIN_LEAST = 10
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 PASS = "pass"
 # The bar each kind's cases must clear, as whole fractions so that a boundary is exact: those of a criterion met, the clean
 # cases, and those that expect a Finding. A guard against regression, set under the measured recall so that a run's noise
@@ -124,10 +125,14 @@ def held(data: bytes) -> tuple:
             (gate_set(found) and not all("natural" in c for c in found["cases"])):
         raise Stop("eval_set_unreadable")
     # A gate set gives its own bars, its least of a kind and the record that states them; no other set gives any, its
-    # being BAR_OF_A_KIND and KIND_LEAST (issue 613).
-    if [key for key in OWN if key in found] != (list(OWN) if gate_set(found) else []) \
-            or (gate_set(found) and any(not 0 <= found["bars"][kind][0] <= found["bars"][kind][1] or found["bars"][kind][1] < 1
-                                        for kind in KINDS)):
+    # being BAR_OF_A_KIND and KIND_LEAST (issue 613). Neither is under the development set's, so that a manifest, which
+    # no person need approve, cannot lower the gate (the security read).
+    if [key for key in OWN if key in found] != (list(OWN) if gate_set(found) else []):
+        raise Stop("eval_set_unreadable")
+    if gate_set(found) and (found["kind_least"] < KIND_LEAST or any(
+            not found["bars"][kind][0] <= found["bars"][kind][1] or found["bars"][kind][1] < 1
+            or found["bars"][kind][0] * BAR_OF_A_KIND[kind][1] < BAR_OF_A_KIND[kind][0] * found["bars"][kind][1]
+            for kind in KINDS)):
         raise Stop("eval_set_unreadable")
     natural = len([c for c in found["cases"] if c.get("natural") is True])
     if gate_set(found) and any(0 < group < ORIGIN_LEAST for group in (natural, found["count"] - natural)):

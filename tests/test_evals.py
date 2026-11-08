@@ -3003,11 +3003,25 @@ class EvalJob(unittest.TestCase):
         broken += [dict(development, **{key: found[key]}) for key in job.OWN]
         broken += [dict(found, bars={"finding": [11, 10], "met": [9, 10]}), dict(found, bars={"finding": [3, 10], "met": [0, 0]}),
                    dict(found, bars={"finding": [3, 10]}), dict(found, bars={"finding": [3, 10, 1], "met": [9, 10]}),
-                   dict(found, kind_least=-1), dict(found, record="docs/notes.md")]
+                   dict(found, kind_least=-1), dict(found, record="docs/notes.md"),
+                   # Neither under the development set's: a bar a manifest lowers would lower the gate.
+                   dict(found, bars={"finding": [2, 10], "met": [9, 10]}), dict(found, bars={"finding": [3, 10], "met": [17, 20]}),
+                   dict(found, bars={"finding": [0, 1], "met": [0, 1]}), dict(found, kind_least=19)]
+        least = mock.patch.object(job, "KIND_LEAST", 20)
+        least.start()
         for manifest in broken:
             with self.subTest(manifest={k: v for k, v in manifest.items() if k != "cases"}):
                 with self.assertRaises(job.Stop):
                     job.held(data(manifest))
+        # A bar above the development set's, or exactly on it, and a least above it, are the set's to give.
+        for manifest in (dict(found, bars={"finding": [7, 20], "met": [19, 20]}), dict(found, bars={"finding": [6, 20], "met": [18, 20]}),
+                         dict(found, kind_least=21)):
+            self.assertEqual(job.held(data(manifest))[0], manifest)
+        # An example of a manifest is held as the job reads it, not by its schema alone.
+        self.assertEqual(check_examples._held(found), [])
+        self.assertEqual(check_examples._held(dict(found, bars={"finding": [2, 10], "met": [9, 10]})),
+                         ["is refused where it is read: eval_set_unreadable"])
+        least.stop()
         # The set's bars are the ones its report is held to: a report of the old bar is of other bars, and one of its own
         # is held to them.
         judged = lambda report, of: job.verdict(report, of, digest, "a" * 40, "factory/v0.1.0")
@@ -3051,6 +3065,14 @@ class EvalJob(unittest.TestCase):
             (live / "docs" / "decisions").mkdir(parents=True)
             (live / found["record"]).write_text("%s\n" % job.bars_said(found))
             self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")], [])
+            # And an example of one is held as the job reads it.
+            (live / "examples").mkdir()
+            (live / "examples" / "eval-set.gate.json").write_text(json.dumps(dict(found, kind_least=-1, bars={
+                "finding": [3, 10], "met": [9, 10]})))
+            (live / "examples" / "eval-set.json").write_text(json.dumps(dict(found, bars={"finding": [1, 10], "met": [9, 10]})))
+            self.assertEqual([p for p in check_examples.run(live) if p.startswith("eval-set.")],
+                             ["eval-set.gate.json: $.kind_least: below 0",
+                              "eval-set.json: is refused where it is read: eval_set_unreadable"])
         said = job.bars_said(found)
         self.assertEqual(said, "Its bars: finding 3 of 10, met 9 of 10; at least 20 cases of each kind.")
         record = self.root / found["record"]
@@ -3078,14 +3100,13 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(judged([under, over, over]), "pass")
         self.assertEqual(judged([under, good, good]), "case_failed")
         self.assertEqual(judged([good, good, run(met=(20, 15), natural=(30, 15))]), "case_failed")
-        # The pool is held to the set's own bars: three runs at a quarter of the cases that expect a Finding clear a bar of
-        # a quarter, and not BAR_OF_A_KIND's.
-        quarter = dict(found, bars={"finding": [1, 4], "met": [9, 10]})
-        loose = dict(run(finding=(20, 5), natural=(30, 17)), bars=quarter["bars"], kinds_pass={"finding": True, "met": True})
-        self.assertEqual((judged([loose] * 3, quarter), judged([loose] * 3)), ("pass", "count_differs"))
-        self.assertEqual(judged([loose, loose, dict(loose, kinds=dict(loose["kinds"], finding={
-            "cases": 20, "passed": 4, "interval": job.wilson(4, 20)}), passed=22, kinds_pass={"finding": False, "met": True},
-            origin={"natural": {"cases": 30, "passed": 16}, "constructed": {"cases": 10, "passed": 6}})], quarter), "case_failed")
+        # The pool is held to the set's own bars: three runs at 35% of the cases that expect a Finding clear a bar of 35%,
+        # and two of them beside one at 30% do not, though BAR_OF_A_KIND's would pass all three.
+        stricter = dict(found, bars={"finding": [7, 20], "met": [9, 10]})
+        seven = dict(run(finding=(20, 7), natural=(30, 19)), bars=stricter["bars"])
+        six = dict(good, bars=stricter["bars"], kinds_pass={"finding": False, "met": True})
+        self.assertEqual((judged([seven] * 3, stricter), judged([seven, seven, six], stricter)), ("pass", "case_failed"))
+        self.assertEqual(judged([dict(good, kinds_pass=good["kinds_pass"])] * 3), "pass")
         # Every one is pooled, the newest no more than the rest: three that pass and a fourth that brings the pool under.
         self.assertEqual(judged([good, good, good, run(finding=(20, 0), natural=(30, 12))]), "case_failed")
         self.assertEqual(judged([run(finding=(20, 0), natural=(30, 12)), good, good, good]), "case_failed")

@@ -162,9 +162,9 @@ def _run(transport, repo: str, commit: str):
 
 
 def _dispatches(transport, repo: str, commit: str):
-    """Every dispatch of the eval job on `commit`, by its GitHub id and conclusion, oldest first, whatever it concluded;
-    None where the list is not read whole, holds a run of another commit, event or workflow, or holds a run still going
-    (issue 613)."""
+    """Every dispatch of the eval job on `commit`, by its GitHub id, conclusion and attempt, oldest first, whatever it
+    concluded; None where the list is not read whole, holds a run of another commit, event or workflow, or holds a run
+    still going (issue 613). The list shows a run's latest attempt alone (P-27, decision 0111)."""
     try:
         answer = transport.send(request("GET", "/repos/%s/actions/workflows/%s/runs?head_sha=%s&event=workflow_dispatch"
                                                "&per_page=100" % (repo, EVAL_WORKFLOW, commit)))
@@ -179,7 +179,7 @@ def _dispatches(transport, repo: str, commit: str):
             and type(r.get("id")) is int and r["id"] > 0 and type(r.get("run_number")) is int]
     if len(ours) != len(runs):
         return None
-    return [(r["id"], r.get("conclusion")) for r in sorted(ours, key=lambda r: r["run_number"])]
+    return [(r["id"], r.get("conclusion"), r.get("run_attempt")) for r in sorted(ours, key=lambda r: r["run_number"])]
 
 
 def _report(transport, repo: str, ident: int):
@@ -195,19 +195,21 @@ def _report(transport, repo: str, ident: int):
 def pooled_gate(transport, repo: str, commit: str, release: str, found: tuple) -> str:
     """The eval gate's word on `commit` for a gate set (issue 613): every dispatch on the commit that completed, of
     whatever conclusion, is counted, and its report pooled by `harness.eval.pooled_verdict`. One still running leaves
-    the gate unjudged, `eval_not_run`. One that did not conclude success or failure, or whose report is not read whole,
-    is a faulted dispatch and closes the gate, as is one whose report names no set: its set cannot be told. One whose
-    report names another set, by its count and the sha256 of its manifest, is another set's, and not counted."""
+    the gate unjudged, `eval_not_run`. Any dispatch that did not conclude success or failure, was run again, or whose
+    report is not read whole, is a faulted dispatch and closes the gate, as is one whose report names no set by its
+    count and hash alone: its set cannot be told. A run again shows its latest attempt alone, so that a fault before it
+    would be hidden (the Claude review). One whose report names another set is another set's, and not counted."""
     runs = _dispatches(transport, repo, commit)
     if runs is None:
         return "eval_not_run"
     documents, this = [], {"count": found[0]["count"], "sha256": found[1]}
-    for ident, conclusion in runs:
-        if conclusion not in ("success", "failure"):
+    for ident, conclusion, attempt in runs:
+        if conclusion not in ("success", "failure") or type(attempt) is not int or attempt != 1:
             return "eval_dispatch_faulted"
         document = _report(transport, repo, ident)
         named = document.get("set") if isinstance(document, dict) else None
-        if not (isinstance(named, dict) and type(named.get("count")) is int and isinstance(named.get("sha256"), str)):
+        if not (isinstance(named, dict) and set(named) == {"count", "sha256"} and type(named["count"]) is int
+                and isinstance(named["sha256"], str) and eval_gate.SHA256.fullmatch(named["sha256"])):
             return "eval_dispatch_faulted"
         if named == this:
             documents.append(document)
