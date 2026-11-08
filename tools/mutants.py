@@ -144,6 +144,8 @@ SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_
 DATA_TESTS = (HOOK_TESTS + "test_a_word_given_to_any_other_program_is_data",)
 IDENTITY_TESTS = "tests.test_hooks.Identity."
 PROTECTED_NEST = "tests.test_hooks.MergesAndSettings.test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level"
+PROTECTED_NESTED_IN_ONE = ("tests.test_hooks.MergesAndSettings."
+                           "test_a_double_quoted_substitution_in_a_double_quoted_one_hides_no_command_after_it")
 NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
 READINGS_TESTS = (IDENTITY_TESTS + "test_the_readings_sonarcloud_flagged_read_what_their_regexes_read",)
 PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
@@ -7349,7 +7351,8 @@ MUTANTS = ISSUE + [
      "                    self.here = stood.pop()     # a cd in it was its own\n", "                    stood.pop()\n",
      ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
     ("the protected hook reads a redirection's substitution with no scope", "tools/hooks/protected.py",
-     "    commands = shell.commands(outer, spend, places=True)\n", "    commands = shell.commands(outer, spend)\n",
+     "    commands = shell.commands(identity._quoted(shell.without_heredocs(outer, raw=True)), spend, places=True)\n",
+     "    commands = shell.commands(identity._quoted(shell.without_heredocs(outer, raw=True)), spend)\n",
      ("tests.test_hooks.MergesAndSettings.test_a_substitution_in_a_redirection_or_an_expanded_here_document_asks",)),
     ("a here-document's substitutions are spelt past the room the hook reads", "tools/hooks/shell.py",
      "    if room[0] < 0:\n", "    if False:\n",
@@ -14219,6 +14222,37 @@ MUTANTS = ISSUE + [
      '    if name not in seen:\n', '    if True:\n', (IDENTITY_TESTS + 'test_whether_a_command_defines_a_printers_name_is_searched_once_a_name',)),
     ("each command that prints searches the whole text again", 'tools/hooks/identity.py',
      '_defined(program, text, defines)', '_defined(program, text)', (IDENTITY_TESTS + 'test_whether_a_command_defines_a_printers_name_is_searched_once_a_name',)),
+    # Issue 605, the rest: a double-quoted substitution in one, as the protected hook reads it; a backtick in double
+    # quotes; and a quote past a backtick in a here-document's substitution.
+    ("the protected hook reads a command's substitutions flat", 'tools/hooks/protected.py',
+     '    commands = shell.commands(identity._quoted(shell.without_heredocs(outer, raw=True)), spend, places=True)',
+     '    commands = shell.commands(outer, spend, places=True)', (PROTECTED_NESTED_IN_ONE,)),
+    ("the protected hook reads a process substitution's substitutions flat", 'tools/hooks/protected.py',
+     '        commands += shell.commands(identity._quoted(shell.without_heredocs(script, raw=True)), spend, places=True)',
+     '        commands += shell.commands(script, spend, places=True)', (PROTECTED_NESTED_IN_ONE,)),
+    ("a backtick in double quotes is read flat", 'tools/hooks/identity.py',
+     '''        elif quote == '"' and c == "`":''', '        elif False:',
+     (IDENTITY_TESTS + 'test_a_backtick_in_double_quotes_has_quotes_of_its_own', PROTECTED_NESTED_IN_ONE)),
+    ("a backtick's escaped double quote in double quotes keeps its backslash", 'tools/hooks/identity.py',
+     '''inner = re.sub(r'\\\\([\\\\`$"])', r"\\1", text[i + 1:end])''', '''inner = re.sub(r'\\\\([\\\\`$])', r"\\1", text[i + 1:end])''',
+     (IDENTITY_TESTS + 'test_a_backtick_in_double_quotes_has_quotes_of_its_own',)),
+    ("a backtick in double quotes that never closes is spelt", 'tools/hooks/identity.py',
+     '            end = shell._tick_end(text, i)\n            if end >= len(text):\n',
+     '            end = shell._tick_end(text, i)\n            if False:\n', (IDENTITY_TESTS + 'test_a_backtick_in_double_quotes_has_quotes_of_its_own',)),
+    ("a quote past a backtick in a body's substitution is data", 'tools/hooks/shell.py',
+     '                if _left_open(inner):', '                if False:',
+     (IDENTITY_TESTS + 'test_a_quote_past_a_backtick_in_a_here_documents_substitution_is_not_read_as_data', PROTECTED_NESTED_IN_ONE)),
+    ("a quote in a comment in a body's backtick is counted", 'tools/hooks/shell.py',
+     '        elif quote is None and c == "#" and (i == 0 or script[i - 1] in COMMENTS_AFTER):',
+     '        elif False:', (IDENTITY_TESTS + 'test_a_quote_past_a_backtick_in_a_here_documents_substitution_is_not_read_as_data',)),
+    ("a backslash in a body's backtick holds no quote", 'tools/hooks/shell.py',
+     '''        if c == "\\\\" and quote != "'":\n            i += 1\n        elif quote is None and c == "#"''',
+     '''        if False:\n            i += 1\n        elif quote is None and c == "#"''',
+     (IDENTITY_TESTS + 'test_a_quote_past_a_backtick_in_a_here_documents_substitution_is_not_read_as_data',)),
+    ("a backslash in single quotes in a body's backtick holds a quote", 'tools/hooks/shell.py',
+     '''        if c == "\\\\" and quote != "'":\n            i += 1\n        elif quote is None and c == "#"''',
+     '''        if c == "\\\\":\n            i += 1\n        elif quote is None and c == "#"''',
+     (IDENTITY_TESTS + 'test_a_quote_past_a_backtick_in_a_here_documents_substitution_is_not_read_as_data',)),
     # Issue 410: a backtick glued to a redirection, a nested ${...}, and what only prints beside a script.
     ("a backtick inside a word leaves the word read as what came before it", 'tools/hooks/shell.py',
      '                    out.append("$")\n', '                    pass\n', (IDENTITY_TESTS + 'test_a_backtick_glued_to_a_redirection_and_a_substitution_in_a_nested_expansion_are_read',)),

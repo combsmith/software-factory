@@ -1601,6 +1601,32 @@ class Identity(unittest.TestCase):
         # So is one inside a nested one, which opens unquoted whatever quote holds it; main refused it, by its count.
         self.assertIn(["echo", "${x:-a}"], [w for w, _ in shell.commands('echo "$(echo "$(echo ${x:-\'a\'})")"')])
 
+    def test_a_backtick_in_double_quotes_has_quotes_of_its_own(self):  # issue 605
+        # A backtick in double quotes ends at its next backtick, and a " in it is its own, as in a "$(...)": what follows
+        # its quotes is read as commands, \" \` \$ and \\ in it as the shell takes them out.
+        for command in ('echo "`echo "a b"; git push`"', 'echo "`echo \\"a b\\"; git push`"',
+                        'echo "`echo \\`date\\`; git push`"', 'echo "a `date` b"; git push'):
+            commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
+            self.assertIn(["git", "push"], [w for w, _ in commands if w], command)
+        self.assertIn(["echo", "a b"], [w for w, _ in shell.commands(identity._quoted('echo "`echo \\"a b\\"`"'))])
+        # One escaped is text, and one that never closes is read as main reads it.
+        self.assertEqual(identity._quoted('echo "\\`git push\\`"'), 'echo "\\`git push\\`"')
+        self.assertEqual(identity._quoted('echo "`echo a'), 'echo "`echo a')
+
+    def test_a_quote_past_a_backtick_in_a_here_documents_substitution_is_not_read_as_data(self):  # issue 605
+        # A backtick in a body's substitution whose quote runs past its end: the shell fails the backtick and runs what
+        # follows, so the hooks ask, as they do outside a here-document. A quote in a comment there is no quote.
+        with self.assertRaises(shell.Unread):
+            shell.without_heredocs("cat <<EOF\n$(echo `echo '`\nrm kernel/gate.py\n# '`\n)\nEOF")
+        self.assertIn(["date"], [w for w, _ in shell.commands("cat <<EOF\n$(echo `date # it's`)\nEOF")])
+        self.assertIn(["echo", "a b"], [w for w, _ in shell.commands('cat <<EOF\n$(echo `echo "a b"`)\nEOF')])
+        # A backslash holds a quote, but not in single quotes, where it is a character.
+        for body in ("$(echo `echo \\'`)", "$(echo `echo '\\'`)"):
+            self.assertIn(["cat"], [w for w, _ in shell.commands("cat <<EOF\n%s\nEOF" % body)], body)
+        # Prose between backticks at a body's top level is still data, as on main: a commit message may hold `it's`.
+        self.assertIn(["git", "commit", "-m", "$(cat <<EOF\nEOF\n)"],
+                      [w for w, _ in shell.commands('git commit -m "$(cat <<EOF\nFix `it\'s` here\nEOF\n)"')])
+
     def test_whether_a_command_defines_a_printers_name_is_searched_once_a_name(self):  # issue 605
         # Whether a command defines a function of a printer's name is searched once for each name, not once for each
         # command that prints, so a command of many short ones reads in linear time.
@@ -3107,6 +3133,19 @@ class MergesAndSettings(Asks):
             self.asked(self.run_(command), "protected_path", command)
         # Past Python's own depth, a nest is one the hook cannot read (Astra on #520).
         self.asked(self.run_(('echo "$(' * 1500) + "true" + (')"' * 1500)), "command_unreadable", "a nest 1500 deep")
+
+    def test_a_double_quoted_substitution_in_a_double_quoted_one_hides_no_command_after_it(self):  # issue 605
+        # A "$(...)" or "`...`" nested in a "$(...)" has quotes of its own, as the identity hook reads them: they do not
+        # end the outer quote, so a write after the nested one is asked about. On main each was let through.
+        for command in ('echo "$(echo "$(date)"; rm kernel/gate.py)"',
+                        'echo "$(echo "$(echo ${x:-a})"; rm kernel/gate.py)"',
+                        "echo \"$(echo \"$(echo ${x:-'a'})\"; rm kernel/gate.py)\"",
+                        'echo "`echo "a b"; rm kernel/gate.py`"',
+                        'cat <(echo "$(echo "$(date)"; rm kernel/gate.py)")'):
+            self.asked(self.run_(command), "protected_path", command)
+        self.assertEqual(self.run_('x="$(basename "$(pwd)")"; echo "$x"'), "")
+        # A quote past a backtick in a here-document's substitution is asked about, as it is outside one.
+        self.asked(self.run_("cat <<EOF\n$(echo `echo '`\nrm kernel/gate.py\n# '`\n)\nEOF"), "command_unreadable", "(d)")
 
 
     def test_what_does_not_merge_is_not_asked_about(self):

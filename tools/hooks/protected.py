@@ -1394,9 +1394,11 @@ def _split(text: str, spend) -> list:
     """The simple commands of a command, each (words, redirections), a process substitution's among them. Raises
     ValueError or RecursionError when it cannot be split."""
     outer, inner = _process_substitutions(text)
-    commands = shell.commands(outer, spend, places=True)
+    # Each substitution spelt as the identity hook spells one, its quotes its own: a "$(...)" in a "$(...)" does not end
+    # the outer quote, so what follows it is read as commands (#605 (g)).
+    commands = shell.commands(identity._quoted(shell.without_heredocs(outer, raw=True)), spend, places=True)
     for script in inner:
-        commands += shell.commands(script, spend, places=True)
+        commands += shell.commands(identity._quoted(shell.without_heredocs(script, raw=True)), spend, places=True)
     return commands
 
 

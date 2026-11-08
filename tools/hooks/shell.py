@@ -174,6 +174,10 @@ def _nested(script: str, room: list, comments: bool = True) -> str:
                     inner.append(script[end + 1] if escaped else script[end])
                     end += 2 if escaped else 1
                 end, inner = end + 1, "".join(inner)
+                if _left_open(inner):
+                    # The shell ends a backtick before it reads its quotes, fails this one and runs what follows: a
+                    # script that would be data in a body is one the hook cannot read (#605 (d)).
+                    raise Unread("a quote in a backtick runs past where the backtick ends")
             else:
                 end = _balanced(script, i + 2, ")")
                 inner = script[i + 2:end - 1] if script[end - 1:end] == ")" else script[i + 2:]
@@ -206,6 +210,23 @@ def _nested(script: str, room: list, comments: bool = True) -> str:
         out.append(c)
         i += 1
     return "".join(out)
+
+
+def _left_open(script: str) -> bool:
+    """Whether a quote that opens in `script`, outside a comment, is still open at its end."""
+    quote, i = None, 0
+    while i < len(script):
+        c = script[i]
+        if c == "\\" and quote != "'":
+            i += 1
+        elif quote is None and c == "#" and (i == 0 or script[i - 1] in COMMENTS_AFTER):
+            i = len(script) if script.find("\n", i) < 0 else script.find("\n", i)
+        elif quote is None and c in "'\"":
+            quote = c
+        elif c == quote:
+            quote = None
+        i += 1
+    return quote is not None
 
 
 def _terminator(word: str, first: str) -> str:
