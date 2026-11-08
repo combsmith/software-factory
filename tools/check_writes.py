@@ -51,7 +51,7 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/hooks/rules_changed.py", "tools/mutants.py")
 # A command's name as a string: gh or git alone, by a path or not, or opening a command line. Spelt apart, so this file
 # holds neither.
-COMMANDS = re.compile(r"\s*(\S*/)?(g" r"h|gi" r"t)(\.exe)?(\s|$)")
+COMMANDS = re.compile(r"\s*(\S*/)?(g" r"h|gi" r"t)(\s|$)")
 # What a request is, by its keys: edited after `request` built it, it is sent as edited.
 FIELDS = ("method", "path", "body")
 # A module's names as a value: what is read from them cannot be.

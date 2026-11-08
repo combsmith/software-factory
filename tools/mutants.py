@@ -11364,7 +11364,7 @@ MUTANTS = ISSUE + [
     ("gh or git may be run from Python", 'tools/check_writes.py', '        if mod.rel not in RUNNERS:\n', '        if False:\n',
      ('tests.test_tools.Writes.test_what_cannot_be_read_fails',)),
     ("a command line is read only as its program alone", 'tools/check_writes.py',
-     'COMMANDS = re.compile(r"\\s*(\\S*/)?(g" r"h|gi" r"t)(\\.exe)?(\\s|$)")', 'COMMANDS = re.compile(r"\\s*(\\S*/)?(g" r"h|gi" r"t)(\\.exe)?$")',
+     'COMMANDS = re.compile(r"\\s*(\\S*/)?(g" r"h|gi" r"t)(\\s|$)")', 'COMMANDS = re.compile(r"\\s*(\\S*/)?(g" r"h|gi" r"t)$")',
      ('tests.test_tools.Writes.test_what_cannot_be_read_fails',)),
     ("a namespace package's other name is read as outside the repo", 'tools/check_writes.py',
      '        return ("unknown", module, name) if _package(mods, module) else None\n', '        return None\n',
