@@ -1658,9 +1658,9 @@ class EvalJob(unittest.TestCase):
 
     def test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history(self):  # issue 614
         # What keeps a case's answer from the model is that its Task is built from the case's facts, diff and head alone.
-        # A marker the answer holds reaches neither the Task, nor the prompt, nor the CLI's environment, nor any file or
-        # folder of the head, the folder the CLI is started in, to which decision 0138 holds the read tools; and the head
-        # holds no `.git`, whose history could hold it.
+        # A marker the answer holds reaches neither the Task, nor any word of the CLI's call, its prompt and environment
+        # among them, nor any file or folder of the head, the folder the CLI is started in, to which decision 0138 holds
+        # the read tools; and the head holds no `.git`, whose history could hold it.
         import os
         import uuid
         from harness import eval as job
@@ -1687,7 +1687,7 @@ class EvalJob(unittest.TestCase):
                         seen["folders"].append(path)
                         self.read(head, path)
                     else:
-                        seen["files"][path] = pathlib.Path(head, path).read_bytes().decode("utf-8", "replace")
+                        seen["files"][path] = pathlib.Path(head, path).read_bytes()      # as bytes: no two read alike
         built, answered = [], step.live.answer
 
         def answering(the_task, *given, **named):
@@ -1710,18 +1710,27 @@ class EvalJob(unittest.TestCase):
         said, cli = scored()
         self.assertEqual((said, len(cli.asked()), len(built)), ("scored 1 of 1 cases, 0 passed", 1, 1), "the case is asked of the model")
         self.assertTrue(seen["files"], "the head is read at the call")
-        # Each file by its path and its bytes, each folder by its path, and the CLI's environment, as well as the Task
-        # and the prompt.
+        # Each file by its path and its bytes, each folder by its path, and the whole of the CLI's call, its prompt,
+        # environment and every other word it is given, as well as the Task.
         asked = cli.asked()[0]
-        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the environment", json.dumps(asked["env"])),
+
+        def words(value):
+            # Each key and each value as it is given, not as JSON writes it, whose escapes would hide the answer whole.
+            if isinstance(value, dict):
+                return [w for k, v in sorted(value.items()) for w in [str(k)] + words(v)]
+            if isinstance(value, (list, tuple)):
+                return [w for v in value for w in words(v)]
+            return [str(value)]
+        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the call", "\n".join(words(asked))),
                             ("the head's paths", "\n".join(sorted(seen["files"]) + seen["folders"]))] + sorted(seen["files"].items()):
-            self.assertNotIn(marker, text, where)
-            self.assertNotIn(answer, text, where)
+            text = text if isinstance(text, bytes) else text.encode("utf-8")
+            self.assertNotIn(marker.encode("utf-8"), text, where)
+            self.assertNotIn(answer.encode("utf-8"), text, where)
         self.assertNotIn(".git", [part.casefold() for path in seen["folders"] + list(seen["files"]) for part in path.split(os.sep)])
-        # No part of it, either: cases that differ in their answer alone, each field of it, give the model the same
-        # Task, prompt and head, the Run's fresh id and session held still.
+        # No part of it, either: cases that differ in their answer alone, each field of it, severity too, give the model
+        # the same Task, the same call and the same head, byte for byte, the Run's fresh id and session held still.
         met = {"verdict": "met", "criterion": "PR-5", "finding": None}
-        other = {"verdict": "finding", "criterion": "PR-1", "finding": {"category": "requirements", "severity": "major",
+        other = {"verdict": "finding", "criterion": "PR-4", "finding": {"category": "architecture", "severity": "blocking",
                  "location": {"path": "kernel/terms.py", "start_line": 12, "end_line": 14}}}
         given = []
         with mock.patch.object(step, "run_id", lambda: "r_" + "A" * 20), mock.patch("uuid.uuid4", lambda: uuid.UUID(int=1)):
@@ -1729,8 +1738,9 @@ class EvalJob(unittest.TestCase):
                 del built[:]
                 said, cli = scored(case=dict(case, expected=expected))
                 self.assertEqual(len(cli.asked()), 1, expected)
-                given.append((built[0], cli.asked()[0]["args"], cli.asked()[0]["env"], dict(seen["files"]), sorted(seen["folders"])))
-        self.assertTrue(given[0][3])
+                given.append((built[0], cli.asked()[0], dict(seen["files"]), sorted(seen["folders"])))
+        self.assertNotEqual(case["expected"]["finding"]["severity"], other["finding"]["severity"])
+        self.assertTrue(given[0][2])
         self.assertEqual(given[1], given[0])
         self.assertEqual(given[2], given[0])
         # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
