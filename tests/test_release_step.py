@@ -44,7 +44,9 @@ def refs_read(refs, status=200):
 def report(commit=D, release=VERSION, verdict="pass", **change):
     document = {"schema": "eval-report/1", "release": release, "commit": commit, "role": SET["role"],
                 "intent": SET["intent"], "set": {"count": SET["count"], "sha256": hashlib.sha256(SET_BYTES).hexdigest()},
-                "cases": [dict(SET["cases"][0], verdict=verdict, reasons=[] if verdict == "pass" else ["finding_not_raised"])], "passed": 1 if verdict == "pass" else 0,
+                "models": ["claude-opus"], "prompt_sha256": "1" * 64, "rubric_sha256": "2" * 64,
+                "cases": [dict(SET["cases"][0], verdict=verdict, reasons=[] if verdict == "pass" else ["finding_not_raised"],
+                               usage={"turns": 2, "cost_usd": 0.17, "seconds": 2.7})], "passed": 1 if verdict == "pass" else 0,
                 "split_ok": True, "kinds_pass": {"finding": True, "met": True}, "blocking_pass": True}
     document.update(change)
     return document

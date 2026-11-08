@@ -16,6 +16,7 @@
     "faults",
     "usage",
     "engine",
+    "models",
     "bars",
     "kind_least",
     "split_ok",
@@ -364,6 +365,15 @@
           ],
           "pattern": "^[0-9a-f]{64}$"
         }
+      }
+    },
+    "models": {
+      "description": "Each model the CLI said answered a case, by the id it gave, not the configured name (issue 616): one where the run is whole.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9.-]{1,64}$"
       }
     },
     "bars": {

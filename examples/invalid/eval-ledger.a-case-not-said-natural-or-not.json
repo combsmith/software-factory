@@ -15,6 +15,11 @@
       "sha256": "754be4b69c49114336398cc52faaf3b06b709a5674ac584fcc9433cede863d5a",
       "verdict": "pass",
       "reasons": [],
+      "usage": {
+        "turns": 4,
+        "cost_usd": 0.21,
+        "seconds": 38.5
+      },
       "result": {
         "schema": "result/1",
         "run": "r_01JA6Z",
@@ -129,6 +134,11 @@
       "reasons": [
         "engine_timeout"
       ],
+      "usage": {
+        "turns": null,
+        "cost_usd": null,
+        "seconds": 0
+      },
       "natural": false,
       "cause": {
         "subtype": "error_max_turns",

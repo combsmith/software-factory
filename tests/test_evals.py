@@ -1025,6 +1025,76 @@ class EvalJob(unittest.TestCase):
         self.assertNotIn("diff", (self.work / job.REPORT).read_text())
         self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
 
+    def test_a_report_names_the_model_prompt_and_rubric_and_what_each_case_used(self):  # issue 616
+        # A change of score between two Releases can come from the model or the prompt: the report names the model by the
+        # id the CLI gave and the prompt and rubric by their sha256 at the commit, and each case's turns, cost and
+        # seconds, as numbers, from the CLI's own answer. A case never asked used nothing; one model that is not the
+        # configured one is said in the run line.
+        from harness import eval as job
+        (self.root / "roles" / "pr-review").mkdir(parents=True)
+        (self.root / "roles" / "pr-review" / "prompt.md").write_bytes(b"Review the change.\n")
+        (self.root / "config").mkdir()
+        (self.root / "config" / "rubric-pr-review.json").write_bytes(b'{"role": "pr-review"}\n')
+        (self.root / "config" / "harness.json").write_text(json.dumps({"engine": {"model": "claude-opus"}}))
+        self.step(job.plan)
+        self.step(job.fetch, self.home(self.cases))
+        first, second = list(self.cases)
+        result = example_result()
+        answers = {first: result, second: dict(result, usage=dict(result["usage"], turns=None, cost_usd=None, seconds=9.5))}
+        self.assertEqual(self.step(job.score, lambda case: answers[case["id"]]), "scored 2 of 2 cases, 2 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual((written["models"], written["prompt_sha256"], written["rubric_sha256"]),
+                         (["claude-opus"], hashlib.sha256(b"Review the change.\n").hexdigest(),
+                          hashlib.sha256(b'{"role": "pr-review"}\n').hexdigest()))
+        self.assertEqual([c["usage"] for c in written["cases"]],
+                         [{"turns": 2, "cost_usd": 0.167688, "seconds": 2.714}, {"turns": None, "cost_usd": None, "seconds": 9.5}])
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
+        # Another model, by the CLI's own word: the run line says so, and the report names it.
+        other = dict(result, usage=dict(result["usage"], answering_model="claude-sonnet"))
+        self.assertEqual(self.step(job.score, lambda case: other if case["id"] == second else result), "scored 2 of 2 cases, 2 passed")
+        self.assertEqual(json.loads((self.work / job.REPORT).read_text())["models"], ["claude-opus", "claude-sonnet"])
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code; answered by claude-opus, claude-sonnet, not the configured claude-opus")
+        # As a live Run is, another model's answer is a failed Result, `engine_model`, which fails the run: what it used is
+        # kept all the same, and the judge's log names the model (Astra, the Claude review).
+        refused = dict(result, status="failed", reason="engine_model", findings=[], dispositions=[], effects={}, coverage=[],
+                       usage=dict(result["usage"], answering_model="claude-sonnet", turns=3, cost_usd=0.25, seconds=8))
+        self.step(job.score, lambda case: refused if case["id"] == second else result)
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["models"], written["cases"][1]["usage"]),
+                         (["claude-opus", "claude-sonnet"], {"turns": 3, "cost_usd": 0.25, "seconds": 8}))
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.judge(dict(self.env), self.root, self.work)), 1)
+        self.assertIn("engine_model 1", out.getvalue())
+        self.assertIn("; answered by claude-opus, claude-sonnet, not the configured claude-opus\nengine_fault\n", out.getvalue())
+        # A model's id of another shape is left out, not raised on.
+        self.assertEqual(job.models({"a": {"answering_model": []}, "b": {"answering_model": {"x": 1}},
+                                     "c": {"answering_model": "claude-opus"}, "d": {"answering_model": "a" * 65}}), ["claude-opus"])
+        # A case never asked used nothing; with no prompt or rubric in the Release, neither is named.
+        (self.root / "roles" / "pr-review" / "prompt.md").unlink()
+        (self.root / "config" / "rubric-pr-review.json").unlink()
+        self.assertEqual(self.step(job.score, lambda case: (_ for _ in ()).throw(job.Stop("not_this_set"))),
+                         "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual((written["models"], written["prompt_sha256"], written["rubric_sha256"]), ([], None, None))
+        self.assertEqual([c["usage"] for c in written["cases"]], [{"turns": None, "cost_usd": None, "seconds": 0}] * 2)
+        # What a Result says it used that is no number is none.
+        self.assertEqual(job.used({"turns": True, "cost_usd": "0.17", "seconds": -1}), {"turns": None, "cost_usd": None, "seconds": 0})
+        # The schema holds each field, as numbers and ids alone: a report without one, or with words in one, is refused.
+        schema = load("schemas/eval-report.schema.json")
+        case, usage = written["cases"][0], written["cases"][0]["usage"]
+        for name, bad in (("no models", {k: v for k, v in written.items() if k != "models"}),
+                          ("no prompt hash", {k: v for k, v in written.items() if k != "prompt_sha256"}),
+                          ("no rubric hash", {k: v for k, v in written.items() if k != "rubric_sha256"}),
+                          ("a model in words", dict(written, models=["Claude Opus"])),
+                          ("a prompt hash in words", dict(written, prompt_sha256="the prompt of 7 November")),
+                          ("a case with no usage", dict(written, cases=[{k: v for k, v in case.items() if k != "usage"}])),
+                          ("no seconds", dict(written, cases=[dict(case, usage={"turns": None, "cost_usd": None})])),
+                          ("a cost in words", dict(written, cases=[dict(case, usage=dict(usage, cost_usd="0.17"))])),
+                          ("turns in words", dict(written, cases=[dict(case, usage=dict(usage, turns="two"))]))):
+            self.assertNotEqual(validate(bad, schema, schemas=eval_result.schemas()), [], name)
+
     def test_a_pass_at_an_alternate_place_alone_is_marked_in_the_report_and_counted(self):  # decision 0143
         # How much of a score `also_at` gave can be counted from the report, by a mark that says no place.
         from harness import eval as job
@@ -1131,9 +1201,10 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(out.getvalue(), "scored 2 of 2 cases, 2 passed\neval_split_short\n")
             written = json.loads((self.work / job.REPORT).read_text())
             self.assertIs(written["split_ok"], False)
-            self.assertEqual(sorted(written), ["blocking_pass", "cases", "commit", "intent", "kinds_pass", "passed", "release", "role",
-                                               "schema", "set", "split_ok"], "no count of a kind, nor any field of one")
-            self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "verdict"])
+            self.assertEqual(sorted(written), ["blocking_pass", "cases", "commit", "intent", "kinds_pass", "models", "passed",
+                                               "prompt_sha256", "release", "role", "rubric_sha256", "schema", "set", "split_ok"],
+                             "no count of a kind, nor any field of one")
+            self.assertEqual(sorted(written["cases"][0]), ["id", "reasons", "sha256", "usage", "verdict"])
             self.assertEqual(self.step(job.judge), "eval_split_short")
         # The answer of a case that is read as no kind, or not read at all, says nothing: its run fails by that case.
         first = next(iter(self.cases))
@@ -1579,6 +1650,96 @@ class EvalJob(unittest.TestCase):
         for table in ("FACTS_THE_SET_PREDATES", "THREAD_FIELDS_THE_SET_PREDATES"):
             with mock.patch.object(job, table, getattr(job, table)[1:]):
                 self.assertTrue(validate(job.current_facts(then), known["facts"], schemas=known), table)
+
+    def test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history(self):  # issue 614
+        # What keeps a case's answer from the model is that its Task is built from the case's facts, diff and head alone.
+        # A marker the answer holds reaches neither the Task, nor the prompt, nor the CLI's environment, nor any file or
+        # folder of the head, the folder the CLI is started in, to which decision 0138 holds the read tools; and the head
+        # holds no `.git`, whose history could hold it.
+        import os
+        import uuid
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        marker = "answer-marker-q7zx"
+        case["expected"]["finding"]["location"] = {"path": "kernel/%s.py" % marker, "start_line": 86}
+        answer = json.dumps(case["expected"], sort_keys=True)
+        seen = {"files": {}, "folders": []}
+
+        class Reading(live.CLI):
+            """The CLI, which reads at its call every file and folder of the folder it is started in, each by its path
+            there, as the read tools may."""
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    self.read(given["head"], "")
+                return super().__call__(args, env, timeout, **given)
+
+            def read(self, head, under):
+                # Listed by hand, not by `tools/walk`: that walks this repo, and skips the `.git` looked for here.
+                for name in sorted(os.listdir(os.path.join(head, under))):
+                    path = os.path.join(under, name)
+                    if os.path.isdir(os.path.join(head, path)) and not os.path.islink(os.path.join(head, path)):
+                        seen["folders"].append(path)
+                        self.read(head, path)
+                    else:
+                        seen["files"][path] = pathlib.Path(head, path).read_bytes().decode("utf-8", "replace")
+        built, answered = [], step.live.answer
+
+        def answering(the_task, *given, **named):
+            built.append(json.dumps(the_task, sort_keys=True))
+            return answered(the_task, *given, **named)
+
+        def scored(heads=None, case=case):
+            seen["files"], seen["folders"] = {}, []
+            shutil.rmtree(str(self.temp / "heldout"), ignore_errors=True)     # each run's scratch is its own
+            cases = {case["id"]: (json.dumps(case, indent=2) + "\n").encode()}
+            self.set(cases)
+            self.step(job.plan)
+            self.step(job.fetch, self.home(cases), *([heads] if heads else []))
+            kept_plan = json.loads((self.temp / "heldout" / "plan.json").read_text())
+            (self.temp / "heldout" / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
+            cli = Reading(said=live.answer(live.judged(findings=[], effects={})))
+            with mock.patch.object(step.live, "answer", answering):
+                said = self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
+            return said, cli
+        said, cli = scored()
+        self.assertEqual((said, len(cli.asked()), len(built)), ("scored 1 of 1 cases, 0 passed", 1, 1), "the case is asked of the model")
+        self.assertTrue(seen["files"], "the head is read at the call")
+        # Each file by its path and its bytes, each folder by its path, and the CLI's environment, as well as the Task
+        # and the prompt.
+        asked = cli.asked()[0]
+        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the environment", json.dumps(asked["env"])),
+                            ("the head's paths", "\n".join(sorted(seen["files"]) + seen["folders"]))] + sorted(seen["files"].items()):
+            self.assertNotIn(marker, text, where)
+            self.assertNotIn(answer, text, where)
+        self.assertNotIn(".git", [part.casefold() for path in seen["folders"] + list(seen["files"]) for part in path.split(os.sep)])
+        # No part of it, either: cases that differ in their answer alone, each field of it, give the model the same
+        # Task, prompt and head, the Run's fresh id and session held still.
+        met = {"verdict": "met", "criterion": "PR-5", "finding": None}
+        other = {"verdict": "finding", "criterion": "PR-1", "finding": {"category": "requirements", "severity": "major",
+                 "location": {"path": "kernel/terms.py", "start_line": 12, "end_line": 14}}}
+        given = []
+        with mock.patch.object(step, "run_id", lambda: "r_" + "A" * 20), mock.patch("uuid.uuid4", lambda: uuid.UUID(int=1)):
+            for expected in (case["expected"], other, met):
+                del built[:]
+                said, cli = scored(case=dict(case, expected=expected))
+                self.assertEqual(len(cli.asked()), 1, expected)
+                given.append((built[0], cli.asked()[0]["args"], cli.asked()[0]["env"], dict(seen["files"]), sorted(seen["folders"])))
+        self.assertTrue(given[0][3])
+        self.assertEqual(given[1], given[0])
+        self.assertEqual(given[2], given[0])
+        # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
+
+        class Historied(Heads):
+            def send(self, req):
+                from adapters import github
+                from tests import support
+                sha = github.TARBALL.fullmatch(req["path"]).group(3)
+                return {"status": 200, "headers": {}, "body": support.tarball(sha, [("README.md", b"0", b"# a repo\n"),
+                        (".git/HEAD", b"0", b"ref: refs/heads/main\n")]).decode("utf-8", errors="surrogateescape")}
+        said, cli = scored(Historied())
+        self.assertEqual((said, cli.asked()), ("scored 1 of 1 cases, 0 passed", []))
+        self.assertEqual([c["reasons"] for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [["head_unreadable"]])
 
     def test_a_case_the_set_predates_is_filled_where_it_is_read_and_the_live_path_is_not(self):  # decision 0105
         # Each default is what the field says of a pull request of which nothing is known: never reopened, no review past
@@ -2480,6 +2641,11 @@ class EvalJob(unittest.TestCase):
                                             "met": {"cases": 0, "passed": 0, "interval": {"low": 0.0, "high": 1.0}}})
         self.assertEqual(written["usage"]["answered"], 2)
         self.assertEqual(written["usage"]["output_tokens"], 2 * result["usage"]["output_tokens"])
+        # The model that answered, by the id the CLI gave, and a tally that says so where it is not the configured one
+        # (issue 616).
+        self.assertEqual(written["models"], ["claude-opus"])
+        self.assertTrue(job.tally(written, "claude-sonnet").endswith("; answered by claude-opus, not the configured claude-sonnet"))
+        self.assertNotIn("answered by", job.tally(written, "claude-opus"))
         self.assertEqual(written["engine"]["prompt_sha256"],
                          hashlib.sha256((ROOT / "roles" / "pr-review" / "prompt.md").read_bytes()).hexdigest())
         # Unsealed, it is no report the gate reads: only the seal step's hash makes it whole.
@@ -2493,8 +2659,9 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(kept.stat().st_mode & 0o777, 0o600)
         ledger = json.loads(kept.read_text())
         self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])
-        self.assertEqual([(c["id"], c["natural"], c["verdict"], c["result"]) for c in ledger["cases"]],
-                         [(list(self.cases)[0], True, "pass", result), ("poc-two", False, "pass", result)])
+        self.assertEqual([(c["id"], c["natural"], c["verdict"], c["result"], c["usage"]) for c in ledger["cases"]],
+                         [(list(self.cases)[0], True, "pass", result, job.used(result["usage"])),
+                          ("poc-two", False, "pass", result, job.used(result["usage"]))])
         self.assertEqual(written["ledger"]["salted_sha256"], hashlib.sha256(kept.read_bytes()).hexdigest())
         found = job.manifest(self.root)[0]
         salts = {job.ledger_of(ledger, found, {c["id"]: ("pass", []) for c in found["cases"]}, {}, set(), {})["salt"]
@@ -2668,7 +2835,7 @@ class EvalJob(unittest.TestCase):
                   "faults": [{"code": c, "count": n} for c, n in faults],
                   "usage": {"answered": count, "input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
                             "output_tokens": 1, "turns": count, "cost_usd": 1.5, "seconds": 60.0},
-                  "engine": job.engine_of("pr-review"), "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
+                  "engine": job.engine_of("pr-review"), "models": ["claude-opus"], "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
                   "split_ok": True, "kinds_pass": {"finding": job._clears(finding[1], finding[0], (3, 10)),
                                                    "met": job._clears(met[1], met[0], (9, 10))},
                   "blocking_pass": True, "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}

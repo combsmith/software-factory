@@ -66,6 +66,7 @@
           "sha256",
           "verdict",
           "reasons",
+          "usage",
           "natural"
         ],
         "properties": {
@@ -131,6 +132,36 @@
                 "location_unreadable",
                 "criterion_unknown"
               ]
+            }
+          },
+          "usage": {
+            "description": "What the case used, from the CLI's own answer: turns and cost in USD, null where the CLI reported none or was never asked, and seconds, 0 where it was never asked (issue 616). Numbers alone.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "turns",
+              "cost_usd",
+              "seconds"
+            ],
+            "properties": {
+              "turns": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "cost_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "seconds": {
+                "type": "number",
+                "minimum": 0
+              }
             }
           },
           "at_alternate": {

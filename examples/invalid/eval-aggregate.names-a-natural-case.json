@@ -58,6 +58,9 @@
     "prompt_sha256": "1b657e2ca5226c6d61636cf2d155df3aeef3cd95422f9ae09924410f72ed07d4",
     "rubric_sha256": "754be4b69c49114336398cc52faaf3b06b709a5674ac584fcc9433cede863d5a"
   },
+  "models": [
+    "a-model"
+  ],
   "bars": {
     "finding": [
       3,
