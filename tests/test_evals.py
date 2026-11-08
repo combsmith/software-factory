@@ -919,6 +919,10 @@ class EvalJob(unittest.TestCase):
         # And a workspace that is the scratch, or inside it.
         for work in (self.temp / "heldout", self.temp / "heldout" / "sub"):
             self.assertEqual(self.step_at(job.plan, work), "scratch_in_workspace", work)
+        # And a scratch linked to the root, which holds the workspace though its own path ends in its separator.
+        os.symlink(os.sep, str(self.temp / "heldout"))
+        self.assertEqual(self.step(job.plan), "scratch_in_workspace")
+        os.unlink(str(self.temp / "heldout"))
         # A manifest that is no eval-set/1, or miscounts its cases, or names one id twice, is no set.
         manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
         for broken in ({"schema": "eval-set/1", "count": 3}, dict(manifest, count=3),
@@ -2053,6 +2057,26 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("unanswered", said)
 
+    def test_the_canarys_head_is_apart_from_its_case(self):  # issue 626
+        # The canary keeps its head as the eval job does (issue 623): the folder the CLI starts in and the folder that
+        # holds its case share none below the system's temporary directory.
+        import os
+        import tempfile
+        from harness import eval as job
+        from harness.eval import canary, run as step
+        from tests import test_harness as live
+        kept, assess = {}, job.assess
+
+        def assessing(found, fetched, place, answered):
+            kept["cases"] = os.path.realpath(str(place / "cases"))
+            return assess(found, fetched, place, answered)
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with mock.patch.object(step, "run_id", lambda: live.RUN), mock.patch.object(job, "assess", assessing), \
+                mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(canary.review(dict(live.JOB), cli, live.Clock(*[float(i) for i in range(9)]), Heads()), 0)
+        head = os.path.realpath(cli.asked()[0]["head"])
+        self.assertEqual(os.path.commonpath([head, kept["cases"]]), os.path.realpath(tempfile.gettempdir()))
+
     def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0110
         from harness import engine, eval as job, task
         from harness.eval import run as step
@@ -2411,6 +2435,9 @@ class EvalJob(unittest.TestCase):
         plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
         self.set(cases)
         self.step(plan)
+        # The plan makes the heads folder, as closed as the scratch (issue 626).
+        self.assertTrue((self.temp / "heads").is_dir(), "the plan makes the heads folder")
+        self.assertEqual(os.stat(str(self.temp / "heads")).st_mode & 0o777, 0o700)
         self.assertEqual(self.step(fetch, self.home(cases), Heads()), "fetched 1 of 1 cases")
         place = self.temp / "heldout"
         kept_plan = json.loads((place / "plan.json").read_text())
@@ -2426,6 +2453,7 @@ class EvalJob(unittest.TestCase):
         cli = Looking(said=live.answer(live.judged(findings=[], effects={})))
         self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
         scratch, temp = os.path.realpath(str(place)), os.path.realpath(str(self.temp))
+        self.assertIn("head", seen, "the CLI is asked, in a head")
         self.assertTrue(os.path.isdir(os.path.join(scratch, "cases")), "the cases are where the scratch keeps them")
         self.assertEqual(os.path.commonpath([seen["head"], scratch]), temp)
         self.assertEqual(seen["beside"], [case["id"]], "beside the head, nothing but the heads")
@@ -2440,6 +2468,10 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(stopped.exception.code, "scratch_in_workspace", target)
             os.unlink(str(self.temp / "heads"))
         self.assertEqual(job.heads_place(self.env, self.work), pathlib.Path(temp, "heads"))
+        # A heads folder an earlier job left stops the plan, as a scratch it left does (issue 626).
+        self.clean()
+        (self.temp / "heads").mkdir()
+        self.assertEqual(self.step(plan), "scratch_unreadable")
 
     def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
         # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its

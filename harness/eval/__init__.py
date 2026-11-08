@@ -108,7 +108,8 @@ def scratch(env: dict, workspace: pathlib.Path) -> pathlib.Path:
     if not isinstance(temp, str) or not os.path.isabs(temp):
         raise Stop("scratch_unreadable")
     inside, place = os.path.realpath(str(workspace)), os.path.realpath(os.path.join(temp, "heldout"))
-    if place == inside or place.startswith(inside + os.sep) or inside.startswith(place + os.sep):
+    # Read part by part, as `heads_place` reads, so that the root, whose own path ends in its separator, holds every other.
+    if os.path.commonpath([place, inside]) in (place, inside):
         raise Stop("scratch_in_workspace")
     return pathlib.Path(place)
 
@@ -170,6 +171,8 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     try:
         place.mkdir(mode=0o700)
         (place / "cases").mkdir(mode=0o700)
+        # The heads beside it, made new as it is: a folder an earlier job left is no head of this run (issue 626).
+        heads_place(env, workspace).mkdir(mode=0o700)
     except OSError:
         raise Stop("scratch_unreadable") from None
     # When the plan was made, the job's own start to within its checkout: the run step's time is counted from it, so
