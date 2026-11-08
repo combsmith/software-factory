@@ -65,6 +65,10 @@ KIND_LEAST = 20
 KINDS = ("finding", "met")
 BLOCKING = "blocking"       # whether every case that expects a Finding of this severity passed is said, and closes nothing
 BLOCKING_LEAST = 1          # by itself (decision 0150); a set holds one, or a true word for them could mean none exist
+# How many dispatches on one commit a gate set's gate pools, every one of them counted, so that no run is the best of
+# several (issue 613).
+POOL_LEAST = 3
+OWN = ("bars", "kind_least", "record")     # what a gate set's manifest gives of its own, and no other set's does
 # What a case's `cause` may say, each held to a shape that holds no words: an exception's class, the last line of this
 # repo's own code it passed, a code, and the CLI's subtype and exit. Never a message, which could quote a case.
 CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,63}")
@@ -119,6 +123,12 @@ def held(data: bytes) -> tuple:
             len({c["id"] for c in found["cases"]}) != len(found["cases"]) or \
             (gate_set(found) and not all("natural" in c for c in found["cases"])):
         raise Stop("eval_set_unreadable")
+    # A gate set gives its own bars, its least of a kind and the record that states them; no other set gives any, its
+    # being BAR_OF_A_KIND and KIND_LEAST (issue 613).
+    if [key for key in OWN if key in found] != (list(OWN) if gate_set(found) else []) \
+            or (gate_set(found) and any(not 0 <= found["bars"][kind][0] <= found["bars"][kind][1] or found["bars"][kind][1] < 1
+                                        for kind in KINDS)):
+        raise Stop("eval_set_unreadable")
     natural = len([c for c in found["cases"] if c.get("natural") is True])
     if gate_set(found) and any(0 < group < ORIGIN_LEAST for group in (natural, found["count"] - natural)):
         raise Stop("eval_set_unreadable")
@@ -129,6 +139,26 @@ def gate_set(found: dict) -> bool:
     """Whether a manifest is a gate set's, whose report is of counts alone (issue 612): one that says so. A set that does
     not is a development set, as every set was before."""
     return found.get("gate") is True
+
+
+def bars_of(found: dict) -> dict:
+    """The bar each kind of the set is held to: a gate set's own, as its manifest gives them and its record states them
+    (issue 613); BAR_OF_A_KIND for every other set."""
+    return {kind: tuple(found["bars"][kind]) for kind in KINDS} if gate_set(found) else dict(BAR_OF_A_KIND)
+
+
+def kind_least_of(found: dict) -> int:
+    """How many cases of each kind the set must hold: a gate set's own, as its manifest gives it (issue 613); KIND_LEAST
+    for every other set."""
+    return found["kind_least"] if gate_set(found) else KIND_LEAST
+
+
+def bars_said(found: dict) -> str:
+    """The sentence a gate set's record holds of its bars and its least of a kind, word for word, so that a check can hold
+    the record to the manifest and nothing reads a record at run time (issue 613)."""
+    bars = bars_of(found)
+    return "Its bars: %s; at least %d cases of each kind." % (
+        ", ".join("%s %d of %d" % (kind, bars[kind][0], bars[kind][1]) for kind in KINDS), kind_least_of(found))
 
 
 def scratch(env: dict, workspace: pathlib.Path) -> pathlib.Path:
@@ -516,12 +546,12 @@ def kinds_of(found: dict, place: pathlib.Path):
 
 
 def split_ok(found: dict, place: pathlib.Path):
-    """Whether the set's cases hold KIND_LEAST of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
+    """Whether the set's cases hold `kind_least_of` of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
     the whole set, never how many of any: the gate needs no more (decision 0120). None where `kinds_of` can say nothing."""
     kinds = kinds_of(found, place)
     if kinds is None:
         return None
-    return min(list(kinds.values()).count(kind) for kind in KINDS) >= KIND_LEAST \
+    return min(list(kinds.values()).count(kind) for kind in KINDS) >= kind_least_of(found) \
         and len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST
 
 
@@ -530,18 +560,19 @@ def _clears(passed: int, of: int, bar: tuple) -> bool:
     return passed * bar[1] >= of * bar[0]
 
 
-def least_passed(count: int, least: int) -> int:
-    """The fewest of `count` cases a set can have passed with each kind on its BAR_OF_A_KIND and holding `least` cases at
-    least: those `least` of each kind, and every other case in the kind whose bar asks fewest of them (decision 0150). A
-    set too small to hold `least` of each kind is read with no least."""
+def least_passed(count: int, least: int, bars: dict = None) -> int:
+    """The fewest of `count` cases a set can have passed with each kind on its bar, `bars` or BAR_OF_A_KIND, and holding
+    `least` cases at least: those `least` of each kind, and every other case in the kind whose bar asks fewest of them
+    (decision 0150). A set too small to hold `least` of each kind is read with no least."""
+    bars = BAR_OF_A_KIND if bars is None else bars
     least = least if count >= least * len(KINDS) else 0
     on = lambda bar, cases: -(-cases * bar[0] // bar[1])        # the fewest of `cases` that clear `bar`, in whole numbers
-    return min(sum(on(BAR_OF_A_KIND[kind], count - least * (len(KINDS) - 1) if kind == rest else least) for kind in KINDS)
+    return min(sum(on(bars[kind], count - least * (len(KINDS) - 1) if kind == rest else least) for kind in KINDS)
                for rest in KINDS)
 
 
 def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
-    """`{kind: whether at least its BAR_OF_A_KIND of its cases passed}`, read where the cases are: one word for each, never
+    """`{kind: whether at least its bar, `bars_of`, of its cases passed}`, read where the cases are: one word for each, never
     how many (decisions 0120 and 0150). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
     holds that."""
     kinds = kinds_of(found, place)
@@ -551,7 +582,7 @@ def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     for kind in KINDS:
         cases = [case for case, its in kinds.items() if its == kind]
         passed = [case for case in cases if assessed[case] == (PASS, [])]
-        said[kind] = _clears(len(passed), len(cases), BAR_OF_A_KIND[kind])
+        said[kind] = _clears(len(passed), len(cases), bars_of(found)[kind])
     return said
 
 
@@ -711,7 +742,7 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
             "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
             "faults": [{"code": code, "count": codes.count(code)} for code in sorted(set(codes))],
             "usage": usage_of(results), "engine": engine_of(found["role"]), "models": models(usages or {}),
-            "bars": {kind: list(BAR_OF_A_KIND[kind]) for kind in KINDS}, "kind_least": KIND_LEAST,
+            "bars": {kind: list(bars_of(found)[kind]) for kind in KINDS}, "kind_least": kind_least_of(found),
             "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
             "blocking_pass": blocking_pass(found, place, assessed),
             "ledger": {"salted_sha256": hashlib.sha256(ledger).hexdigest()}}
@@ -734,7 +765,7 @@ def _judged(document: dict, found: dict, digest: str, commit: str, release: str)
 def aggregate_verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
     """`verdict`'s word on a gate set's report: `pass` only for an `eval-aggregate/1` of this set on this commit for
     this Release, sealed, with no fault of the Engine or the run, whose counts add up to the set's and to its own words,
-    held to the bars applied here, and each kind's bar cleared (decision 0150); otherwise the one code that says why not."""
+    held to the set's bars, `bars_of`, and each kind's bar cleared (decision 0150); otherwise the one code that says why not."""
     if _errors(document, "eval-aggregate"):
         return "report_unreadable"
     judged = _judged(document, found, digest, commit, release)
@@ -755,7 +786,7 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or any(o["passed"] > o["cases"] for o in origin.values()) \
             or passed + sum(fault["count"] for fault in document["faults"]) > found["count"]:
         return "count_differs"
-    kinds, words = document["kinds"], document["kinds_pass"]
+    kinds, words, bars, least = document["kinds"], document["kinds_pass"], bars_of(found), kind_least_of(found)
     if (kinds is None) != (words is None):
         return "count_differs"
     # Where no kind could be read, the job says nothing of the split or of the blocking cases either.
@@ -765,16 +796,50 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             sum(kinds[k]["cases"] for k in KINDS) != found["count"] or sum(kinds[k]["passed"] for k in KINDS) != passed
             or any(kinds[k]["passed"] > kinds[k]["cases"] or kinds[k]["interval"] != wilson(kinds[k]["passed"], kinds[k]["cases"])
                    for k in KINDS)
-            or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], BAR_OF_A_KIND[k]) for k in KINDS}
-            or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < KIND_LEAST)):
+            or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], bars[k]) for k in KINDS}
+            or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < least)):
         return "count_differs"
-    if document["bars"] != {kind: list(BAR_OF_A_KIND[kind]) for kind in KINDS} or document["kind_least"] != KIND_LEAST:
+    if document["bars"] != {kind: list(bars[kind]) for kind in KINDS} or document["kind_least"] != least:
         return "bars_differ"
-    if passed < least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \
+    if passed < least_passed(found["count"], least if document["split_ok"] is True else 0, bars) \
             or (words is not None and not all(words.values())):
         return "case_failed"
     if document["split_ok"] is not True or kinds is None or document["blocking_pass"] is None:
         return "eval_split_short"
+    return PASS
+
+
+def pooled(documents: list) -> dict:
+    """What the gate set's reports on one commit say together: each kind's cases and passes summed over every report,
+    the passes summed, and the blocking word true only where every report's is (issue 613). Each must be one
+    `aggregate_verdict` has held whole, with its kinds read."""
+    return {"kinds": {kind: {field: sum(d["kinds"][kind][field] for d in documents) for field in ("cases", "passed")}
+                      for kind in KINDS},
+            "passed": sum(d["passed"] for d in documents),
+            "blocking_pass": all(d["blocking_pass"] is True for d in documents)}
+
+
+def pooled_verdict(documents: list, found: dict, digest: str, commit: str, release: str) -> str:
+    """The gate's word on a gate set from every dispatch on the commit that the gate counted, each report in
+    `documents` (issue 613): `pass` only where there are POOL_LEAST at least, each is this set's report on this commit
+    for this Release held whole by `aggregate_verdict`, and each kind's cases, summed over all of them, clear its bar.
+    A report the job could not read, or one of a run the Engine or the Factory stopped, closes the gate as a faulted
+    dispatch, `eval_dispatch_faulted`; one whose own run fell under the bar is pooled, as the bar is the pool's. The
+    blocking word closes nothing (decision 0150)."""
+    if len(documents) < POOL_LEAST:
+        return "eval_pool_short"
+    said = [aggregate_verdict(document, found, digest, commit, release) for document in documents]
+    if set(said) & {"report_unreadable", "engine_fault", "run_fault"}:
+        return "eval_dispatch_faulted"
+    closed = [code for code in said if code not in (PASS, "case_failed")]
+    if closed:
+        return closed[0]
+    # Each kind is read in every report, and the split held in each, or the pool has no kinds to sum.
+    if any(d["kinds"] is None or d["split_ok"] is not True or d["blocking_pass"] is None for d in documents):
+        return "eval_split_short"
+    together, bars = pooled(documents), bars_of(found)
+    if not all(_clears(together["kinds"][k]["passed"], together["kinds"][k]["cases"], bars[k]) for k in KINDS):
+        return "case_failed"
     return PASS
 
 

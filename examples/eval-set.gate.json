@@ -1,0 +1,31 @@
+{
+  "schema": "eval-set/1",
+  "role": "pr-review",
+  "intent": "review-change",
+  "gate": true,
+  "count": 2,
+  "cases": [
+    {
+      "id": "synthetic-gate-one",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "natural": false
+    },
+    {
+      "id": "synthetic-gate-two",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "natural": false
+    }
+  ],
+  "bars": {
+    "finding": [
+      3,
+      10
+    ],
+    "met": [
+      9,
+      10
+    ]
+  },
+  "kind_least": 20,
+  "record": "docs/decisions/0164-the-eval-job-reads-a-named-set-and-a-gate-sets-report-is-counts-alone-its-ledger-sealed.md"
+}

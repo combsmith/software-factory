@@ -959,7 +959,8 @@ class EvalJob(unittest.TestCase):
                     "cases": [dict({"id": i, "sha256": hashlib.sha256(d).hexdigest()}, **({"natural": i in natural} if gate else {}))
                               for i, d in cases.items()]}
         if gate:
-            manifest["gate"] = True
+            manifest.update(gate=True, bars={"finding": [3, 10], "met": [9, 10]}, kind_least=0,
+                            record="docs/decisions/0164-the-gate-sets-record.md")
         (self.root / "evals" / name).mkdir(parents=True, exist_ok=True)
         (self.root / "evals" / name / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
@@ -2871,7 +2872,9 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         count = finding[0] + met[0]
         found = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "gate": True, "count": count,
-                 "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i, "natural": i < natural[0]} for i in range(count)]}
+                 "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i, "natural": i < natural[0]} for i in range(count)],
+                 "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
+                 "record": "docs/decisions/0164-the-gate-sets-record.md"}
         passed = finding[1] + met[1]
         report = {"schema": "eval-aggregate/1", "release": "factory/v0.1.0", "commit": "a" * 40, "role": "pr-review",
                   "intent": "review-change", "set": {"count": count, "sha256": "d" * 64}, "passed": passed,
@@ -2984,6 +2987,133 @@ class EvalJob(unittest.TestCase):
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(job.main(lambda env, root, work: job.judge(self.env, self.root, self.work)), 1)
         self.assertEqual(out.getvalue(), "1 of 2 passed; unanswered 1\nrun_fault\n")
+
+    def test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them(self):  # issue 613
+        from harness import eval as job
+        found, digest, good = self.aggregate_of()
+        data = lambda manifest: json.dumps(manifest).encode()
+        self.assertEqual(job.held(data(found))[0], found)
+        self.assertEqual((job.bars_of(found), job.kind_least_of(found)), ({"finding": (3, 10), "met": (9, 10)}, 20))
+        # Each a gate set must give, and no other set may: a development set's are BAR_OF_A_KIND and KIND_LEAST.
+        development = {k: v for k, v in found.items() if k not in ("gate", "bars", "kind_least", "record")}
+        development["cases"] = [{k: v for k, v in c.items() if k != "natural"} for c in found["cases"]]
+        self.assertEqual((job.bars_of(development), job.kind_least_of(development)), (job.BAR_OF_A_KIND, job.KIND_LEAST))
+        self.assertEqual(job.held(data(development))[0], development)
+        broken = [{k: v for k, v in found.items() if k != key} for key in job.OWN]
+        broken += [dict(development, **{key: found[key]}) for key in job.OWN]
+        broken += [dict(found, bars={"finding": [11, 10], "met": [9, 10]}), dict(found, bars={"finding": [3, 10], "met": [0, 0]}),
+                   dict(found, bars={"finding": [3, 10]}), dict(found, bars={"finding": [3, 10, 1], "met": [9, 10]}),
+                   dict(found, kind_least=-1), dict(found, record="docs/notes.md")]
+        for manifest in broken:
+            with self.subTest(manifest={k: v for k, v in manifest.items() if k != "cases"}):
+                with self.assertRaises(job.Stop):
+                    job.held(data(manifest))
+        # The set's bars are the ones its report is held to: a report of the old bar is of other bars, and one of its own
+        # is held to them.
+        judged = lambda report, of: job.verdict(report, of, digest, "a" * 40, "factory/v0.1.0")
+        self.assertEqual(judged(good, dict(found, bars={"finding": [1, 4], "met": [9, 10]})), "bars_differ")
+        stricter = dict(found, bars={"finding": [7, 20], "met": [9, 10]})
+        self.assertEqual(judged(good, stricter), "count_differs")
+        own = dict(good, bars={"finding": [7, 20], "met": [9, 10]}, kinds_pass={"finding": False, "met": True})
+        self.assertEqual(judged(own, stricter), "case_failed")
+        self.assertEqual(judged(dict(own, kinds_pass={"finding": True, "met": True}), stricter), "count_differs")
+        self.assertEqual(judged(good, dict(found, kind_least=21)), "count_differs")
+        self.assertEqual(judged(dict(good, kind_least=10), dict(found, kind_least=10)), "pass")
+        # The job reads them too, where the cases are: a least of a kind the set's cases do not hold is a short split.
+        self.set(self.cases, gate=True, natural=list(self.cases)[:1])
+        manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
+        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(dict(manifest, kind_least=1)))
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases))
+        self.step(job.score, lambda case: example_result())
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["split_ok"], written["kind_least"]), (False, 1))
+        self.clean()
+        (self.work / job.REPORT).unlink()
+        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(dict(manifest, bars={"finding": [1, 1],
+                                                                                                     "met": [9, 10]})))
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases))
+        # One of the two passes: under the set's bar of all of them, where BAR_OF_A_KIND's would clear.
+        first = list(self.cases)[0]
+        self.step(job.score, lambda case: example_result() if case["id"] == first else dict(example_result(), findings=[]))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["passed"], written["kinds_pass"], written["bars"]["finding"]),
+                         (1, {"finding": False, "met": True}, [1, 1]))
+        # Its record states them word for word, and the check holds a gate set's manifest to it; nothing reads a record at
+        # run time.
+        live = pathlib.Path(self.dir.name) / "live"
+        (live / "evals" / "gate").mkdir(parents=True)
+        (live / "schemas").symlink_to(ROOT / "schemas")
+        (live / "evals" / "gate" / "cases.json").write_text(json.dumps(found))
+        with mock.patch.dict(check_examples.LIVE, {"evals/gate/cases.json": "eval-set"}, clear=True):
+            self.assertIn("evals/gate/cases.json: names no record that states its bars", check_examples.run(live))
+            (live / "docs" / "decisions").mkdir(parents=True)
+            (live / found["record"]).write_text("%s\n" % job.bars_said(found))
+            self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")], [])
+        said = job.bars_said(found)
+        self.assertEqual(said, "Its bars: finding 3 of 10, met 9 of 10; at least 20 cases of each kind.")
+        record = self.root / found["record"]
+        record.parent.mkdir(parents=True)
+        self.assertEqual(check_examples._bars_stated(self.root, found), ["names no record that states its bars"])
+        record.write_text("| The bars | %s |\n" % said)
+        self.assertEqual(check_examples._bars_stated(self.root, found), [])
+        self.assertEqual(check_examples._bars_stated(self.root, dict(found, kind_least=21)),
+                         ["its record does not say %r" % job.bars_said(dict(found, kind_least=21))])
+        self.assertEqual(check_examples._bars_stated(self.root, {k: v for k, v in found.items() if k != "record"}),
+                         ["names no record that states its bars"])
+
+    def test_the_gate_pools_every_dispatch_on_the_commit_and_one_faulted_closes_it(self):  # issue 613
+        from harness import eval as job
+        found, digest, good = self.aggregate_of()
+        judged = lambda reports, of=found: job.pooled_verdict(reports, of, digest, "a" * 40, "factory/v0.1.0")
+        run = lambda finding=(20, 6), met=(20, 18), natural=(30, 18): self.aggregate_of(finding, met, natural)[2]
+        self.assertEqual(judged([good, good, good]), "pass")
+        # Fewer than POOL_LEAST is no pool, whatever they say.
+        self.assertEqual((judged([good, good]), judged([]), job.POOL_LEAST), ("eval_pool_short", "eval_pool_short", 3))
+        # A run under the bar alone is pooled, as the bar is the pool's: 5 + 7 + 7 of 60 clears 30%; 5 + 6 + 6 does not.
+        under = run(finding=(20, 5), natural=(30, 17))
+        self.assertEqual(job.verdict(under, found, digest, "a" * 40, "factory/v0.1.0"), "case_failed")
+        over = run(finding=(20, 7), natural=(30, 19))
+        self.assertEqual(judged([under, over, over]), "pass")
+        self.assertEqual(judged([under, good, good]), "case_failed")
+        self.assertEqual(judged([good, good, run(met=(20, 15), natural=(30, 15))]), "case_failed")
+        # The pool is held to the set's own bars: three runs at a quarter of the cases that expect a Finding clear a bar of
+        # a quarter, and not BAR_OF_A_KIND's.
+        quarter = dict(found, bars={"finding": [1, 4], "met": [9, 10]})
+        loose = dict(run(finding=(20, 5), natural=(30, 17)), bars=quarter["bars"], kinds_pass={"finding": True, "met": True})
+        self.assertEqual((judged([loose] * 3, quarter), judged([loose] * 3)), ("pass", "count_differs"))
+        self.assertEqual(judged([loose, loose, dict(loose, kinds=dict(loose["kinds"], finding={
+            "cases": 20, "passed": 4, "interval": job.wilson(4, 20)}), passed=22, kinds_pass={"finding": False, "met": True},
+            origin={"natural": {"cases": 30, "passed": 16}, "constructed": {"cases": 10, "passed": 6}})], quarter), "case_failed")
+        # Every one is pooled, the newest no more than the rest: three that pass and a fourth that brings the pool under.
+        self.assertEqual(judged([good, good, good, run(finding=(20, 0), natural=(30, 12))]), "case_failed")
+        self.assertEqual(judged([run(finding=(20, 0), natural=(30, 12)), good, good, good]), "case_failed")
+        self.assertEqual(job.pooled([good, under, over])["kinds"], {"finding": {"cases": 60, "passed": 18},
+                                                                     "met": {"cases": 60, "passed": 54}})
+        # A dispatch the Engine or the Factory stopped, or whose report is unreadable, closes the gate for the commit.
+        for faulted in (dict(good, faults=[{"code": "engine_timeout", "count": 1}]),
+                        dict(good, faults=[{"code": "not_found", "count": 1}]),
+                        {k: v for k, v in good.items() if k != "ledger"}, "not a report"):
+            with self.subTest(faulted=faulted if isinstance(faulted, str) else faulted.get("faults")):
+                self.assertEqual(judged([good, good, faulted]), "eval_dispatch_faulted")
+                self.assertEqual(judged([faulted, good, good, good]), "eval_dispatch_faulted")
+        # A report of another commit or Release, or one whose counts do not add up, closes it by its own code.
+        self.assertEqual(judged([good, good, dict(good, commit="b" * 40)]), "another_commit")
+        self.assertEqual(judged([good, good, dict(good, release="factory/v0.1.1")]), "another_release")
+        self.assertEqual(judged([good, good, dict(good, kind_least=19)]), "bars_differ")
+        # A run whose kinds were not read, or whose split is short, gives the pool nothing to sum.
+        self.assertEqual(judged([good, good, dict(good, split_ok=False)]), "eval_split_short")
+        # So does one under the bar alone that says so: its own verdict is the bar's, which the pool reads past.
+        self.assertEqual(judged([good, good, dict(under, split_ok=False)]), "eval_split_short")
+        self.assertEqual(judged([good, good, dict(under, blocking_pass=None)]), "eval_split_short")
+        self.assertEqual(judged([good, good, dict(good, kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None)]),
+                         "eval_split_short")
+        # The blocking word is true only where every run's is, and closes nothing (decision 0150).
+        missed = dict(good, blocking_pass=False)
+        self.assertEqual((job.pooled([good, missed, good])["blocking_pass"], job.pooled([good] * 3)["blocking_pass"]),
+                         (False, True))
+        self.assertEqual(judged([good, missed, good]), "pass")
 
 
 if __name__ == "__main__":

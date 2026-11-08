@@ -256,6 +256,18 @@ def _reason_unsuited(result: dict) -> list:
     return [] if engine.reason_given(result) else ["$.reason: not one its status may give"]
 
 
+def _bars_stated(root: pathlib.Path, found: dict) -> list:
+    """A gate set's bars and least of a kind, as its record states them word for word, so that nothing reads a record at
+    run time (issue 613)."""
+    from harness.eval import bars_said
+    path = root / found.get("record", "")
+    if "record" not in found or not path.is_file():
+        return ["names no record that states its bars"]
+    if bars_said(found) not in path.read_text(encoding="utf-8"):
+        return ["its record does not say %r" % bars_said(found)]
+    return []
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
 
@@ -334,6 +346,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
+        if kind == "eval-set" and not errors and value.get("gate") is True:
+            errors = _bars_stated(root, value)
         for err in errors:
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle", "evals"):

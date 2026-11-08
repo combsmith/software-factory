@@ -88,6 +88,17 @@ def verify_suite(commit=D, path=candidate.VERIFY_WORKFLOW, runs=None, total=None
               {"total_count": len(runs) if total is None else total, "workflow_runs": runs})
 
 
+HARNESS = json.loads((ROOT / "config" / "harness.json").read_text())
+
+
+def config(commit=D, document=None):
+    """The configuration at the commit, as the gate reads it for a gate set it may name (issue 613): this repo's own."""
+    data = (json.dumps(HARNESS if document is None else document, indent=1) + "\n").encode()
+    return ex("GET", "/repos/%s/contents/%s?ref=%s" % (REPO, candidate.CONFIG, commit), 200,
+              {"type": "file", "path": candidate.CONFIG, "encoding": "base64", "size": len(data),
+               "content": base64.b64encode(data).decode()})
+
+
 def manifest(commit=D, data=SET_BYTES, status=200):
     return ex("GET", "/repos/%s/contents/%s?ref=%s" % (REPO, candidate.SET, commit), status,
               {"type": "file", "path": candidate.SET, "encoding": "base64", "size": len(data),
@@ -117,7 +128,7 @@ def report_download(document, ident=9, run=EVAL_RUN):
 
 
 def gate_reads(commit=D, document=None):
-    return [manifest(commit), eval_runs(commit)] + report_download(report(commit) if document is None else document)
+    return [config(commit), manifest(commit), eval_runs(commit)] + report_download(report(commit) if document is None else document)
 
 
 def facts_reads(commit=D, document=None):
@@ -213,12 +224,12 @@ class Candidate(unittest.TestCase):
             with self.subTest(change=change):
                 answered = manifest()
                 answered["response"]["body"].update(change)
-                self.assertEqual(candidate.gate(github.Replay([answered]), REPO, D, VERSION), "eval_set_unreadable")
+                self.assertEqual(candidate.gate(github.Replay([config(), answered]), REPO, D, VERSION), "eval_set_unreadable")
         failed = manifest(status=500)
-        self.assertEqual(candidate.gate(github.Replay([failed]), REPO, D, VERSION), "eval_set_unreadable")
+        self.assertEqual(candidate.gate(github.Replay([config(), failed]), REPO, D, VERSION), "eval_set_unreadable")
         # A manifest past its bound, though whole and readable, is not read: GitHub inlines no more.
         big = manifest(data=SET_BYTES + b" " * candidate.SET_MOST)
-        self.assertEqual(candidate.gate(github.Replay([big] + gate_reads()[1:]), REPO, D, VERSION),
+        self.assertEqual(candidate.gate(github.Replay([config(), big] + gate_reads()[2:]), REPO, D, VERSION),
                          "eval_set_unreadable")
 
     def test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed(self):
@@ -228,22 +239,22 @@ class Candidate(unittest.TestCase):
         self.assertEqual(candidate.gate(github.Replay(gate_reads(document=report(blocking_pass=False))), REPO, D, VERSION), "pass")
         empty = json.dumps(dict(SET, count=0, cases=[])).encode()
         broken = (
-            ([manifest(status=404)], "eval_set_unreadable"),
-            ([manifest(data=b"{")], "eval_set_unreadable"),
-            ([dict(manifest(), response=dict(manifest()["response"], body=dict(manifest()["response"]["body"],
+            ([config(), manifest(status=404)], "eval_set_unreadable"),
+            ([config(), manifest(data=b"{")], "eval_set_unreadable"),
+            ([config(), dict(manifest(), response=dict(manifest()["response"], body=dict(manifest()["response"]["body"],
                                                                               size=len(SET_BYTES) + 1)))],
              "eval_set_unreadable"),
-            ([manifest(data=empty)] + [eval_runs()] + report_download(report()), "another_set"),
-            ([manifest(), eval_runs(runs=[])], "eval_not_run"),
-            ([manifest(), eval_runs(runs=[run_of(head_sha=A)])], "eval_not_run"),
-            ([manifest(), eval_runs(runs=[run_of(path=".github/workflows/other.yml")])], "eval_not_run"),
-            ([manifest(), eval_runs(total=2)], "eval_not_run"),
-            ([manifest(), eval_runs(runs=[run_of(conclusion="failure")])], "eval_not_run"),
-            ([manifest(), eval_runs(runs=[run_of(event="push")])], "eval_not_run"),
+            ([config(), manifest(data=empty)] + [eval_runs()] + report_download(report()), "another_set"),
+            ([config(), manifest(), eval_runs(runs=[])], "eval_not_run"),
+            ([config(), manifest(), eval_runs(runs=[run_of(head_sha=A)])], "eval_not_run"),
+            ([config(), manifest(), eval_runs(runs=[run_of(path=".github/workflows/other.yml")])], "eval_not_run"),
+            ([config(), manifest(), eval_runs(total=2)], "eval_not_run"),
+            ([config(), manifest(), eval_runs(runs=[run_of(conclusion="failure")])], "eval_not_run"),
+            ([config(), manifest(), eval_runs(runs=[run_of(event="push")])], "eval_not_run"),
             # A dispatch whose id is no GitHub id is none, though a run of that number would answer with a report.
-            ([manifest(), eval_runs(runs=[run_of(id=0)])] + report_download(report(), run=0), "eval_not_run"),
-            ([manifest(), eval_runs(runs=[run_of(id=True)])] + report_download(report(), run=1), "eval_not_run"),
-            ([manifest(data=b"[" * 60000)], "eval_set_unreadable"),
+            ([config(), manifest(), eval_runs(runs=[run_of(id=0)])] + report_download(report(), run=0), "eval_not_run"),
+            ([config(), manifest(), eval_runs(runs=[run_of(id=True)])] + report_download(report(), run=1), "eval_not_run"),
+            ([config(), manifest(data=b"[" * 60000)], "eval_set_unreadable"),
             (gate_reads(document="[" * 60000), "report_unreadable"),
             (gate_reads(document=report(release="factory/v0.2.9")), "another_release"),
             (gate_reads(document=report(commit=A)), "another_commit"),
@@ -268,7 +279,7 @@ class Candidate(unittest.TestCase):
             (gate_reads(document=report(blocking_pass=1)), "report_unreadable"),
             (gate_reads(document={k: v for k, v in report().items() if k != "blocking_pass"}), "report_unreadable"),
             (gate_reads(document="not json"), "report_unreadable"),
-            ([manifest(), eval_runs()], "report_unreadable"),
+            ([config(), manifest(), eval_runs()], "report_unreadable"),
         )
         for reads, code in broken:
             with self.subTest(code=code):
@@ -278,13 +289,116 @@ class Candidate(unittest.TestCase):
                                           {"commit": D, "on_main": True, "verified": True, "gate": said,
                                            "release": VERSION}, frozenset({NEXT})), ([], cut.EVAL_GATE_CLOSED))
         # Of two dispatches on the commit, the later is read.
-        later = [manifest(), eval_runs(runs=[run_of(id=1, run_number=3), run_of(run_number=9)])] + report_download(report())
+        later = [config(), manifest(), eval_runs(runs=[run_of(id=1, run_number=3), run_of(run_number=9)])] + report_download(report())
         self.assertEqual(candidate.gate(github.Replay(later), REPO, D, VERSION), "pass")
         # A commit or a repo that is not one asks nothing, and closes the gate.
         for commit, repo in (("main", REPO), (D.upper(), REPO), (D, "combsmith/.."), (None, REPO)):
             with self.subTest(commit=commit, repo=repo):
                 facts = candidate.facts(github.Replay([]), repo, commit, VERSION)
                 self.assertEqual((facts["on_main"], facts["verified"], facts["gate"]), (False, False, "report_unreadable"))
+
+    def test_a_gate_set_is_judged_by_every_dispatch_on_the_commit(self):  # issue 613
+        gate_set = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "gate": True, "count": 40,
+                    "cases": [{"id": "g-%d" % i, "sha256": "%064x" % i, "natural": False} for i in range(40)],
+                    "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
+                    "record": "docs/decisions/0164-the-gate-sets-record.md"}
+        gate_bytes = (json.dumps(gate_set, indent=2) + "\n").encode()
+        path = "evals/pr-review-gate/cases.json"
+        named = config(document=dict(HARNESS, gate_set="pr-review-gate"))
+
+        def gate_manifest(data=gate_bytes):
+            return ex("GET", "/repos/%s/contents/%s?ref=%s" % (REPO, path, D), 200,
+                      {"type": "file", "path": path, "encoding": "base64", "size": len(data),
+                       "content": base64.b64encode(data).decode()})
+
+        def counts(finding=6, met=18, **change):
+            document = {"schema": "eval-aggregate/1", "release": VERSION, "commit": D, "role": "pr-review",
+                        "intent": "review-change", "set": {"count": 40, "sha256": hashlib.sha256(gate_bytes).hexdigest()},
+                        "passed": finding + met,
+                        "kinds": {kind: {"cases": 20, "passed": p, "interval": eval_gate.wilson(p, 20)}
+                                  for kind, p in (("finding", finding), ("met", met))},
+                        "origin": {"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": finding + met}},
+                        "faults": [], "usage": {"answered": 40, "input_tokens": 1, "cache_creation_input_tokens": 0,
+                                                "cache_read_input_tokens": 0, "output_tokens": 1, "turns": 40,
+                                                "cost_usd": 1.5, "seconds": 60.0},
+                        "engine": eval_gate.engine_of("pr-review"), "models": ["claude-opus"],
+                        "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20, "split_ok": True,
+                        "kinds_pass": {"finding": finding * 10 >= 60, "met": met * 10 >= 180}, "blocking_pass": True,
+                        "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}
+            document.update(change)
+            return document
+
+        def dispatches(runs):
+            return ex("GET", "/repos/%s/actions/workflows/eval.yml/runs?head_sha=%s&event=workflow_dispatch&per_page=100"
+                      % (REPO, D), 200, {"total_count": len(runs), "workflow_runs": runs})
+
+        def judged(reports, runs=None, head=None):
+            """The gate's word on dispatches 1, 2, 3...: each its report of `reports`, oldest first; and whether every
+            read was asked."""
+            runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(len(reports))] \
+                if runs is None else runs
+            reads = (head or [named, gate_manifest()]) + [dispatches(runs)]
+            for i, document in enumerate(reports):
+                reads += report_download(document, ident=500 + i, run=100 + i) if document is not None else []
+            transport = github.Replay(reads)
+            return candidate.gate(transport, REPO, D, VERSION), not transport._left
+
+        self.assertEqual(judged([counts(), counts(), counts()]), ("pass", True))
+        # Every dispatch is read and pooled, none the best of the rest: a fourth that brings the pool under closes it,
+        # newest or oldest; and a run under the bar alone is pooled.
+        self.assertEqual(judged([counts(), counts(), counts(), counts(finding=0)]), ("case_failed", True))
+        self.assertEqual(judged([counts(finding=0), counts(), counts(), counts()]), ("case_failed", True))
+        self.assertEqual(judged([counts(finding=5), counts(finding=7), counts(finding=7)]), ("pass", True))
+        # Two that pass and one faulted close the gate, by its report or by its conclusion; and two alone are short.
+        engine = counts(faults=[{"code": "engine_timeout", "count": 1}], passed=23,
+                        origin={"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": 23}},
+                        kinds={"finding": {"cases": 20, "passed": 6, "interval": eval_gate.wilson(6, 20)},
+                               "met": {"cases": 20, "passed": 17, "interval": eval_gate.wilson(17, 20)}},
+                        kinds_pass={"finding": True, "met": False})
+        self.assertEqual(judged([counts(), counts(), engine])[0], "eval_dispatch_faulted")
+        for conclusion in ("cancelled", "timed_out", None, "skipped"):
+            with self.subTest(conclusion=conclusion):
+                runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(3)]
+                runs[1]["conclusion"] = conclusion
+                self.assertEqual(judged([counts(), counts(), counts()], runs)[0], "eval_dispatch_faulted")
+        self.assertEqual(judged([counts(), None, counts()])[0], "eval_dispatch_faulted")
+        self.assertEqual(judged([counts(), "not json", counts()])[0], "eval_dispatch_faulted")
+        self.assertEqual(judged([counts(), dict(counts(), set="pr-review"), counts()])[0], "eval_dispatch_faulted")
+        self.assertEqual(judged([counts(), counts()])[0], "eval_pool_short")
+        # A run of the job that failed by its own bar is no fault, and is pooled.
+        runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(3)]
+        runs[0]["conclusion"] = "failure"
+        self.assertEqual(judged([counts(finding=5), counts(finding=7), counts(finding=7)], runs), ("pass", True))
+        # Another set's dispatch on the commit is not counted: a development set's report beside three gate set runs.
+        self.assertEqual(judged([counts(), report(), counts(), counts()]), ("pass", True))
+        self.assertEqual(judged([counts(), report(), counts()])[0], "eval_pool_short")
+        # One still running, or one of another commit, workflow or event in the answer, leaves the commit unjudged.
+        for change in ({"status": "in_progress"}, {"head_sha": A}, {"path": ".github/workflows/other.yml"},
+                       {"event": "push"}, {"id": 0}, {"id": True}, {"run_number": None}):
+            with self.subTest(change=change):
+                runs = [dict(run_of(id=100 + i, run_number=i), status="completed") for i in range(3)]
+                runs[2].update(change)
+                self.assertEqual(judged([counts(), counts(), counts()], runs)[0], "eval_not_run")
+        self.assertEqual(judged([counts()] * 3, runs=[])[0], "eval_pool_short")
+        # The set named must be a gate set, by a name of one part; a configuration not read names nothing.
+        development = (json.dumps({k: v for k, v in gate_set.items() if k not in eval_gate.OWN + ("gate",)}, indent=2)
+                       + "\n").encode()
+        # Each answered with what a reading that let it through would ask next, so that only the reading refuses it.
+        climbed = "evals/../pr-review-gate/cases.json"
+        for head in ([named, gate_manifest(development)],
+                     [config(document=dict(HARNESS, gate_set="../pr-review-gate")),
+                      ex("GET", "/repos/%s/contents/%s?ref=%s" % (REPO, climbed, D), 200,
+                         dict(gate_manifest()["response"]["body"], path=climbed))],
+                     [config(document=dict(HARNESS, gate_set=7)), manifest()],
+                     [config(document=[HARNESS]), manifest()],
+                     [dict(config(), response=dict(config()["response"], status=404)), manifest()]):
+            with self.subTest(head=head[0]["response"]["body"].get("content", "")[:40]):
+                self.assertEqual(judged([counts()] * 3, head=head)[0], "eval_set_unreadable")
+        # The review Intent's set read where a gate set is named is no gate set either.
+        self.assertEqual(candidate.gate(github.Replay([config(document=dict(HARNESS, gate_set="pr-review")),
+                                                      ex("GET", "/repos/%s/contents/%s?ref=%s" % (REPO, candidate.SET, D),
+                                                         200, manifest()["response"]["body"])]), REPO, D, VERSION),
+                         "eval_set_unreadable")
 
 
 class Writes(unittest.TestCase):
