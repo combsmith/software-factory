@@ -174,7 +174,7 @@ def _nested(script: str, room: list, comments: bool = True) -> str:
                     inner.append(script[end + 1] if escaped else script[end])
                     end += 2 if escaped else 1
                 end, inner = end + 1, "".join(inner)
-                if _left_open(inner):
+                if _left_open(inner)[0]:
                     # The shell ends a backtick before it reads its quotes, fails this one and runs what follows: a
                     # script that would be data in a body is one the hook cannot read (#605 (d)).
                     raise Unread("a quote in a backtick in a substitution runs past where the backtick ends")
@@ -212,21 +212,28 @@ def _nested(script: str, room: list, comments: bool = True) -> str:
     return "".join(out)
 
 
-def _left_open(script: str) -> bool:
-    """Whether a quote that opens in `script`, outside a comment, is still open at its end."""
-    quote, i = None, 0
+def _left_open(script: str) -> tuple:
+    """(whether a quote that opens in `script`, a backtick's, is still open at its end; whether a comment begins in it).
+    A $(...) in it has quotes and comments of its own (Argon, Astra), and a # after a character a backslash holds
+    begins a word (Astra)."""
+    quote, i, escaped, commented = None, 0, -1, False
     while i < len(script):
         c = script[i]
         if c == "\\" and quote != "'":
-            i += 1
-        elif quote is None and c == "#" and (i == 0 or script[i - 1] in COMMENTS_AFTER):
+            i = escaped = i + 2
+            continue
+        if quote != "'" and script.startswith("$(", i):
+            i = _balanced(script, i + 2, ")")
+            continue
+        if quote is None and c == "#" and i != escaped and (i == 0 or script[i - 1] in COMMENTS_AFTER):
+            commented = True
             i = len(script) if script.find("\n", i) < 0 else script.find("\n", i)
         elif quote is None and c in "'\"":
             quote = c
         elif c == quote:
             quote = None
         i += 1
-    return quote is not None
+    return quote is not None, commented
 
 
 def _terminator(word: str, first: str) -> str:

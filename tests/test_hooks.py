@@ -1609,15 +1609,29 @@ class Identity(unittest.TestCase):
             commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
             self.assertIn(["git", "push"], [w for w, _ in commands if w], command)
         self.assertIn(["echo", "a b"], [w for w, _ in shell.commands(identity._quoted('echo "`echo \\"a b\\"`"'))])
+        self.assertEqual(identity._quoted('echo "`echo \\$HOME`"'), 'echo "$(echo $HOME)"')
         # One escaped is text, and one that never closes is read as main reads it.
         self.assertEqual(identity._quoted('echo "\\`git push\\`"'), 'echo "\\`git push\\`"')
         self.assertEqual(identity._quoted('echo "`echo a'), 'echo "`echo a')
+        # So is one whose quote or comment would run past the ) it is given: main refuses the first and reads the
+        # second's push (Argon). One that never closes leaves what an expanded body runs read (the Claude review).
+        with self.assertRaises(ValueError):
+            shell.commands(identity._quoted('echo "`echo \'` $(git push) )\'"'))
+        for command in ('echo "`echo a #` $(git push)\n)"', 'cat <<EOF\n$(echo "a b"; git push)\nEOF\necho "`date"'):
+            commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
+            self.assertIn(["git", "push"], [w for w, _ in commands if w], command)
 
     def test_a_quote_past_a_backtick_in_a_here_documents_substitution_is_not_read_as_data(self):  # issue 605
         # A backtick in a body's substitution whose quote runs past its end: the shell fails the backtick and runs what
         # follows, so the hooks ask, as they do outside a here-document. A quote in a comment there is no quote.
-        with self.assertRaises(shell.Unread):
-            shell.without_heredocs("cat <<EOF\n$(echo `echo '`\nrm kernel/gate.py\n# '`\n)\nEOF")
+        # A $(...) in the backtick has quotes and comments of its own, and a # after a character a backslash holds
+        # begins a word (Argon, Astra).
+        for body in ("$(echo `echo '`\nrm kernel/gate.py\n# '`\n)", '$(echo `echo "$(echo a # "\n)`\nrm kernel/gate.py\n# "`\n)',
+                     "$(echo `echo \\ #'`\nrm kernel/gate.py\n# '`\n)"):
+            with self.assertRaises(shell.Unread, msg=body):
+                shell.without_heredocs("cat <<EOF\n" + body + "\nEOF")
+        for body in ("$(echo `echo \"$(printf '%s' '\"')\"`)", "$(echo `echo \"$(echo '\"')\"`)"):
+            self.assertIn(["cat"], [w for w, _ in shell.commands("cat <<EOF\n" + body + "\nEOF")], body)
         self.assertIn(["date"], [w for w, _ in shell.commands("cat <<EOF\n$(echo `date # it's`)\nEOF")])
         self.assertIn(["echo", "a b"], [w for w, _ in shell.commands('cat <<EOF\n$(echo `echo "a b"`)\nEOF')])
         # A backslash holds a quote, but not in single quotes, where it is a character.
@@ -3146,6 +3160,17 @@ class MergesAndSettings(Asks):
         self.assertEqual(self.run_('x="$(basename "$(pwd)")"; echo "$x"'), "")
         # A quote past a backtick in a here-document's substitution is asked about, as it is outside one.
         self.asked(self.run_("cat <<EOF\n$(echo `echo '`\nrm kernel/gate.py\n# '`\n)\nEOF"), "command_unreadable", "(d)")
+        # The command is read as main reads it too, so what main asks about is still asked: a body's substitution
+        # before a backtick that never closes, and a quote past an unquoted backtick (the Claude review).
+        self.asked(self.run_('cat <<EOF\n$(echo "a b"; rm kernel/gate.py)\nEOF\necho "`date"'), "protected_path", "an open `")
+        self.asked(self.run_("echo `echo '`\nrm kernel/gate.py\n# '`"), "command_unreadable", "a quote past a backtick")
+        # A reading that fails leaves main's to stand; each is read from where the command began; what both ask, once.
+        self.assertEqual(self.run_('x="`case $1 in a) echo 1;; esac`"'), "")
+        self.assertEqual(self.run_('touch x.json; cd lifecycle; echo "$(echo "$(date)")"'), "")
+        self.assertEqual(self.run_('rm kernel/gate.py; echo "$(echo "$(date)")"').count("protected_path"), 1)
+        # Past RESPELT_MOST characters the command is read once, as main reads it, in linear time (the security pass).
+        long = 'echo %s; echo "$(echo "$(date)"; rm kernel/gate.py)"' % ("a" * protected.RESPELT_MOST)
+        self.assertEqual(self.run_(long), "")
 
 
     def test_what_does_not_merge_is_not_asked_about(self):
