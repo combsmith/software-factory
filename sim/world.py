@@ -1388,7 +1388,9 @@ class World:
         """When a machine approval last read the description, in the world's own words: the start of the latest approving
         act's Run on its content that started no later than it; else its own time, where a run of the item started no
         later, as a person approving in the browser reads as they approve; else "", before every time (issue 608). The
-        world's act starts in its approval's own second, so it reads its approval's own time."""
+        world's act starts in its approval's own second, so it reads its approval's own time. The Kernel's reading has
+        branches the world needs none of, as it makes no such record: a dispatch, a re-run, another item, a start that is
+        no time."""
         at = review["submitted_at"]
         acts = [r["started_at"] for r in self.runs if r["intent"] == t.ISSUE_APPROVAL
                 and r["content_id"] == review["content_id"] and r["started_at"] <= at]

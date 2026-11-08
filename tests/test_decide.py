@@ -1907,7 +1907,7 @@ class Convergence(unittest.TestCase):
         elsewhere = dict(run(at="2026-10-11T12:00:00Z"), item={"repo": "combsmith/other", "number": 9})
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=later + [elsewhere]), "")
         # The Kernel always gives the records, none among them, so an approval with no record holds an edit there too;
-        # and nothing outside the simulator leans on the default, which only the world's model reads (issue 195).
+        # and nothing but derive calls the anchor, always with the records, which have no default (issues 195 and 608).
         bare = copy.deepcopy(CONFIG)
         bare["required_lenses"]["model"] = []
         d = derive.derive(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), [], bare)
