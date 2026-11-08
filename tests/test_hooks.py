@@ -3806,7 +3806,69 @@ class RulesChanged(unittest.TestCase):
         self.assertIn("could not be listed", json.loads(out)["systemMessage"])
 
 
+# Each hook's two cases through its front door, as the settings run it: (a violation it speaks up about, a clean case it
+# passes in silence). A hook the settings run, or a module in hooks/ with a main(), that is missing here fails
+# test_every_hook_is_fed_a_violation_and_a_clean_case (issue 595).
+def fed_identity():
+    here, path = repo(), programs("git", "gh")
+    return (hook("identity", bash("git push", here), path, FAKE_GH_USER=MACHINE),
+            hook("identity", bash("git push", here), path))
+
+
+def fed_protected():
+    project = a_tree()
+    payload = {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(project),
+               "tool_input": {"file_path": str(project / "lifecycle" / "issue.json"), "content": "{}"}}
+    clean = dict(payload, tool_input={"file_path": str(project / "docs" / "notes.md"), "content": "{}"})
+    return tuple(hook("protected", case, programs(), CLAUDE_PROJECT_DIR=str(project)) for case in (payload, clean))
+
+
+def fed_after_edit():
+    project = a_project()
+    payload = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": str(project), "tool_response": {},
+               "tool_input": {"file_path": str(project / "kernel" / "decide.py")}}
+    return tuple(hook("after_edit", payload, programs("make"), FAKE_MAKE_EXIT=code, CLAUDE_PROJECT_DIR=str(project))
+                 for code in ("1", "0"))
+
+
+def fed_before_stop():
+    project = a_project()
+    payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(project)}
+    return tuple(hook("before_stop", payload, programs("make"), FAKE_MAKE_EXIT=code, CLAUDE_PROJECT_DIR=str(project))
+                 for code in ("2", "0"))
+
+
+def fed_rules_changed():
+    where = repo(fresh=True)
+    git(where, "update-ref", "refs/remotes/origin/main", "HEAD")
+    payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
+    clean = hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where))
+    (where / "lifecycle").mkdir()
+    (where / "lifecycle" / "issue.json").write_text("{}\n")
+    git(where, "add", "-A")
+    git(where, "commit", "-q", "-m", "a rule")
+    return hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where)), clean
+
+
+FED = {"identity": fed_identity, "protected": fed_protected, "after_edit": fed_after_edit,
+       "before_stop": fed_before_stop, "rules_changed": fed_rules_changed}
+
+
 class Settings(unittest.TestCase):
+    def test_every_hook_is_fed_a_violation_and_a_clean_case(self):  # issue 595
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        hooks = {found.group(1) for groups in settings["hooks"].values() for group in groups for handler in group["hooks"]
+                 for found in [re.search(r'tools/hooks/(\w+)\.py', handler["command"])] if found}
+        hooks |= {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
+        self.assertEqual(set(FED), hooks)
+        for name in sorted(hooks):
+            violation, clean = FED[name]()
+            # Spoken up about: refused, sent back, asked or told, never a crash; clean: nothing at all.
+            self.assertNotEqual((violation.returncode, violation.stdout, violation.stderr), (0, "", ""), name)
+            self.assertIn(violation.returncode, (0, 2), name)
+            self.assertNotIn("Traceback", violation.stderr, name)
+            self.assertEqual((clean.returncode, clean.stdout, clean.stderr), (0, "", ""), name)
+
     def test_the_hook_that_asks_blocks_when_it_fails_to_answer(self):
         settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
         found = [h for g in settings["hooks"]["PreToolUse"] for h in g["hooks"] if "protected.py" in h["command"]]
