@@ -34,5 +34,5 @@ Reconciliation was built and tested and nothing fed it, so the one alert that sa
 | A write on an item with a Run still running is short, not unmatched; any other, the Controller's among them, is matched as ever | `tests/test_reconcile.py::test_a_run_still_running_makes_its_items_writes_short_not_unmatched` |
 | The accounts are what GitHub answered, and known | `tests/test_reconcile.py::test_each_identity_is_told_by_its_account_from_the_configuration` |
 | A Factory App's bot account alone is the org's fixture's to read | `tests/test_tools.py::test_a_fixture_of_the_org_asks_by_rest_of_this_org_alone_and_climbs_nowhere` |
-| The workflow that calls the pass runs it | waiting on `.github/workflows/poller.yml` |
+| The workflow that calls the pass runs it | `tests/test_tools.py::test_the_pollers_shim_stands_as_its_template_and_its_hash` for `.github/workflows/poller.yml`, and `tests/test_tools.py::test_the_pass_uploads_its_record_before_it_dispatches` for `.github/workflows/pass.yml`; mutant: "the live poller calls another file than the pass"; mutant: "the pass checks out the tag again" |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

@@ -1,6 +1,8 @@
 """The boundary cases of the design, one test each. Add the case here before the code."""
 from __future__ import annotations
 
+import ast
+import copy
 import datetime
 import json
 import random
@@ -13,6 +15,7 @@ from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, N
                            REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
+from tools import walk
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -1783,7 +1786,7 @@ class Convergence(unittest.TestCase):
         # An approval in the second of the look came after it, as far as can be told: it anchors a later edit.
         same = [review(kind="human", name="don-petry", at="2026-10-11T12:05:00Z"), review(at="2026-10-11T12:05:00Z"),
                 review(commit="c0", content="sha256:0000", at="2026-10-11T12:20:00Z")]
-        d = go(facts(reviews=same, description_edited_at="2026-10-11T12:10:00Z"), REVIEWED)
+        d = go(facts(reviews=same, description_edited_at="2026-10-11T12:10:00Z"), [run(at="2026-10-11T12:00:00Z")])
         self.assertEqual(d["reason"], "description_edited_after_approval")
         # An outsider's admitted pull request, approved, then the outsider's own edit: held, as the Lifecycle declares a
         # stranger may hold it (I-28 as narrowed). On an outsider's the anchor is the person's look itself, so an edit
@@ -1828,6 +1831,96 @@ class Convergence(unittest.TestCase):
                 del f["description_edited_at"]
             d = go(f, REVIEWED)
             self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("defer", "description_unreadable", "needs_you"), unreadable)
+
+    def test_an_approval_is_anchored_at_the_act_that_read_the_description(self):  # issue 195, decision 0140
+        # The approving act reads the description after its Run starts and before its approval lands: an edit between
+        # the two is measured against the Run's start, so it holds. A machine user's approval with no act's Run is the
+        # browser's where a record of the item began before it, anchored at its own time (decision 0046); one with no
+        # record as old as it holds, as nothing shows when it read.
+        approval = review(at="2026-10-11T12:15:00Z")
+        act = run(intent="issue-approval", at="2026-10-11T12:14:00Z", name="r2")
+        acted = REVIEWED + [act]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=acted),
+                         "2026-10-11T12:14:00Z")
+        for edited, held in (("2026-10-11T12:14:30Z", True), ("2026-10-11T12:14:00Z", True), ("2026-10-11T12:13:00Z", False)):
+            d = go(facts(reviews=[approval], description_edited_at=edited), acted)
+            self.assertEqual(d["reason"] == "description_edited_after_approval", held, edited)
+        # Of two acts on its content, the latest made before the approval read last: an edit between them held nothing.
+        twice = REVIEWED + [run(intent="issue-approval", at="2026-10-11T12:12:00Z", name="r2"), dict(act, run="r3")]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:13:00Z", runs=twice),
+                         "2026-10-11T12:14:00Z")
+        self.assertEqual(go(facts(reviews=[approval], description_edited_at="2026-10-11T12:13:00Z"), twice).get("action"),
+                         "enqueue")
+        # A re-run keeps its dispatch and moves its start: the act is timed by when it was made, so a re-run after the
+        # approval leaves the edit between its read and its approval held.
+        rerun = dict(act, started_at="2026-10-11T12:30:00Z", dispatched_at="2026-10-11T12:14:00Z")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=REVIEWED + [rerun]),
+                         "2026-10-11T12:14:00Z")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [rerun])
+        self.assertEqual(d["reason"], "description_edited_after_approval")
+        # A re-run whose dispatch was not read may be the act that read, made before it: nothing shows when, so it holds.
+        unread = dict(act, started_at="2026-10-11T12:30:00Z", rerun_by_dispatcher=False)
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=REVIEWED + [unread]), "")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), REVIEWED + [unread])
+        self.assertEqual(d["reason"], "description_edited_after_approval")
+        # A first attempt's start is its own: a later act with no dispatch read, not a re-run, is a later act.
+        later_act = dict(act, run="r3", started_at="2026-10-11T12:30:00Z")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=acted + [later_act]),
+                         "2026-10-11T12:14:00Z")
+        # So too a re-run whose dispatch is no time, and a record whose time cannot be read at all, which never raises.
+        for odd in (dict(act, started_at="2026-10-11T12:30:00Z", dispatched_at="2026-02-30T12:14:00Z", rerun_by_dispatcher=None),
+                    dict(run(at="2026-02-30T12:00:00Z"), run="r9"),
+                    dict(run(at="2026-02-30T12:00:00Z"), run="r9", dispatched_at="2026-10-11T12:20:00Z")):
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=acted + [odd]), "", odd)
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), acted + [odd])
+            self.assertEqual(d["reason"], "description_edited_after_approval", odd)
+        # A record reaches back by its start, which the item's lane holds after a running act's end: one dispatched
+        # while an act ran and started after the approval shows nothing of when it read.
+        during = [dict(run(at="2026-10-11T12:16:00Z"), dispatched_at="2026-10-11T12:14:30Z")]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=during), "")
+        # An act on other content, or one that began after the approval, is not the one that read it: the approval is
+        # the browser's, anchored at its own time, so the same edit holds nothing.
+        for other in (run(intent="issue-approval", content="sha256:0000", at="2026-10-11T12:14:00Z", name="r2"),
+                      dict(run(intent="issue-approval", at="2026-10-11T12:20:00Z", name="r2"), dispatched_at="2026-10-11T12:20:00Z"),
+                      run(intent="review-change", at="2026-10-11T12:14:00Z", name="r2")):
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), REVIEWED + [other])
+            self.assertEqual(d.get("action"), "enqueue", other)
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=REVIEWED + [other]),
+                             "2026-10-11T12:15:00Z", other)
+        # The browser's approval, after a record of the item, is anchored at its own time, a record in its own second
+        # among them; an edit before it holds nothing, one after it holds.
+        for records in (REVIEWED, [run(at="2026-10-11T12:15:00Z")]):
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:14:30Z", runs=records),
+                             "2026-10-11T12:15:00Z", records)
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:14:30Z"), records)
+            self.assertEqual(d.get("action"), "enqueue", records)
+        # With no record as old as the approval, an act's Run may be past retention: any edit holds, one before it too,
+        # until a person approves after the edit.
+        later = [run(at="2026-10-11T12:16:00Z")]
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=later), "")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), later)
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "description_edited_after_approval"))
+        looked = [approval, review(kind="human", name="don-petry", at="2026-10-11T12:20:00Z")]
+        self.assertEqual(go(facts(reviews=looked, description_edited_at="2026-10-11T12:10:00Z"), later).get("action"),
+                         "enqueue")
+        # Only this item's records count, as old as the approval or not.
+        elsewhere = dict(run(at="2026-10-11T12:00:00Z"), item={"repo": "combsmith/other", "number": 9})
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=later + [elsewhere]), "")
+        # The Kernel always gives the records, none among them, so an approval with no record holds an edit there too;
+        # and nothing outside the simulator leans on the default, which only the world's model reads (issue 195).
+        bare = copy.deepcopy(CONFIG)
+        bare["required_lenses"]["model"] = []
+        d = derive.derive(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), [], bare)
+        self.assertEqual((d["state"], d["reason"]), ("held", "description_edited_after_approval"))
+        calls = []
+        for folder in ("kernel", "harness", "controller", "adapters", "tools"):
+            for path in walk.files(ROOT, folder):
+                if path.suffix == ".py":
+                    calls += [(path.name, node) for node in ast.walk(ast.parse(path.read_text()))
+                              if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", None))
+                              == "description_anchor"]
+        self.assertEqual([name for name, _ in calls], ["derive.py"])
+        self.assertTrue(all(any(k.arg == "runs" for k in node.keywords) for _, node in calls))
 
     def test_approver_is_never_the_author_or_last_pusher(self):  # I-26
         for who in ("author", "last_pusher"):

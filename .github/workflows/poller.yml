@@ -1,0 +1,28 @@
+# The poller's shim, frozen: it calls the pass at the channel, three times an hour, on a dispatch with no input,
+# and when a run of factory or ci ends, one pass running and one waiting. It reads nothing of what woke it, and a
+# pass under a Pause reads, records and dispatches nothing (decisions 0003 and 0043). tools/check_workflows.py
+# holds it word for word, as POLLER_SHIM, and by its hash in SHIMS (issue 196; decisions 0057 and 0115).
+name: sf-poller
+on:
+  schedule:
+    - cron: "13 * * * *"
+    - cron: "33 * * * *"
+    - cron: "53 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - factory
+      - ci
+    types:
+      - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next
+    secrets: inherit
