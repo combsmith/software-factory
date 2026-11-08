@@ -12109,6 +12109,9 @@ MUTANTS = ISSUE + [
     ("the judge's log of a failed run names no model", 'harness/eval/__init__.py',
      '            print(tally(written, configured_model(root)))\n', '            print(tally(written))\n', ('tests.test_evals.EvalJob.test_a_report_names_the_model_prompt_and_rubric_and_what_each_case_used',)),
     # Decision 0162: the schema holds the report's identity and each case's usage, as numbers and ids alone.
+    ("a gate set's report need not name the models that answered", 'schemas/eval-aggregate.schema.json',
+     '    "engine",\n    "models",\n', '    "engine",\n',
+     ('tests.test_evals.EvalJob.test_the_gate_passes_a_good_aggregate_report_and_refuses_a_bad_one',)),
     ('a report need not name the models that answered', 'schemas/eval-report.schema.json',
      '    "intent",\n    "models",\n',
      '    "intent",\n', ('tests.test_evals.EvalJob.test_a_report_names_the_model_prompt_and_rubric_and_what_each_case_used',)),
