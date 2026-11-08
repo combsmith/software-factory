@@ -34,7 +34,9 @@ next, and roll back in one action".
   The gate reads the commit's latest successful eval dispatch, so the review Intent's set, `pr-review`, is dispatched last,
   and a re-dispatch can still make it the best of several. Once `config/harness.json` names a gate set, `gate_set`, the
   gate pools every dispatch of it on the commit instead: have it dispatched three times on the commit, nothing between
-  them. One cancelled, or stopped by the Engine or the Factory, closes the gate for that commit (decision NNNN).
+  them. One cancelled, or stopped by the Engine or the Factory, closes the gate for that commit (decision NNNN). Each
+  asks the set's preflight first, and one it stopped, `preflight_failed`, closes it too: mend the pipeline before a
+  dispatch on a new commit (decision NNNN, the preflight).
 - **The release key's environment.** Only `factory-release`'s deployment branches keep the App's key from another ref's copy
   of a workflow, and nothing in the repo can hold them. Have the Maintainer run `sh tools/environments_drift.sh` at a terminal, and stop if it says anything but `no drift`.
 - **Which step.** A cut, a move forward to an existing Release, or a rollback.

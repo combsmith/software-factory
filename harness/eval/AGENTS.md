@@ -8,6 +8,7 @@ No key that opens a ledger is in the job or the repo, and nothing automated read
 The ciphertext lives only as a run artifact under its retention until a storage decision is made; its hash is the job's output, `ledger_sha256`. Where ledgers are kept is not built yet.
 A gate set gives its own bars and least of a kind. The Release's gate pools every dispatch on a commit of the gate set `config/harness.json` names, `gate_set`.
 Until one is named, the gate reads the review Intent's set by its newest successful dispatch, which a re-dispatch can still make the best of several.
+A gate set's dispatch asks its preflight first, a few cases of the review Intent's set scored apart, so that a broken pipeline stops it before any held-out case is asked.
 
 | Rule | Held by |
 |---|---|
@@ -23,5 +24,7 @@ Until one is named, the gate reads the review Intent's set by its newest success
 | The seal and the ledger's upload come after the run and before the report's; the seal is given nothing and sets the job's one output | `tests/test_evals.py::test_the_eval_workflow_names_each_credential_in_one_step_alone` |
 | A gate set gives its own bars, least of a kind and the record that states them word for word, and its job and gate hold them; no other set gives any | `tests/test_evals.py::test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them` |
 | The pool is three runs at least, every one, each kind summed under the set's bars; one faulted closes it | `tests/test_evals.py::test_the_gate_pools_every_dispatch_on_the_commit_and_one_faulted_closes_it` |
+| A gate set's preflight is three to five of the review Intent's cases, none a gate set's by its id or its hash | `tests/test_evals.py::test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case` |
+| The preflight is asked first; a fault in it, or no pass, stops the dispatch before a case of the set is asked, and the gate reads it as faulted | `tests/test_evals.py::test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it` |
 | The Release's gate judges a gate set named in the configuration by every completed dispatch on the commit | `tests/test_release_step.py::test_a_gate_set_is_judged_by_every_dispatch_on_the_commit` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
