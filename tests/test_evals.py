@@ -7,6 +7,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -36,6 +37,41 @@ def example_result() -> dict:
     one is on, and the scorer refuses a Result that posts a Finding off every hunk, as `apply` does (issue 574), which
     would hide what a test scores it for. A test of that rule posts its Findings itself."""
     return dict(load("examples/result.json"), effects={})
+
+
+def the_fetch():
+    """The fetch step's function: the package's name for it is the module's once a test has imported that, which keeps
+    it."""
+    from harness import eval as job
+    return job.fetch if callable(job.fetch) else job.fetch.fetch
+
+
+def recipient(folder: pathlib.Path, name: str) -> tuple:
+    """A self-signed certificate and its key, made in `folder` for one test alone, as the Maintainer makes his: the
+    certificate's bytes, and the key's path, which only the test reads, to open what was sealed."""
+    from harness.eval import seal
+    key, cert = folder / (name + ".key"), folder / (name + ".crt")
+    subprocess.run([seal.OPENSSL, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key), "-out", str(cert),
+                    "-subj", "/CN=" + name, "-days", "1"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return cert.read_bytes(), key
+
+
+def pin(root: pathlib.Path, certs: dict) -> None:
+    """Each certificate, by name, committed under config/ledger/ and pinned by its sha256 in .github/ledger-recipients."""
+    (root / "config" / "ledger").mkdir(parents=True, exist_ok=True)
+    (root / ".github").mkdir(exist_ok=True)
+    for name, data in certs.items():
+        (root / "config" / "ledger" / (name + ".crt")).write_bytes(data)
+    (root / ".github" / "ledger-recipients").write_text("".join(
+        "%s  config/ledger/%s.crt\n" % (hashlib.sha256(data).hexdigest(), name) for name, data in certs.items()))
+
+
+def opened(sealed: pathlib.Path, cert: pathlib.Path, key: pathlib.Path) -> bytes:
+    """What a sealed ledger holds, opened with one recipient's key, as the Maintainer opens one at a set's retirement."""
+    from harness.eval import seal
+    return subprocess.run([seal.OPENSSL, "cms", "-decrypt", "-binary", "-inform", "DER", "-in", str(sealed),
+                           "-inkey", str(key), "-recip", str(cert)], check=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL).stdout
 
 
 class Heads:
@@ -702,8 +738,42 @@ class TheSet(unittest.TestCase):
                                "runs on workflow_dispatch alone"),
             "a schedule": (EVAL_WORKFLOW.replace("on:\n", "on:\n  schedule:\n    - cron: '17 3 * * *'\n"),
                            "runs on workflow_dispatch alone"),
-            "no release": (EVAL_WORKFLOW.replace("      release:\n", "      version:\n"), "one input, release"),
-            "a release left optional": (EVAL_WORKFLOW.replace("required: true", "required: false"), "one input, release"),
+            "no release": (EVAL_WORKFLOW.replace("      release:\n", "      version:\n"), "with the inputs release"),
+            "a release left optional": (EVAL_WORKFLOW.replace("required: true", "required: false"), "with the inputs release"),
+            # The set it judges, the review Intent's by default, handed to the plan alone (issue 612).
+            "a set by another default": (EVAL_WORKFLOW.replace("default: pr-review", "default: pr-review-gate"),
+                                         "with the inputs release"),
+            "an input of its own": (EVAL_WORKFLOW.replace("        default: pr-review\n",
+                                                          "        default: pr-review\n      other:\n        type: string\n"),
+                                    "with the inputs release"),
+            "no set": (EVAL_WORKFLOW.replace("      set:\n        required: false\n        type: string\n"
+                                             "        default: pr-review\n", ""), "with the inputs release"),
+            "the set kept from the plan": (EVAL_WORKFLOW.replace("          EVAL_SET: ${{ inputs.set }}\n", ""),
+                                           "its plan step is given under env"),
+            # The seal, given nothing, after the run and before the uploads; the ledger's upload, its ciphertext alone.
+            "no seal": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.seal\n        id: seal\n        timeout-minutes: 1\n", ""),
+                        "in that order"),
+            "the seal given the model's credential": (EVAL_WORKFLOW.replace(
+                "      - run: python3 -m harness.eval.seal\n", "      - run: python3 -m harness.eval.seal\n        env:\n" + model),
+                "its seal step is given under env"),
+            "the scratch uploaded as the ledger": (EVAL_WORKFLOW.replace("path: eval-ledger.cms", "path: ${{ runner.temp }}"),
+                                                   "its ledger step is given under with"),
+            "a development set's run failed for no ledger": (EVAL_WORKFLOW.replace("if-no-files-found: ignore",
+                                                                                   "if-no-files-found: error"),
+                                                             "its ledger step is given under with"),
+            # The job's one output, the sealed ledger's hash, which the seal step alone sets, under the one id a step may take.
+            "no output": (EVAL_WORKFLOW.replace("    outputs:\n      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n", ""),
+                          "its job has exactly"),
+            "an output of the fetch": (EVAL_WORKFLOW.replace("steps.seal.outputs.ledger_sha256", "steps.home.outputs.token"),
+                                       "its job has one output"),
+            "a second output": (EVAL_WORKFLOW.replace("      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n",
+                                                      "      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n"
+                                                      "      token: ${{ secrets.HELDOUT_TOKEN }}\n"), "its job has one output"),
+            "the seal under another id": (EVAL_WORKFLOW.replace("        id: seal\n", "        id: sealing\n"),
+                                          "its seal step has the id seal"),
+            "the seal with no id": (EVAL_WORKFLOW.replace("        id: seal\n", ""), "its seal step has the id seal"),
+            "the report under the ledger's name": (EVAL_WORKFLOW.replace("name: eval-report", "name: eval-ledger"),
+                                                   "in that order"),
             "the fetch first": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.plan\n        env:\n"
                                                       "          RELEASE: ${{ inputs.release }}\n", "", 1)
                                 .replace("      - run: python3 -m harness.eval.run\n",
@@ -870,6 +940,9 @@ class EvalJob(unittest.TestCase):
         least = mock.patch.object(job, "KIND_LEAST", 0)
         least.start()
         self.addCleanup(least.stop)
+        origin = mock.patch.object(job, "ORIGIN_LEAST", 0)
+        origin.start()
+        self.addCleanup(origin.stop)
 
     def tearDown(self):
         self.dir.cleanup()
@@ -879,12 +952,16 @@ class EvalJob(unittest.TestCase):
         for folder in ("heldout", "heads"):
             shutil.rmtree(str(self.temp / folder), ignore_errors=True)
 
-    def set(self, cases: dict) -> None:
+    def set(self, cases: dict, name: str = "pr-review", gate: bool = False, natural=()) -> None:
+        """The manifest of `cases` as the set `name`; a gate set's says so, and marks each case in `natural` natural."""
         import hashlib
         manifest = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(cases),
-                    "cases": [{"id": i, "sha256": hashlib.sha256(d).hexdigest()} for i, d in cases.items()]}
-        (self.root / "evals" / "pr-review").mkdir(parents=True, exist_ok=True)
-        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n")
+                    "cases": [dict({"id": i, "sha256": hashlib.sha256(d).hexdigest()}, **({"natural": i in natural} if gate else {}))
+                              for i, d in cases.items()]}
+        if gate:
+            manifest["gate"] = True
+        (self.root / "evals" / name).mkdir(parents=True, exist_ok=True)
+        (self.root / "evals" / name / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     def step(self, step, *given, env=None):
         from harness import eval as job
@@ -919,6 +996,15 @@ class EvalJob(unittest.TestCase):
         # And a workspace that is the scratch, or inside it.
         for work in (self.temp / "heldout", self.temp / "heldout" / "sub"):
             self.assertEqual(self.step_at(job.plan, work), "scratch_in_workspace", work)
+        # And a scratch linked to the root, which holds the workspace though its own path ends in its separator.
+        os.symlink(os.sep, str(self.temp / "heldout"))
+        self.assertEqual(self.step(job.plan), "scratch_in_workspace")
+        # The scratch itself refuses each, not the heads beside it alone, which the plan places after it (issue 626).
+        for temp in (self.temp, self.work, self.work / "deeper"):
+            with self.assertRaises(job.Stop) as stopped:
+                job.scratch(dict(self.env, RUNNER_TEMP=str(temp)), self.work)
+            self.assertEqual(stopped.exception.code, "scratch_in_workspace", temp)
+        os.unlink(str(self.temp / "heldout"))
         # A manifest that is no eval-set/1, or miscounts its cases, or names one id twice, is no set.
         manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
         for broken in ({"schema": "eval-set/1", "count": 3}, dict(manifest, count=3),
@@ -1581,9 +1667,9 @@ class EvalJob(unittest.TestCase):
 
     def test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history(self):  # issue 614
         # What keeps a case's answer from the model is that its Task is built from the case's facts, diff and head alone.
-        # A marker the answer holds reaches neither the Task, nor the prompt, nor the CLI's environment, nor any file or
-        # folder of the head, the folder the CLI is started in, to which decision 0138 holds the read tools; and the head
-        # holds no `.git`, whose history could hold it.
+        # A marker the answer holds reaches neither the Task, nor any word of the CLI's call, its prompt and environment
+        # among them, nor any file or folder of the head, the folder the CLI is started in, to which decision 0138 holds
+        # the read tools; and the head holds no `.git`, whose history could hold it.
         import os
         import uuid
         from harness import eval as job
@@ -1610,7 +1696,7 @@ class EvalJob(unittest.TestCase):
                         seen["folders"].append(path)
                         self.read(head, path)
                     else:
-                        seen["files"][path] = pathlib.Path(head, path).read_bytes().decode("utf-8", "replace")
+                        seen["files"][path] = pathlib.Path(head, path).read_bytes()      # as bytes: no two read alike
         built, answered = [], step.live.answer
 
         def answering(the_task, *given, **named):
@@ -1633,18 +1719,27 @@ class EvalJob(unittest.TestCase):
         said, cli = scored()
         self.assertEqual((said, len(cli.asked()), len(built)), ("scored 1 of 1 cases, 0 passed", 1, 1), "the case is asked of the model")
         self.assertTrue(seen["files"], "the head is read at the call")
-        # Each file by its path and its bytes, each folder by its path, and the CLI's environment, as well as the Task
-        # and the prompt.
+        # Each file by its path and its bytes, each folder by its path, and the whole of the CLI's call, its prompt,
+        # environment and every other word it is given, as well as the Task.
         asked = cli.asked()[0]
-        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the environment", json.dumps(asked["env"])),
+
+        def words(value):
+            # Each key and each value as it is given, not as JSON writes it, whose escapes would hide the answer whole.
+            if isinstance(value, dict):
+                return [w for k, v in sorted(value.items()) for w in [str(k)] + words(v)]
+            if isinstance(value, (list, tuple)):
+                return [w for v in value for w in words(v)]
+            return [str(value)]
+        for where, text in [("the Task", built[0]), ("the prompt", "\n".join(asked["args"])), ("the call", "\n".join(words(asked))),
                             ("the head's paths", "\n".join(sorted(seen["files"]) + seen["folders"]))] + sorted(seen["files"].items()):
-            self.assertNotIn(marker, text, where)
-            self.assertNotIn(answer, text, where)
+            text = text if isinstance(text, bytes) else text.encode("utf-8")
+            self.assertNotIn(marker.encode("utf-8"), text, where)
+            self.assertNotIn(answer.encode("utf-8"), text, where)
         self.assertNotIn(".git", [part.casefold() for path in seen["folders"] + list(seen["files"]) for part in path.split(os.sep)])
-        # No part of it, either: cases that differ in their answer alone, each field of it, give the model the same
-        # Task, prompt and head, the Run's fresh id and session held still.
+        # No part of it, either: cases that differ in their answer alone, each field of it, severity too, give the model
+        # the same Task, the same call and the same head, byte for byte, the Run's fresh id and session held still.
         met = {"verdict": "met", "criterion": "PR-5", "finding": None}
-        other = {"verdict": "finding", "criterion": "PR-1", "finding": {"category": "requirements", "severity": "major",
+        other = {"verdict": "finding", "criterion": "PR-4", "finding": {"category": "architecture", "severity": "blocking",
                  "location": {"path": "kernel/terms.py", "start_line": 12, "end_line": 14}}}
         given = []
         with mock.patch.object(step, "run_id", lambda: "r_" + "A" * 20), mock.patch("uuid.uuid4", lambda: uuid.UUID(int=1)):
@@ -1652,8 +1747,9 @@ class EvalJob(unittest.TestCase):
                 del built[:]
                 said, cli = scored(case=dict(case, expected=expected))
                 self.assertEqual(len(cli.asked()), 1, expected)
-                given.append((built[0], cli.asked()[0]["args"], cli.asked()[0]["env"], dict(seen["files"]), sorted(seen["folders"])))
-        self.assertTrue(given[0][3])
+                given.append((built[0], cli.asked()[0], dict(seen["files"]), sorted(seen["folders"])))
+        self.assertNotEqual(case["expected"]["finding"]["severity"], other["finding"]["severity"])
+        self.assertTrue(given[0][2])
         self.assertEqual(given[1], given[0])
         self.assertEqual(given[2], given[0])
         # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
@@ -2053,6 +2149,29 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("unanswered", said)
 
+    def test_the_canarys_head_is_apart_from_its_case(self):  # issue 626
+        # The canary keeps its head as the eval job does (issue 623): the folder the CLI starts in and the folder that
+        # holds its case share none below the system's temporary directory.
+        import os
+        import tempfile
+        from harness import eval as job
+        from harness.eval import canary, run as step
+        from tests import test_harness as live
+        kept, assess = {}, job.assess
+
+        def assessing(found, fetched, place, answered):
+            kept["cases"] = os.path.realpath(str(place / "cases"))
+            return assess(found, fetched, place, answered)
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with mock.patch.object(step, "run_id", lambda: live.RUN), mock.patch.object(job, "assess", assessing), \
+                mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(canary.review(dict(live.JOB), cli, live.Clock(*[float(i) for i in range(9)]), Heads()), 0)
+        self.assertIn("cases", kept, "the canary's case is assessed")
+        self.assertEqual(len(cli.asked()), 1, "the model is asked once")
+        self.assertIn("head", cli.asked()[0], "the CLI is asked, in a head")
+        head = os.path.realpath(cli.asked()[0]["head"])
+        self.assertEqual(os.path.commonpath([head, kept["cases"]]), os.path.realpath(tempfile.gettempdir()))
+
     def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0110
         from harness import engine, eval as job, task
         from harness.eval import run as step
@@ -2222,9 +2341,9 @@ class EvalJob(unittest.TestCase):
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
         # The job's time is held inside its timeout, which tools/check_workflows.py holds, counted from when the plan
-        # was made, less ten minutes for the checkout before it and the upload and judge after the step.
+        # was made, less eleven minutes for the checkout before it and the seal, the uploads and judge after the step.
         from tools import check_workflows
-        self.assertEqual(step.BUDGET, (int(check_workflows.EVAL_RUNNER["timeout-minutes"]) - 10) * 60)
+        self.assertEqual(step.BUDGET, (int(check_workflows.EVAL_RUNNER["timeout-minutes"]) - 11) * 60)
         # A diff that cannot be the bytes of any content, a lone surrogate, is no case of this set either.
         cli = live.CLI()
         with self.assertRaises(job.Stop) as stopped:
@@ -2411,6 +2530,9 @@ class EvalJob(unittest.TestCase):
         plan, fetch = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch"))
         self.set(cases)
         self.step(plan)
+        # The plan makes the heads folder, as closed as the scratch (issue 626).
+        self.assertTrue((self.temp / "heads").is_dir(), "the plan makes the heads folder")
+        self.assertEqual(os.stat(str(self.temp / "heads")).st_mode & 0o777, 0o700)
         self.assertEqual(self.step(fetch, self.home(cases), Heads()), "fetched 1 of 1 cases")
         place = self.temp / "heldout"
         kept_plan = json.loads((place / "plan.json").read_text())
@@ -2426,6 +2548,7 @@ class EvalJob(unittest.TestCase):
         cli = Looking(said=live.answer(live.judged(findings=[], effects={})))
         self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
         scratch, temp = os.path.realpath(str(place)), os.path.realpath(str(self.temp))
+        self.assertIn("head", seen, "the CLI is asked, in a head")
         self.assertTrue(os.path.isdir(os.path.join(scratch, "cases")), "the cases are where the scratch keeps them")
         self.assertEqual(os.path.commonpath([seen["head"], scratch]), temp)
         self.assertEqual(seen["beside"], [case["id"]], "beside the head, nothing but the heads")
@@ -2440,6 +2563,15 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(stopped.exception.code, "scratch_in_workspace", target)
             os.unlink(str(self.temp / "heads"))
         self.assertEqual(job.heads_place(self.env, self.work), pathlib.Path(temp, "heads"))
+        # A heads folder an earlier job left stops the plan, as a scratch it left does (issue 626).
+        self.clean()
+        (self.temp / "heads").mkdir()
+        self.assertEqual(self.step(plan), "scratch_unreadable")
+        self.assertFalse((self.temp / "heldout").exists(), "and leaves no scratch")
+        # So does a scratch an earlier job left.
+        self.clean()
+        (self.temp / "heldout").mkdir()
+        self.assertEqual(self.step(plan), "scratch_unreadable")
 
     def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
         # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its
@@ -2534,6 +2666,380 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(code, 1)
         self.assertEqual((out.getvalue(), err.getvalue()),
                          ("eval_step_failed\neval_set_empty\nplanned 2 cases\neval_step_failed\n", ""))
+
+    def test_a_named_set_is_read_and_a_name_of_more_than_one_part_is_not(self):  # issue 612
+        from harness import eval as job
+        self.set(dict(list(self.cases.items())[:1]), name="pr-review-gate")
+        self.assertEqual(self.step(job.plan, env={"EVAL_SET": "pr-review-gate"}), "planned 1 cases")
+        self.assertEqual(json.loads((self.temp / "heldout" / "plan.json").read_text())["name"], "pr-review-gate")
+        # Each step after the plan reads the set it named, and one changed since is no set of this run.
+        self.assertEqual(self.step(the_fetch(), self.home(self.cases)), "fetched 1 of 1 cases")
+        self.set(self.cases, name="pr-review-gate")
+        self.assertEqual(self.step(the_fetch(), self.home(self.cases)), "eval_set_changed")
+        self.clean()
+        # With none named, the review Intent's.
+        self.assertEqual(self.step(job.plan), "planned 2 cases")
+        self.clean()
+        for name in ("../pr-review", "pr-review/../pr-review", "", "Pr-review", "-pr", None, 7):
+            self.assertEqual(self.step(job.plan, env={"EVAL_SET": name}), "eval_set_unreadable", name)
+            self.assertEqual(list(self.temp.iterdir()), [], name)
+
+    def test_no_set_but_a_gate_set_names_a_case_of_one(self):  # issue 612, the security read
+        # A set that is not a gate set, and names a gate set's case by its id or its hash, would report it case by case.
+        from harness import eval as job
+        self.set(self.cases, name="pr-review-gate", gate=True)
+        one, two = list(self.cases.items())
+        for cases, code in (({one[0]: one[1]}, "eval_set_overlaps_a_gate_set"),
+                            ({one[0]: b"other bytes"}, "eval_set_overlaps_a_gate_set"),
+                            ({"poc-another": one[1]}, "eval_set_overlaps_a_gate_set"),
+                            ({"poc-another": b"other bytes"}, "planned 1 cases")):
+            self.set(cases)
+            self.assertEqual(self.step(job.plan), code, cases)
+            self.clean()
+        # The gate set itself is run, and another gate set beside it may share a case.
+        self.set(self.cases)
+        self.set(self.cases, name="pr-review-later", gate=True)
+        self.assertEqual(self.step(job.plan, env={"EVAL_SET": "pr-review-gate"}), "planned 2 cases")
+        self.clean()
+        # Every manifest is read, and one that cannot be read stops the run.
+        (self.root / "evals" / "pr-review-later" / "cases.json").write_text("{")
+        self.set({"poc-another": b"other bytes"})
+        self.assertEqual(self.step(job.plan), "eval_set_unreadable")
+
+    def test_a_gate_set_marks_no_group_of_natural_cases_or_others_too_small_to_hide_one(self):  # issue 612
+        from harness import eval as job
+        three = dict(self.cases, **{"poc-three": self.cases[list(self.cases)[1]].replace(b"poc-two", b"poc-three")})
+        with mock.patch.object(job, "ORIGIN_LEAST", 2):
+            for natural, code in (((list(three)[0],), "eval_set_unreadable"), (tuple(three)[:2], "eval_set_unreadable"),
+                                  ((), "planned 3 cases"), (tuple(three), "planned 3 cases")):
+                self.set(three, gate=True, natural=natural)
+                self.assertEqual(self.step(job.plan), code, natural)
+                self.clean()
+
+    def gate_run(self, natural=None):
+        """A gate set of the two cases, planned, fetched and scored as passed: what `score` left in the scratch."""
+        from harness import eval as job
+        self.set(self.cases, gate=True, natural=list(self.cases)[:1] if natural is None else natural)
+        self.assertEqual(self.step(job.plan), "planned 2 cases")
+        self.step(the_fetch(), self.home(self.cases))
+        result = example_result()
+        self.assertEqual(self.step(job.score, lambda case: result), "scored 2 of 2 cases, 2 passed")
+        return result
+
+    def test_a_gate_sets_report_holds_counts_alone_and_its_ledger_every_case(self):  # issue 612
+        from harness import eval as job
+        result = self.gate_run()
+        # The report: counts alone, no case's id, hash, verdict or code.
+        text = (self.work / job.REPORT).read_text()
+        written = json.loads(text)
+        manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
+        for said in [c["id"] for c in manifest["cases"]] + [c["sha256"] for c in manifest["cases"]] + ['"reasons"', '"cases": [']:
+            self.assertNotIn(said, text)
+        self.assertEqual((written["schema"], written["passed"], written["origin"], written["faults"]),
+                         ("eval-aggregate/1", 2, {"natural": {"cases": 1, "passed": 1}, "constructed": {"cases": 1, "passed": 1}}, []))
+        # The interval is Wilson's at 95%: 6 of 20 is 0.1455 to 0.5190, as every table of it gives.
+        self.assertEqual((job.wilson(6, 20), job.wilson(2, 2)), ({"low": 0.1455, "high": 0.519}, {"low": 0.3424, "high": 1.0}))
+        self.assertEqual(written["kinds"], {"finding": {"cases": 2, "passed": 2, "interval": job.wilson(2, 2)},
+                                            "met": {"cases": 0, "passed": 0, "interval": {"low": 0.0, "high": 1.0}}})
+        self.assertEqual(written["usage"]["answered"], 2)
+        self.assertEqual(written["usage"]["output_tokens"], 2 * result["usage"]["output_tokens"])
+        # The model that answered, by the id the CLI gave, and a tally that says so where it is not the configured one
+        # (issue 616).
+        self.assertEqual(written["models"], ["claude-opus"])
+        self.assertTrue(job.tally(written, "claude-sonnet").endswith("; answered by claude-opus, not the configured claude-sonnet"))
+        self.assertNotIn("answered by", job.tally(written, "claude-opus"))
+        self.assertEqual(written["engine"]["prompt_sha256"],
+                         hashlib.sha256((ROOT / "roles" / "pr-review" / "prompt.md").read_bytes()).hexdigest())
+        # Unsealed, it is no report the gate reads: only the seal step's hash makes it whole.
+        self.assertEqual([e for e in validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas())
+                          if "sealed_sha256" not in e], [])
+        self.assertNotEqual(validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual(self.step(job.judge), "report_unreadable")
+        # The ledger: every case, natural or not, with its verdict and the Result the review returned, in the scratch
+        # alone and readable by the runner's user alone, under a salt drawn for the run.
+        kept = self.temp / "heldout" / job.LEDGER
+        self.assertEqual(kept.stat().st_mode & 0o777, 0o600)
+        ledger = json.loads(kept.read_text())
+        self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual([(c["id"], c["natural"], c["verdict"], c["result"], c["usage"]) for c in ledger["cases"]],
+                         [(list(self.cases)[0], True, "pass", result, job.used(result["usage"])),
+                          ("poc-two", False, "pass", result, job.used(result["usage"]))])
+        self.assertEqual(written["ledger"]["salted_sha256"], hashlib.sha256(kept.read_bytes()).hexdigest())
+        found = job.manifest(self.root)[0]
+        salts = {job.ledger_of(ledger, found, {c["id"]: ("pass", []) for c in found["cases"]}, {}, set(), {})["salt"]
+                 for _ in range(2)} | {ledger["salt"]}
+        self.assertEqual(len(salts), 3)
+        self.assertEqual(sorted(p.name for p in self.work.iterdir()), [job.REPORT])
+        # The ledger lists each case as eval-report/1 does, with its mark and its Result, and the report's codes are its:
+        # a code or a field the per-case report gains is the ledger's too.
+        per_case = load("schemas/eval-report.schema.json")["properties"]["cases"]["items"]
+        in_ledger = copy.deepcopy(load("schemas/eval-ledger.schema.json")["properties"]["cases"]["items"])
+        self.assertEqual((in_ledger["properties"].pop("natural")["type"], in_ledger["properties"].pop("result")["$ref"]),
+                         ("boolean", "result.schema.json"))
+        self.assertEqual(dict(in_ledger, required=[r for r in in_ledger["required"] if r != "natural"]), per_case)
+        self.assertEqual(load("schemas/eval-aggregate.schema.json")["properties"]["faults"]["items"]["properties"]["code"]["enum"],
+                         per_case["properties"]["reasons"]["items"]["enum"])
+        # A gate set says of each case whether it is natural, or it is no set.
+        manifest["cases"][1].pop("natural")
+        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(manifest))
+        self.assertEqual(self.step(job.judge), "eval_set_unreadable")
+
+    def test_the_seal_encrypts_the_ledger_to_each_pinned_certificate_alone(self):  # issue 612
+        from harness import eval as job
+        from harness.eval import seal
+        keys = pathlib.Path(self.dir.name) / "keys"
+        keys.mkdir()
+        (first, first_key), (second, second_key) = recipient(keys, "first"), recipient(keys, "second")
+        pin(self.root, {"first": first, "second": second})
+        self.gate_run()
+        plain = (self.temp / "heldout" / job.LEDGER).read_bytes()
+        asked, outputs = [], pathlib.Path(self.dir.name) / "outputs"
+        outputs.write_text("earlier=1\n")
+        self.assertEqual(self.step(seal.step, lambda args, **given: asked.append((args, given)) or subprocess.run(args, **given),
+                                   env={"GITHUB_OUTPUT": str(outputs)}),
+                         "sealed the ledger to 2 recipients")
+        # openssl reads the copy of the ledger the report's hash was checked against, never the path again.
+        self.assertEqual(os.path.basename(asked[0][0][asked[0][0].index("-in") + 1]), "ledger-checked.json")
+        # Each recipient by RSA-OAEP, the content by AES-256, openssl given no input and no environment but its path,
+        # and each certificate as the copy of the bytes that were checked against their pin.
+        self.assertEqual([a for a in asked[0][0] if a.startswith(("-aes", "rsa_"))],
+                         ["-aes256"] + ["rsa_padding_mode:oaep", "rsa_oaep_md:sha256", "rsa_mgf1_md:sha256"] * 2)
+        self.assertEqual([given["env"] for _, given in asked], [{"PATH": "/usr/bin:/bin"}] * 2)
+        self.assertEqual([given["stdin"] for _, given in asked], [subprocess.DEVNULL] * 2)
+        recips = [asked[0][0][i + 1] for i, a in enumerate(asked[0][0]) if a == "-recip"]
+        self.assertEqual([os.path.dirname(r) for r in recips], [os.path.realpath(str(self.temp / "heldout"))] * 2)
+        sealed = self.work / seal.SEALED
+        self.assertEqual(sealed.stat().st_mode & 0o777, 0o600)    # the upload reads it as the runner's user, as it is
+        self.assertEqual(opened(sealed, keys / "first.crt", first_key), plain)
+        self.assertEqual(opened(sealed, keys / "second.crt", second_key), plain)
+        self.assertNotIn(b"poc-two", sealed.read_bytes())
+        # The plaintext is gone, and the report binds the ciphertext, whole, for the gate.
+        self.assertEqual([p.name for p in (self.temp / "heldout").iterdir() if "ledger" in p.name], [])
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(written["ledger"]["sealed_sha256"], hashlib.sha256(sealed.read_bytes()).hexdigest())
+        # The job's output is the same hash, after what the runner's file held.
+        self.assertEqual(outputs.read_text(), "earlier=1\nledger_sha256=%s\n" % written["ledger"]["sealed_sha256"])
+        self.assertEqual(validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual(self.step(job.judge), "2 of 2 passed; no code")
+        # A development set has no ledger, and the step seals nothing.
+        self.set(self.cases)
+        self.clean()
+        sealed.unlink()
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases))
+        self.step(job.score, lambda case: example_result())
+        before = (self.work / job.REPORT).read_bytes()
+        self.assertEqual(self.step(seal.step), "sealed nothing: a development set has no ledger")
+        self.assertEqual(((self.work / job.REPORT).read_bytes(), sorted(p.name for p in self.work.iterdir())),
+                         (before, [job.REPORT]))
+
+    def test_the_seal_refuses_a_certificate_not_pinned_and_a_ledger_not_sealed_whole(self):  # issue 612
+        from harness import eval as job
+        from harness.eval import seal
+        # Its pins are read from a path the session hooks protect, so that an edit of who can read a ledger is asked about.
+        protected = [entry["path"] for entry in load("config/hooks.json")["protected"]]
+        self.assertTrue(any(seal.RECIPIENTS.as_posix().startswith(path) for path in protected if path.endswith("/")))
+        keys = pathlib.Path(self.dir.name) / "keys"
+        keys.mkdir()
+        (first, _), (other, _) = recipient(keys, "first"), recipient(keys, "other")
+        self.gate_run()
+        place = self.temp / "heldout"
+
+        def sealed_with(recipients=None, certs=None, call=subprocess.run):
+            for old in list(place.glob("recipient-*.crt")) + list(place.glob("ledger-checked.json")) + \
+                    list(place.glob(seal.SEALED)):
+                old.unlink()
+            shutil.rmtree(str(self.root / "config"), ignore_errors=True)
+            shutil.rmtree(str(self.root / ".github"), ignore_errors=True)
+            pin(self.root, {"first": first})
+            if certs is not None:
+                for name, data in certs.items():
+                    (self.root / "config" / "ledger" / name).write_bytes(data)
+            if recipients is not None:
+                (self.root / ".github" / "ledger-recipients").write_text(recipients)
+            return self.step(seal.step, call)
+        good = "%s  config/ledger/first.crt\n" % hashlib.sha256(first).hexdigest()
+        (place / "outside.crt").write_bytes(first)
+        for recipients, certs, code in (
+                ("", None, "no_recipient"),
+                (good.replace("  ", " "), None, "recipient_unreadable"),
+                (good + good, None, "recipient_unreadable"),
+                (good.replace("first.crt", "../first.crt"), None, "recipient_unreadable"),
+                (good.replace("first.crt", "gone.crt"), None, "recipient_unreadable"),
+                (good, {"first.crt": other}, "recipient_changed"),
+                (good.upper(), None, "recipient_unreadable"),
+                (good + "a line that is no pin\n", None, "recipient_unreadable")):
+            self.assertEqual(sealed_with(recipients, certs), code, (recipients, certs))
+            self.assertFalse((self.work / seal.SEALED).exists())
+        (self.root / ".github" / "ledger-recipients").unlink()
+        self.assertEqual(self.step(seal.step), "no_recipient")
+        # A link out of config/ledger/ is no certificate of it, whatever it holds.
+        shutil.rmtree(str(self.root / "config" / "ledger"))
+        (self.root / "config" / "ledger").mkdir()
+        (self.root / "config" / "ledger" / "first.crt").symlink_to(place / "outside.crt")
+        (self.root / ".github" / "ledger-recipients").write_text(good)
+        self.assertEqual(self.step(seal.step), "recipient_unreadable")
+        # An openssl that fails, or seals with no OAEP or another cipher, has sealed nothing the step will take.
+        failing = lambda args, **given: subprocess.CompletedProcess(args, 1, b"", b"")
+        def without(*dropped):
+            """openssl as the step calls it, each keyopt in `dropped` left out."""
+            def call(args, **given):
+                kept = [a for i, a in enumerate(args) if a not in dropped and not (a == "-keyopt" and args[i + 1] in dropped)]
+                return subprocess.run(kept, **given)
+            return call
+        no_oaep = without("rsa_padding_mode:oaep", "rsa_oaep_md:sha256", "rsa_mgf1_md:sha256")
+        sha1 = without("rsa_oaep_md:sha256")
+        weaker = lambda args, **given: subprocess.run(["-aes128" if a == "-aes256" else a for a in args], **given)
+        raising = lambda args, **given: (_ for _ in ()).throw(subprocess.TimeoutExpired(args, 60))
+        for call in (failing, no_oaep, sha1, weaker, raising):
+            self.assertEqual(sealed_with(call=call), "ledger_not_sealed")
+            self.assertFalse(os.path.lexists(str(self.work / seal.SEALED)))
+        self.assertTrue((place / job.LEDGER).exists())
+        # The ledger sealed is the one the report hashed, of a gate set's report.
+        written = json.loads((self.work / job.REPORT).read_text())
+        for report in (dict(written, ledger={"salted_sha256": "0" * 64}), dict(written, schema="eval-report/1"), []):
+            (self.work / job.REPORT).write_text(json.dumps(report))
+            self.assertEqual(sealed_with(), "ledger_not_the_reports")
+        (self.work / job.REPORT).write_text(json.dumps(written))
+        (place / job.LEDGER).unlink()
+        self.assertEqual(sealed_with(), "ledger_unreadable")
+        # A file or a link already where the ledger is uploaded from is refused, before anything is read, for either kind
+        # of set: the upload would take it as it is, and a link would be written through.
+        (place / "outside.json").write_text("{}")
+        for kind in ("gate", "development"):
+            self.set(self.cases, gate=kind == "gate", natural=list(self.cases)[:1])
+            plan = json.loads((place / "plan.json").read_text())
+            plan["set"]["sha256"] = job.manifest(self.root)[1]
+            (place / "plan.json").write_text(json.dumps(plan))
+            for planted in ("file", "link"):
+                if planted == "file":
+                    (self.work / seal.SEALED).write_bytes(b"what the checkout held")
+                else:
+                    (self.work / seal.SEALED).symlink_to(place / "outside.json")
+                self.assertEqual(self.step(seal.step), "ledger_in_workspace", (kind, planted))
+                self.assertEqual((place / "outside.json").read_text(), "{}")
+                (self.work / seal.SEALED).unlink()
+
+    def aggregate_of(self, finding=(20, 6), met=(20, 18), natural=(30, 18), faults=()):
+        """A gate set of `finding` and `met` cases, `(cases, passed)` of each, and `natural` of them marked so, `(cases,
+        passed)`: `(found, digest, report)` as the job would have written it, sealed."""
+        from harness import eval as job
+        count = finding[0] + met[0]
+        found = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "gate": True, "count": count,
+                 "cases": [{"id": "c-%d" % i, "sha256": "%064x" % i, "natural": i < natural[0]} for i in range(count)]}
+        passed = finding[1] + met[1]
+        report = {"schema": "eval-aggregate/1", "release": "factory/v0.1.0", "commit": "a" * 40, "role": "pr-review",
+                  "intent": "review-change", "set": {"count": count, "sha256": "d" * 64}, "passed": passed,
+                  "kinds": {kind: {"cases": n, "passed": p, "interval": job.wilson(p, n)}
+                            for kind, (n, p) in (("finding", finding), ("met", met))},
+                  "origin": {"natural": {"cases": natural[0], "passed": natural[1]},
+                             "constructed": {"cases": count - natural[0], "passed": passed - natural[1]}},
+                  "faults": [{"code": c, "count": n} for c, n in faults],
+                  "usage": {"answered": count, "input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+                            "output_tokens": 1, "turns": count, "cost_usd": 1.5, "seconds": 60.0},
+                  "engine": job.engine_of("pr-review"), "models": ["claude-opus"], "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
+                  "split_ok": True, "kinds_pass": {"finding": job._clears(finding[1], finding[0], (3, 10)),
+                                                   "met": job._clears(met[1], met[0], (9, 10))},
+                  "blocking_pass": True, "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}
+        return found, "d" * 64, report
+
+    def test_the_gate_passes_a_good_aggregate_report_and_refuses_a_bad_one(self):  # issue 612
+        from harness import eval as job
+        from tests.test_evals import load as loaded
+        least = mock.patch.object(job, "KIND_LEAST", 20)
+        least.start()
+        self.addCleanup(least.stop)
+        found, digest, good = self.aggregate_of()
+        judged = lambda report, of=found: job.verdict(report, of, digest, "a" * 40, "factory/v0.1.0")
+        self.assertEqual(judged(good), "pass")
+        # The bar on each kind: exactly on it passes, one under it fails, its word as its counts say.
+        self.assertEqual(judged(self.aggregate_of(finding=(20, 5), natural=(30, 17))[2]), "case_failed")
+        self.assertEqual(judged(self.aggregate_of(met=(20, 17), natural=(30, 17))[2]), "case_failed")
+        # A kind under its bar fails, whatever the set's share: 25 passed is more than the fewest 24 the bars imply.
+        self.assertEqual(judged(self.aggregate_of(finding=(20, 5), met=(20, 20), natural=(30, 19))[2]), "case_failed")
+
+        def changed(path, value):
+            report = copy.deepcopy(good)
+            *above, last = path
+            place = report
+            for key in above:
+                place = place[key]
+            if value is KeyError:
+                del place[last]
+            else:
+                place[last] = value
+            return report
+        engine = job.verdict(dict(copy.deepcopy(good), faults=[{"code": "engine_timeout", "count": 1}]), found, digest,
+                             "a" * 40, "factory/v0.1.0")
+        for report, code in (
+                # A gate set's report is of counts alone, and a development set's is per case: neither stands for the other.
+                (loaded("examples/eval-report.json"), "report_of_another_kind"),
+                (changed(["ledger", "sealed_sha256"], KeyError), "report_unreadable"),
+                (changed(["models"], KeyError), "report_unreadable"),
+                (changed(["cases"], [{"id": "c-0", "verdict": "pass"}]), "report_unreadable"),
+                (changed(["faults"], [{"code": "case c-0 timed out", "count": 1}]), "report_unreadable"),
+                (changed(["commit"], "b" * 40), "another_commit"),
+                (changed(["release"], "factory/v0.1.1"), "another_release"),
+                (changed(["set", "sha256"], "0" * 64), "another_set"),
+                (changed(["role"], "devops-lead"), "another_set"),
+                (changed(["faults"], [{"code": "not_found", "count": 1}]), "run_fault"),
+                (changed(["faults"], [{"code": "engine_timeout", "count": 1}, {"code": "engine_timeout", "count": 2}]),
+                 "count_differs"),
+                # Each count is the job's, and a report whose counts its set, or its own, cannot bear is not.
+                (changed(["origin", "natural", "cases"], 29), "count_differs"),
+                (changed(["origin", "constructed", "cases"], 11), "count_differs"),
+                (changed(["origin"], {"natural": {"cases": 31, "passed": 18}, "constructed": {"cases": 9, "passed": 6}}),
+                 "count_differs"),
+                (changed(["origin", "natural", "passed"], 17), "count_differs"),
+                (changed(["origin", "constructed", "passed"], 11), "count_differs"),
+                (changed(["faults"], [{"code": "criterion_unknown", "count": 17}]), "count_differs"),
+                (changed(["kinds", "met", "cases"], 21), "count_differs"),
+                (changed(["kinds", "met", "passed"], 19), "count_differs"),
+                (changed(["kinds", "finding", "passed"], 21), "count_differs"),
+                (changed(["kinds", "finding", "interval"], {"low": 0.1, "high": 0.5}), "count_differs"),
+                (changed(["kinds_pass", "finding"], False), "count_differs"),
+                (changed(["kinds"], None), "count_differs"),
+                (changed(["kinds_pass"], None), "count_differs"),
+                # Where no kind was read, the job says nothing of the split or the blocking cases either.
+                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None), "eval_split_short"),
+                (dict(copy.deepcopy(good), kinds=None, split_ok=None, blocking_pass=None), "count_differs"),
+                (self.aggregate_of(finding=(19, 6), met=(21, 19), natural=(30, 18))[2], "count_differs"),
+                (changed(["bars", "finding"], [2, 10]), "bars_differ"),
+                (changed(["kind_least"], 0), "bars_differ"),
+                (changed(["split_ok"], False), "eval_split_short"),
+                (changed(["blocking_pass"], None), "eval_split_short"),
+                (changed(["passed"], "24"), "report_unreadable")):
+            self.assertEqual(judged(report), code, (code, report.get("faults"), report.get("origin")))
+        self.assertEqual(engine, "engine_fault")
+        # A set too small to hold its kinds' least is still held to them when its report says the split held.
+        found_small, _, small = self.aggregate_of(finding=(19, 6), met=(19, 18), natural=(19, 10))
+        self.assertEqual(judged(dict(small, split_ok=False, set={"count": 38, "sha256": digest}), found_small), "eval_split_short")
+        # A report of counts for a development set is of the other kind too.
+        development = dict(found, cases=[{k: v for k, v in c.items() if k != "natural"} for c in found["cases"]])
+        development.pop("gate")
+        self.assertEqual(judged(good, development), "report_of_another_kind")
+        # A blocking case not passed closes nothing by itself, as for a development set (decision 0150).
+        self.assertEqual(judged(changed(["blocking_pass"], False)), "pass")
+        self.assertEqual(job.tally_of_aggregate(dict(good, faults=[{"code": "criterion_unknown", "count": 2}],
+                                                     blocking_pass=False)),
+                         "24 of 40 passed; criterion_unknown 2; a blocking case not passed")
+
+    def test_a_gate_sets_judge_says_counts_and_codes_and_never_a_case(self):  # issue 612
+        from harness import eval as job
+        from harness.eval import seal
+        keys = pathlib.Path(self.dir.name) / "keys"
+        keys.mkdir()
+        pin(self.root, {"first": recipient(keys, "first")[0]})
+        self.set(self.cases, gate=True)
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(dict(list(self.cases.items())[:1])))
+        self.step(job.score, lambda case: example_result())
+        self.step(seal.step)
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(job.main(lambda env, root, work: job.judge(self.env, self.root, self.work)), 1)
+        self.assertEqual(out.getvalue(), "1 of 2 passed; unanswered 1\nrun_fault\n")
 
 
 if __name__ == "__main__":
