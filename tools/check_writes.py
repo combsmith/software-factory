@@ -48,7 +48,7 @@ TEST_IMPORTERS = ("tools/make_corpus.py",)
 # runs gh or git to write to GitHub, which is an adapter's (issue 596). A new one is the Maintainer's to allow.
 RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.py", "tools/commits_are_the_maintainers.py",
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
-           "tools/hooks/rules_changed.py", "tools/mutants.py")
+           "tools/hooks/rules_changed.py", "tools/mutants.py", "tools/untested.py")
 # A command's name as a string: gh or git alone, by a path or not, or opening a command line. Spelt apart, so this file
 # holds neither.
 COMMANDS = re.compile(r"\s*(\S*/)?(g" r"h|gi" r"t)(\s|$)")
