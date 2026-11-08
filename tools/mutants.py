@@ -14230,7 +14230,7 @@ MUTANTS = ISSUE + [
     ("what both of the protected hook's readings ask is asked twice", 'tools/hooks/protected.py',
      '            self.found[:] = list(dict.fromkeys(self.found))\n', '', (PROTECTED_NESTED_IN_ONE,)),
     ("a spelt reading that fails is the protected hook's failure", 'tools/hooks/protected.py',
-     "            again = []      # _split's reading stands", '            raise', (PROTECTED_NESTED_IN_ONE,)),
+     "            again = []      # _split's reading stands", '            raise      #', (PROTECTED_NESTED_IN_ONE,)),
     ("a command of any length is read again, spelt", 'tools/hooks/protected.py',
      ' if len(self.text) <= RESPELT_MOST else []', '', (PROTECTED_NESTED_IN_ONE,)),
     ("a process substitution is not spelt again", 'tools/hooks/protected.py',

@@ -522,16 +522,16 @@ class Command:
         except (ValueError, RecursionError):
             again = []      # _split's reading stands, and asks about what it cannot read
         start = self.here
-        self.walk(commands)
+        self.asks_of(commands)
         if again and again != commands:
             # Read again from where the command began, so a cd in the first reading moves none in the second; what
             # either asks about is asked, once.
             self.here = start
-            self.walk(again)
+            self.asks_of(again)
             self.found[:] = list(dict.fromkeys(self.found))
         return self.found
 
-    def walk(self, commands: list):
+    def asks_of(self, commands: list):
         """Ask about what each of `commands` writes, from where the command stands."""
         stood = []      # where the command stood when each subshell a redirection's operand runs began (issue 376)
         for at, (words, redirections) in enumerate(commands):

@@ -3167,7 +3167,7 @@ class MergesAndSettings(Asks):
         # A reading that fails leaves main's to stand; each is read from where the command began; what both ask, once.
         self.assertEqual(self.run_('x="`case $1 in a) echo 1;; esac`"'), "")
         self.assertEqual(self.run_('touch x.json; cd lifecycle; echo "$(echo "$(date)")"'), "")
-        self.assertEqual(self.run_('rm kernel/gate.py; echo "$(echo "$(date)")"').count("protected_path"), 1)
+        self.assertEqual(self.run_('rm kernel/gate.py; echo "$(echo "$(date)"; true)"').count("protected_path"), 1)
         # Past RESPELT_MOST characters the command is read once, as main reads it, in linear time (the security pass).
         long = 'echo %s; echo "$(echo "$(date)"; rm kernel/gate.py)"' % ("a" * protected.RESPELT_MOST)
         self.assertEqual(self.run_(long), "")
