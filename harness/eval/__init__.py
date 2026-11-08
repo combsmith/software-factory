@@ -839,8 +839,8 @@ def pooled_verdict(documents: list, found: dict, digest: str, commit: str, relea
     closed = [code for code in said if code not in (PASS, "case_failed")]
     if closed:
         return closed[0]
-    # Each kind is read in every report, and the split held in each, or the pool has no kinds to sum.
-    if any(d["kinds"] is None or d["split_ok"] is not True or d["blocking_pass"] is None for d in documents):
+    # The split held in each, and so each kind was read (`aggregate_verdict` holds that), or the pool has no kinds to sum.
+    if any(d["split_ok"] is not True or d["blocking_pass"] is None for d in documents):
         return "eval_split_short"
     together, bars = pooled(documents), bars_of(found)
     if not all(_clears(together["kinds"][k]["passed"], together["kinds"][k]["cases"], bars[k]) for k in KINDS):
