@@ -1,6 +1,6 @@
 # 0180. On a pull request the mutant shards decline, and on a merge group each runs in full
 
-Status: accepted. The Factory Builder's ruling of 2026-11-09, pre-approved by the Maintainer 2026-11-08, on the measurement of the runners' throughput that followed the move to GitHub Team. It changes where `tools/mutants.py` runs in CI, as decision 0166 declines `tools/untested.py` on a merge group.
+Status: accepted. The Factory Builder's ruling of 2026-11-09, pre-approved by the Maintainer 2026-11-08, on the measurement of the runners' throughput that followed the move to GitHub Team. It changes where `tools/mutants.py` runs in CI, as decision 0166 declines `tools/untested.py` on a merge group, and it amends decision 0008's "two commands, `make verify` and then `python3 -m tools.mutants`, run locally exactly what the required check runs": the desk runs `make checks` and the mutants of the files a change touches, and `make verify` and every shard are CI's.
 
 ## Decision
 
@@ -10,7 +10,7 @@ Status: accepted. The Factory Builder's ruling of 2026-11-09, pre-approved by th
 | A merge group | Every shard runs in full, as before, so no merge reaches main without every mutant killed | The rule "every Kernel rule has a boundary test, and a mutant that the test kills" is held where the merge is made |
 | What stays | The shard jobs still start on a pull request, so the matrix, `SHARD_KEYS`, `tools/needs_passed.py` and decision 0008's one required check are unchanged | A job that does not report would leave `verify` waiting or skipped |
 | The event | Read from the runner's own `GITHUB_EVENT_NAME`. The shard job's env is held to `MUTANTS_SHARD` and `MUTANTS_SHARDS` alone, and a step's env is refused, so no workflow can set it otherwise | The workflow names no event, and its shape stays as `tools/check_workflows.py` holds it |
-| The desk run | A builder still owes `make checks` and `python3 -m tools.mutants` on the files a change touches before a change is finished, and no longer runs `make verify`, whose answer is CI's: AGENTS.md's Verify says so (the Maintainer, 2026-11-09) | The residual: what a pull request's shards would have caught, 3 runs in 94, is now found at the merge group, which ejects the entry, or at the desk |
+| The desk run | A builder still owes `make checks` and `python3 -m tools.mutants` on the files a change touches before a change is finished, but for a file more than 40 mutants target, which a filtered run refuses and the merge group runs, and no longer runs `make verify`, whose answer is CI's: AGENTS.md's Verify says so (the Maintainer, 2026-11-09) | The residual: what a pull request's shards would have caught, 3 runs in 94, is now found at the merge group, which ejects the entry, or at the desk |
 | The cost | Runner minutes for each merged pull request, from the day to 2026-11-09 13:40Z: 521 before, about 236 after (the pull-request runs' 6,409 less their 5,359 in the shards, plus 0.4 a declining leg, with the merge groups' 2,970, over 18 merged) | Measured from the runs' jobs; the after is an estimate until a day of runs under this rule is read |
 
 ## Why

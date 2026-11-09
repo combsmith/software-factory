@@ -9,7 +9,7 @@ except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standard
 ## Verify
 
 ```
-make checks; python3 -m tools.mutants PATH...  # the desk's, before a change is finished: the checks, then the mutants of the files it touches
+make checks; python3 -m tools.mutants PATH...  # the desk's, before a change is finished: the checks, then the mutants of the files it touches, a file of more than 40 the merge group's
 make verify                                    # CI's, never the desk's: three legs on every pull request and merge group; mutant shards on the merge group alone (record 0180)
 ```
 
