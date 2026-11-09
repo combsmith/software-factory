@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-30",
   "question": "Which identity can cut a Release and move a channel tag under a tag ruleset, from a workflow in the Factory repo?",
-  "pass": "One identity, through one path (section 6). As the story, #189, states it, under the Factory Builder's ruling of 2026-11-09, pre-approved by the Maintainer on 2026-11-08: from release.yml on main, one identity created the immutable tag factory/v0.1.0 and moved the channel tag factory/v0-next to it, in run 42348605675, and the Deployment of factory-next that the same step recorded names that identity as its creator; a second cut of the same Release, run 42348650504, wrote nothing; the tag ruleset factory release tags (25183656), which refuses creating, updating, deleting or force-pushing any refs/tags/factory/* tag, names in its bypass list that identity and the admin role alone, the admin role being the Maintainer's own login (recovery, section 9.1); and the ruleset factory releases are immutable (25996980) lets no one move or delete a Release tag. The live read of 25183656's bypass list stands in for each other identity's refusal, the machine user's and each other Factory App's: an identity the list does not name is refused by the ruleset. Residual, stated: no other identity's refusal was exercised. The identity is the App combsmith-sf-release, 5502359 (decision 0114). The poller's job token was not taken: GitHub grants a job token no workflows permission, which a tag on a commit that touches .github/workflows/ needs (decision 0114), and a bypass for it would name GitHub Actions, through which every workflow of this repo would pass the ruleset, not one path.",
+  "pass": "One identity, through one path (section 6). As the story, #189, states it, under the Factory Builder's ruling of 2026-11-09, pre-approved by the Maintainer on 2026-11-08: from release.yml on main, one identity created the immutable tag factory/v0.1.0 and moved the channel tag factory/v0-next to it, in run 42348605675, and the Deployment of factory-next that the same step recorded names that identity as its creator; a second cut of the same Release, run 42348650504, wrote nothing; the tag ruleset factory release tags (25183656), which refuses creating, updating, deleting or force-pushing any refs/tags/factory/* tag, names in its bypass list that identity and the admin role alone, the admin role being the Maintainer's own login (recovery, section 9.1), which the repo's admins, read live with every affiliation, show: don-petry alone; and the ruleset factory releases are immutable (25996980) lets no one move or delete a Release tag. The live read of 25183656's bypass list stands in for each other identity's refusal, the machine user's and each other Factory App's: an identity the list does not name is refused by the ruleset. Residual, stated: no other identity's refusal was exercised, and the admins are read as they stood on the day of the read. The identity is the App combsmith-sf-release, 5502359 (decision 0114). The poller's job token was not taken: GitHub grants a job token no workflows permission, which a tag on a commit that touches .github/workflows/ needs (decision 0114), and a bypass for it would name GitHub Actions, through which every workflow of this repo would pass the ruleset, not one path.",
   "repo": "combsmith/software-factory",
   "ran_at": "2026-11-09T02:44:03Z",
   "exchanges": [
@@ -1082,6 +1082,70 @@
           }
         }
       }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/collaborators?affiliation=all&permission=admin (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 03:05:02 GMT",
+          "etag": "W/\"2eafd7d3befe4f79f525e75874707475db861abcb583f949d7210b5959c70aae\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F89E:3E6302:79BB66:18E704E:6AF1385D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4769",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "231"
+        },
+        "body": [
+          {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": true,
+              "maintain": true,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "admin"
+          }
+        ]
+      }
     }
   ],
   "removed": [
@@ -1094,6 +1158,7 @@
     "exchanges[6].request.headers.authorization",
     "exchanges[7].request.headers.authorization",
     "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
     "exchanges[*].response.headers: every header but those a trial's fixture keeps, as tools/redact_trial.py reported them",
     "exchanges[1].response.body.jobs[0].steps[1].name",
     "exchanges[1].response.body.jobs[0].steps[5].name",

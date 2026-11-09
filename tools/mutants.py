@@ -2656,7 +2656,7 @@ MUTANTS = ISSUE + [
      "        if not actions and rel is not None:\n", "        if False:\n", ("tests.test_tools.Workflows.test_a_lens_run_by_actions_names_its_workflow_and_no_other_does",)),
     ("a Role may write through the release App", "tools/check_authority.py",
      'if key in ("controller", "reader", "release")}', 'if key in ("controller", "reader")}', ("tests.test_tools.Authority.test_a_role_writes_through_no_app_that_is_no_roles",)),
-    # P-30 runs in the Factory's own repo, the one trial that records it, and is held as a canary fixture is.
+    # P-30 and P-63 run in the Factory's own repo, the only trials that record it, each held as a canary fixture is.
     ("any trial may record the Factory's own repo", "tools/check_trials.py",
      'if repo == FACTORY and trial not in TRIALS_OF_THE_FACTORY:', 'if False:', ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
     ("a trial of the Factory may record the canary", "tools/check_trials.py",
