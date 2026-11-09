@@ -10,8 +10,10 @@ The step holds the model's credential and the CLI's path alone (`tools/check_wor
 when the time it has left is less than a case's tier allows, so that the job ends before its own timeout: a case not
 reached is unanswered, and the run fails.
 
-Nothing of a case, a Task or a Result is printed or written: each Result is scored in this step's memory and never
-kept, and only `eval-report.json`, of hashes, verdicts, codes and causes, is written in the workspace, by `score`.
+Nothing of a case, a Task or a Result is printed: each Result is scored in this step's memory, and only the report,
+`eval-report.json`, of hashes, verdicts, codes and causes, or of counts alone for a gate set, is written in the
+workspace, by `score`. A gate set's Results are kept whole in the ledger, in the scratch alone, for `seal`, which
+uploads nothing of them but their ciphertext (issue 612).
 The CLI's call is watched for a case's cause alone: its exit, its subtype, or that it timed out (decision 0131)."""
 from __future__ import annotations
 
