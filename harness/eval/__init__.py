@@ -1195,6 +1195,15 @@ def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib
     return "scored %d cases of the part %s, %d passed" % (len(mine["cases"]) + len(ahead), kept["part"], len(passed))
 
 
+def part_names(kept: dict) -> list:
+    """The parts of a split run, the preflight and each shard by its number, as many shards as the plan kept, which
+    the configuration bounds at sixteen: a count the scratch holds otherwise is no plan of this run's."""
+    shards = next((n for n in range(1, 17) if n == kept.get("shards")), None)
+    if shards is None:
+        raise Stop("scratch_unreadable")
+    return [PREFLIGHT] + [str(i) for i in range(shards)]
+
+
 def _part_file(path: str):
     try:
         with open(path, encoding="utf-8") as f:
@@ -1209,7 +1218,7 @@ def parts_of(kept: dict, found: dict, folder: pathlib.Path, attempt=None) -> dic
     not `eval-part/1`, of another part, Release, commit or set than this run's, a gate set's that lists a case or holds
     no ledger but its own, a development set's that holds one, or a gate set's shard drawn for another attempt than
     `attempt`, the merge's, is None, and its cases are not answered: a shard run again draws its cases anew."""
-    names, gate = [PREFLIGHT] + [str(i) for i in range(kept["shards"])], gate_set(found)
+    names, gate = part_names(kept), gate_set(found)
     read = {}
     for part in names:
         try:
@@ -1243,7 +1252,7 @@ def merged(kept: dict, found: dict, read: dict, root: pathlib.Path) -> dict:
     its preflight the preflight's, its ledger each part's. A case no part answered is `unanswered`, a fault of the run;
     then no kind can be read, nor the split. Every word the report says of its kinds is said from the summed counts,
     as `split_ok`, `kinds_pass` and `blocking_pass` would say it of the whole set."""
-    shards = [read[str(i)] for i in range(kept["shards"])]
+    shards = [read[part] for part in part_names(kept)[1:]]
     present = [d for d in shards if d is not None]
     whole = sum(d["asked"] for d in present) == found["count"]
     kinds = {k: _summed([None if d["kinds"] is None else d["kinds"][k] for d in present]) for k in KINDS} if whole else None
@@ -1292,7 +1301,7 @@ def merged(kept: dict, found: dict, read: dict, root: pathlib.Path) -> dict:
             "preflight": ahead, "usage": usage, "engine": engine_of(found["role"]), "models": answering,
             "bars": {kind: list(bars[kind]) for kind in KINDS}, "kind_least": least, "split_ok": held,
             "kinds_pass": words, "blocking_pass": clear,
-            "ledger": [entry for part in [PREFLIGHT] + [str(i) for i in range(kept["shards"])] if read[part] is not None
+            "ledger": [entry for part in part_names(kept) if read[part] is not None
                        for entry in read[part]["ledger"]]}
 
 

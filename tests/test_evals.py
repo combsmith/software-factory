@@ -3621,6 +3621,11 @@ class EvalJob(unittest.TestCase):
                        {"ledger": [{"part": "1", "salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}]}):
             (parts["1"] / job.PART).write_text(json.dumps(dict(kept, **change)))
             self.assertEqual(self.merged_run(parts)[0], "merged 2 of 3 parts, 3 passed", change)
+        # The parts are the plan's, its shards bounded as the configuration bounds them: a count past it is no plan's.
+        self.assertEqual(job.part_names({"shards": 2}), ["preflight", "0", "1"])
+        for shards in (0, 17, "2", True, None):
+            with self.assertRaises(job.Stop):
+                job.part_names({"shards": shards})
         # A part the configuration does not name, or the merge's own part asked to fetch, is refused.
         for part in ("2", "-1", "", "whole"):
             self.assertEqual(self.part_run(part, github.Replay([]), review)[0], ["part_unreadable"], part)
