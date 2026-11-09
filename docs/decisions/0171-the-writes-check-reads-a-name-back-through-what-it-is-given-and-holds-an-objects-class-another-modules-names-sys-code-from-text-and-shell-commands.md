@@ -1,4 +1,4 @@
-# NNNN. The writes check reads a name back through what it is given, and holds an object's class, another module's names set from outside, sys and loads reached other ways, code run from text and a command a shell runs; a runner's helper stays the review's
+# 0171. The writes check reads a name back through what it is given, and holds an object's class, another module's names set from outside, sys and loads reached other ways, code run from text and a command a shell runs; a runner's helper stays the review's
 
 Status: accepted. The Factory Builder's story of 2026-11-08, issue 640, "check_writes: routes still open after issue 596, a runner's helper, a class or instance reached through another name, sys.modules by getattr", raised by the reads of issue 596, "check_writes: further ways a write could be reached past the check, written to hide it". It amends decision 0167's row "Still not held".
 
