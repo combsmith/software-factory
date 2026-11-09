@@ -10212,6 +10212,9 @@ class Writes(unittest.TestCase):
             "harness/caseamp.py": "import os\n\n\ndef go():\n    return os.system('case x in a) true;& b) git push;; esac')\n",
             "harness/varsattralias.py": "from harness import varsholder\n\n\ndef go(sink):\n    m = varsholder\n    return sink(m.d)\n",
             "harness/varswalrus.py": "from harness import portinst\n\nprint(d := vars(portinst))\n",
+            # Argon's second read: an import followed beside a store of the same name.
+            "harness/sa.py": "import os\n\nfrom harness.portc import Port\n\nif os.environ.get('X'):\n    P = Port\n",
+            "harness/sb.py": "import os\n\nif os.environ.get('X'):\n    Q = {}\nfrom harness.sa import P as Q\n\n\ndef go():\n    Q.w = len\n",
             "harness/parenok.py": "MESSAGES = ('nothing to do (see log) git status was clean', '1) git fetch')\n",
             # Two files of one module name.
             "harness/dup.py": "X = 1\n", "harness/dup/__init__.py": "X = 2\n",
@@ -10281,7 +10284,8 @@ class Writes(unittest.TestCase):
                           ("harness/casesecond.py:5", "names gh or git as a command"),
                           ("harness/caseamp.py:5", "names gh or git as a command"),
                           ("harness/varsattralias.py:6", "hands on harness.portinst's names"),
-                          ("harness/varswalrus.py:3", "hands on harness.portinst's names")):
+                          ("harness/varswalrus.py:3", "hands on harness.portinst's names"),
+                          ("harness/sb.py:9", "sets w on the class Port from outside its module's top level")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
         self.assertTrue(caught(problems, "are one module, harness.dup, so what it reaches cannot be read"), problems)
         for rel in ("harness/execok.py", "harness/ownfill.py", "harness/parenok.py"):

@@ -223,7 +223,8 @@ class Module:
                                                               if not outer)
         # A name a def or a class binds and an assignment at the top level binds too, class P, then P = Port under an if:
         # which one is meant cannot be told (Muse's read of issue 655's change).
-        self.conflicts |= set(self.stored_as) & {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+        self.conflicts |= (set(self.stored_as) - set(self.values)) & {n.name for n in tree.body
+                                                                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
 
 
 def _filled_names(node) -> set:
@@ -274,10 +275,10 @@ def _lookup(mods: dict, module: str, name: str, seen: frozenset = frozenset()):
 
 def _origin(mods: dict, module: str, name: str) -> list:
     """Each (module, name) `name` in `module` goes by, read back through each import and re-export of it, `from a import
-    P as Q`, to the module whose own code stores it: a function in any of them may declare it global and assign it, and
-    the last stores it (issue 655, and Argon's read)."""
+    P as Q`, as far as one goes: a function in any of them may declare it global and assign it, and any of them may
+    store it (issue 655, and Argon's reads)."""
     hops, seen = [(module, name)], set()
-    while module in mods and (module, name) not in seen and name not in mods[module].stored:
+    while module in mods and (module, name) not in seen:      # Q = {} beside from a import P as Q: both (Argon)
         seen.add((module, name))
         bound = mods[module].bindings.get(name)
         if not bound or bound[0] != "attr":
@@ -709,7 +710,7 @@ def _traced(mods: dict, mod: Module, node, chain: list = (), seen: frozenset = f
     for where, name in sorted(origins):
         if where not in mods:
             continue
-        if any(got[0] == "value" and got[2] == "<module>" for got in found) and (where, name) not in seen:
+        if (where, name) not in seen:      # beside a def, a class or an import too (Argon)
             out += [more for value in mods[where].stored_as.get(name, ())
                     for more in _traced(mods, mods[where], value, (), seen | {(where, name)})]
         if ("global", where, name) not in seen:      # global C; C = Port, by any name for its module
@@ -724,15 +725,19 @@ def _container(mods: dict, mod: Module, node, chain: list, seen: frozenset = fro
     root = node
     while isinstance(root, ast.Attribute):
         root = root.value
-    if not isinstance(root, ast.Name) or root.id in seen:
+    if not isinstance(root, ast.Name):
         return False
-    seen = seen | {root.id}
-    local = next((fn for fn in chain if root.id in _scoped(fn)), None)
+    local = next((at for at, fn in enumerate(chain) if root.id in _scoped(fn)), None)
+    key = (mod.name, None if local is None else id(chain[local]), root.id)
+    if key in seen:
+        return False
+    seen = seen | {key}
     if local is not None:
-        return any(_container(mods, mod, value, chain, seen) for value, _, _ in _given(local, root.id))
+        return any(_container(mods, mod, value, ([inner] if inner else []) + list(chain[local + outer:]), seen)
+                   for value, outer, inner in _given(chain[local], root.id))
     bound = mod.bindings.get(root.id)
     if bound:
-        return (bound[1] if bound[0] == "module" else bound[1]) in CONTAINER_MODULES
+        return bound[1] in CONTAINER_MODULES
     if root.id in mod.stored:
         return any(_container(mods, mod, value, chain, seen) for value in mod.stored_as.get(root.id, ()))
     return node is root and root.id in CONTAINERS
