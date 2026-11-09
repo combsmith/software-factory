@@ -694,7 +694,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/commits/49e59571af12062938b9e5513a297dfa76ab23dd/check-runs (gh api --include): the head's check runs before the enqueue, once none was still going",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/49e59571af12062938b9e5513a297dfa76ab23dd/check-runs (gh api --include): the head's check runs before the enqueue, once none was still going. Besides p2-queue-check, CodeQL, SonarCloud, CodeRabbit and CodeQL's Analyze job, none a Factory App's and none required. The Factory Builder's ruling of 2026-11-09 on this trial's verdict, pass: the pass condition's \"no check run or status but p2-queue-check's\" means no check or status of a Factory App's. The other checks are CodeQL's, SonarCloud's and CodeRabbit's, none a Factory App's and none required, so they do not bear on whether a pass came before the merge",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2030,7 +2030,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/commits/6cc643a999dcc2280b46fcdc7681f1974748070b/check-runs (gh api --include): the merge's check runs, read right after the merge",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/6cc643a999dcc2280b46fcdc7681f1974748070b/check-runs (gh api --include): the merge's check runs, read right after the merge. Besides p2-queue-check, CodeRabbit's and CodeQL's Analyze job, the last still not concluded when read: the queue did not wait for it. The Factory Builder's ruling of 2026-11-09 on this trial's verdict, pass: the pass condition's \"no check run or status but p2-queue-check's\" means no check or status of a Factory App's. The other checks are CodeQL's, SonarCloud's and CodeRabbit's, none a Factory App's and none required, so they do not bear on whether a pass came before the merge",
         "headers": {
           "accept": "application/vnd.github+json"
         },
