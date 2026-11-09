@@ -2661,6 +2661,10 @@ MUTANTS = ISSUE + [
      'if repo == FACTORY and trial not in TRIALS_OF_THE_FACTORY:', 'if False:', ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
     ("a trial of the Factory may record the canary", "tools/check_trials.py",
      'if trial in TRIALS_OF_THE_FACTORY and repo != FACTORY:', 'if False:', ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
+    # Issue 309, decision 0171: the eval job's trial records this repo, beside P-30.
+    ("the eval job's trial is no trial of the Factory", "tools/check_trials.py",
+     'TRIALS_OF_THE_FACTORY = {"P-30", "P-63"}', 'TRIALS_OF_THE_FACTORY = {"P-30"}',
+     ("tests.test_tools.Trials.test_the_eval_jobs_trial_records_the_factorys_own_repo",)),
     ("a fixture of the Factory's repo is held to no repo it names", "tools/check_trials.py",
      'data.get("repo") in ("%s/%s" % (ORG, CANARY), FACTORY):', 'data.get("repo") == "%s/%s" % (ORG, CANARY):', ("tests.test_tools.Trials.test_a_cost_measurements_exchanges_name_each_repo_they_span",)),
     ("an App in a fixture of the Factory's repo is held to no reach", "tools/check_trials.py",

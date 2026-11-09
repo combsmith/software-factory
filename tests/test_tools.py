@@ -5633,6 +5633,14 @@ class Trials(unittest.TestCase):
         outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
         self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
 
+    def test_the_eval_jobs_trial_records_the_factorys_own_repo(self):  # issue 309, decision 0171
+        # P-63, the eval job's trial, ran in this repo from main: recorded there it holds, and on the canary it is refused.
+        data = json.loads((ROOT / "trials" / "P-63.json").read_text())
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        canary = check_trials.ORG + "/" + check_trials.CANARY
+        self.assertEqual(check_trials._of_the_factory(dict(data, repo=canary)),
+                         [("repo", "is %s, and P-63 runs in %s; record where it ran" % (canary, check_trials.FACTORY))])
+
     def test_a_write_in_a_fixture_of_the_factory_is_held_to_a_node_of_the_factory(self):
         # What holds a canary fixture's writes holds this one's, with the Factory's id in the canary's. Each node id is
         # a prefix and base64url of msgpack [0, the repository's id, ...], as GitHub writes one.
