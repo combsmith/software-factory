@@ -2789,6 +2789,35 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make verify\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
 
+    def test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix(self):
+        # On 2026-11-09 `make verify` as one job was cut at its step's 26 minutes in a merge group, so it runs in legs. A
+        # leg told CHECKS_SHARD as a number would run another's share, leaving its own tests in no leg, and CHECKS_SHARDS
+        # as a number could differ from the matrix's size; each is the matrix's own expression, as the mutant shards'.
+        job = GOOD[GOOD.index("  checks:\n"):GOOD.index("  mutants:\n")]
+        index, total = "      CHECKS_SHARD: ${{ strategy.job-index }}\n", "      CHECKS_SHARDS: ${{ strategy.job-total }}\n"
+        run = "      - run: make verify\n"
+        self.assertEqual((job.count(index), job.count(total), job.count(run)), (1, 1, 1))
+        told, shape = "not told CHECKS_SHARD", "whose steps are not a checkout of the head"
+        cases = [(index, "      CHECKS_SHARD: 0\n", told), (total, "      CHECKS_SHARDS: 3\n", told),
+                 (total, "", told), (index, index + "      OTHER: 1\n", told),
+                 ("        shard:\n", "        leg:\n", "not the one key shard"),
+                 ("          - 2\n", "          - 2\n        exclude:\n          - shard: 2\n", "not the one key shard"),
+                 ("    env:\n      CHECKS_SHARD", "    container: ghcr.io/x/y:1\n    env:\n      CHECKS_SHARD", "keys other than"),
+                 ("      contents: read\n", "      contents: write\n", "granted other than"),
+                 (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          CHECKS_SHARD: 0\n", shape),
+                 (run, run + "      - run: make fast\n", shape),
+                 (run, "      - run: make fast\n      - run: make verify\n", shape),
+                 ("          fetch-depth: 0\n      - run: make verify\n", "      - run: make verify\n", shape)]
+        for old, new, said in cases:
+            text = GOOD.replace(job, job.replace(old, new))
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), (old, new, said))
+        # No job runs `make verify` at all: the checks and the tests are gone, not reshaped.
+        gone = "has no job that runs `make verify`"
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
+        self.assertEqual(self.lens_problems(GOOD), [])
+
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
         # the merge queue, and of nothing else, so a change cannot make its own verdict pass (decision 0023).
@@ -10118,6 +10147,55 @@ class Verify(unittest.TestCase):
             self.assertTrue(verify.failed([("always", lambda: ["a problem"])]))
             self.assertFalse(verify.failed([("never", lambda: [])]))
         self.assertIn("a problem", said.getvalue())
+
+    def test_the_legs_of_make_verify_run_every_test_once(self):
+        # CI runs `make verify` in legs (docs/standards/workflows.md): each runs every check and each count-th test from
+        # its place, so that across the legs every test of the whole suite runs, the seeded simulation's included, and
+        # none twice. A leg it cannot read stops the run before any check or test.
+        whole = [test.id() for test in verify._tests(verify.suite(False))]
+        self.assertTrue({"tests.test_simulator", "tests.test_issue_simulator"} <= {i.rsplit(".", 2)[0] for i in whole})
+        for count in (1, 2, 3, 5):
+            legs = [[test.id() for test in verify._tests(verify.suite(False, (index, count)))] for index in range(count)]
+            dealt = [i for leg in legs for i in leg]
+            self.assertEqual((sorted(dealt), len(dealt)), (sorted(whole), len(whole)), count)
+            self.assertLessEqual(max(map(len, legs)) - min(map(len, legs)), 1, count)
+        self.assertIsNone(verify.leg({}))
+        self.assertEqual(verify.leg({"CHECKS_SHARD": "2", "CHECKS_SHARDS": "3"}), (2, 3))
+        for shard, count, said in (("1", None, "set both"), (None, "3", "set both"), ("", "3", "set both"),
+                                   ("one", "3", "set both"), ("-1", "3", "set both"), ("1.0", "3", "set both"),
+                                   ("3", "3", "below the count"), ("0", "0", "below the count")):
+            given = {k: v for k, v in (("CHECKS_SHARD", shard), ("CHECKS_SHARDS", count)) if v is not None}
+            with self.assertRaises(ValueError, msg=given) as raised:
+                verify.leg(given)
+            self.assertIn(said, str(raised.exception), given)
+        ran = []
+        real = (verify.failed, verify.unittest.TextTestRunner)
+
+        class Runner:
+            def __init__(self, **_):
+                pass
+
+            def run(self, suite):
+                ran.append(sorted(test.id() for test in verify._tests(suite)))
+                return unittest.TestResult()
+
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks: ran.append("checks") or False), Runner
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 0)
+                self.assertEqual(ran, ["checks", sorted(whole[1::3])])
+                self.assertIn("leg 1 of 3", said.getvalue())
+                del ran[:]
+                self.assertEqual(verify.main([], {"CHECKS_SHARD": "3", "CHECKS_SHARDS": "3"}), 1)
+                self.assertEqual(ran, [], "a leg outside the count runs nothing")
+        finally:
+            verify.failed, verify.unittest.TextTestRunner = real
+        # From the front door, as CI's matrix tells it: the leg is read from the environment.
+        env = dict(os.environ, CHECKS_SHARD="3", CHECKS_SHARDS="3")
+        done = subprocess.run([sys.executable, "-m", "tools.verify"], cwd=str(ROOT), env=env, capture_output=True,
+                              text=True, timeout=60)
+        self.assertEqual((done.returncode, done.stdout.strip()), (1, "CHECKS_SHARD is 3 and CHECKS_SHARDS is 3; the leg "
+                                                                     "is counted from 0, below the count"))
 
     def test_make_fast_is_verify_without_the_seeded_simulation(self):
         """The required check runs every test file at any depth; only `make fast` leaves the slow ones out."""

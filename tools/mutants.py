@@ -115,6 +115,8 @@ OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_o
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
+LEGS_TESTS = ("tests.test_tools.Workflows.test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix",)
+LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_test_once",)
 LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
 NEEDED = ("tests.test_tools.Workflows.test_each_step_limit_holds_what_its_step_needs",)
 P13 = "tools/trial_p13_cli.sh"
@@ -6336,8 +6338,8 @@ MUTANTS = ISSUE + [
     ("the commits job may run another tool", "tools/check_workflows.py",
      '    if [(e["value"], e["body"]) for e in runs] != [(COMMITS, [])] and', "    if False and", COMMITS_JOB_TESTS),
     ("a workflow without the commits job passes the lens rules", "tools/check_workflows.py",
-     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n",
-     "        problems += _shards(entries, jobs)\n", COMMITS_JOB_TESTS),
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)\n",
+     "        problems += _shards(entries, jobs) + _legs(entries, jobs)\n", COMMITS_JOB_TESTS),
     # Issue 180: the judging step and the mutant shards held to their exact shape.
     ("the judging job may have other keys", "tools/check_workflows.py",
      "    if set(inside) - JUDGING_KEYS:\n", "    if False:\n", JUDGING_SHAPE_TESTS),
@@ -6367,8 +6369,36 @@ MUTANTS = ISSUE + [
      '        if not any("mutants" in "\\n".join([e["value"]] + (e["body"] or [])) for e in runs):\n',
      '        if not any(e["value"] == SHARDED for e in runs):\n', SHARDS_TESTS),
     ("the shards are not held at all", "tools/check_workflows.py",
-     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n",
-     "        problems += _commits(text, entries, jobs)\n", SHARDS_TESTS),
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)\n",
+     "        problems += _commits(text, entries, jobs) + _legs(entries, jobs)\n", SHARDS_TESTS),
+    # The legs of `make verify` (2026-11-09: one job was cut at its step's 26 minutes in a merge group).
+    ("the legs are not held at all", "tools/check_workflows.py",
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)\n",
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n", LEGS_TESTS),
+    ("a leg may be told its place by a number", "tools/check_workflows.py",
+     '        if told != {"CHECKS_SHARD": INDEX, "CHECKS_SHARDS": TOTAL}:\n', "        if False:\n", LEGS_TESTS),
+    ("the legs' matrix may be any key", "tools/check_workflows.py",
+     '        if matrix != ["shard"]:\n', "        if False:\n", LEGS_TESTS),
+    ("the legs' job may have other keys", "tools/check_workflows.py",
+     "        if keys != SHARD_KEYS:\n", "        if False:\n", LEGS_TESTS),
+    ("the legs' job may be granted more", "tools/check_workflows.py",
+     '        if granted != {"contents": "read"}:\n', "        if False:\n", LEGS_TESTS),
+    ("the legs' steps may be anything", "tools/check_workflows.py",
+     "                and checkouts == [{\"persist-credentials\": \"false\", \"fetch-depth\": \"0\"}]):\n",
+     "                and checkouts == [{\"persist-credentials\": \"false\", \"fetch-depth\": \"0\"}]) and False:\n", LEGS_TESTS),
+    ("no job need run make verify", "tools/check_workflows.py",
+     "    if not any_leg:\n", "    if False:\n", LEGS_TESTS),
+    ("a leg holds every test", "tools/verify.py",
+     "        return unittest.TestSuite(_tests(whole)[index::count])\n", "        return whole\n", LEG_TESTS),
+    ("a leg skips one test in each count", "tools/verify.py",
+     "        return unittest.TestSuite(_tests(whole)[index::count])\n",
+     "        return unittest.TestSuite(_tests(whole)[index::count + 1])\n", LEG_TESTS),
+    ("a leg outside the count runs", "tools/verify.py",
+     "    if not 0 <= int(index) < int(count):\n", "    if False:\n", LEG_TESTS),
+    ("one of the pair alone is no leg", "tools/verify.py",
+     "    if index is None and count is None:\n", "    if index is None or count is None:\n", LEG_TESTS),
+    ("a leg CI names is not read", "tools/verify.py",
+     '    sys.exit(main(sys.argv[1:], os.environ))', '    sys.exit(main(sys.argv[1:]))', LEG_TESTS),
     ("no job need run the mutants", "tools/check_workflows.py",
      "    if not found:\n        whys.append(\"has no job that runs the mutants", "    if False:\n        whys.append(\"has no job that runs the mutants",
      SHARDS_TESTS),
