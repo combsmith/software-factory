@@ -5325,6 +5325,10 @@ MUTANTS = ISSUE + [
      ' + [p for _, p, _ in data["lens_inputs"]]', "", ("tests.test_tools.TheList",)),
     ("a Lens's input is not listed at a stop", "tools/hooks/protected.py",
      ' + [(p, what) for _, p, what in inputs]', "", ("tests.test_hooks.RulesChanged",)),
+    # Issue 696: an eval set's manifest asks before it is edited, as a rubric does.
+    ("an eval set's manifest is not protected", "config/hooks.json",
+     '    {"path": "evals/*/cases.json", "is": "an eval set\'s manifest: its gate, bars, floors and natural marks"},\n',
+     "", ("tests.test_hooks.ProtectedPaths.test_every_protected_path_asks_for_every_edit_tool_in_every_tree",)),
     ("verify's inputs leave out a package at the top of the repo", "config/hooks.json",
      '    {"lens": "verify", "path": "*/__init__.*", "is": "a package at the top of the repo, which verify imports '
      'before the standard library"},\n', "", ("tests.test_decide.TheFactorysOwnRules",)),

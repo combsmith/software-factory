@@ -2848,14 +2848,16 @@ class ProtectedPaths(Asks):
                     self.assertIn(entry["is"], said)
         for rel in (".claude/settings.json", ".claude/settings.local.json", "lifecycle/new/deep.json",
                     "tools/hooks/protected.py", "config/rubric-pr-review.json", ".github/workflows/verify.yml",
-                    "config/apps.json"):
+                    "config/apps.json", "evals/pr-review/cases.json"):
             self.asked(self.edit(self.project / rel), "protected_path", rel)
 
     def test_an_edit_elsewhere_is_not_asked_about(self):
         for rel in ("docs/notes.md", "kernel/AGENTS.md", "kernel/__init__.py", "kernel/decide.py", "kernel/derive.py",
                     "kernel/terms.py", "config/AGENTS.md", "Makefile", ".gitleaks.toml",
                     "schemas/facts.schema.json", "tests/test_decide.py", "tests/test_hooks.py", "tools/check_repo.py",
-                    "lifecycle.md", "docs/lifecycle/x.md", "tools/hooks.md", ".githubx/y", "config/rubric.md"):
+                    "lifecycle.md", "docs/lifecycle/x.md", "tools/hooks.md", ".githubx/y", "config/rubric.md",
+                    # Only a set's manifest is: its other files, and a manifest deeper down, are not (issue 696).
+                    "evals/AGENTS.md", "evals/context/task.json", "evals/cases.json", "evals/pr-review/old/cases.json"):
             self.assertEqual(self.edit(self.project / rel), "", rel)
         self.assertEqual(self.edit(folder() / "notes.md"), "")
 
