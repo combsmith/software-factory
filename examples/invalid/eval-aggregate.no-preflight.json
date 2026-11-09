@@ -27,6 +27,24 @@
       }
     }
   },
+  "criteria": {
+    "PR-1": {
+      "cases": 22,
+      "passed": 9,
+      "interval": {
+        "low": 0.2326,
+        "high": 0.6127
+      }
+    },
+    "PR-2": {
+      "cases": 22,
+      "passed": 21,
+      "interval": {
+        "low": 0.782,
+        "high": 0.9919
+      }
+    }
+  },
   "origin": {
     "natural": {
       "cases": 30,
@@ -69,6 +87,7 @@
     ]
   },
   "kind_least": 20,
+  "criterion_bars": {},
   "split_ok": true,
   "kinds_pass": {
     "finding": true,

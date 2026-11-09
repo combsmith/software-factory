@@ -105,6 +105,19 @@
           }
         }
       }
+    },
+    "criterion_bars": {
+      "description": "A gate set's floor for each criterion it names, as a whole fraction [passed, of], of the case-runs of its cases whose expected criterion it is, summed over every dispatch on a commit (issue 692); a criterion it does not name has none, and no other set gives any.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minItems": 2,
+        "maxItems": 2
+      }
     }
   }
 }
