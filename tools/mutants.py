@@ -2927,7 +2927,7 @@ MUTANTS = ISSUE + [
     # Issue 424 (Argon): the reader's 201 path, as P-39's, P-8's and P-52's are held.
     ("the reader's trial reads a 201 it cannot read, by a transfer that ended well, as a token minted", "tools/trial_reader_reads.sh",
      '{ [ -z "$token" ] || [ "$minted_exit" != 0 ]; }', '[ "$minted_exit" != 0 ]',
-     ("tests.test_tools.ReaderTrialScript.test_a_mint_answered_201_and_cut_short_is_revoked_and_told",)),
+     ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
     ("the reader's trial leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_reader_reads.sh",
      '        token=$(token_in "$minted")\n        minted=""\n        if [ -n "$token" ]; then\n',
      '        token=""\n        minted=""\n        if [ -n "$token" ]; then\n',
