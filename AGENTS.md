@@ -1,7 +1,7 @@
 # software-factory
 
 The decision core of the Factory: a set of agent Roles that turn an issue into a reviewed, merged change, and a Kernel that decides what each Role may do next.
-So far this repo holds the Kernel, its schemas, its checks, a simulator, the ports, the Controller, the Harness, the Release's rules and the Role `pr-review`. Only `adapters/github.py` talks to GitHub; only `harness/engine.py` talks to a model.
+So far this repo holds the Kernel, its schemas, its checks, a simulator, the Lifecycle, the Controller, the Harness, the evals, the workflows, the Release's rules, the Role `pr-review` and the ports built so far. Only `adapters/github.py` talks to GitHub.
 
 It follows the org's standards, [combsmith/.github/AGENTS.md](https://github.com/combsmith/.github/blob/main/AGENTS.md),
 except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md` says why not.
