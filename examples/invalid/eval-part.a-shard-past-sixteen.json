@@ -1,0 +1,66 @@
+{
+  "schema": "eval-part/1",
+  "part": "16",
+  "release": "factory/v0.1.0",
+  "commit": "9e927b4000000000000000000000000000000000",
+  "role": "pr-review",
+  "intent": "review-change",
+  "set": {
+    "count": 44,
+    "sha256": "05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f"
+  },
+  "attempt": "1",
+  "asked": 10,
+  "passed": 8,
+  "kinds": {
+    "finding": {
+      "cases": 5,
+      "passed": 4
+    },
+    "met": {
+      "cases": 5,
+      "passed": 4
+    }
+  },
+  "blocking": {
+    "some": true,
+    "passed": true
+  },
+  "origin": {
+    "natural": {
+      "cases": 2,
+      "passed": 2
+    },
+    "constructed": {
+      "cases": 8,
+      "passed": 6
+    }
+  },
+  "faults": [],
+  "preflight": {
+    "cases": 0,
+    "passed": 0,
+    "faults": []
+  },
+  "usage": {
+    "answered": 44,
+    "input_tokens": 1320000,
+    "cache_creation_input_tokens": 88000,
+    "cache_read_input_tokens": 410000,
+    "output_tokens": 61000,
+    "turns": 210,
+    "cost_usd": 38.412,
+    "seconds": 5120.5
+  },
+  "models": [
+    "a-model"
+  ],
+  "cases": [],
+  "ledger": [
+    {
+      "part": "2",
+      "salted_sha256": "3f1d0c1e2a7b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5",
+      "sealed_sha256": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
+    }
+  ]
+}

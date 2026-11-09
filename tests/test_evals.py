@@ -734,7 +734,7 @@ class TheSet(unittest.TestCase):
         problems = check_workflows.run(clone({".github/workflows/other.yml": by_name}))
         self.assertTrue(caught(problems, ".github/workflows/other.yml: the job eval is reserved for eval.yml"))
         problems = check_workflows.run(clone({".github/workflows/eval.yml": GOOD}))
-        self.assertTrue(caught(problems, ".github/workflows/eval.yml: holds the job eval and no other"))
+        self.assertTrue(caught(problems, ".github/workflows/eval.yml: holds the jobs preflight, eval, merge and no other"))
 
     def test_the_eval_workflow_names_each_credential_in_one_step_alone(self):
         # Issue 309, ruling 10: dispatched alone with the Release it judges; one job on factory-eval, granted
@@ -751,26 +751,26 @@ class TheSet(unittest.TestCase):
                                 EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.fetch\n")]
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         broken = {
-            "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "its fetch step is given under env"),
-            "the model beside the token": (EVAL_WORKFLOW.replace(model, model + token), "its run step is given under env"),
+            "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "\'s fetch step is given under env"),
+            "the model beside the token": (EVAL_WORKFLOW.replace(model, model + token), "\'s run step is given under env"),
             "the token handed to the plan": (EVAL_WORKFLOW.replace("          RELEASE: ${{ inputs.release }}\n",
                                                                    "          RELEASE: ${{ inputs.release }}\n" + token),
-                                             "its plan step is given under env"),
+                                             "\'s plan step is given under env"),
             "the token given to the upload": (EVAL_WORKFLOW.replace("          retention-days: 90\n",
                                                                     "          retention-days: 90\n          token: ${{ secrets.HELDOUT_TOKEN }}\n"),
-                                              "its upload step is given under with"),
+                                              "\'s upload step is given under with"),
             "the token under another name": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_TOKEN }}", "${{ secrets.HELDOUT_PAT }}"),
-                                             "its fetch step is given under env"),
+                                             "\'s fetch step is given under env"),
             "a token minted beside it": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
                                                                "      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n"
                                                                "      - run: python3 -m harness.eval.fetch\n"), "in that order"),
             "the token on the job": (EVAL_WORKFLOW.replace("    environment: factory-eval\n",
                                                            "    environment: factory-eval\n    env:\n" + token[4:]),
-                                     "its job has exactly"),
+                                     "has exactly"),
             "a shorter timeout": (EVAL_WORKFLOW.replace("timeout-minutes: 120", "timeout-minutes: 20"),
                                   "with a timeout of 120 minutes"),
             "another runner": (EVAL_WORKFLOW.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-24.04-big"),
-                               "its job runs on ubuntu-24.04"),
+                               "runs on ubuntu-24.04"),
             "another environment": (EVAL_WORKFLOW.replace("environment: factory-eval", "environment: factory-run"),
                                     "runs on the environment factory-eval"),
             "a write": (EVAL_WORKFLOW.replace("      contents: read\n", "      contents: read\n      actions: read\n"),
@@ -790,29 +790,51 @@ class TheSet(unittest.TestCase):
             "no set": (EVAL_WORKFLOW.replace("      set:\n        required: false\n        type: string\n"
                                              "        default: pr-review\n", ""), "with the inputs release"),
             "the set kept from the plan": (EVAL_WORKFLOW.replace("          EVAL_SET: ${{ inputs.set }}\n", ""),
-                                           "its plan step is given under env"),
+                                           "\'s plan step is given under env"),
             # The seal, given nothing, after the run and before the uploads; the ledger's upload, its ciphertext alone.
-            "no seal": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.seal\n        id: seal\n        timeout-minutes: 1\n", ""),
+            "no seal": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.seal\n        timeout-minutes: 1\n", ""),
                         "in that order"),
             "the seal given the model's credential": (EVAL_WORKFLOW.replace(
                 "      - run: python3 -m harness.eval.seal\n", "      - run: python3 -m harness.eval.seal\n        env:\n" + model),
-                "its seal step is given under env"),
+                "\'s seal step is given under env"),
             "the scratch uploaded as the ledger": (EVAL_WORKFLOW.replace("path: eval-ledger.cms", "path: ${{ runner.temp }}"),
-                                                   "its ledger step is given under with"),
+                                                   "\'s ledger step is given under with"),
             "a development set's run failed for no ledger": (EVAL_WORKFLOW.replace("if-no-files-found: ignore",
                                                                                    "if-no-files-found: error"),
-                                                             "its ledger step is given under with"),
+                                                             "\'s ledger step is given under with"),
             # The job's one output, the sealed ledger's hash, which the seal step alone sets, under the one id a step may take.
-            "no output": (EVAL_WORKFLOW.replace("    outputs:\n      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n", ""),
-                          "its job has exactly"),
-            "an output of the fetch": (EVAL_WORKFLOW.replace("steps.seal.outputs.ledger_sha256", "steps.home.outputs.token"),
-                                       "its job has one output"),
-            "a second output": (EVAL_WORKFLOW.replace("      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n",
-                                                      "      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n"
-                                                      "      token: ${{ secrets.HELDOUT_TOKEN }}\n"), "its job has one output"),
-            "the seal under another id": (EVAL_WORKFLOW.replace("        id: seal\n", "        id: sealing\n"),
-                                          "its seal step has the id seal"),
-            "the seal with no id": (EVAL_WORKFLOW.replace("        id: seal\n", ""), "its seal step has the id seal"),
+            "no output": (EVAL_WORKFLOW.replace("    outputs:\n      ledger_sha256: ${{ steps.merge.outputs.ledger_sha256 }}\n", ""),
+                          "has exactly"),
+            "an output of the fetch": (EVAL_WORKFLOW.replace("steps.merge.outputs.ledger_sha256", "steps.home.outputs.token"),
+                                       "has one output"),
+            "a second output": (EVAL_WORKFLOW.replace("      ledger_sha256: ${{ steps.merge.outputs.ledger_sha256 }}\n",
+                                                      "      ledger_sha256: ${{ steps.merge.outputs.ledger_sha256 }}\n"
+                                                      "      token: ${{ secrets.HELDOUT_TOKEN }}\n"), "has one output"),
+            "the merge under another id": (EVAL_WORKFLOW.replace("        id: merge\n", "        id: merging\n"),
+                                           "'s merge step has the id merge"),
+            "the merge with no id": (EVAL_WORKFLOW.replace("        id: merge\n", ""), "'s merge step has the id merge"),
+            # The parts (issue 611): the shards need the preflight, the merge needs both and runs whatever became of
+            # them, the shards are the configuration's, and the merge holds no credential.
+            "shards that need no preflight": (EVAL_WORKFLOW.replace("    needs: preflight\n", ""), "has exactly"),
+            "a merge skipped on a failure": (EVAL_WORKFLOW.replace("    if: always()\n", "    if: success()\n"), "if: always()"),
+            "a merge that needs no shard": (EVAL_WORKFLOW.replace("      - preflight\n      - eval\n", "      - preflight\n"),
+                                            "its job merge needs preflight, eval"),
+            "a shard the configuration does not name": (EVAL_WORKFLOW.replace("          - 3\n", "          - 3\n          - 4\n"),
+                                                        "a matrix of the shards"),
+            "a shard's failure that cancels the rest": (EVAL_WORKFLOW.replace("fail-fast: false", "fail-fast: true"),
+                                                        "a matrix of the shards"),
+            "the merge holding the home's token": (EVAL_WORKFLOW.replace("          EVAL_PART: merge\n", "          EVAL_PART: merge\n" + token),
+                                                   "'s plan step is given under env"),
+            "the merge on the eval environment": (EVAL_WORKFLOW.replace("    outputs:\n", "    environment: factory-eval\n    outputs:\n"),
+                                                  "its job merge has exactly"),
+            "a shard planned as the preflight": (EVAL_WORKFLOW.replace("          EVAL_PART: ${{ matrix.shard }}\n", "          EVAL_PART: preflight\n"),
+                                                 "'s plan step is given under env"),
+            "one shard's part named for all": (EVAL_WORKFLOW.replace("name: eval-part-${{ matrix.shard }}", "name: eval-part"),
+                                               "'s upload step is given under with"),
+            "the merge's own limit": (EVAL_WORKFLOW.replace("    timeout-minutes: 10\n", "    timeout-minutes: 120\n"),
+                                      "its job merge runs on ubuntu-24.04, with a timeout of 10 minutes"),
+            "a download of every artifact": (EVAL_WORKFLOW.replace("pattern: eval-part-*", "pattern: eval-*"),
+                                             "'s download step is given under with"),
             "the report under the ledger's name": (EVAL_WORKFLOW.replace("name: eval-report", "name: eval-ledger"),
                                                    "in that order"),
             "the fetch first": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.plan\n        env:\n"
@@ -827,20 +849,20 @@ class TheSet(unittest.TestCase):
                                                         "      - run: make verify\n"), "in that order"),
             "a step skipped": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n",
                                                      "      - run: python3 -m harness.eval.judge\n        if: false\n"),
-                               "its judge step has a key it may not"),
+                               "\'s judge step has a key it may not"),
             "an id on fetch": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
                                                      "      - run: python3 -m harness.eval.fetch\n        id: home\n"),
-                               "its fetch step has a key it may not"),
+                               "\'s fetch step has a key it may not"),
             "the whole workspace uploaded": (EVAL_WORKFLOW.replace("path: eval-report.json", "path: ."),
-                                             "its upload step is given under with"),
+                                             "\'s upload step is given under with"),
             "a credential left on disk": (EVAL_WORKFLOW.replace("persist-credentials: false", "persist-credentials: true"),
-                                          "its checkout step is given under with"),
+                                          "\'s checkout step is given under with"),
             "an upload of another commit": (EVAL_WORKFLOW.replace("upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
                                                                   "upload-artifact@" + "0" * 40), "in that order"),
             "an upload of its own": (EVAL_WORKFLOW.replace("uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
                                                            " # v7.0.2", "run: python3 -m harness.eval.upload"), "in that order"),
             "the home as a variable": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_OWNER }}", "${{ vars.HELDOUT_OWNER }}"),
-                                       "its fetch step is given under env"),
+                                       "\'s fetch step is given under env"),
             "a credential for every step": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions: {}\nenv:\n"
                                                                   "  KEY: ${{ secrets.HELDOUT_TOKEN }}\n"),
                                             "nothing else above its job"),
@@ -849,21 +871,21 @@ class TheSet(unittest.TestCase):
             "another name": (EVAL_WORKFLOW.replace("name: factory\n", "name: eval\n"), "nothing else above its job"),
             "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
                                       "nothing else above its job"),
-            "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
+            "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "\'s judge step has a env: it is not given"),
             # The CLI's install, before the fetch, at the Engine's pin by its checksum, word for
             # word as the Run's jobs install it (issue 309, amendment 1).
             # Bubblewrap is in the block, and the block comes before the fetch: it runs as root, before the cases are here.
             "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo apt-get install -y --no-install-recommends bubblewrap\n", ""),
-                              "its steps are"),
+                              "'s steps are"),
             "the install after the fetch": (EVAL_WORKFLOW.replace(FETCH_STEP, "").replace(
-                "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "its steps are"),
+                "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "'s steps are"),
             "the CLI at another version": (EVAL_WORKFLOW.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.305"'),
-                                           "its install step is given under env"),
+                                           "\'s install step is given under env"),
             "the CLI by another checksum": (EVAL_WORKFLOW.replace('CLI_CHECKSUM: "520bc6', 'CLI_CHECKSUM: "000000'),
-                                            "its install step is given under env"),
+                                            "\'s install step is given under env"),
             "the model's credential at the install": (EVAL_WORKFLOW.replace('          CLI_VERSION: "2.1.306"\n',
                                                                             '          CLI_VERSION: "2.1.306"\n' + model),
-                                                      "its install step is given under env"),
+                                                      "\'s install step is given under env"),
             "the CLI's install a module of its own": (EVAL_WORKFLOW.replace(
                 install[install.index("        run: |"):], "        run: python3 -m harness.eval.install\n"), "in that order"),
             "the CLI unchecked": (EVAL_WORKFLOW.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
@@ -873,10 +895,10 @@ class TheSet(unittest.TestCase):
             "the CLI after the model": (EVAL_WORKFLOW.replace(install, "").replace(
                 "      - uses: actions/upload-artifact", install + "      - uses: actions/upload-artifact"), "in that order"),
             "the CLI from another path": (EVAL_WORKFLOW.replace("CLAUDE_CLI: /usr/local/bin/claude", "CLAUDE_CLI: /tmp/claude"),
-                                          "its run step is given under env"),
+                                          "\'s run step is given under env"),
             "a second job": (EVAL_WORKFLOW + "  other:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"
                                              "    environment: factory-poller\n    steps:\n      - run: make verify\n",
-                             "it holds the job eval and no other"),
+                             "it holds the jobs preflight, eval, merge"),
         }
         for why, (text, words) in broken.items():
             self.assertNotEqual(text, EVAL_WORKFLOW, why)
@@ -904,7 +926,7 @@ class TheSet(unittest.TestCase):
         self.assertTrue(caught(problems, "names the model's credential, which only"), problems)
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW.replace(
             "      - run: python3 -m harness.eval.fetch\n", "      - run: python3 -m harness.eval.fetch\n        id: x\n")}))
-        self.assertTrue(caught(problems, "eval.yml: its fetch step"), problems)
+        self.assertTrue(caught(problems, "eval.yml: its job preflight's fetch step"), problems)
         # The Maintainer's token, in another workflow under its one name, in any case, is the eval job's alone.
         other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
                              "          T: ${{ secrets.Heldout_Token }}\n", 1)
@@ -2964,7 +2986,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual([(c["id"], c["natural"], c["verdict"], c["result"], c["usage"]) for c in ledger["cases"]],
                          [(list(self.cases)[0], True, "pass", result, job.used(result["usage"])),
                           ("poc-two", False, "pass", result, job.used(result["usage"]))])
-        self.assertEqual(written["ledger"]["salted_sha256"], hashlib.sha256(kept.read_bytes()).hexdigest())
+        self.assertEqual(written["ledger"], [{"part": "whole", "salted_sha256": hashlib.sha256(kept.read_bytes()).hexdigest()}])
         found = job.manifest(self.root, "pr-review-gate")[0]
         salts = {job.ledger_of(dict(ledger, preflight=[]), found, {c["id"]: ("pass", []) for c in found["cases"]}, {}, set(), {})["salt"]
                  for _ in range(2)} | {ledger["salt"]}
@@ -3024,9 +3046,11 @@ class EvalJob(unittest.TestCase):
         # The plaintext is gone, and the report binds the ciphertext, whole, for the gate.
         self.assertEqual([p.name for p in (self.temp / "heldout").iterdir() if "ledger" in p.name], [])
         written = json.loads((self.work / job.REPORT).read_text())
-        self.assertEqual(written["ledger"]["sealed_sha256"], hashlib.sha256(sealed.read_bytes()).hexdigest())
+        self.assertEqual(written["ledger"][0]["sealed_sha256"], hashlib.sha256(sealed.read_bytes()).hexdigest())
         # The job's output is the same hash, after what the runner's file held.
-        self.assertEqual(outputs.read_text(), "earlier=1\nledger_sha256=%s\n" % written["ledger"]["sealed_sha256"])
+        self.assertEqual(outputs.read_text(), "earlier=1\nledger_sha256=%s\n" % job.ledger_digest(written["ledger"]))
+        self.assertEqual(job.ledger_digest(written["ledger"]),
+                         hashlib.sha256(('["%s"]' % written["ledger"][0]["sealed_sha256"]).encode()).hexdigest())
         self.assertEqual(validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
         self.assertEqual(self.step(job.judge), "2 of 2 passed; no code; preflight 3 of 3 passed")
         # A development set has no ledger, and the step seals nothing; the gate set of its cases is gone, as none may share one.
@@ -3106,7 +3130,7 @@ class EvalJob(unittest.TestCase):
         self.assertTrue((place / job.LEDGER).exists())
         # The ledger sealed is the one the report hashed, of a gate set's report.
         written = json.loads((self.work / job.REPORT).read_text())
-        for report in (dict(written, ledger={"salted_sha256": "0" * 64}), dict(written, schema="eval-report/1"), []):
+        for report in (dict(written, ledger=[{"part": "whole", "salted_sha256": "0" * 64}]), dict(written, schema="eval-report/1"), []):
             (self.work / job.REPORT).write_text(json.dumps(report))
             self.assertEqual(sealed_with(), "ledger_not_the_reports")
         (self.work / job.REPORT).write_text(json.dumps(written))
@@ -3153,7 +3177,7 @@ class EvalJob(unittest.TestCase):
                   "engine": job.engine_of("pr-review"), "models": ["claude-opus"], "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
                   "split_ok": True, "kinds_pass": {"finding": job._clears(finding[1], finding[0], (3, 10)),
                                                    "met": job._clears(met[1], met[0], (9, 10))},
-                  "blocking_pass": True, "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}
+                  "blocking_pass": True, "ledger": [{"part": "whole", "salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}]}
         return found, "d" * 64, report
 
     def test_the_gate_passes_a_good_aggregate_report_and_refuses_a_bad_one(self):  # issue 612
@@ -3187,7 +3211,12 @@ class EvalJob(unittest.TestCase):
         for report, code in (
                 # A gate set's report is of counts alone, and a development set's is per case: neither stands for the other.
                 (loaded("examples/eval-report.json"), "report_of_another_kind"),
-                (changed(["ledger", "sealed_sha256"], KeyError), "report_unreadable"),
+                (changed(["ledger", 0, "sealed_sha256"], KeyError), "report_unreadable"),
+                (changed(["ledger"], []), "count_differs"),
+                # A part's ledger named twice, or a whole run's beside a part's, is no run's (issue 611).
+                (changed(["ledger"], good["ledger"] * 2), "count_differs"),
+                (changed(["ledger"], [dict(good["ledger"][0], part="0"), dict(good["ledger"][0], part="0")]), "count_differs"),
+                (changed(["ledger"], good["ledger"] + [dict(good["ledger"][0], part="0")]), "count_differs"),
                 (changed(["models"], KeyError), "report_unreadable"),
                 (changed(["cases"], [{"id": "c-0", "verdict": "pass"}]), "report_unreadable"),
                 (changed(["faults"], [{"code": "case c-0 timed out", "count": 1}]), "report_unreadable"),
@@ -3498,6 +3527,193 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(check_examples._preflight_held(self.root, manifest),
                          ["its preflight is refused where it is read: eval_set_overlaps_a_gate_set"])
 
+    def part_run(self, part: str, home, review, run=("4242", "1"), certs: bool = False) -> tuple:
+        """One job of a split run, on a runner of its own: its scratch, its heads and its workspace, planned, fetched and
+        scored as the part `part`, and sealed where `certs`; `(what each step said, its workspace)` (issue 611)."""
+        from harness import eval as job
+        from harness.eval import seal
+        base = pathlib.Path(self.dir.name) / ("job-%s-%s" % (part, run[1]))
+        shutil.rmtree(str(base), ignore_errors=True)
+        (base / "temp").mkdir(parents=True)
+        (base / "work").mkdir()
+        env = dict(self.env, RUNNER_TEMP=str(base / "temp"), EVAL_PART=part, GITHUB_RUN_ID=run[0], GITHUB_RUN_ATTEMPT=run[1])
+        said = []
+        for step, given in ((job.plan, ()), (the_fetch(), (home,)), (job.score, (review,))) + (((seal.step, ()),) if certs else ()):
+            try:
+                said.append(step(env, self.root, base / "work", *given))
+            except job.Stop as stop:
+                said.append(stop.code)
+                break
+        return said, base / "work"
+
+    def merged_run(self, parts: dict, attempt: str = "1", flat: bool = False) -> tuple:
+        """The merge job of a split run, given each part's workspace by its name: `(what it said, the report, its outputs)`."""
+        from harness import eval as job
+        base = pathlib.Path(self.dir.name) / "job-merge"
+        shutil.rmtree(str(base), ignore_errors=True)
+        (base / "temp").mkdir(parents=True)
+        (base / "work" / "parts").mkdir(parents=True)
+        for name, work in parts.items():
+            # The download puts each part in a folder of its own name, or one alone where it is put.
+            folder = base / "work" / "parts" if flat else base / "work" / "parts" / ("eval-part-%s" % name)
+            folder.mkdir(exist_ok=True)
+            shutil.copy(str(work / job.PART), str(folder / job.PART))
+        env = dict(self.env, RUNNER_TEMP=str(base / "temp"), EVAL_PART="merge", GITHUB_OUTPUT=str(base / "outputs"),
+                   GITHUB_RUN_ATTEMPT=attempt)
+        (base / "outputs").write_text("")
+        job.plan(env, self.root, base / "work")
+        said = job.merge(env, self.root, base / "work")
+        return said, json.loads((base / "work" / job.REPORT).read_text()), (base / "outputs").read_text()
+
+    def shards(self, count: int) -> None:
+        (self.root / "config").mkdir(exist_ok=True)
+        (self.root / "config" / "harness.json").write_text(json.dumps({"eval_shards": count}))
+
+    def test_a_development_sets_run_split_into_shards_is_merged_into_the_report_of_the_whole(self):  # issue 611
+        # A development set's case k is the shard k modulo the shards; the preflight's job asks nothing, as the set has
+        # no preflight; and the merge job's report is the one the whole run would write, its words said from the
+        # shards' counts. No step's line names a case.
+        from adapters import github
+        from harness import eval as job
+        cases = {"poc-k%d" % i: (json.dumps(dict(json.loads(next(iter(self.cases.values()))), id="poc-k%d" % i), indent=2)
+                                 + "\n").encode() for i in range(5)}
+        self.set(cases)
+        self.shards(2)
+        result = example_result()
+        review = lambda case: result
+        ids = list(cases)
+        parts = {}
+        for part, mine in (("preflight", []), ("0", ids[0::2]), ("1", ids[1::2])):
+            said, parts[part] = self.part_run(part, github.Replay(home_of({i: cases[i] for i in mine})), review)
+            self.assertEqual(said[1], "fetched %d of %d cases%s" % (len(mine), len(mine), "" if part == "preflight" else " of shard " + part))
+            for line in said:
+                for ident in ids:
+                    self.assertNotIn(ident, line, (part, line))
+        said, written, outputs = self.merged_run(parts)
+        self.assertEqual(said, "merged 3 of 3 parts, 5 passed")
+        self.assertEqual(outputs, "", "a development set has no ledger to name")
+        # The merge holds the split to a blocking case at least, by the parts' words, as `split_ok` holds the whole set.
+        kept = json.loads((pathlib.Path(self.dir.name) / "job-merge" / "temp" / "heldout" / "plan.json").read_text())
+        read = {p: json.loads((w / job.PART).read_text()) for p, w in parts.items()}
+        none = {p: dict(d, blocking={"some": False, "passed": True}) for p, d in read.items()}
+        one = dict(none, **{"1": dict(none["1"], blocking={"some": True, "passed": False})})
+        with mock.patch.object(job, "BLOCKING_LEAST", 1):
+            self.assertEqual([job.merged(kept, job.manifest(self.root)[0], r, self.root)["split_ok"] for r in (none, one)], [False, True])
+            self.assertEqual(job.merged(kept, job.manifest(self.root)[0], one, self.root)["blocking_pass"], False)
+        # The whole run's report, from one job.
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(cases))
+        self.step(job.score, review)
+        whole = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(written, whole)
+        self.assertEqual(job.verdict(written, job.manifest(self.root)[0], json.loads(self.path().read_text()) and
+                                     job.manifest(self.root)[1], self.env["GITHUB_SHA"], self.env["RELEASE"]), "pass")
+        # A shard that left nothing leaves its cases unanswered, a fault of the run, and no kind can be read.
+        said, short, _ = self.merged_run({"preflight": parts["preflight"], "0": parts["0"]})
+        self.assertEqual(said, "merged 2 of 3 parts, 3 passed")
+        self.assertEqual({c["id"]: c["reasons"] for c in short["cases"]},
+                         {i: [] if i in ids[0::2] else ["unanswered"] for i in ids})
+        self.assertEqual((short["split_ok"], short["kinds_pass"], short["blocking_pass"]), (None, None, None))
+        self.assertEqual(job.verdict(short, *job.manifest(self.root), self.env["GITHUB_SHA"], self.env["RELEASE"]), "run_fault")
+        # So does one that is not this run's part, of another commit, or one that holds a ledger.
+        kept = json.loads((parts["1"] / job.PART).read_text())
+        for change in ({"part": "0"}, {"commit": "b" * 40},
+                       {"ledger": [{"part": "1", "salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}]}):
+            (parts["1"] / job.PART).write_text(json.dumps(dict(kept, **change)))
+            self.assertEqual(self.merged_run(parts)[0], "merged 2 of 3 parts, 3 passed", change)
+        # The parts are the plan's, its shards bounded as the configuration bounds them: a count past it is no plan's.
+        self.assertEqual(job.part_names({"shards": 2}), ["preflight", "0", "1"])
+        for shards in (0, 17, "2", True, None):
+            with self.assertRaises(job.Stop):
+                job.part_names({"shards": shards})
+        # A part the configuration does not name, or the merge's own part asked to fetch, is refused.
+        for part in ("2", "-1", "", "whole"):
+            self.assertEqual(self.part_run(part, github.Replay([]), review)[0], ["part_unreadable"], part)
+        self.assertEqual(self.part_run("merge", github.Replay([]), review)[0][1], "part_unreadable")
+
+    def test_a_gate_sets_shards_are_drawn_by_the_homes_salt_and_merged_by_their_counts_alone(self):  # issue 611
+        # A gate set's case goes to the shard the sha256 of the home's salt, the run's id and attempt and its id give,
+        # never by its place in the public manifest; the preflight's job asks the preflight alone and the shards need
+        # it; each part writes counts alone and seals a ledger of its own; the merge's report holds each part's ledger,
+        # the preflight's first, and the job's one output hashes their list. No part's line or file names a case.
+        from adapters import github
+        from harness import eval as job
+        from tests.test_adapters import home_beside
+        keys = pathlib.Path(self.dir.name) / "keys"
+        keys.mkdir()
+        (first, _), = [recipient(keys, "first")]
+        pin(self.root, {"first": first})
+        cases = {"poc-g%d" % i: (json.dumps(dict(json.loads(next(iter(self.cases.values()))), id="poc-g%d" % i), indent=2)
+                                 + "\n").encode() for i in range(6)}
+        self.set(cases, gate=True, natural=[])
+        self.shards(2)
+        ids = list(cases)
+        drawn = lambda salt, run, attempt: {
+            i for i in ids if int(hashlib.sha256(b"\0".join([salt, run.encode(), attempt.encode(), i.encode()])).hexdigest(), 16) % 2 == 0}
+        # A salt whose shard 0 is not the cases of even place, so the place in the manifest could not have chosen it.
+        salt = next(s for s in (b"salt-%02d-of-the-gate-set" % n for n in range(99))
+                    if drawn(s, "4242", "1") not in (set(ids[0::2]), set(ids[1::2]), set(), set(ids)))
+        result = example_result()
+        review = lambda case: result
+        salted = home_beside("pr-review-gate", "salt", salt)
+        parts = {}
+        said, parts["preflight"] = self.part_run("preflight", github.Replay(home_of(self.pre)), review, certs=True)
+        self.assertEqual(said[1:3], ["fetched 0 of 0 cases, 3 of 3 to preflight", "scored 3 cases of the part preflight, 0 passed"])
+        for part in ("0", "1"):
+            mine = drawn(salt, "4242", "1") if part == "0" else set(ids) - drawn(salt, "4242", "1")
+            home = github.Replay([salted] + home_of({i: cases[i] for i in ids if i in mine}))
+            said, parts[part] = self.part_run(part, home, review, certs=True)
+            self.assertEqual(said[1], "fetched %d of %d cases of shard %s" % (len(mine), len(mine), part))
+            self.assertEqual(said[3], "sealed the ledger to 1 recipients")
+            self.assertEqual(set(json.loads((pathlib.Path(self.dir.name) / ("job-%s-1" % part) / "temp" / "heldout" / "part.json").read_text())), mine)
+        for part, work in parts.items():
+            text = (work / job.PART).read_text()
+            self.assertEqual(json.loads(text)["cases"], [])
+            for ident in ids + list(self.pre):
+                self.assertNotIn(ident, text, part)
+        said, written, outputs = self.merged_run(parts)
+        self.assertEqual(said, "merged 3 of 3 parts, 6 passed")
+        self.assertEqual([e["part"] for e in written["ledger"]], ["preflight", "0", "1"])
+        self.assertEqual(outputs, "ledger_sha256=%s\n" % hashlib.sha256(
+            json.dumps([e["sealed_sha256"] for e in written["ledger"]], separators=(",", ":")).encode()).hexdigest())
+        self.assertEqual(written["preflight"], {"cases": 3, "passed": 3, "faults": []})
+        found, digest = job.manifest(self.root, "pr-review-gate")
+        self.assertEqual(job.verdict(written, found, digest, self.env["GITHUB_SHA"], self.env["RELEASE"]), "pass")
+        # A part says of its blocking cases two words, never how many (decision 0120).
+        self.assertEqual(json.loads((parts["0"] / job.PART).read_text())["blocking"], {"some": False, "passed": True})
+        # Another attempt of the run draws its shards anew, so the merge of another attempt reads no shard of this one:
+        # a shard run again is no part of a run whose others were drawn before it.
+        self.assertTrue(any(drawn(salt, "4242", str(a)) != drawn(salt, "4242", "1") for a in range(2, 9)))
+        self.assertEqual(self.merged_run(parts, attempt="2")[0], "merged 1 of 3 parts, 0 passed")
+        again = drawn(salt, "4242", "2")
+        home = github.Replay([salted] + home_of({i: cases[i] for i in ids if i in again}))
+        said, _ = self.part_run("0", home, review, run=("4242", "2"))
+        self.assertEqual(set(json.loads((pathlib.Path(self.dir.name) / "job-0-2" / "temp" / "heldout" / "part.json").read_text())), again)
+        # A gate set's part that holds no ledger but its own is no part of the run.
+        kept = json.loads((parts["1"] / job.PART).read_text())
+        row = {"id": "c-0", "sha256": "0" * 64, "verdict": "pass", "reasons": [], "usage": dict(job.NOT_ASKED)}
+        for change in ({"ledger": []}, {"ledger": [dict(kept["ledger"][0], part="0")]}, {"cases": [row]}):
+            (parts["1"] / job.PART).write_text(json.dumps(dict(kept, **change)))
+            self.assertEqual(self.merged_run(parts)[0], "merged 2 of 3 parts, %d passed" % len(drawn(salt, "4242", "1")), change)
+        (parts["1"] / job.PART).write_text(json.dumps(kept))
+        # The one part the download found, put where it was put, is read by what it says it is.
+        self.assertEqual(self.merged_run({"preflight": parts["preflight"]}, flat=True)[0], "merged 1 of 3 parts, 0 passed")
+        # A gate set with no salt in the home stops the fetch.
+        self.assertEqual(self.part_run("0", github.Replay([home_beside("pr-review-gate", "salt", b"", status=404)]), review)[0][1],
+                         "no_shard_salt")
+        # A preflight that stops fails its own job, and the merge, with no shard, says so.
+        failing = lambda case: dict(result, status="failed")
+        said, stopped = self.part_run("preflight", github.Replay(home_of(self.pre)), failing, certs=True)
+        from harness.eval import judge as judging
+        env = dict(self.env, RUNNER_TEMP=str(pathlib.Path(self.dir.name) / "job-preflight-1" / "temp"), EVAL_PART="preflight")
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            with self.assertRaises(job.Stop) as stop:
+                job.judge(env, self.root, stopped)
+        self.assertEqual(stop.exception.code, "preflight_failed")
+        said, alone, _ = self.merged_run({"preflight": stopped})
+        self.assertEqual(job.verdict(alone, found, digest, self.env["GITHUB_SHA"], self.env["RELEASE"]), "preflight_failed")
+        self.assertEqual(dict(alone["faults"][0]), {"code": "unanswered", "count": 6})
+
     def test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it(self):  # issue 613
         from harness import eval as job
         missed = dict(example_result(), findings=[])
@@ -3540,7 +3756,7 @@ class EvalJob(unittest.TestCase):
                 self.assertEqual(written["preflight"], preflight)
                 self.assertFalse(set(asked) & set(self.cases))
                 self.assertEqual((written["passed"], written["faults"]), (0, [{"code": "unanswered", "count": 2}]))
-                sealed = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
+                sealed = dict(written, ledger=[dict(written["ledger"][0], sealed_sha256="f" * 64)])
                 self.assertEqual(job.verdict(sealed, found, digest, "a" * 40, "factory/v0.1.0"), "preflight_failed")
                 ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
                 self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])

@@ -79,11 +79,37 @@ def beside(transport, owner: str, name: str, role: str, ident: str, kind: str, s
     if not (isinstance(role, str) and PART.fullmatch(role) and isinstance(ident, str) and PART.fullmatch(ident)
             and kind in BESIDE and isinstance(sha256, str) and SHA256.fullmatch(sha256)):
         return None, "not_this_set"
+    data, code = _raw(transport, owner, name, "%s/%s.%s" % (role, ident, kind))
+    if code is not None:
+        return None, code
+    if len(data) > BESIDE[kind]:
+        return None, "too_large"
+    if hashlib.sha256(data).hexdigest() != sha256:
+        return None, "hash_differs"
+    return data, None
+
+
+
+def salt(transport, owner: str, name: str, role: str, set_name: str):
+    """The salt a gate set's shards are drawn by, `{role}/{set_name}.salt` in the home, read raw with the home's token,
+    16 to 256 bytes; or None where there is none to read whole (issue 611). It is no case and pins nothing: it keeps a
+    shard's cases from being told by their place in the public manifest, so a shard's counts say nothing of which
+    case is which kind."""
+    if not (isinstance(role, str) and PART.fullmatch(role) and isinstance(set_name, str) and PART.fullmatch(set_name)):
+        return None
+    data, _ = _raw(transport, owner, name, "%s/%s.salt" % (role, set_name))
+    return data if data is not None and 16 <= len(data) <= 256 else None
+
+
+def _raw(transport, owner: str, name: str, path: str) -> tuple:
+    """`(bytes, None)` of the file at `path` in the home, read whole with the raw media type and the home's token, or
+    `(None, code)`: `unanswered` for a home that could name another repo or an answer not of that type, and
+    `not_found`. The raw media type answers a file of more than 1 MiB whole, in one answer and no redirect
+    (trials/P-62.json)."""
     if not home(owner, name):
         return None, "unanswered"
     try:
-        answer = transport.send(request("GET", "/repos/%s/%s/contents/%s/%s.%s" % (owner, name, role, ident, kind),
-                                        accept=RAW))
+        answer = transport.send(request("GET", "/repos/%s/%s/contents/%s" % (owner, name, path), accept=RAW))
     except Unanswered:
         return None, "unanswered"
     if answer["status"] == 404:
@@ -92,10 +118,4 @@ def beside(transport, owner: str, name: str, role: str, ident: str, kind: str, s
     if answer["status"] != 200 or not isinstance(body, str) \
             or not str(answer["headers"].get("content-type", "")).startswith(RAW + ";"):
         return None, "unanswered"
-    data = raw(body)
-    if len(data) > BESIDE[kind]:
-        return None, "too_large"
-    if hashlib.sha256(data).hexdigest() != sha256:
-        return None, "hash_differs"
-    return data, None
-
+    return raw(body), None

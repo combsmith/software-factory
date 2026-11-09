@@ -3565,6 +3565,20 @@ class Heldout(unittest.TestCase):
         self.assertEqual(heldout.case(Anything(), "o", "home", "pr-review", entry), (self.ONE, None))
         self.assertEqual(asked, ["/repos/o/home/contents/pr-review/c-1.json"])
 
+    def test_a_gate_sets_salt_is_read_raw_from_the_home_and_none_short_of_it(self):  # issue 611
+        # The salt a gate set's shards are drawn by is `<role>/<set>.salt` in the home, read raw, 16 to 256 bytes.
+        salt = b"s" * 16
+        read = lambda found, role="pr-review", name="pr-review-gate": heldout.salt(github.Replay(found), "o", "home", role, name)
+        self.assertEqual(read([home_beside("pr-review-gate", "salt", salt)]), salt)
+        self.assertEqual(read([home_beside("pr-review-gate", "salt", b"s" * 256)]), b"s" * 256)
+        for found in ([home_beside("pr-review-gate", "salt", b"s" * 15)], [home_beside("pr-review-gate", "salt", b"s" * 257)],
+                      [home_beside("pr-review-gate", "salt", salt, status=404)], [],
+                      [home_beside("pr-review-gate", "salt", salt, **{"content-type": "application/json"})]):
+            self.assertIsNone(read(found))
+        for role, name in (("pr-review/..", "pr-review-gate"), ("pr-review", "../x"), (None, "pr-review-gate")):
+            self.assertIsNone(read([home_beside("pr-review-gate", "salt", salt)], role, name), (role, name))
+        self.assertIsNone(heldout.salt(github.Replay([]), "o", "..", "pr-review", "pr-review-gate"))
+
     def test_what_the_home_keeps_beside_a_case_is_read_raw_by_the_hash_the_case_pins(self):  # issue 611
         # A head's tarball and its tree, beside the case, are asked with the raw media type, whose answer is the file's
         # bytes whole however large (trials/P-62.json), and handed back only as the bytes the case pinned.

@@ -525,21 +525,29 @@
       ]
     },
     "ledger": {
-      "description": "The sha256 of the ledger, under its salt, and of its ciphertext, which the seal step writes: a report without both is not a sealed run's.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "salted_sha256",
-        "sealed_sha256"
-      ],
-      "properties": {
-        "salted_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "sealed_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
+      "description": "Each part's ledger, the whole run's or, for a run split into parts, the preflight's and each shard's, in that order: the sha256 of the ledger under its salt, and of its ciphertext, which the seal step writes (issues 612 and 611). A report without both of each is not a sealed run's, and one with none passes no gate: a split run none of whose parts was read has none.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "part",
+          "salted_sha256",
+          "sealed_sha256"
+        ],
+        "properties": {
+          "part": {
+            "type": "string",
+            "pattern": "^(whole|preflight|[0-9]|1[0-5])$"
+          },
+          "salted_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sealed_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
         }
       }
     }

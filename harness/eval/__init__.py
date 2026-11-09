@@ -12,8 +12,11 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`; for a gate
   set, the development cases its manifest names as its preflight first, scored apart (issue 613);
 - `seal`, for a gate set alone, encrypts the ledger `run` left in the scratch to the Maintainer's certificates (issue 612);
+- `merge`, in the merge job of a run split into parts, writes the one report from what the preflight's job and each
+  shard's wrote (issue 611);
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: each
-  kind's bar of decision 0150, and no fault of the Engine or the run (decision 0120).
+  kind's bar of decision 0150, and no fault of the Engine or the run (decision 0120). The preflight's job judges what it
+  wrote, and fails where the preflight stops the dispatch.
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
 exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
@@ -74,6 +77,10 @@ POOL_LEAST = 3
 OWN = ("bars", "kind_least", "record", "preflight")     # what a gate set's manifest gives of its own, and no other set's does
 # The scratch's folder of the development cases a gate set's dispatch asks first, apart from the set's own (issue 613).
 PREFLIGHT = "preflight"
+# The parts a dispatch's run is split into (issue 611): the preflight's job, each shard's of the matrix, and the merge
+# job that writes the one report from what each part wrote, `PART`, of counts alone for a gate set.
+PART, PART_SCHEMA, MERGE = "eval-part.json", "eval-part/1", "merge"
+RUN_NUMBER = re.compile(r"[1-9][0-9]{0,19}")
 # What a case's `cause` may say, each held to a shape that holds no words: an exception's class, the last line of this
 # repo's own code it passed, a code, and the CLI's subtype and exit. Never a message, which could quote a case.
 CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,63}")
@@ -252,10 +259,35 @@ def _write(directory, name: str, document) -> None:
         f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
 
 
+def shards_of(root: pathlib.Path):
+    """How many shards the run is split into, `config/harness.json`'s `eval_shards`, or None where it names none."""
+    try:
+        shards = json.loads((root / "config" / "harness.json").read_text(encoding="utf-8")).get("eval_shards")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return shards if type(shards) is int and 1 <= shards <= 16 else None
+
+
+def part_named(env: dict, root: pathlib.Path):
+    """`(part, shards)`: the part of the run this job is, `EVAL_PART` (the preflight, a shard by its number from 0, or the
+    merge), and how many shards there are; `(None, None)` where no part is named, and the job runs the whole set and
+    writes the report itself. A part not one of these is `part_unreadable` (issue 611)."""
+    part = env.get("EVAL_PART")
+    if part is None:
+        return None, None
+    shards = shards_of(root)
+    if shards is None:
+        raise Stop("part_unreadable")
+    if part not in (PREFLIGHT, MERGE) and part not in [str(i) for i in range(shards)]:
+        raise Stop("part_unreadable")
+    return part, shards
+
+
 def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     """What the run judges, kept for the steps after it: the Release the dispatch names, the commit checked out, and
-    the set it names, `EVAL_SET`, the review Intent's where none is given, by its name, count and hash. A set of no case
-    is `eval_set_empty`, and the run ends before anything is read."""
+    the set it names, `EVAL_SET`, the review Intent's where none is given, by its name, count and hash; and the part
+    of the run this job is, `part_named`'s. A set of no case is `eval_set_empty`, and the run ends before anything is
+    read."""
     release, commit, name = env.get("RELEASE"), env.get("GITHUB_SHA"), env.get("EVAL_SET", DEFAULT_SET)
     if not (isinstance(release, str) and RELEASE.fullmatch(release)):
         raise Stop("release_unreadable")
@@ -266,6 +298,7 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         raise Stop("eval_set_empty")
     held_out(root, name, found)
     ahead = preflight_of(root, found)
+    part, shards = part_named(env, root)
     # The heads beside the scratch, made new as it is: a folder an earlier job left is no head of this run. Both are
     # placed first, and the heads made first, so that a heads folder left behind stops the plan before any scratch is
     # made; a scratch left behind stops it with the new heads beside it, and either stops the next (issue 626).
@@ -283,8 +316,9 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     # that the fetch and the install spend it too (the run step's BUDGET).
     _write(place, "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
                                  "name": name, "set": {"count": found["count"], "sha256": digest}, "preflight": ahead,
-                                 "planned_at": now()})
-    return "planned %d cases" % found["count"] + (" after %d to preflight" % len(ahead) if ahead else "")
+                                 "part": part, "shards": shards, "planned_at": now()})
+    return "planned %d cases" % found["count"] + (" after %d to preflight" % len(ahead) if ahead else "") \
+        + ("" if part is None else ", as the part %s of %d shards" % (part, shards))
 
 
 def held_out(root: pathlib.Path, name: str, found: dict) -> None:
@@ -404,11 +438,39 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
     first, the same way, into the scratch's own folder of it, PREFLIGHT; its heads beside the set's, by their ids, which
     `preflight_of` holds apart (issue 613)."""
     kept, found, place = _planned(env, root, workspace)
-    said = ""
-    if kept["preflight"]:
+    part, said = kept.get("part"), ""
+    if part == MERGE:
+        raise Stop("part_unreadable")
+    if kept["preflight"] and part in (None, PREFLIGHT):
         ahead = _fetched(env, workspace, transport, dict(found, cases=kept["preflight"]), place / PREFLIGHT)
         said = ", %d of %d to preflight" % (ahead, len(kept["preflight"]))
-    return "fetched %d of %d cases" % (_fetched(env, workspace, transport, found, place), found["count"]) + said
+    mine = [] if part == PREFLIGHT else shard_cases(env, kept, found, transport)
+    _write(place, "part.json", [e["id"] for e in mine])
+    of = "" if part in (None, PREFLIGHT) else " of shard %s" % part
+    return "fetched %d of %d cases%s" % (_fetched(env, workspace, transport, dict(found, cases=mine), place), len(mine), of) + said
+
+
+def shard_cases(env: dict, kept: dict, found: dict, transport) -> list:
+    """The cases of the set this job's part asks, in the manifest's order (issue 611): every case where no part is
+    named; for a development set, the shard of each case's place in the manifest, its place modulo the shards; and for
+    a gate set, the shard drawn by the sha256 of the set's salt in the home, this run's id and attempt and the case's
+    id, so that no reader of the public manifest can tell which cases a shard holds, nor so which kinds its counts
+    are of. A gate set whose salt cannot be read stops the fetch, `no_shard_salt`; one whose run cannot be named,
+    `part_unreadable`."""
+    from adapters import heldout
+    part, shards = kept.get("part"), kept.get("shards")
+    if part is None:
+        return list(found["cases"])
+    if not gate_set(found):
+        return [e for place, e in enumerate(found["cases"]) if place % shards == int(part)]
+    salt = heldout.salt(transport, env.get("HELDOUT_OWNER"), env.get("HELDOUT_REPO"), found["role"], kept["name"])
+    if salt is None:
+        raise Stop("no_shard_salt")
+    run, attempt = env.get("GITHUB_RUN_ID"), env.get("GITHUB_RUN_ATTEMPT")
+    if not all(isinstance(n, str) and RUN_NUMBER.fullmatch(n) for n in (run, attempt)):
+        raise Stop("part_unreadable")
+    drawn = lambda e: int(hashlib.sha256(b"\0".join([salt, run.encode(), attempt.encode(), e["id"].encode()])).hexdigest(), 16)
+    return [e for e in found["cases"] if drawn(e) % shards == int(part)]
 
 
 def _fetched(env: dict, workspace: pathlib.Path, transport, found: dict, place: pathlib.Path) -> int:
@@ -806,6 +868,21 @@ def faults_of(assessed: dict) -> list:
     return [{"code": code, "count": codes.count(code)} for code in sorted(set(codes))]
 
 
+def preflight_counts(ahead: dict) -> dict:
+    """The cases a gate set's dispatch asked first, counted apart: how many, how many passed, and each code of one not
+    read, by how many (issue 613)."""
+    return {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
+            "faults": faults_of(ahead)}
+
+
+def kept_ledger(place: pathlib.Path, document: dict) -> bytes:
+    """`document`, a ledger, written to the scratch alone, readable by the runner's user alone, for `seal`; its bytes."""
+    data = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
+        out.write(data)
+    return data
+
+
 def preflight_stops(ahead: dict) -> bool:
     """Whether the cases a gate set's dispatch asked first stop it before any of the set's own is asked: one of them
     stopped by the Engine or the run, or none passed, as a scorer that fails every case would have it (issue 613). One
@@ -834,13 +911,12 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
             "intent": found["intent"], "set": dict(kept["set"]), "passed": len(passed), "kinds": counted,
             "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
             "faults": faults_of(assessed),
-            "preflight": {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
-                          "faults": faults_of(ahead)},
+            "preflight": preflight_counts(ahead),
             "usage": usage_of(results), "engine": engine_of(found["role"]), "models": models(usages or {}),
             "bars": {kind: list(bars_of(found)[kind]) for kind in KINDS}, "kind_least": kind_least_of(found),
             "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
             "blocking_pass": blocking_pass(found, place, assessed),
-            "ledger": {"salted_sha256": hashlib.sha256(ledger).hexdigest()}}
+            "ledger": [{"part": "whole", "salted_sha256": hashlib.sha256(ledger).hexdigest()}]}
 
 
 def _judged(document: dict, found: dict, digest: str, commit: str, release: str):
@@ -872,6 +948,10 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
     first = [fault["code"] for fault in ahead["faults"]]
     if any(len(set(said)) != len(said) or not set(said) <= eval_result_codes() for said in (codes, first)):
         return "count_differs"
+    # Each part's ledger once, and a whole run's alone (issue 611).
+    parts = [entry["part"] for entry in document["ledger"]]
+    if len(set(parts)) != len(parts) or ("whole" in parts and parts != ["whole"]):
+        return "count_differs"
     if ahead["cases"] != len(found["preflight"]) or ahead["passed"] + sum(f["count"] for f in ahead["faults"]) > ahead["cases"]:
         return "count_differs"
     if set(first) & set(ENGINE_FAULTS + RUN_FAULTS) or ahead["passed"] == 0:
@@ -880,6 +960,9 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
         return "engine_fault"
     if set(codes) & set(RUN_FAULTS):
         return "run_fault"
+    # A report that passes is sealed: a ledger of every part it read (issues 612 and 611).
+    if not document["ledger"]:
+        return "count_differs"
     # Each count is the job's: the natural cases are the manifest's, the passes are the report's own, and no case is
     # both passed and not read. A report whose counts do not add up is not the job's.
     natural, origin, passed = len([e for e in found["cases"] if e.get("natural") is True]), document["origin"], document["passed"]
@@ -999,6 +1082,10 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
         causes = {}
     causes = dict(causes) if isinstance(causes, dict) else {}
     alternates, surplus, usages = set(), {}, {}
+    if kept.get("part") == MERGE:
+        raise Stop("part_unreadable")
+    if kept.get("part") is not None:
+        return part_scored(kept, found, place, workspace, review, causes, env.get("GITHUB_RUN_ATTEMPT"))
     if gate_set(found):
         return written_out(workspace, found,
                            *gate_scored(kept, found, place, review, causes, alternates, surplus, usages))
@@ -1020,22 +1107,225 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     """`(assessed, report)` of a gate set's run: each case, with its Result, written to the ledger in the scratch, and the
     report of counts alone that binds it (issue 612). The cases its preflight names are asked first, scored apart; where
     `preflight_stops`, none of the set's own is asked, and each is `unanswered` (issue 613)."""
-    results, first, spent, answers = {}, dict(found, cases=kept["preflight"]), {}, {}
+    results = {}
+    ahead, told, spent, answers = preflight_asked(kept, found, place, review)
+    why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
+    assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
+    ledger = kept_ledger(place, ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
+                                          (ahead, told, spent, answers)))
+    return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)
+
+
+def preflight_asked(kept: dict, found: dict, place: pathlib.Path, review) -> tuple:
+    """`(assessed, causes, usages, results)` of the cases a gate set's dispatch asks first, as `assess` gives them, each
+    read where `fetch` put them (issue 613)."""
+    spent, answers = {}, {}
     # What a preflight case's read raised, as `score` reads the set's own, so that the ledger says why it was not read.
     try:
         told = _read(place / PREFLIGHT, "fetch-causes.json")
     except Stop:
         told = {}
     told = dict(told) if isinstance(told, dict) else {}
-    ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, usages=spent,
-                   results=answers)
-    why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
-    assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
-    ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
-                                   (ahead, told, spent, answers)), indent=2, sort_keys=True) + "\n").encode("utf-8")
-    with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
-        out.write(ledger)
-    return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)
+    ahead = assess(dict(found, cases=kept["preflight"]), _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT,
+                   review, told, usages=spent, results=answers)
+    return ahead, told, spent, answers
+
+
+def part_cases(kept: dict, found: dict, place: pathlib.Path) -> dict:
+    """`found`, but for the cases this job's part asks, as `fetch` listed them in the scratch, in the manifest's order."""
+    ids = _read(place, "part.json")
+    if not isinstance(ids, list):
+        raise Stop("scratch_unreadable")
+    return dict(found, cases=[e for e in found["cases"] if e["id"] in set(ids)])
+
+
+def counts_of(found: dict, place: pathlib.Path, assessed: dict) -> tuple:
+    """`(kinds, blocking)` of `found`'s cases: of each kind, how many and how many passed, which the merge sums; and of
+    those that expect a blocking Finding, two words, whether there is one and whether every one passed, never how many
+    (decision 0120); `(None, None)` where `_expected` can say nothing."""
+    expected = _expected(found, place)
+    if expected is None:
+        return None, None
+    passed = {case for case, said in assessed.items() if said == (PASS, [])}
+    kinds = {kind: {"cases": len([c for c, e in expected.items() if e["verdict"] == kind]),
+                    "passed": len([c for c, e in expected.items() if e["verdict"] == kind and c in passed])} for kind in KINDS}
+    blocked = blocking_cases(found, expected)
+    return kinds, {"some": bool(blocked), "passed": all(c in passed for c in blocked)}
+
+
+def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib.Path, review, causes: dict,
+                attempt=None) -> str:
+    """The `run` step of one part of a split run (issue 611): the preflight's cases, or a shard's, assessed, and what
+    the part found written as `PART` where the upload finds it, `eval-part/1`. A development set's part lists its
+    cases as the report does; a gate set's holds counts alone, and its cases, with their Results, go to a ledger of the
+    part in the scratch for `seal`, under a salt of its own (issue 612)."""
+    gate, alternates, surplus, usages, results = gate_set(found), set(), {}, {}, {}
+    ahead, told, spent, answers = {}, {}, {}, {}
+    if kept["part"] == PREFLIGHT:
+        mine, assessed = dict(found, cases=[]), {}
+        if gate:
+            ahead, told, spent, answers = preflight_asked(kept, found, place, review)
+    else:
+        mine = part_cases(kept, found, place)
+        assessed = assess(mine, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages, results)
+    ledger = []
+    if gate:
+        data = kept_ledger(place, ledger_of(dict(kept, preflight=kept["preflight"] if kept["part"] == PREFLIGHT else []),
+                                            mine, assessed, causes, alternates, results, surplus, usages,
+                                            (ahead, told, spent, answers)))
+        ledger = [{"part": kept["part"], "salted_sha256": hashlib.sha256(data).hexdigest()}]
+    kinds, blocking = counts_of(mine, place, assessed)
+    passed = {case for case, said in assessed.items() if said == (PASS, [])}
+    natural = {e["id"] for e in mine["cases"] if e.get("natural") is True}
+    origin = {"natural": natural, "constructed": {e["id"] for e in mine["cases"]} - natural}
+    written = {"schema": PART_SCHEMA, "part": kept["part"], "release": kept["release"], "commit": kept["commit"],
+               "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]),
+               # The attempt a gate set's shard was drawn for: the merge reads no shard of another (issue 611).
+               "attempt": attempt if gate and kept["part"] != PREFLIGHT else None, "asked": len(mine["cases"]),
+               "passed": len(passed), "kinds": kinds, "blocking": blocking,
+               "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
+               "faults": faults_of(assessed),
+               "preflight": preflight_counts(ahead),
+               # The preflight's cases are counted apart, and nothing of them in the set's usage (decision 0170).
+               "usage": usage_of(results), "models": models(usages),
+               "cases": [] if gate else report(kept, mine, assessed, causes=causes, alternates=alternates,
+                                               surplus=surplus, usages=usages)["cases"],
+               "ledger": ledger}
+    _write(workspace, PART, written)
+    return "scored %d cases of the part %s, %d passed" % (len(mine["cases"]) + len(ahead), kept["part"], len(passed))
+
+
+def part_names(kept: dict) -> list:
+    """The parts of a split run, the preflight and each shard by its number, as many shards as the plan kept, which
+    the configuration bounds at sixteen: a count the scratch holds otherwise is no plan of this run's."""
+    shards = next((n for n in range(1, 17) if type(kept.get("shards")) is int and n == kept["shards"]), None)
+    if shards is None:
+        raise Stop("scratch_unreadable")
+    return [PREFLIGHT] + [str(i) for i in range(shards)]
+
+
+def _part_file(path: str):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError, RecursionError):
+        return None
+
+
+def parts_of(kept: dict, found: dict, folder: pathlib.Path, attempt=None) -> dict:
+    """`{part: what it wrote, or None}` for the preflight and each shard, read from `folder` as the merge job's download
+    puts them, `eval-part-<part>/eval-part.json`, or the one part it found at `eval-part.json` itself. One not there,
+    not `eval-part/1`, of another part, Release, commit or set than this run's, a gate set's that lists a case or holds
+    no ledger but its own, a development set's that holds one, or a gate set's shard drawn for another attempt than
+    `attempt`, the merge's, is None, and its cases are not answered: a shard run again draws its cases anew."""
+    names, gate = part_names(kept), gate_set(found)
+    read = {}
+    for part in names:
+        try:
+            read[part] = _part_file(within(within(folder, "eval-part-%s" % part), PART))
+        except Stop:
+            read[part] = None
+    flat = _part_file(os.path.join(os.path.realpath(str(folder)), PART))
+    if isinstance(flat, dict) and flat.get("part") in names and read[flat["part"]] is None and not any(read.values()):
+        read[flat["part"]] = flat
+    for part, document in read.items():
+        if document is None:
+            continue
+        if _errors(document, "eval-part") or document["part"] != part or _judged(
+                document, found, kept["set"]["sha256"], kept["commit"], kept["release"]) \
+                or (document["cases"] or [e["part"] for e in document["ledger"]] != [part] if gate else document["ledger"]) \
+                or (gate and part != PREFLIGHT and document["attempt"] != attempt):
+            read[part] = None
+    return read
+
+
+def _summed(counts: list):
+    """`{cases, passed}` summed over `counts`; None where any is None."""
+    if any(c is None for c in counts):
+        return None
+    return {key: sum(c[key] for c in counts) for key in ("cases", "passed")}
+
+
+def merged(kept: dict, found: dict, read: dict, root: pathlib.Path) -> dict:
+    """The one report of a split run, from what each part wrote (issue 611): a development set's `eval-report/1`, its
+    cases from the shards in the manifest's order, and a gate set's `eval-aggregate/1`, of the parts' counts summed,
+    its preflight the preflight's, its ledger each part's. A case no part answered is `unanswered`, a fault of the run;
+    then no kind can be read, nor the split. Every word the report says of its kinds is said from the summed counts,
+    as `split_ok`, `kinds_pass` and `blocking_pass` would say it of the whole set."""
+    shards = [read[part] for part in part_names(kept)[1:]]
+    present = [d for d in shards if d is not None]
+    whole = sum(d["asked"] for d in present) == found["count"]
+    kinds = {k: _summed([None if d["kinds"] is None else d["kinds"][k] for d in present]) for k in KINDS} if whole else None
+    kinds = None if kinds is None or None in kinds.values() else kinds
+    blocked = None if kinds is None or any(d["blocking"] is None for d in present) else {
+        "some": any(d["blocking"]["some"] for d in present), "passed": all(d["blocking"]["passed"] for d in present)}
+    least, bars = kind_least_of(found), bars_of(found)
+    # A part says whether it has a blocking case, never how many, so the merge can hold a least of one at most.
+    held = None if blocked is None or BLOCKING_LEAST > 1 else \
+        min(kinds[k]["cases"] for k in KINDS) >= least and (blocked["some"] or BLOCKING_LEAST == 0)
+    words = None if kinds is None else {k: _clears(kinds[k]["passed"], kinds[k]["cases"], bars[k]) for k in KINDS}
+    clear = None if blocked is None else blocked["passed"]
+    unanswered = found["count"] - sum(d["asked"] for d in present)
+    answering = sorted({m for d in present for m in d["models"]})
+    if not gate_set(found):
+        rows = {row["id"]: row for d in present for row in d["cases"]}
+        cases = [rows.get(e["id"]) or {"id": e["id"], "sha256": e["sha256"], "verdict": "unreadable",
+                                       "reasons": ["unanswered"], "usage": dict(NOT_ASKED)} for e in found["cases"]]
+        named = identity(root, found["role"])
+        return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
+                "intent": found["intent"], "set": dict(kept["set"]), "models": answering,
+                "prompt_sha256": named["prompt_sha256"], "rubric_sha256": named["rubric_sha256"], "cases": cases,
+                "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held, "kinds_pass": words,
+                "blocking_pass": clear}
+    faults = {}
+    for d in present:
+        for fault in d["faults"]:
+            faults[fault["code"]] = faults.get(fault["code"], 0) + fault["count"]
+    if unanswered:
+        faults["unanswered"] = faults.get("unanswered", 0) + unanswered
+    natural = len([e for e in found["cases"] if e.get("natural") is True])
+    origin = {"natural": {"cases": natural, "passed": sum(d["origin"]["natural"]["passed"] for d in present)},
+              "constructed": {"cases": found["count"] - natural,
+                              "passed": sum(d["origin"]["constructed"]["passed"] for d in present)}}
+    first = read[PREFLIGHT]
+    ahead = first["preflight"] if first is not None else {
+        "cases": len(kept["preflight"]), "passed": 0, "faults": [{"code": "unanswered", "count": len(kept["preflight"])}]}
+    usage = dict({field: sum(d["usage"][field] for d in present) for field in SUMMED + ("answered",)},
+                 cost_usd=round(sum(d["usage"]["cost_usd"] for d in present), 6),
+                 seconds=round(sum(d["usage"]["seconds"] for d in present), 3))
+    return {"schema": AGGREGATE, "release": kept["release"], "commit": kept["commit"], "role": found["role"],
+            "intent": found["intent"], "set": dict(kept["set"]), "passed": sum(d["passed"] for d in present),
+            "kinds": None if kinds is None else {k: dict(kinds[k], interval=wilson(kinds[k]["passed"], kinds[k]["cases"]))
+                                                 for k in KINDS},
+            "origin": origin, "faults": [{"code": c, "count": n} for c, n in sorted(faults.items())],
+            "preflight": ahead, "usage": usage, "engine": engine_of(found["role"]), "models": answering,
+            "bars": {kind: list(bars[kind]) for kind in KINDS}, "kind_least": least, "split_ok": held,
+            "kinds_pass": words, "blocking_pass": clear,
+            "ledger": [entry for part in part_names(kept) if read[part] is not None
+                       for entry in read[part]["ledger"]]}
+
+
+def ledger_digest(ledger: list) -> str:
+    """The job's one output, `ledger_sha256`: the sha256 of the parts' sealed hashes as a canonical JSON list, in the
+    report's order, the preflight's first (the Factory Builder's ruling (c) on issue 611). The report holds each."""
+    return hashlib.sha256(json.dumps([entry.get("sealed_sha256") for entry in ledger], separators=(",", ":")).encode()).hexdigest()
+
+
+def merge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
+    """The merge job's step (issue 611): the one report, `merged`'s, written where the upload finds it, from each part
+    the download put under `parts/` in the workspace; and for a gate set, `ledger_digest` as the job's one output."""
+    kept, found, _ = _planned(env, root, workspace)
+    if kept.get("part") != MERGE:
+        raise Stop("part_unreadable")
+    read = parts_of(kept, found, pathlib.Path(within(workspace, "parts")), env.get("GITHUB_RUN_ATTEMPT"))
+    written = merged(kept, found, read, root)
+    _write(workspace, REPORT, written)
+    output = env.get("GITHUB_OUTPUT")
+    if gate_set(found) and isinstance(output, str) and os.path.isabs(output):
+        with open(output, "a", encoding="utf-8") as out:
+            out.write("ledger_sha256=%s\n" % ledger_digest(written["ledger"]))
+    return "merged %d of %d parts, %d passed" % (len([d for d in read.values() if d is not None]), len(read),
+                                                 written["passed"])
 
 
 def closed_of(document: dict) -> list:
@@ -1096,8 +1386,13 @@ def configured_model(root: pathlib.Path):
 
 
 def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
-    """The run's verdict on its own report: `verdict`'s, which must be `pass`."""
+    """The run's verdict on its own report: `verdict`'s, which must be `pass`. The preflight's job of a split run judges
+    what it wrote instead: a preflight that `preflight_stops` fails it, so no shard is asked (issue 611)."""
     kept, found, _ = _planned(env, root, workspace)
+    if kept.get("part") == PREFLIGHT:
+        return judged_preflight(workspace, found)
+    if kept.get("part") not in (None, MERGE):
+        raise Stop("part_unreadable")
     try:
         with open(within(workspace, REPORT), encoding="utf-8") as f:
             written = json.load(f)
@@ -1111,6 +1406,25 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
             print(tally(written, configured_model(root)))
         raise Stop(said)
     return tally(written, configured_model(root))
+
+
+def judged_preflight(workspace: pathlib.Path, found: dict) -> str:
+    """The preflight job's verdict on what it wrote: `preflight_failed` where its cases `preflight_stops`, by its counts
+    and codes as the gate reads them; a development set has none, and passes."""
+    try:
+        with open(within(workspace, PART), encoding="utf-8") as f:
+            written = json.load(f)
+    except (OSError, ValueError, RecursionError):
+        raise Stop("report_unreadable") from None
+    if _errors(written, "eval-part") or written["part"] != PREFLIGHT:
+        raise Stop("report_unreadable")
+    ahead, codes = written["preflight"], {f["code"] for f in written["preflight"]["faults"]}
+    said = "preflight %d of %d passed" % (ahead["passed"], ahead["cases"])
+    if gate_set(found) and (ahead["cases"] != len(found["preflight"]) or ahead["passed"] == 0
+                            or codes & set(ENGINE_FAULTS + RUN_FAULTS)):
+        print(", ".join([said] + ["%s %d" % (f["code"], f["count"]) for f in ahead["faults"]]))
+        raise Stop("preflight_failed")
+    return said
 
 
 def main(step, *given) -> int:
