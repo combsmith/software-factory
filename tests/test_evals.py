@@ -2612,6 +2612,13 @@ class EvalJob(unittest.TestCase):
         self.clean()
         (self.temp / "heldout").mkdir()
         self.assertEqual(self.step(plan), "scratch_unreadable")
+        # The plan places the heads by heads_place: a heads folder linked to a place in the workspace that is not there
+        # yet stops it before it makes anything there (the Muse read of issue 626's change).
+        self.clean()
+        os.symlink(str(self.work / "evil"), str(self.temp / "heads"))
+        self.assertEqual(self.step(plan), "scratch_in_workspace")
+        self.assertFalse(os.path.lexists(str(self.work / "evil")), "nothing is made in the workspace")
+        os.unlink(str(self.temp / "heads"))
 
     def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
         # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its

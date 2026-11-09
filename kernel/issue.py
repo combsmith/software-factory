@@ -40,6 +40,9 @@ CLASSES = ("agent", "maintainer", "dependency", "outside")
 DRAFTED = "converted_to_draft"
 READIED = "ready_for_review"
 DRAFT_ACTIONS = ("converted_to_draft", "ready_for_review")
+# The issue's timeline events that link a pull request to it by hand and unlink it (trial P-61), as the facts name them.
+CONNECTED = "connected"
+LINK_ACTIONS = ("connected", "disconnected")
 # The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
 APP_KINDS = ("app", "lens", "queue")
 # What GitHub says of an issue: open, or closed.
@@ -186,7 +189,29 @@ def readable_link(entry, config: dict) -> bool:
     closer = entry.get("closed_issue_at", "")
     if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
-    return readable_draft_events(entry) and readable_events(entry.get("label_events"), config)
+    return readable_draft_events(entry) and readable_link_events(entry) and readable_events(entry.get("label_events"), config)
+
+
+def readable_link_events(entry: dict) -> bool:
+    """Whether a pull request's links to the issue by hand and unlinkings can be read: each one or the other, with its
+    time, in the order the issue's timeline lists them, two in one second among them; each a change of the link, so the
+    two alternate and the first is a link; none before the pull request opened, which nothing can link. None at all is
+    a link by a closing keyword, which raises no event (trials/P-33.json), and is read as carrying no time (issue 551)."""
+    events = entry.get("link_events")
+    if not isinstance(events, list):
+        return False
+    if not all(isinstance(ev, dict) and ev.get("action") in LINK_ACTIONS and is_time(ev.get("at")) for ev in events):
+        return False
+    if events and (events[0]["action"] != CONNECTED or entry["opened_at"] > events[0]["at"]):
+        return False
+    return not any(later["at"] < ev["at"] or later["action"] == ev["action"] for ev, later in zip(events, events[1:]))
+
+
+def linked_by_hand_before(entry: dict, when: str) -> bool:
+    """Whether a pull request stood linked to the issue by hand before `when`'s second: its last link or unlinking
+    before it is a link. One linked in that second, or by a closing keyword alone, carries no order against it."""
+    before = [ev for ev in entry["link_events"] if ev["at"] < when]
+    return bool(before) and before[-1]["action"] == CONNECTED
 
 
 def readable_draft_events(entry: dict) -> bool:
@@ -227,7 +252,28 @@ def readable_names(names) -> bool:
 def readable_type(facts: dict) -> bool:
     """The issue's type, a name or null where it has none, given and never defaulted: the Consumer entry may leave it
     out."""
-    return "type" in facts and (facts["type"] is None or (isinstance(facts["type"], str) and facts["type"] != ""))
+    if not ("type" in facts and (facts["type"] is None or (isinstance(facts["type"], str) and facts["type"] != ""))):
+        return False
+    return readable_type_events(facts)
+
+
+def readable_type_events(facts: dict) -> bool:
+    """Whether the changes of the issue's type can be read: each the type before and after, a name or null for none,
+    and a change, with its time, in the order the timeline lists them; each from the type the last left, and the last
+    leaving the type as it is now (issue 551). Row 1 does not read them at the merge while the Consumer entry has no history."""
+    events = facts.get("type_events")
+    if not isinstance(events, list):
+        return False
+    names = ("from", "to")
+    if not all(isinstance(ev, dict) and is_time(ev.get("at")) and all(
+            name in ev and (ev[name] is None or (isinstance(ev[name], str) and ev[name] != "")) for name in names)
+               for ev in events):
+        return False
+    if any(later["at"] < ev["at"] or later["from"] != ev["to"] for ev, later in zip(events, events[1:])):
+        return False
+    if any(ev["from"] == ev["to"] for ev in events):     # each changes the type, as a link event changes the link
+        return False
+    return not events or events[-1]["to"] == facts["type"]
 
 
 def readable_issues(config: dict) -> bool:
@@ -481,6 +527,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(None, "label_unreadable", [])
     if not (isinstance(facts.get("linked"), list) and all(readable_link(p, config) for p in facts["linked"])):
         return out(None, "linked_unreadable", [])
+    # Each pull request once: one listed twice would count as two links (issue 551).
+    if len({p["number"] for p in facts["linked"]}) != len(facts["linked"]):
+        return out(None, "linked_unreadable", [])
     if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY
             and readable_reopening(facts)):
         return out(None, "life_unreadable", [])
@@ -530,17 +579,30 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # terminal State is left by a fact with no time: the issue's own label events, and the Hold. A person's
         # hands-off on the issue stands until a person removes it, and the merge then reads on; one removed since still
         # lets a Hold beside it pass, as the Factory leaves a queued item to merge under it. A linked draft's labels are
-        # not read: its flag at the merge can be read from its timeline, but when it became linked cannot, so neither
-        # its Hold nor its hands-off is placed at the merge (decision 0141). The Consumer entry, whose configuration has
-        # no history, a left-out label or type, and two links carry no time in the facts and read as before: "Trial
-        # P-61: an issue's type changes and a pull request linked by hand, each timed on the issue's timeline" (issue
-        # 551) and "Facts: a closing keyword's link timed by the first pass that saw it, and the Consumer entry at the
+        # not read: its flag at the merge can be read from its timeline, but when it became linked by a keyword cannot,
+        # so neither its Hold nor its hands-off is placed at the merge (decision 0141). The Consumer entry, whose
+        # configuration has no history, and a left-out label or type carry no time that row 1 reads, and read as
+        # before: "Facts: a closing keyword's link timed by the first pass that saw it, and the Consumer entry at the
         # merge (after the first cut)" (issue 552).
         past = as_of(facts, first)
         if hands_off_stood(facts, first):
             return out(t.NOT_SERVED, "merged_while_hands_off", merges)
         if stopped_before(facts, first) and not placed_by_a_person(standing_labels(past), past):
             return out(t.HELD, "merged_while_held", merges)
+        # Two pull requests linked by hand before the first merge's second, neither closed before it, were two links at
+        # it: the issue stood held (row 4), and the merge leaves it so (issue 551). Each is read as it stood at the
+        # merge: an outsider's only where a person had admitted it by then, so no admission after the merge moves a
+        # done issue. One unlinked at or after the merge lets the merge read on for good, as a Hold's removal does: a
+        # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A link
+        # in the merge's second, or one with no time, a closing keyword's, reads as before: the Factory's merge beside
+        # another in its second is done (decision 0132).
+        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first)) and linked_by_hand_before(p, first)
+                 and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
+                 and (p["closed_at"] is None or p["closed_at"] >= first)]
+        # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
+        # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.
+        if len(stood) > 1 and not placed_by_a_person(standing_labels(past), past):
+            return out(t.HELD, "merged_while_held", stood)
         # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where
         # only an outsider's did, a person decides whether the work is done (issue 280).
         closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]

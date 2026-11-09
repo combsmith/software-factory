@@ -1200,15 +1200,27 @@ def linked_pull_request(how: str):
     return a_writers(change)
 
 
-def opens_own(draft: bool):
-    """A person opens a pull request of their own that closes the issue, a draft or ready; one at a time."""
+def opens_own(draft: bool, by_hand: bool = False):
+    """A person opens a pull request of their own that closes the issue, a draft or ready; one at a time. By hand, it
+    is linked in the issue's Development box as it opens, and its link carries that time (issue 551)."""
     def change(item):
         f = item["facts"]
         if any(p["open"] and p["class"] == "maintainer" for p in f["linked"]):
             return None
-        f["linked"].append(dict(issue_facts.pr(number=30 + len(f["linked"]), draft=draft), opened_at=now(item)))
+        f["linked"].append(dict(issue_facts.pr(number=30 + len(f["linked"]), draft=draft), opened_at=now(item),
+                                link_events=[{"action": issue.CONNECTED, "at": now(item)}] if by_hand else []))
         return item
     return a_writers(change)
+
+
+def links_by_hand(item: dict):
+    """A person links the Factory's open pull request to the issue by hand as well as by its closing keyword, which
+    carries no time: the link then carries one (issue 551)."""
+    live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == "agent" and not p["link_events"]]
+    if not live:
+        return None
+    live[0]["link_events"].append({"action": issue.CONNECTED, "at": now(item)})
+    return item
 
 
 def closes_issue(item: dict):
@@ -1236,13 +1248,17 @@ def queue_merges_issue(item: dict, kind: str = "agent"):
     may name in its description, after the approval, an issue the Controller does not watch, so it merges while that
     issue is new too (P-48, issue 280). It merges too where row 1 reads the State at the merge, which then stays, since
     only a person ends it (issue 522): held by a Hold on the issue, the race of a pass that has not yet dequeued; and
-    not served by a person's hands-off on the issue, under which the Factory leaves a queued item to merge. Under a
-    linked draft's Hold or hands-off, from two links or on an issue the Consumer entry leaves out, row 1 waits on the
-    time a link was made (decision 0141; issues 551 and 552)."""
+    not served by a person's hands-off on the issue, under which the Factory leaves a queued item to merge; and held
+    by two links each made by hand, which carry their times (issue 551). Under a linked draft's Hold or hands-off, from
+    two links one of which is a closing keyword's alone, or on an issue the Consumer entry leaves out, row 1 waits on
+    the time a link was made (decision 0141, issue 552)."""
     live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == kind and not p["draft"]]
     d = issue_kernel(item)
+    by_hand = [p for p in item["facts"]["linked"] if p["open"] and p["link_events"]
+               and p["link_events"][-1]["action"] == issue.CONNECTED]
     kept = (d["reason"] == "human_hold" and issue_stands(item, t.LABEL_HOLD)) or \
-        (d["reason"] == "hands_off" and issue_stands(item, t.LABEL_HANDS_OFF))
+        (d["reason"] == "hands_off" and issue_stands(item, t.LABEL_HANDS_OFF)) or \
+        (d["reason"] == "linked_twice" and len(by_hand) > 1)
     if not live or not (d["state"] in (("in_review", "new") if kind == "outside" else ("in_review",)) or kept):
         return None
     live[0].update(open=False, closed_at=now(item), merged_at=now(item), closed_issue_at=closes_the_issue(item))
@@ -1343,6 +1359,8 @@ ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "lab
     Move("a person merges the linked pull request with an empty diff", "human", linked_pull_request("empty")),
     Move("a person opens a draft of their own", "human", opens_own(True)),
     Move("a person opens a pull request of their own", "human", opens_own(False)),
+    Move("a person opens a pull request of their own, linked by hand", "human", opens_own(False, by_hand=True)),
+    Move("a person links the Factory's pull request by hand", "human", a_writers(links_by_hand)),
     Move("the author App marks its draft ready", "factory", app_marks_ready),
     Move("the queue merges the Factory's pull request", "platform", queue_merges_issue),
     Move("the queue merges an admitted outsider's pull request", "platform",
@@ -1439,6 +1457,11 @@ class AnyLifecycle(unittest.TestCase):
         # person's removal of hands-off then lets the merge read on to done.
         made, reached = issue_explored()
         self.assertLessEqual({("not_served", "merged_while_hands_off"), ("held", "merged_while_held")}, reached)
+        # It merges from held by two links each made by hand too, and the State stays (issue 551): no platform exit from
+        # held, as asserted below. Held by two links is reached before the merge as well, so this alone does not show the
+        # merge; the mutant "two links by hand at the merge are read as before, in the exploration" does, which only a
+        # merge from it kills.
+        self.assertIn(("held", "linked_twice"), reached)
         self.assertIn(("merged_while_hands_off", "merged"), made[("not_served", "done", "human")])
         self.assertEqual([m for m in made if m[0] in (t.HELD, t.NOT_SERVED) and m[2] == "platform"], [])
 

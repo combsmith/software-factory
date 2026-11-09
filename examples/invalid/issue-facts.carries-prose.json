@@ -13,6 +13,7 @@
     "can_write": true
   },
   "type": "Task",
+  "type_events": [],
   "label_names": [
     "kernel",
     "factory:triage"
@@ -54,7 +55,8 @@
       "empty": false,
       "label_events": [],
       "closed_issue_at": null,
-      "draft_events": []
+      "draft_events": [],
+      "link_events": []
     },
     {
       "number": 140,
@@ -83,7 +85,8 @@
         }
       ],
       "closed_issue_at": null,
-      "draft_events": []
+      "draft_events": [],
+      "link_events": []
     }
   ],
   "role_comments": [
