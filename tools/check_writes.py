@@ -700,8 +700,7 @@ def _traced(mods: dict, mod: Module, node, chain: list = (), seen: frozenset = f
     out = list(found)
     for got in found:       # a constant that is another name: what that name is
         if got[0] == "value" and got[2] in mods[got[1]].values and (got[1], got[2]) not in seen:
-            # each top-level assignment of it, one under an if or a try beside a plain one too (Muse's read)
-            out += [more for value in mods[got[1]].stored_as.get(got[2], mods[got[1]].values[got[2]])
+            out += [more for value in mods[got[1]].values[got[2]]
                     for more in _traced(mods, mods[got[1]], value, (), seen | {(got[1], got[2])})]
     # Where the name is stored, by any name imported for it, `from a import P as Q` (issue 655): what its module's top level
     # stores under an if, a try or a walrus, and what a function there that declares it global assigns it.
@@ -711,7 +710,8 @@ def _traced(mods: dict, mod: Module, node, chain: list = (), seen: frozenset = f
         if where not in mods:
             continue
         if (where, name) not in seen:      # beside a def, a class or an import too (Argon)
-            out += [more for value in mods[where].stored_as.get(name, ())
+            plain = mods[where].values.get(name, [])        # read above as the constant's own
+            out += [more for value in mods[where].stored_as.get(name, ()) if all(value is not v for v in plain)
                     for more in _traced(mods, mods[where], value, (), seen | {(where, name)})]
         if ("global", where, name) not in seen:      # global C; C = Port, by any name for its module
             out += [more for fn, value in mods[where].declared.get(name, ())
