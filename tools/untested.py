@@ -159,9 +159,13 @@ def data_lines(text: str) -> set:
     except SyntaxError:
         return set()
     lines, found, code = source_lines(text), set(), set()
+    bound = {}
     for node in tree.body:
-        if not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
-                                                     for target in node.targets)):
+        listed = isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
+                                                      for target in node.targets)
+        _unsettle(bound, node)
+        if not listed:
+            _bind(bound, node)
             continue
         found.update(at for at in range(node.lineno, node.end_lineno + 1)
                      if not lines[at - 1].strip() or lines[at - 1].strip().startswith("#"))
@@ -171,30 +175,132 @@ def data_lines(text: str) -> set:
             if hasattr(inner, "lineno"):
                 code.update((inner.lineno, inner.end_lineno))
             for child in ast.iter_child_nodes(inner):
-                if isinstance(inner, (ast.List, ast.Tuple)) and child in inner.elts and _literal(child):
+                if isinstance(inner, (ast.List, ast.Tuple)) and child in inner.elts and _literal(child, bound):
                     found.update(range(child.lineno, child.end_lineno + 1))
                 else:
                     todo.append(child)
+        _bind(bound, node)
     return found - code
 
 
-def _literal(node) -> bool:
+def _bind(bound: dict, node) -> None:
+    """Read into `bound` what the statement `node`, at the module's top, binds each name to, as the module runs in
+    order: "helper" for a function it defines, "text" for a text it gives, "value" for a value `_literal` takes, and
+    "code" for anything else any statement binds, an import's name wherever it stands among them, and for a name bound a
+    second time, which may then be anything. A name no statement binds before the list is in none, and is code."""
+    named = []
+    if isinstance(node, ast.FunctionDef):
+        # A decorator may make the name anything; a helper that says it gives a text is taken at its word.
+        gives = isinstance(node.returns, ast.Name) and node.returns.id == "str"
+        named = [(node.name, "code" if node.decorator_list else "text helper" if gives else "helper")]
+    elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            # A, B = x, y binds each name to its own value; any other unpacking may bind anything.
+            pairs = [(target, node.value)] if isinstance(target, ast.Name) else (
+                list(zip(target.elts, node.value.elts)) if isinstance(target, ast.Tuple)
+                and isinstance(node.value, ast.Tuple) and len(target.elts) == len(node.value.elts)
+                and not any(isinstance(e, ast.Starred) for e in target.elts + node.value.elts) else [])
+            for name, value in pairs:
+                if not isinstance(name, ast.Name):
+                    named += [(inner.id, "code") for inner in ast.walk(name) if isinstance(inner, ast.Name)]
+                elif isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    named.append((name.id, "text"))
+                else:
+                    named.append((name.id, "value" if _literal(value, bound) else "code"))
+            if not pairs:
+                named += [(inner.id, "code") for inner in ast.walk(target) if isinstance(inner, ast.Name)]
+    else:
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Store):
+                named.append((inner.id, "code"))
+            elif isinstance(inner, (ast.Import, ast.ImportFrom)):
+                named += [(alias.asname or alias.name.split(".")[0], "code") for alias in inner.names]
+            elif isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                named.append((inner.name, "code"))
+    for name, kind in named:
+        bound[name] = "code" if name in bound else kind
+
+
+REFLECTS = ("globals", "locals", "vars", "exec", "eval", "setattr", "delattr")
+TEXT_METHODS = ("replace", "format", "join", "split", "strip", "startswith", "endswith", "upper", "lower", "index",
+                "count", "find", "splitlines", "partition")
+
+
+def _unsettle(bound: dict, node) -> None:
+    """Make code in `bound` each name the statement `node` may bind or change other than as an assignment's target: by
+    a walrus anywhere in it, a `global` or `nonlocal` in a function it defines, or a method called on it, at the top or
+    in a function where it is not the function's own; a text alone, which no method changes, is left as it is. A call
+    of `globals`, `exec` or the like may bind any name, so after one every name is code."""
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.NamedExpr):
+            bound[inner.target.id] = "code"
+        elif isinstance(inner, (ast.Global, ast.Nonlocal)):
+            bound.update((name, "code") for name in inner.names)
+        elif isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id in REFLECTS:
+            bound["*"] = "code"
+    own = set()
+    for inner in ast.walk(node):
+        if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            own.update(arg.arg for arg in ast.walk(inner.args) if isinstance(arg, ast.arg))
+            own.update(name.id for name in ast.walk(inner) if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store))
+    for inner in ast.walk(node):
+        changed = None
+        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) and isinstance(inner.func.value, ast.Name):
+            # A method on a text changes nothing; on a name not bound yet, only one no text has may change what it
+            # will be, as a helper defined before its list fills it when called.
+            name = inner.func.value.id
+            if bound.get(name) != "text" and not (name not in bound and inner.func.attr in TEXT_METHODS):
+                changed = name
+        elif (isinstance(inner, (ast.Subscript, ast.Attribute)) and isinstance(inner.ctx, (ast.Store, ast.Del))
+              and isinstance(inner.value, ast.Name)):
+            changed = inner.value.id        # X[0] = ..., del X[0], X.y = ..., in a function or at the top
+        elif isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Del):
+            changed = inner.id              # del X: it may then be a builtin
+        if changed is not None and changed not in own:
+            bound[changed] = "code"
+
+
+def _literal(node, bound: dict) -> bool:
     """Whether `node` is made of constants, names, attributes and items alone, in tuples, lists, sums, products, and
-    calls of such a name or attribute given no keyword, each maybe unpacked: a mutant's entry, as its helpers build one,
-    and nothing that decides."""
-    if isinstance(node, (ast.Constant, ast.Name)):
+    calls given no keyword of a helper the module defines, or of `replace` on a text, each maybe unpacked: a mutant's
+    entry, as its helpers build one, and nothing that decides. A builtin's call or another module's, and anything read
+    from a name an import binds, as `os.environ` or `sys.platform`, may read the world, so it is code (decision
+    0166). `bound` is what `_bind` has read of the module before the list."""
+    if isinstance(node, ast.Constant):
         return True
+    if isinstance(node, ast.Name):
+        return bound.get("*") != "code" and bound.get(node.id) in ("text", "value", "helper", "text helper")
+    if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+        return False        # a function's __globals__, a class's __dict__: the module's every name, read
     if isinstance(node, (ast.Attribute, ast.Starred)):
-        return _literal(node.value)
+        return _literal(node.value, bound)
     if isinstance(node, ast.Subscript):
-        return _literal(node.value) and _literal(node.slice)
+        return _literal(node.value, bound) and _literal(node.slice, bound)
     if isinstance(node, (ast.Tuple, ast.List)):
-        return all(_literal(item) for item in node.elts)
+        return all(_literal(item, bound) for item in node.elts)
     if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mult)):
-        return _literal(node.left) and _literal(node.right)
+        return _literal(node.left, bound) and _literal(node.right, bound)
     if isinstance(node, ast.Call):
-        return _literal(node.func) and not node.keywords and all(_literal(arg) for arg in node.args)
+        func = node.func
+        named = (isinstance(func, ast.Name) and bound.get("*") != "code"
+                 and bound.get(func.id) in ("helper", "text helper")) or (
+            isinstance(func, ast.Attribute) and func.attr == "replace" and _text(func.value, bound))
+        return named and not node.keywords and all(_literal(arg, bound) for arg in node.args)
     return False
+
+
+def _text(node, bound: dict) -> bool:
+    """Whether `node` is a text: a constant one, a name the module gives one, or what a helper that says it gives a text,
+    or a text's `replace`, gives; any other helper may give a path, whose `replace` renames a file."""
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str)
+    if isinstance(node, ast.Name):
+        return bound.get("*") != "code" and bound.get(node.id) == "text"
+    if not (isinstance(node, ast.Call) and _literal(node, bound)):
+        return False
+    return (isinstance(node.func, ast.Name) and bound.get(node.func.id) == "text helper") or (
+        isinstance(node.func, ast.Attribute) and node.func.attr == "replace")
 
 
 def is_data(hunk: dict, head_lines: set, base_lines: set) -> bool:
@@ -476,8 +582,7 @@ def _quiet(node) -> bool:
     return False
 
 
-COMPARE = re.compile(r" (<=|>=|<|>) ")
-SWAP = {"<": "<=", "<=": "<", ">": ">=", ">=": ">"}
+SWAP = {ast.Lt: ("<", "<="), ast.LtE: ("<=", "<"), ast.Gt: (">", ">="), ast.GtE: (">=", ">")}
 
 
 def _mutated(node, line: str):
@@ -488,9 +593,16 @@ def _mutated(node, line: str):
         raw = line.encode()     # the offsets are of UTF-8 bytes
         return (raw[:test.col_offset] + b"not (" + raw[test.col_offset:test.end_col_offset] + b")"
                 + raw[test.end_col_offset:]).decode()
-    compare = COMPARE.search(line)
-    if compare and any(isinstance(inner, ast.Compare) for inner in ast.walk(node)):
-        return line[:compare.start()] + " %s " % SWAP[compare.group(1)] + line[compare.end():]
+    for inner in ast.walk(node):
+        # The operator is found between the comparison's two sides, never where the line first shows one: in a string
+        # it would be no comparison, and a test that reads the text would kill a mutant of nothing (Muse, #634).
+        if (isinstance(inner, ast.Compare) and inner.lineno == inner.end_lineno == node.lineno
+                and type(inner.ops[0]) in SWAP):
+            raw = line.encode()
+            start, end = inner.left.end_col_offset, inner.comparators[0].col_offset
+            now, new = SWAP[type(inner.ops[0])]
+            gap = raw[start:end].decode()
+            return raw[:start].decode() + gap.replace(now, new, 1) + raw[end:].decode()
     for inner in ast.walk(node):
         if isinstance(inner, ast.Constant) and inner.lineno == node.lineno and inner.end_lineno == node.lineno:
             if isinstance(inner.value, bool) or (isinstance(inner.value, int) and not isinstance(inner.value, bool)):

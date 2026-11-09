@@ -563,8 +563,13 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
             continue
         said = eval_result.score(case, result)
         # What the scorer says is codes of the report's enum: nothing of a case's content, and no word of the model's. A
-        # case's kind is not worth hiding, and a run cannot be read without them (decision 0120).
-        assessed[entry["id"]] = (said["verdict"], said["reasons"])
+        # case's kind is not worth hiding, and a run cannot be read without them (decision 0120). On a development set
+        # the surplus bound is told and fails no case, until its bar is measured again under the bound (issue 582); a
+        # gate set's fails as the scorer says (issue 610).
+        told = said["verdict"]
+        if told == "fail" and said["reasons"] and set(said["reasons"]) <= set(eval_result.SURPLUS) and not gate_set(found):
+            told = PASS
+        assessed[entry["id"]] = (told, said["reasons"])
         if said.get("at_alternate") is True:
             alternates.add(entry["id"])
         if said.get("surplus_gating"):
@@ -628,6 +633,12 @@ def least_passed(count: int, least: int, bars: dict = None) -> int:
     return min(on(bars[finding], cases) + on(bars[met], count - cases) for cases in range(least, count - least + 1))
 
 
+def is_pass(said: tuple) -> bool:
+    """Whether a case's `(verdict, codes)` is a pass: its verdict, and no code but the surplus bound's, which on a
+    development set is told and fails no case (issue 582)."""
+    return said[0] == PASS and set(said[1]) <= set(eval_result.SURPLUS)
+
+
 def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     """`{kind: whether at least its bar, `bars_of`, of its cases passed}`, read where the cases are: one word for each, never
     how many (decisions 0120 and 0150). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
@@ -638,7 +649,7 @@ def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     said = {}
     for kind in KINDS:
         cases = [case for case, its in kinds.items() if its == kind]
-        passed = [case for case in cases if assessed[case] == (PASS, [])]
+        passed = [case for case in cases if is_pass(assessed[case])]
         said[kind] = _clears(len(passed), len(cases), bars_of(found)[kind])
     return said
 
@@ -668,7 +679,7 @@ def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
     expected = _expected(found, place)
     if expected is None:
         return None
-    return all(assessed[case] == (PASS, []) for case in blocking_cases(found, expected))
+    return all(is_pass(assessed[case]) for case in blocking_cases(found, expected))
 
 
 def used(usage) -> dict:
@@ -953,10 +964,11 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
         return "engine_fault"
     if any(set(c["reasons"]) & set(RUN_FAULTS) for c in document["cases"]):
         return "run_fault"
-    # A case is passed by its verdict and no code, and any other names what became of it, as the job writes them; the
-    # report's own count must agree, or it is not the job's.
+    # A case is passed by its verdict and no code but the surplus bound's (issue 582), and any other names what became of
+    # it, as the job writes them; the report's own count must agree, or it is not the job's.
     passed = len([c for c in document["cases"] if c["verdict"] == PASS])
-    if any((c["verdict"] == PASS) == bool(c["reasons"]) for c in document["cases"]) or document["passed"] != passed:
+    if any((c["verdict"] == PASS) == bool(set(c["reasons"]) - set(eval_result.SURPLUS)) for c in document["cases"]) \
+            or document["passed"] != passed:
         return "count_differs"
     # A case marked as passed at an alternate place alone is a pass (decision 0143).
     if any(c.get("at_alternate") and c["verdict"] != PASS for c in document["cases"]):

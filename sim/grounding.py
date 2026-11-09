@@ -112,6 +112,8 @@ RULES = (
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
+    # Contradicted by P-2 (trials/P-2.no-pass.json, issue 659): GitHub's queue merges a queued pull request on its required
+    # checks alone, with no pass read between. Left unverified, as it is, until the fake changes: issue 677's story.
     ("a_pass_comes_before_the_merge", "The merge queue merges a pull request only after a pass has read it whole and "
      "current, and found the same facts GitHub holds at the merge", ("P-2",), None, None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
@@ -268,6 +270,13 @@ RULES = (
     ("a_draft_change_is_timed", "A pull request's timeline gives each conversion to a draft and each marking ready as an "
      "event of its own, with its time to the second; one opened as a draft has no event for it", ("P-33",),
      "trials/P-33.json", None),
+    # Trial P-61 (issue 551) asks these; until its fixture is recorded the world links nothing by hand and sets no type,
+    # so it gives none of either.
+    ("a_link_by_hand_is_timed", "An issue's timeline gives each link of a pull request by hand, in its Development box, "
+     "and each unlinking, as an event of its own with its time to the second; a link by a closing keyword raises none",
+     ("P-61",), None, None),
+    ("a_type_change_is_timed", "An issue's timeline gives each setting, change and removal of its type as an event of "
+     "its own with its time to the second, and the type before and after", ("P-61",), None, None),
     # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
     # names to closingIssuesReferences, and closes nothing: the issue stays open and its timeline gains no close; undoing
     # the edit takes it out again. trials/P-33.json: the merge's own close of the issue names the pull request as the
@@ -449,6 +458,11 @@ ASKS = {
     },
     "who_changed_the_draft_flag_is_read": {"P-33": "Can who last changed the draft flag be read?"},
     "a_draft_change_is_timed": {"P-33": "Can who last changed the draft flag be read?"},
+    "a_link_by_hand_is_timed": {
+        "P-61": "each link of a pull request by hand in its Development box and its unlinking, as an event of its own "
+              "with its time to the second",
+    },
+    "a_type_change_is_timed": {"P-61": "Does an issue's timeline give each change of its type"},
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": {
         "P-33": "Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged "
               "pull request alike",

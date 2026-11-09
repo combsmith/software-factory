@@ -2309,6 +2309,17 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(problems, "kernel/ghost.pyc: compiled code; Python loads it ahead of, or instead of, "
                                          "the reviewed source, and no check reads it"))
 
+    def test_no_commit_holds_the_file_the_release_step_writes_at_the_root(self):  # issue 531
+        # The release job uploads release-exchanges.json from the checkout's root whatever stopped its step: one a
+        # commit carried, or a link, would be published in place of the step's own record. Anywhere else it is a name.
+        from release import exchanges
+        self.assertEqual(check_repo.EXCHANGES, exchanges.NAME)
+        root = tree({"release-exchanges.json": "{}\n", "docs/release-exchanges.json": "{}\n"})
+        problems = check_repo.run(root)
+        self.assertTrue(caught(problems, "release-exchanges.json: where the release step writes its own exchanges"))
+        self.assertFalse(caught(problems, "docs/release-exchanges.json"))
+        self.assertTrue(caught(check_repo.run(tree({"Release-Exchanges.JSON": "{}\n"})), "Release-Exchanges.JSON: where"))
+
     def test_committed_local_output_is_refused(self):
         # An unchecked-hash kernel/__pycache__/hidden.cpython-39.pyc replaces the reviewed kernel/hidden.py
         # at import, and `git add -f` commits it past .gitignore. What git holds is not local output.
