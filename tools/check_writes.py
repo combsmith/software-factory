@@ -57,19 +57,22 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
-# a shell's command after a new line, its `;`, `&`, `|`, `(`, `{` or `!`, after a word that runs the next, with its
-# options and their values, or after a variable's assignment, ended by a space, the text's end or a shell's `;`, `&`, `|`, `)` or `}`; or quoted
-# (issue 640). Spelt apart, and joined only when it runs, so this file holds neither.
+# a shell's command after a new line, its `;`, `&`, `|`, `(`, `{`, `!` or a `case` pattern's `)`, after a word that runs
+# the next, `eval`, `watch` and `stdbuf` among them, with its options and their values, `timeout`'s too, or after a
+# variable's assignment, ended by a space, the text's end or a shell's `;`, `&`, `|`, `)` or `}`; or quoted (issues 640,
+# 655). Spelt apart, and joined only when it runs, so this file holds neither.
 _NAME = r"(\S*[/\\])?(g" + r"h|gi" + r"t)(\.exe)?"
-_LEAD = (r"(^\s*|[;&|({\n!]\s*|\b(env|exec|command|nohup|xargs|sudo|time|nice|if|elif|while|until|then|do|else)"
-         r"(\s+-\S+(\s+[^-\s]\S*)?)*\s+|\btimeout(\s+-\S+)*\s+\S+\s+|\b\w+=\S*\s+)")
+_LEAD = (r"(^\s*|[;&|({\n!)]\s*|\b(env|exec|command|nohup|xargs|sudo|time|nice|if|elif|while|until|then|do|else|eval"
+         r"|watch|stdbuf)(\s+-\S+(\s+[^-\s]\S*)?)*\s+|\btimeout(\s+-\S+(\s+[^-\s]\S*)?)*\s+\S+\s+|\b\w+=\S*\s+)")
 COMMANDS = re.compile(r"(?i)%s%s(\s|$|[;&|)}])|[\"']\s*%s(\s|[\"';&|)}]|$)" % (_LEAD, _NAME, _NAME))
 # What a request is, by its keys: edited after `request` built it, it is sent as edited.
 FIELDS = ("method", "path", "body")
 # A module's names as a value: what is read from them cannot be.
 NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
-# The modules by which code loads a module by its name.
+# The modules by which code loads a module by its name, and every name by which a module is reached as a value: as a
+# literal key, `getattr` or `get` argument, each is a load by name (issues 640, 655).
 LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy")
+BY_NAME = ("sys", "modules", "__builtins__", "__import__") + LOADER_MODULES
 # What runs code a string holds, by its own name, or as an attribute (issue 640).
 TEXT_RUNNERS = ("exec", "eval", "compile")
 TEXT_ATTRIBUTES = ("exec", "eval")
@@ -77,15 +80,18 @@ TEXT_ATTRIBUTES = ("exec", "eval")
 SETTERS = ("setattr", "setitem", "__setattr__", "__setitem__")
 # The attributes by which code reaches an object's class (issue 640).
 CLASS_PARTS = ("__class__", "__mro__", "__bases__", "__base__")
-# What `_given` and `_scoped` have read of each function, in this run: the trees are the run's own, so their ids hold.
+# What `_given` and `_scoped` have read of each function, in this run, keyed on the node itself, never its id, which a
+# tree dropped in the run could hand to another (issue 655).
 _READ = {}
 # What opens a scope of its own inside a function; and what does so for a walrus too, which a comprehension does not.
 OWN_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.ClassDef)
 # The calls on a request that only read it.
 READS = ("get", "copy", "items", "keys", "values")
-# The calls that fill a container in place.
+# The calls that fill a container in place, and the types whose unbound one, `dict.update(d, ...)`, fills its first
+# argument (issue 655).
 FILLS = ("append", "extend", "insert", "update", "setdefault", "add")
+CONTAINERS = ("dict", "list", "set")
 
 
 def _name(rel: str) -> str:
@@ -200,7 +206,8 @@ class Module:
                         self.stored_as.setdefault(target.id, []).append(node.value)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for name in {g for n in ast.walk(node) if isinstance(n, ast.Global) for g in n.names}:
-                    self.declared.setdefault(name, []).extend((node, value) for value, outer in _given(node, name) if not outer)
+                    self.declared.setdefault(name, []).extend((inner or node, value) for value, outer, inner in _given(node, name)
+                                                              if not outer)
 
 
 def _filled_names(node) -> set:
@@ -247,6 +254,19 @@ def _lookup(mods: dict, module: str, name: str, seen: frozenset = frozenset()):
     if name in other.stored:    # stored some other way, by an if, a tuple or a loop: whatever the top level reaches
         return ("value", module, "<module>")
     return ("unknown", module, name)
+
+
+def _origin(mods: dict, module: str, name: str) -> tuple:
+    """(module, name) where `name` in `module` is stored, read back through each import and re-export of it, `from a
+    import P as Q`, to the module whose own code stores it (issue 655)."""
+    seen = set()
+    while module in mods and (module, name) not in seen and name not in mods[module].stored:
+        seen.add((module, name))
+        bound = mods[module].bindings.get(name)
+        if not bound or bound[0] != "attr":
+            break
+        module, name = bound[1], bound[2]
+    return module, name
 
 
 def _package(mods: dict, name: str) -> bool:
@@ -547,30 +567,41 @@ def _loaded(mods: dict, mod: Module) -> list:
                    or isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and id(n) not in held and _sys(mods, mod, n.id)
                    or isinstance(n, ast.Attribute) and n.attr == "sys"
                    or isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "getattr" and len(n.args) > 1
-                   and isinstance(n.args[1], ast.Constant) and n.args[1].value in ("sys", "modules")})
+                   and isinstance(n.args[1], ast.Constant) and n.args[1].value in BY_NAME
+                   # issue 655: a loader or __builtins__ by a literal key, getattr or get, and __builtins__ as an attribute
+                   or isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Load) and isinstance(n.slice, ast.Constant)
+                   and n.slice.value in BY_NAME
+                   or isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "get" and n.args
+                   and isinstance(n.args[0], ast.Constant) and n.args[0].value in BY_NAME
+                   or isinstance(n, ast.Attribute) and n.attr == "__builtins__"})
 
 
 def _runs_text(mod: Module) -> list:
-    """The lines of `mod` that name exec, eval or compile where the module neither imports nor defines the name,
-    `from re import compile`, or that call exec or eval as an attribute: what code a string holds is not syntax this
-    check reads. A name only assigned, or a parameter, may still be the builtin, and is refused."""
-    own = {name for name, bound in mod.bindings.items() if bound[:2] != ("attr", "builtins")} | set(mod.classes) \
-        | {name for name in mod.functions if "." not in name}
+    """The lines of `mod` that name exec, eval or compile where the module's top level neither imports nor defines the
+    name unconditionally, `from re import compile`, or that call exec or eval as an attribute: what code a string holds
+    is not syntax this check reads. A name only assigned, or a parameter, may still be the builtin, and is refused; so is
+    one bound only under an if, a try or in a function, which may never run, one bound two ways, and one deleted
+    anywhere, `del exec`, after which it is the builtin again (issue 655)."""
+    bound = {alias.asname or alias.name.split(".")[0] for node in mod.tree.body if isinstance(node, (ast.Import, ast.ImportFrom))
+             and not (isinstance(node, ast.ImportFrom) and node.module == "builtins") for alias in node.names} \
+        | {node.name for node in mod.tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+    deleted = {n.id for n in mod.nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Del)}
+    own = bound - deleted - mod.conflicts
     return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Name) and n.id in TEXT_RUNNERS and n.id not in own
                    or isinstance(n, ast.Attribute) and n.attr in TEXT_ATTRIBUTES})
 
 
 def _given(fn, name: str) -> list:
-    """What the function `fn` gives `name` in its own scope, each as (value, whether it is read outside `fn`): a default,
-    read where `fn` is defined, or an assignment, a walrus, a comprehension's walrus, the part of a tuple assigned to a
-    tuple at its place, or a nested function's assignment to it as nonlocal, read in `fn` (issue 640). Read once for
-    each function and name in a run."""
-    if (id(fn), name) in _READ:
-        return _READ[(id(fn), name)]
+    """What the function `fn` gives `name` in its own scope, each as (value, whether it is read outside `fn`, the nested
+    function it is read in or None): a default, read where `fn` is defined, or an assignment, a walrus, a comprehension's
+    walrus, the part of a tuple assigned to a tuple at its place, or a nested function's assignment to it as nonlocal,
+    read in that function, whose own names it may be (issues 640, 655). Read once for each function and name in a run."""
+    if (fn, name) in _READ:
+        return _READ[(fn, name)]
     inner = {id(n) for child in ast.walk(fn) if child is not fn and isinstance(child, OWN_SCOPES) for n in ast.walk(child)}
     args = fn.args.posonlyargs + fn.args.args
-    out = [(d, True) for a, d in zip(args[len(args) - len(fn.args.defaults):], fn.args.defaults) if a.arg == name]
-    out += [(d, True) for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults) if d is not None and a.arg == name]
+    out = [(d, True, None) for a, d in zip(args[len(args) - len(fn.args.defaults):], fn.args.defaults) if a.arg == name]
+    out += [(d, True, None) for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults) if d is not None and a.arg == name]
     for node in ast.walk(fn):
         if id(node) in inner:
             continue
@@ -579,26 +610,26 @@ def _given(fn, name: str) -> list:
         while pairs:
             target, value = pairs.pop()
             if isinstance(target, ast.Name) and target.id == name:
-                out.append((value, False))
+                out.append((value, False, None))
             elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)) \
                     and len(target.elts) == len(value.elts):
                 pairs += list(zip(target.elts, value.elts))
     for child in ast.walk(fn):      # def inner(): nonlocal c; c = Port
         if child is not fn and isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) \
                 and any(isinstance(n, ast.Nonlocal) and name in n.names for n in ast.walk(child)):
-            out += [(value, False) for value, outer in _given(child, name) if not outer]
-    _READ[(id(fn), name)] = out
+            out += [(value, False, inner or child) for value, outer, inner in _given(child, name) if not outer]
+    _READ[(fn, name)] = out
     return out
 
 
 def _scoped(fn) -> frozenset:
     """`_scope`, once for each function in a run, with what a walrus in a comprehension of its own binds, which is the
     function's."""
-    if id(fn) in _READ:
-        return _READ[id(fn)]
+    if ("scope", fn) in _READ:
+        return _READ[("scope", fn)]
     inner = {id(n) for child in ast.walk(fn) if child is not fn and isinstance(child, OWN_SCOPES) for n in ast.walk(child)}
-    _READ[id(fn)] = frozenset(_scope(fn) | {n.target.id for n in ast.walk(fn) if isinstance(n, ast.NamedExpr) and id(n) not in inner})
-    return _READ[id(fn)]
+    _READ[("scope", fn)] = frozenset(_scope(fn) | {n.target.id for n in ast.walk(fn) if isinstance(n, ast.NamedExpr) and id(n) not in inner})
+    return _READ[("scope", fn)]
 
 
 def _traced(mods: dict, mod: Module, node, chain: list = (), seen: frozenset = frozenset()) -> list:
@@ -622,26 +653,47 @@ def _traced(mods: dict, mod: Module, node, chain: list = (), seen: frozenset = f
         fn = chain[local]
         if (id(fn), node.id) in seen:
             return []
-        return [got for value, outer in _given(fn, node.id)
-                for got in _traced(mods, mod, value, chain[local + outer:], seen | {(id(fn), node.id)})]
+        return [got for value, outer, inner in _given(fn, node.id)
+                for got in _traced(mods, mod, value, ([inner] if inner else []) + list(chain[local + outer:]),
+                                   seen | {(id(fn), node.id)})]
     if local is not None:       # m.PORT, where m = other_module: what other_module's PORT is
-        found = [got for base in _traced(mods, mod, node.value, chain, seen) if base[0] == "module"
-                 for got in [_lookup(mods, base[1], node.attr)] if got]
+        bases = [base[1] for base in _traced(mods, mod, node.value, chain, seen) if base[0] == "module"]
+        found = [got for base in bases for got in [_lookup(mods, base, node.attr)] if got]
     else:
+        bases = [base[1] for base in [_resolve(mods, mod, node.value)] if base and base[0] == "module"] \
+            if isinstance(node, ast.Attribute) else []
         found = [got for got in [_resolve(mods, mod, node) if isinstance(node, (ast.Name, ast.Attribute)) else None] if got]
     out = list(found)
     for got in found:       # a constant that is another name: what that name is
         if got[0] == "value" and got[2] in mods[got[1]].values and (got[1], got[2]) not in seen:
             out += [more for value in mods[got[1]].values[got[2]]
                     for more in _traced(mods, mods[got[1]], value, (), seen | {(got[1], got[2])})]
-        name = node.id if isinstance(node, ast.Name) else node.attr
-        if got[0] == "value" and got[2] == "<module>" and (got[1], name) not in seen:     # under an if, a try or a walrus
-            out += [more for value in mods[got[1]].stored_as.get(name, ())
-                    for more in _traced(mods, mods[got[1]], value, (), seen | {(got[1], name)})]
-    if local is None and isinstance(node, ast.Name) and ("global", node.id) not in seen:      # global C; C = Port
-        out += [more for fn, value in mod.declared.get(node.id, ())
-                for more in _traced(mods, mod, value, [fn], seen | {("global", node.id)})]
+    # Where the name is stored, by any name imported for it, `from a import P as Q` (issue 655): what its module's top level
+    # stores under an if, a try or a walrus, and what a function there that declares it global assigns it.
+    origins = {_origin(mods, mod.name, node.id)} if isinstance(node, ast.Name) and local is None else \
+        {_origin(mods, base, node.attr) for base in bases} if isinstance(node, ast.Attribute) else set()
+    for where, name in sorted(origins):
+        if where not in mods:
+            continue
+        if any(got[0] == "value" and got[2] == "<module>" for got in found) and (where, name) not in seen:
+            out += [more for value in mods[where].stored_as.get(name, ())
+                    for more in _traced(mods, mods[where], value, (), seen | {(where, name)})]
+        if local is None and ("global", where, name) not in seen:      # global C; C = Port
+            out += [more for fn, value in mods[where].declared.get(name, ())
+                    for more in _traced(mods, mods[where], value, [fn], seen | {("global", where, name)})]
     return out
+
+
+def _namespaces(mods: dict, mod: Module, node, chain: list, seen: frozenset = frozenset()) -> list:
+    """The values a name stands for, read back through what it is given as `_traced` reads them, a function's or the
+    module's own, so that `vars(m)` or `m.__dict__` held by a name is seen where the name is handed on (issue 655)."""
+    if not isinstance(node, ast.Name) or node.id in seen:
+        return []
+    seen = seen | {node.id}
+    local = next((fn for fn in chain if node.id in _scoped(fn)), None)
+    values = [value for value, _, _ in _given(local, node.id)] if local is not None else \
+        mod.stored_as.get(node.id, []) if node.id in mod.stored else []
+    return values + [more for value in values for more in _namespaces(mods, mod, value, chain, seen)]
 
 
 def _class_set(mods: dict, mod: Module) -> tuple:
@@ -680,12 +732,18 @@ def _class_set(mods: dict, mod: Module) -> tuple:
             out.append("%s:%d sets an attribute by setattr, or may, so what it reaches cannot be read; assign it where it is "
                        "defined" % (mod.rel, node.lineno))
         for arg in node.args + [k.value for k in node.keywords] if isinstance(node, ast.Call) else ():
-            if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id == "vars" \
-                    or isinstance(arg, ast.Attribute) and arg.attr == "__dict__":      # dict.update(vars(other), w=...)
-                patched += [("a key of %s" % got[1], "%s:%d hands on %s's names, which a call may set, so what they reach "
-                             "cannot be read; name what it sets" % (mod.rel, arg.lineno, got[1]))
-                            for got in _traced(mods, mod, arg, around(arg)) if got[0] == "module" and got[1] != mod.name]
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in FILLS:
+            # dict.update(vars(other), w=...), or d = vars(other) first, by any name it is given (issue 655)
+            for given in [arg] + _namespaces(mods, mod, arg, around(arg)):
+                if isinstance(given, ast.Call) and isinstance(given.func, ast.Name) and given.func.id == "vars" \
+                        or isinstance(given, ast.Attribute) and given.attr == "__dict__":
+                    patched += [("a key of %s" % got[1], "%s:%d hands on %s's names, which a call may set, so what they "
+                                 "reach cannot be read; name what it sets" % (mod.rel, arg.lineno, got[1]))
+                                for got in _traced(mods, mod, given, around(arg)) if got[0] == "module" and got[1] != mod.name]
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in FILLS \
+                and isinstance(node.func.value, ast.Name) and node.func.value.id in CONTAINERS and node.args:
+            # dict.update(other.TABLE, w=...): the container is its first argument (issue 655)
+            targets = [ast.copy_location(ast.Attribute(value=node.args[0], attr=node.func.attr, ctx=ast.Load()), node.args[0])]
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in FILLS:
             targets = [node.func]       # other.TABLE.update(w=...): a key of TABLE set
         elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and node.value is not None:
             if _text(node.value) is not None or isinstance(node.value, ast.Name) and node.value.id in mod.texts \
@@ -704,7 +762,7 @@ def _class_set(mods: dict, mod: Module) -> tuple:
         for target in targets:
             if not isinstance(target, (ast.Attribute, ast.Subscript)):
                 continue
-            chain, filled = around(target), target is not node.func if isinstance(node, ast.Call) else True
+            chain, filled = around(node), not isinstance(node, ast.Call)
             found, part, direct = [], target.value, True
             while part is not None and not found:       # TABLE['a']['b'] = w sets a key of TABLE
                 found = _traced(mods, mod, part, chain)
@@ -715,15 +773,16 @@ def _class_set(mods: dict, mod: Module) -> tuple:
             if any(got[0] == "object's class" for got in found):
                 out.append("%s:%d sets %s on an object's class, so what it reaches cannot be read; assign it in the class"
                            % (mod.rel, target.lineno, target.attr if isinstance(target, ast.Attribute) else "a key"))
-            elif classes and (classes[0][1] != mod.name or chain):
+            elif any(got[1] != mod.name or chain for got in classes):       # each class it may be (issue 655)
+                outside = next(got for got in classes if got[1] != mod.name or chain)
                 out.append("%s:%d sets %s on the class %s from outside its module's top level, so what it reaches "
-                           "cannot be read; assign it in the class" % (mod.rel, target.lineno, target.attr, classes[0][2]))
-            elif others:
-                owner = ".".join(p for p in others[0][1:] if p)
-                what = "a key of %s" % owner if not filled or direct and isinstance(target, ast.Subscript) else \
-                    "%s.%s" % (owner, target.attr) if direct else "an attribute or a key of %s" % owner
-                patched.append((what, "%s:%d sets %s from another module, so what it reaches cannot be read; set it in its "
-                                      "own module" % (mod.rel, target.lineno, what)))
+                           "cannot be read; assign it in the class" % (mod.rel, target.lineno, target.attr, outside[2]))
+            else:
+                for owner in sorted({".".join(p for p in got[1:] if p) for got in others}):     # each owner, apart
+                    what = "a key of %s" % owner if not filled or direct and isinstance(target, ast.Subscript) else \
+                        "%s.%s" % (owner, target.attr) if direct else "an attribute or a key of %s" % owner
+                    patched.append((what, "%s:%d sets %s from another module, so what it reaches cannot be read; set it in "
+                                          "its own module" % (mod.rel, target.lineno, what)))
     return out, patched
 
 
@@ -780,6 +839,10 @@ def run(root: pathlib.Path = ROOT) -> list:
             tree = ast.parse((root / rel).read_text(encoding="utf-8"), rel)
         except (SyntaxError, ValueError, UnicodeDecodeError) as err:
             problems.append("%s cannot be read as Python (%s), so what it writes cannot be told" % (rel, err))
+            continue
+        if _name(rel) in mods:      # harness/x.py and harness/x/__init__.py: which Python imports cannot be told
+            problems.append("%s and %s are one module, %s, so what it reaches cannot be read; keep one"
+                            % (mods[_name(rel)].rel, rel, _name(rel)))
             continue
         mods[_name(rel)] = Module(rel, tree, known)
     reading = Reading(mods)
