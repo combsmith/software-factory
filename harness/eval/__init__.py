@@ -607,13 +607,16 @@ def kinds_of(found: dict, place: pathlib.Path):
 
 
 def split_ok(found: dict, place: pathlib.Path):
-    """Whether the set's cases hold `kind_least_of` of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
-    the whole set, never how many of any: the gate needs no more (decision 0120). None where `kinds_of` can say nothing."""
+    """Whether the set's cases hold `kind_least_of` of each kind and, but for a gate set, BLOCKING_LEAST that expect a
+    blocking Finding: one word of the whole set, never how many of any: the gate needs no more (decision 0120). None where
+    `kinds_of` can say nothing."""
     kinds = kinds_of(found, place)
     if kinds is None:
         return None
+    # A gate set brings its own least of each kind, and the blocking word closes nothing (decision 0150): one grading only
+    # what no check holds may hold no blocking case, and would otherwise be short on every run (issue 691).
     return min(list(kinds.values()).count(kind) for kind in KINDS) >= kind_least_of(found) \
-        and len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST
+        and (gate_set(found) or len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST)
 
 
 def _clears(passed: int, of: int, bar: tuple) -> bool:
