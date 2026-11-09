@@ -363,7 +363,7 @@ class Simulation(unittest.TestCase):
         # Once the rule is held, the same breach raises.
         self.assertRaises(world.Broken, w.check_unheld, False, "test_later", "a rule")
 
-    def test_what_happens_while_queued_is_merged_over_unless_a_pass_reads_it_first(self):  # L-19
+    def test_what_happens_while_queued_takes_the_item_out_before_it_merges(self):  # L-19
         # The Maintainer asks for changes, opens a thread, dismisses the approval or adds a Hold after the item
         # entered the queue. The queue does not wait for a pass (trials/P-2.no-pass.json, issue 677): what comes while
         # queued is merged over, noted and never asserted, unless a pass reads it first and takes it out. A required
@@ -1101,7 +1101,7 @@ class Simulation(unittest.TestCase):
                                      for i, r in enumerate(w.runs))
         self.assertTrue(noted and again and exhausted, (noted, again, exhausted))
 
-    def test_a_queued_item_whose_evidence_is_gone_is_merged_over_unless_a_pass_reads_it_first(self):  # I-31
+    def test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges(self):  # I-31
         # GitHub's merge queue knows nothing of the contract. The evidence a queued item converged on is gone, as an
         # artifact is after its retention: the queue merges over it unless a pass reads it first and takes it out.
         class Never:

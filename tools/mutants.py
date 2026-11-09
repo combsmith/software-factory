@@ -84,8 +84,8 @@ ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 SIM_CREATED = ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)
 SIM_CREATES = ("tests.test_simulator.Simulation.test_a_created_check_stands_beside_the_lens_run_and_replaces_only_one_created_before",)
-SIM_QUEUED = ("tests.test_simulator.Simulation.test_what_happens_while_queued_is_merged_over_unless_a_pass_reads_it_first",
-              "tests.test_simulator.Simulation.test_a_queued_item_whose_evidence_is_gone_is_merged_over_unless_a_pass_reads_it_first")
+SIM_QUEUED = ("tests.test_simulator.Simulation.test_what_happens_while_queued_takes_the_item_out_before_it_merges",
+              "tests.test_simulator.Simulation.test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges")
 SIM_ENQUEUE = ("tests.test_simulator.Simulation.test_the_factorys_own_enqueue_holds_what_the_queue_merges_on_alone",)
 JOB_PORT = ("tests.test_adapters.Contract.test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids",
             "tests.test_adapters.Contract.test_a_created_check_under_a_lens_name_does_not_pass")
