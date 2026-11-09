@@ -2792,6 +2792,17 @@ class EvalJob(unittest.TestCase):
             out = io.StringIO()
             self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 1)
             self.assertEqual(out.getvalue(), "pinned 0 of 1 cases; not_written 1\n")
+        # A name that is no file, here a folder where the tree goes, fails the case before its tarball is written.
+        (home / "pr-review" / "poc-one.tar.gz").unlink()
+        (home / "pr-review" / "poc-one.tree.json").unlink()
+        (home / "pr-review" / "poc-one.tree.json").mkdir()
+        (home / "pr-review" / "poc-one.tree.json" / "kept").write_bytes(b"")
+        out = io.StringIO()
+        self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 1)
+        self.assertEqual(out.getvalue(), "pinned 0 of 1 cases; not_written 1\n")
+        self.assertFalse((home / "pr-review" / "poc-one.tar.gz").exists(), "no head half written")
+        shutil.rmtree(str(home / "pr-review" / "poc-one.tree.json"))
+        self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), io.StringIO()), 0)
         with mock.patch.object(tool.os, "replace", mock.Mock(side_effect=OSError("a path"))):
             self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), io.StringIO()), 1)
         self.assertEqual([p.name for p in (home / "pr-review").iterdir() if p.name.startswith(".")], [], "nothing half written")
