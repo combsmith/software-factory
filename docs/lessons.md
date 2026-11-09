@@ -109,8 +109,8 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-19 The merge queue looked at reviews only on the way in
 **Failure.** A pull request was approved, queued, lost its approval, and merged: "Remove a PR from the merge queue when the fleet withdraws its last approval (reviews are only checked when a PR joins the queue)" (issue 2174).
-**Rule.** A pull request that loses its approval leaves the queue, and nothing merges without an approval of exactly the content that merges.
-**Check.** `tests/test_simulator.py::test_invariants_hold_under_faults` for the merge; `tests/test_decide.py::test_a_queued_pull_request_with_no_approval_leaves_the_queue` for leaving the queue
+**Rule.** Nothing enters the queue without an approval of exactly the content queued, and a pull request that loses its approval leaves the queue at the next pass. GitHub's queue merges on its required checks alone (`trials/P-2.no-pass.json`), so one that loses it between passes can still merge.
+**Check.** `tests/test_simulator.py::test_the_factorys_own_enqueue_holds_what_the_queue_merges_on_alone` for entering the queue; `tests/test_decide.py::test_a_queued_pull_request_with_no_approval_leaves_the_queue` for leaving it
 
 ### L-20 A model reviewed content the checks would have rejected
 **Failure.** Every push cost a fresh pass by every reviewer, and outside reviewers posted again on every commit.

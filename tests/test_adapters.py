@@ -3625,6 +3625,9 @@ NOT_READ = {
     "an_upload_turns_codeqls_success_neutral": "shape",
     # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
     "the_queue_can_eject": "shape",
+    # The queue's merge with no pass between, read by the trial's REST lists of check runs and its timeline query, not
+    # the rollup the facts port reads (P-2.no-pass).
+    "the_queue_merges_on_its_required_checks": "shape",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
