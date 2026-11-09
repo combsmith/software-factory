@@ -3272,6 +3272,24 @@ class Snapshot(unittest.TestCase):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
 
+    def test_a_snapshot_names_the_part_github_did_not_answer(self):  # pull request 688, the dry run
+        # A snapshot refused says which of its reads GitHub did not answer, by a name of its own and never by what GitHub
+        # said, so the reader's step can print it; a read that answered nothing is the part it is.
+        parts = ("pull", "base", "push", "diff", "paths", "timeline", "reviews", "checks", "acceptance", "threads",
+                 "edits", "unchanged")
+        for answered, part in enumerate(parts):
+            router = Router(github.Replay(self.sequence(1)[:answered]), {"don-petry": "admin"})
+            with self.assertRaises(github.Unanswered) as raised:
+                facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                               lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+            self.assertEqual(getattr(raised.exception, "part", None), part, answered)
+        # A pull request that moved while it was read is still a Moved, which the pass reads again.
+        router = Router(github.Replay(self.sequence(12)), {"don-petry": "admin"})
+        with self.assertRaises(facts.Moved) as raised:
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertIsNone(getattr(raised.exception, "part", None))
+
     def test_a_snapshot_hands_back_its_head(self):  # #193's ruling 10
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         got, title, head = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),

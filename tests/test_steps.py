@@ -193,10 +193,11 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
         tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
-        the tree of the one file `support.tarball` holds."""
+        the tree of the one file `support.tarball` holds. `raising`, where given, is `(module, name, error)`: that read
+        raises `error` in place of its stand-in."""
         calls = {"minted": [], "revoked": 0, "tags": [], "tarballs": [], "trees": []}
 
         def fetched(transport, repo, sha):
@@ -257,7 +258,14 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
                 unittest.mock.patch.object(read.texts, "issues", read_issues), \
                 unittest.mock.patch.object(read.head_, "fetch", fetched), \
-                unittest.mock.patch.object(read.head_, "tree", tree_read):
+                unittest.mock.patch.object(read.head_, "tree", tree_read), \
+                contextlib.ExitStack() as more:
+            if raising is not None:
+                module, name, error = raising
+
+                def raised(*a, **k):
+                    raise error
+                more.enter_context(unittest.mock.patch.object(module, name, raised))
             code, printed = ran(read.step, argv or [NAME, ITEM, PASS, "task"],
                                 environ if environ is not None else {read.KEY: "the key"}, d)
             folder = pathlib.Path(d, "task")
@@ -429,6 +437,25 @@ class Reader(unittest.TestCase):
                            ([NAME.replace(HOME, "a/fork"), "a/fork#42", PASS, "task"], "item_not_home")):
             code, printed, files, _, calls = self.go(argv=argv)
             self.assertEqual((code, printed, files, calls["minted"]), (1, want + "\n", None, []), argv)
+        # A read GitHub did not answer stops the step by a code that names the read, never by what GitHub said, so a Run
+        # that stops says which read it was (pull request 688, the dry run); one that moved is told apart; the token is
+        # revoked anyway.
+        part = github.Unanswered("what GitHub said")
+        part.part = "timeline"
+        no = github.Unanswered("what GitHub said")
+        for raising, want in (((read.tags, "read", no), "release_refs_unreadable"),
+                              ((passes, "find", no), "pass_record_unreadable"),
+                              ((read.records, "runs", no), "run_records_unreadable"),
+                              ((read.applied, "recorded", no), "lens_records_unreadable"),
+                              ((read.applied, "opened", no), "opened_records_unreadable"),
+                              ((read.facts_, "snapshot", no), "snapshot_unreadable"),
+                              ((read.facts_, "snapshot", part), "snapshot_timeline_unreadable"),
+                              ((read.facts_, "snapshot", read.facts_.Moved("moved")), "pull_moved"),
+                              ((read.pull, "read", no), "pull_unreadable"),
+                              ((read.pull, "change", no), "change_unreadable"),
+                              ((read.texts, "issues", no), "issue_texts_unreadable")):
+            code, printed, files, _, calls = self.go(raising=raising)
+            self.assertEqual((code, printed, files, calls["revoked"]), (1, want + "\n", [], 1), want)
 
 
 class PassFound(unittest.TestCase):

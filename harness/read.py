@@ -27,6 +27,7 @@ writes them, and `adapters/applied.py` reads them for the threads alone), so the
 the one a Run can carry; an issue's Run, whose reads are the issue Lifecycle's."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
@@ -45,6 +46,21 @@ APP = "reader"
 KEY = "READER_APP_KEY"
 ITEM = re.compile(r"([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]{0,8})")
 FILES = ("record.json", "run", "facts.json", "diff", "texts.json", "role.json", "findings.json")
+
+
+@contextlib.contextmanager
+def reading(read: str):
+    """A read GitHub did not answer stops the step by the read's name, `<read>_unreadable`, and a snapshot's by its part
+    too, `snapshot_<part>_unreadable` (`adapters/facts.py`): codes of the step's own, never what GitHub said, so a Run
+    that stops says which read it was (pull request 688, the dry run, stopped twice at one code for every read). A pull
+    request that moved while it was read stops `pull_moved`."""
+    try:
+        yield
+    except facts_.Moved:
+        raise Stop("pull_moved") from None
+    except Unanswered as err:
+        part = getattr(err, "part", None)
+        raise Stop("%s_%s_unreadable" % (read, part) if part else "%s_unreadable" % read) from None
 
 
 class ReleaseMoved(Stop):
@@ -112,8 +128,10 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     """Each file the step writes, by its name, read through `transport`."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    own = own_release(transport, home, commit)
-    record = passes.find(transport, home, branch, controller["workflows"]["poller"], pass_id)
+    with reading("release_refs"):
+        own = own_release(transport, home, commit)
+    with reading("pass_record"):
+        record = passes.find(transport, home, branch, controller["workflows"]["poller"], pass_id)
     if record is None:
         raise Stop("record_not_found")
     admit = decided(record, parts, config["kernel"]["owner_role"])
@@ -127,17 +145,23 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
     number = parts["item"]["number"]
     # The threads are held to what the item's Lenses recorded, read from their Runs (adapters/applied.py, issue 338).
-    listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
-    found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
-                             config["authority"])
+    with reading("run_records"):
+        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
+    with reading("lens_records"):
+        found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
+                                 config["authority"])
     opener = facts_.opener_of(controller, config["kernel"], config["apps"])
-    opened = applied.opened(transport, home, listed, facts_.opener_role(config["kernel"]))
-    facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True,
-                                     opener=opener, recorded=found[number], opened=opened)
-    first = pull.read(transport, home, number)
+    with reading("opened_records"):
+        opened = applied.opened(transport, home, listed, facts_.opener_role(config["kernel"]))
+    with reading("snapshot"):
+        facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True,
+                                         opener=opener, recorded=found[number], opened=opened)
+    with reading("pull"):
+        first = pull.read(transport, home, number)
     if str(first["head"]["sha"]) != head:
         raise Stop("head_moved")
-    change = pull.change(transport, first, pull.base(transport, first)["head"])
+    with reading("change"):
+        change = pull.change(transport, first, pull.base(transport, first)["head"])
     if "sha256:" + hashlib.sha256(change).hexdigest() != admit["content_id"]:
         raise Stop("content_moved")
     role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % admit["role"]))
@@ -148,9 +172,10 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
         tree = head_.tree(transport, home, head)
     except head_.Refused:
         raise Stop("head_unreadable") from None
+    with reading("issue_texts"):
+        issues = texts.issues(transport, first, who, opener, opened)
     return {"record.json": record, "run": (parts["run"] + "\n").encode(), "facts.json": facts, "diff": change,
-            "texts.json": texts.issues(transport, first, who, opener, opened), "role.json": role, "findings.json": [],
-            "head": (head, tarred, tree)}
+            "texts.json": issues, "role.json": role, "findings.json": [], "head": (head, tarred, tree)}
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
