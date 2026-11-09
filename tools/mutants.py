@@ -9248,6 +9248,8 @@ MUTANTS = ISSUE + [
     # Issue 611: a case's head is read from the held-out home, its tarball and its tree each by the sha256 the case pins.
     ('a head beside a case of another hash is read', 'adapters/heldout.py',
      '    if hashlib.sha256(data).hexdigest() != sha256:\n        return None, "hash_differs"\n', '', ('tests.test_adapters.Heldout.test_what_the_home_keeps_beside_a_case_is_read_raw_by_the_hash_the_case_pins',)),
+    ('the eval blob is asked for as raw+json', 'adapters/heldout.py',
+     'RAW = "application/vnd.github.raw"', 'RAW = "application/vnd.github.raw+json"', ('tests.test_adapters.Heldout.test_what_the_home_keeps_beside_a_case_is_read_raw_by_the_hash_the_case_pins',)),
     ('what the home keeps beside a case is asked as JSON', 'adapters/heldout.py',
      '                                        accept=RAW))', '                                        ))', ('tests.test_adapters.Heldout.test_what_the_home_keeps_beside_a_case_is_read_raw_by_the_hash_the_case_pins',)),
     ('a head of any size is read', 'adapters/heldout.py',
