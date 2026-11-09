@@ -110,11 +110,14 @@ BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_o
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
+NOT_KILLED_TESTS = ("tests.test_tools.Mutants.test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
+LEGS_TESTS = ("tests.test_tools.Workflows.test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix",)
+LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_test_once",)
 LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
 NEEDED = ("tests.test_tools.Workflows.test_each_step_limit_holds_what_its_step_needs",)
 P13 = "tools/trial_p13_cli.sh"
@@ -2700,7 +2703,7 @@ MUTANTS = ISSUE + [
      '                return ("killed", "") if outcome == UNCONFIRMED else (outcome, why)\n',
      UNRELATED_TESTS + UNBROKEN_TESTS),
     ("an unconfirmed failure is FLAKY with no second run", "tools/mutants.py",
-     "        for _ in range" "(2):\n", "        for _ in range(1):\n", UNRELATED_TESTS),
+     "        for again in range" "(2):\n", "        for again in range(1):\n", UNRELATED_TESTS),
     ("FLAKY is counted as killed", "tools/mutants.py",
      'killed += outcome' ' == "killed"', 'killed += outcome in ("killed", "FLAKY")', FLAKY_TESTS),
     ("the failure line of Python 3.10 and earlier is read as the class", "tools/mutants.py",
@@ -4173,6 +4176,47 @@ MUTANTS = ISSUE + [
      '13:07:04 GMT', '23:07:04 GMT', CUT_FIXTURE),
     ('the tag ruleset exempts the Release', 'release/fixtures/cut.v0-1-0.json',
      '"exclude": []', '"exclude": ["refs/tags/factory/v0.1.0"]', CUT_FIXTURE),
+    # Muse's read of #646: a preflight case's marks in the ledger, and the ledger's preflight required.
+    ('the run step hands the ledger no preflight mark', 'harness/eval/__init__.py',
+     '(ahead, told, spent, answers, beside, away)), indent=2',
+     '(ahead, told, spent, answers, set(), {})), indent=2', ('tests.test_evals.EvalJob.test_a_gate_run_carries_its_preflights_marks_into_the_ledger',)),
+    ('the preflight is asked with no containers for its marks', 'harness/eval/__init__.py',
+     'review, told, beside, away,\n                   usages=spent',
+     'review, told,\n                   usages=spent', ('tests.test_evals.EvalJob.test_a_gate_run_carries_its_preflights_marks_into_the_ledger',)),
+    ('a preflight case keeps no mark in the ledger', 'harness/eval/__init__.py',
+     '                                alternates=beside, surplus=away, usages=spent)["cases"]]',
+     '                                usages=spent)["cases"]]', ('tests.test_evals.EvalJob.test_a_preflight_case_keeps_its_marks_in_the_ledger_as_the_sets_do',)),
+    ('a ledger need hold no preflight', 'schemas/eval-ledger.schema.json',
+     '    "cases",\n    "preflight"\n',
+     '    "cases"\n', ('tests.test_evals.TheSet.test_a_case_dropped_under_evals_in_any_file_is_caught',)),
+    # Muse's read of #642: the pool's list read whole, each dispatch once, and a gate set with no bars named, not raised.
+    ('the pool reads a list not read whole', 'adapters/candidate.py',
+     '    if not isinstance(runs, list) or body.get("total_count") != len(runs):\n        return None\n    ours',
+     '    if not isinstance(runs, list):\n        return None\n    ours', ('tests.test_release_step.Candidate.test_a_gate_set_is_judged_by_every_dispatch_on_the_commit',)),
+    ('the pool counts a dispatch listed twice', 'adapters/candidate.py',
+     ' or len({r["id"] for r in ours}) != len(ours):',
+     ':', ('tests.test_release_step.Candidate.test_a_gate_set_is_judged_by_every_dispatch_on_the_commit',)),
+    ('a gate set with no bars crashes the check', 'tools/check_examples.py',
+     '    except (KeyError, TypeError, ValueError, IndexError):     # bars or a least',
+     '    except ZeroDivisionError:     # bars or a least', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
+    # Muse's read of #628: a group of exactly the least, and a gate set's faults of cases not read alone.
+    ('a group of exactly the least is refused', 'harness/eval/__init__.py',
+     'any(0 < group < ORIGIN_LEAST for group',
+     'any(0 < group <= ORIGIN_LEAST for group', ('tests.test_evals.EvalJob.test_a_gate_set_marks_no_group_of_natural_cases_or_others_too_small_to_hide_one',)),
+    ('a case the reviewer failed is counted a fault', 'harness/eval/__init__.py',
+     'for verdict_of, reasons in assessed.values() if verdict_of == "unreadable" for code in reasons]',
+     'for verdict_of, reasons in assessed.values() for code in reasons]', ('tests.test_evals.EvalJob.test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone',)),
+    # Muse's read of #627: the refused rollback's evidence is read only where GitHub answered it.
+    ('the refused rollback\'s deployments are read from a refused answer', 'release/fixtures/rollback.refused.json',
+     'deployments?environment=factory-next (gh api --include)",\n            "headers": {\n              "accept": "application/vnd.github+json"\n            },\n            "body": null\n          },\n          "response": {\n            "status": 200,',
+     'deployments?environment=factory-next (gh api --include)",\n            "headers": {\n              "accept": "application/vnd.github+json"\n            },\n            "body": null\n          },\n          "response": {\n            "status": 500,', ('tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing',)),
+    # Muse's read of #617: the PATCH is the Maintainer's admin role's, refused as a protected ref, and the ruleset holds
+    # the rules tools/check_rulesets.py holds it to.
+    ('the refused PATCH is no admin role\'s', 'release/fixtures/cut.v0-1-0.json', ', the admin role)', ')', CUT_FIXTURE),
+    ('the PATCH is refused for another reason', 'release/fixtures/cut.v0-1-0.json',
+     'Cannot update this protected ref.', 'Cannot do that.', CUT_FIXTURE),
+    ('the tag ruleset need not refuse a force-push', 'release/fixtures/cut.v0-1-0.json',
+     '"type": "non_fast_forward"', '"type": "creation"', CUT_FIXTURE),
     # The refused rollback's fixture: the rules refuse it for every tag read after it, and it moved and recorded nothing.
     ('a rollback with no earlier Release moved next', 'release/fixtures/rollback.refused.json',
      '"ref": "refs/tags/factory/v0-next",\n              "object": {\n                "sha": "499835d5',
@@ -4283,6 +4327,18 @@ MUTANTS = ISSUE + [
      ' if not _exempt(cell, root)]\n    return "%d of %d', ']\n    return "%d of %d', MAIN_ROWS),
     ('verify says nothing of the mutants', 'tools/verify.py',
      ',\n            "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]\n', ']\n', MAIN_ROWS),
+    ("a mutant its named tests miss runs the whole suite", 'tools/mutants.py',
+     "        return attempt(mutant, root, run, trees, alone=True)\n", "        return attempt(mutant, root, run, trees)\n",
+     NOT_KILLED_TESTS),
+    ("the tests a mutant names run before the whole suite though it runs alone", 'tools/mutants.py',
+     "            if alone and first:\n                named = {\"only\": first[0]}\n", "", NOT_KILLED_TESTS),
+    ("a mutant its named tests miss survives", 'tools/mutants.py',
+     '                if outcome == "SURVIVED" and alone and first and not again:\n', "                if False:\n", NOT_KILLED_TESTS),
+    ("a flaky named test is told as a wrong name", 'tools/mutants.py',
+     '                if outcome == "SURVIVED" and alone and first and not again:\n',
+     '                if outcome == "SURVIVED" and alone and first:\n', NOT_KILLED_TESTS),
+    ("an edit untested.py tries is held to its named tests alone", 'tools/mutants.py',
+     "            if alone and first:\n", "            if first:\n", NOT_KILLED_TESTS),
     ('a mutant a row names is killed by any test', 'tools/mutants.py',
      '({"only": first[0]} if name in _held_by_rows(root) ' 'else {"first": first[0]})', '{"first": first[0]}', RUN_ALONE),
     ("the impostor workflow posts from the Lens's own file", "sim/world.py",
@@ -6433,8 +6489,8 @@ MUTANTS = ISSUE + [
     ("the commits job may run another tool", "tools/check_workflows.py",
      '    if [(e["value"], e["body"]) for e in runs] != [(COMMITS, [])] and', "    if False and", COMMITS_JOB_TESTS),
     ("a workflow without the commits job passes the lens rules", "tools/check_workflows.py",
-     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n",
-     "        problems += _shards(entries, jobs)\n", COMMITS_JOB_TESTS),
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)\n",
+     "        problems += _shards(entries, jobs) + _legs(entries, jobs)\n", COMMITS_JOB_TESTS),
     # Issue 180: the judging step and the mutant shards held to their exact shape.
     ("the judging job may have other keys", "tools/check_workflows.py",
      "    if set(inside) - JUDGING_KEYS:\n", "    if False:\n", JUDGING_SHAPE_TESTS),
@@ -6464,8 +6520,36 @@ MUTANTS = ISSUE + [
      '        if not any("mutants" in "\\n".join([e["value"]] + (e["body"] or [])) for e in runs):\n',
      '        if not any(e["value"] == SHARDED for e in runs):\n', SHARDS_TESTS),
     ("the shards are not held at all", "tools/check_workflows.py",
-     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n",
-     "        problems += _commits(text, entries, jobs)\n", SHARDS_TESTS),
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)\n",
+     "        problems += _commits(text, entries, jobs) + _legs(entries, jobs)\n", SHARDS_TESTS),
+    # The legs of `make verify` (2026-11-09: one job was cut at its step's 26 minutes in a merge group).
+    ("the legs are not held at all", "tools/check_workflows.py",
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)\n",
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n", LEGS_TESTS),
+    ("a leg may be told its place by a number", "tools/check_workflows.py",
+     '        if told != {"CHECKS_SHARD": INDEX, "CHECKS_SHARDS": TOTAL}:\n', "        if False:\n", LEGS_TESTS),
+    ("the legs' matrix may be any key", "tools/check_workflows.py",
+     '        if matrix != ["shard"]:\n', "        if False:\n", LEGS_TESTS),
+    ("the legs' job may have other keys", "tools/check_workflows.py",
+     "        if keys != SHARD_KEYS:\n", "        if False:\n", LEGS_TESTS),
+    ("the legs' job may be granted more", "tools/check_workflows.py",
+     '        if granted != {"contents": "read"}:\n', "        if False:\n", LEGS_TESTS),
+    ("the legs' steps may be anything", "tools/check_workflows.py",
+     "                and checkouts == [{\"persist-credentials\": \"false\", \"fetch-depth\": \"0\"}]):\n",
+     "                and checkouts == [{\"persist-credentials\": \"false\", \"fetch-depth\": \"0\"}]) and False:\n", LEGS_TESTS),
+    ("no job need run make verify", "tools/check_workflows.py",
+     "    if not any_leg:\n", "    if False:\n", LEGS_TESTS),
+    ("a leg holds every test", "tools/verify.py",
+     "        return unittest.TestSuite(_tests(whole)[index::count])\n", "        return whole\n", LEG_TESTS),
+    ("a leg skips one test in each count", "tools/verify.py",
+     "        return unittest.TestSuite(_tests(whole)[index::count])\n",
+     "        return unittest.TestSuite(_tests(whole)[index::count + 1])\n", LEG_TESTS),
+    ("a leg outside the count runs", "tools/verify.py",
+     "    if not 0 <= int(index) < int(count):\n", "    if False:\n", LEG_TESTS),
+    ("one of the pair alone is no leg", "tools/verify.py",
+     "    if index is None and count is None:\n", "    if index is None or count is None:\n", LEG_TESTS),
+    ("a leg CI names is not read", "tools/verify.py",
+     '    sys.exit(main(sys.argv[1:], os.environ))', '    sys.exit(main(sys.argv[1:]))', LEG_TESTS),
     ("no job need run the mutants", "tools/check_workflows.py",
      "    if not found:\n        whys.append(\"has no job that runs the mutants", "    if False:\n        whys.append(\"has no job that runs the mutants",
      SHARDS_TESTS),
@@ -7193,6 +7277,9 @@ MUTANTS = ISSUE + [
     ('a tarball not answered is unpacked', 'harness/head.py',
      '    if answer.get("status") != 200 or not isinstance(answer.get("body"), str):',
      '    if not isinstance(answer.get("body"), str):', ('tests.test_harness.Head.test_the_head_of_p60_is_unpacked_as_codeload_served_it',)),
+    ('an archive of exactly the cap is refused', 'harness/head.py',
+     '    if len(tar) > UNPACKED or unzip.unconsumed_tail:',
+     '    if len(tar) >= UNPACKED or unzip.unconsumed_tail:', ('tests.test_harness.Head.test_the_unpacker_holds_its_caps_and_writes_nothing_outside_its_folder',)),
     ('an archive over the cap is cut short and read', 'harness/head.py',
      '    if len(tar) > UNPACKED or unzip.unconsumed_tail:',
      '    if False:', ('tests.test_harness.Head.test_the_unpacker_holds_its_caps_and_writes_nothing_outside_its_folder',)),
@@ -8490,7 +8577,7 @@ MUTANTS = ISSUE + [
     ("the bar of the cases that expect a Finding is lower", 'harness/eval/__init__.py', 'BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}', 'BAR_OF_A_KIND = {"met": (9, 10), "finding": (29, 100)}', ("tests.test_evals.EvalJob.test_each_kind_is_held_to_its_own_bar_where_the_cases_are",)),
     ("the bar of the clean cases is higher", 'harness/eval/__init__.py', 'BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}', 'BAR_OF_A_KIND = {"met": (91, 100), "finding": (3, 10)}', ("tests.test_evals.EvalJob.test_each_kind_is_held_to_its_own_bar_where_the_cases_are",)),
     ("the bar of the cases that expect a Finding is higher", 'harness/eval/__init__.py', 'BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}', 'BAR_OF_A_KIND = {"met": (9, 10), "finding": (31, 100)}', ("tests.test_evals.EvalJob.test_each_kind_is_held_to_its_own_bar_where_the_cases_are",)),
-    ("exactly on the bar does not clear it", 'harness/eval/__init__.py', 'return passed * bar[1] >= of * bar[0]', 'return passed * bar[1] > of * bar[0]', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
+    ("exactly on the bar does not clear it", 'harness/eval/__init__.py', 'return passed * bar[1] >= of * bar[0]', 'return passed * bar[1] > of * bar[0]', ("tests.test_evals.EvalJob.test_each_kind_is_held_to_its_own_bar_where_the_cases_are",)),
     ("the set's share is not held", 'harness/eval/__init__.py',
      'if passed < least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \\\n            or (kinds',
      'if (kinds', ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)),
@@ -9292,7 +9379,7 @@ MUTANTS = ISSUE + [
      '        if kind == "eval-set" and not errors and value.get("gate") is True:\n',
      '        if False:\n', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
     ('a record that does not say the bars is enough', 'tools/check_examples.py',
-     '    if bars_said(found) not in path.read_text(encoding="utf-8"):\n',
+     '    if said not in path.read_text(encoding="utf-8"):\n',
      '    if False:\n', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
     ('a gate set named is judged by its newest successful run', 'adapters/candidate.py',
      '    if name:\n        return pooled_gate(',
@@ -9395,8 +9482,8 @@ MUTANTS = ISSUE + [
      ' or kept.get("preflight") != preflight_of(root, found):\n',
      ':\n', ('tests.test_evals.EvalJob.test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case',)),
     ("the check holds no live gate set's preflight", 'tools/check_examples.py',
-     '_bars_stated(root, value) + _preflight_held(root, value)',
-     '_bars_stated(root, value)', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
+     '_held(value) or _bars_stated(root, value) + _preflight_held(root, value)',
+     '_held(value) or _bars_stated(root, value)', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
     ('the preflight is never fetched', 'harness/eval/__init__.py',
      '    if kept["preflight"]:\n        ahead = _fetched(',
      '    if False:\n        ahead = _fetched(', ('tests.test_evals.EvalJob.test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it',)),
@@ -13660,7 +13747,7 @@ MUTANTS = ISSUE + [
     ('P-58 may write OUT inside the repo', "tools/trial_p58_edits.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
     ("P-58's OUT is read without its links", "tools/trial_p58_edits.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ('tests.test_tools.EditsReadTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused',)),
     ("P-58's raw answers may be kept inside the repo", "tools/trial_p58_edits.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted',)),
-    ("P-58 keeps the first head's status", "tools/trial_p58_edits.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ('tests.test_tools.EditsReadTrial.test_the_status_kept_is_the_last_heads',)),
+    ("P-58 keeps the first head's status", "tools/trial_p58_edits.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-56 mints for another App's installation", "tools/trial_p56_comments.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56 keeps a read without its redaction", "tools/trial_p56_comments.sh",
      '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
@@ -14931,6 +15018,15 @@ MUTANTS = ISSUE + [
      'elif c == "#" and not braces and j != escaped and (', 'elif c == "#" and not braces and (', (IDENTITY_TESTS + 'test_a_substitutions_own_quotes_are_read_as_the_shell_reads_them',)),
     ("a # that begins a backtick's script is a word", 'tools/hooks/shell.py',
      'text[j - 1] in COMMENTS_AFTER or j - 1 == script):', 'text[j - 1] in COMMENTS_AFTER):', (IDENTITY_TESTS + 'test_a_substitutions_own_quotes_are_read_as_the_shell_reads_them',)),
+    ("a comment in a nested backtick leaves the backtick's end where it was", 'tools/hooks/shell.py',
+     '                    nested[-1] = (min(nested[-1][0], close + 1),) + nested[-1][1:]', '                    pass',
+     (IDENTITY_TESTS + 'test_a_substitutions_own_quotes_are_read_as_the_shell_reads_them',)),
+    ("the protected hook's spelt reading asks about no session", 'tools/hooks/protected.py',
+     '            self.sessions(again, spelt=True)        # a Claude Code session', '            pass        # a Claude Code session',
+     (PROTECTED_NESTED_IN_ONE,)),
+    ("a rewritten text is read flat for the spelt reading's sessions", 'tools/hooks/protected.py',
+     '            again = (_respelt(text, self.spend) if spelt else _split(text, self.spend)) if text != self.text else commands',
+     '            again = _split(text, self.spend) if text != self.text else commands', (PROTECTED_NESTED_IN_ONE,)),
     ("a comment in a backtick in a substitution runs past it", 'tools/hooks/shell.py',
      '            if text[script] == "`":     # a comment in a backtick', '            if False:     # a comment in a backtick',
      (IDENTITY_TESTS + 'test_a_substitutions_own_quotes_are_read_as_the_shell_reads_them',)),
@@ -15953,7 +16049,7 @@ TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer i
 # method by method, shared among its workers, each part one run held to TIMEOUT, never the whole suite, which outgrew
 # TIMEOUT on a CI runner (issue 396). A shard runs a disjoint share of what every shard's mutants name, so that its
 # baseline shrinks as shards are added (issue 398).
-# The whole suite, which a mutant runs once the tests it names pass, runs in parts of at most PART_MOST tests dealt in
+# The whole suite, which an edit tools/untested.py tries runs once the tests it names pass, runs in parts of at most PART_MOST tests dealt in
 # turn, one after another, each one run held to TIMEOUT, so that no run grows with the suite (issue 398). On a loaded
 # desk, where the suite took 940 s, its 1,311 tests made 14 parts of 9 to 124 s.
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
@@ -15976,6 +16072,8 @@ NAMED_WIDTH = 200   # the characters of each
 NAMED_SCAN = 200    # the lines after a failure's head its error is looked for in
 # Said of a failure not shown to be the mutant's: one more run of the suite on the mutant decides.
 UNCONFIRMED = "unconfirmed"
+# Why a mutant the tests it names pass on is an ERROR: the whole suite does not run to find the test that kills it.
+NOT_KILLED = "named_test_does_not_kill: %s passed on it; name the test that fails on it" + AGAIN
 # How a FLAKY's reason ends. FLAKY fails the run as an ERROR does: nobody has shown that a test notices the mutant.
 MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
@@ -16227,16 +16325,18 @@ class Trees:
 STAMPS = iter(range(1, 2 ** 31))     # next() on it is one step, whichever worker asks
 
 
-def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
+def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None, alone: bool = False) -> tuple:
     """Break one rule in a worker's copy of `root` and run the tests there: (outcome, why).
 
     A failure kills the mutant only once `confirm` shows it is the mutant's. One that is not runs the suite once more
     on the mutant: a pass is SURVIVED, and a second failure that is not the mutant's is FLAKY. However the runs end,
-    the file's own bytes are written back and read again before the copy is lent to another mutant.
+    the file's own bytes are written back and read again before the copy is lent to another mutant. `alone`, as the
+    mutant run gives it, holds a mutant to the tests it names: a pass of them is an ERROR, NOT_KILLED, and the whole
+    suite never runs after them; tools/untested.py's edits run it after their tests, as a mutant naming none does.
     """
     if trees is None:
         with tempfile.TemporaryDirectory() as where:
-            return attempt(mutant, root, run, Trees(root, where))
+            return attempt(mutant, root, run, Trees(root, where), alone)
     name, rel, old, new, *first = mutant
     with trees.lent() as work:
         target = work / rel
@@ -16271,9 +16371,16 @@ def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tupl
             # A mutant a decision's Boundary row names is held to the tests it lists, alone: one any other test kills
             # would let the row's test look like the one that notices the break (issue 590).
             named = ({"only": first[0]} if name in _held_by_rows(root) else {"first": first[0]}) if first else {}
-            for _ in range(2):
+            # A mutant the tests it names miss ran the whole suite after them, 10 to 21 minutes of a 27-minute leg, and
+            # hid the wrong name (2026-11-09): run alone, it is told as an ERROR instead.
+            if alone and first:
+                named = {"only": first[0]}
+            for again in range(2):
                 status, output = run(work, **named)
                 outcome, why = verdict(status, output)
+                # A pass after a failure not shown to be the mutant's is a flaky test, not a wrong name.
+                if outcome == "SURVIVED" and alone and first and not again:
+                    return "ERROR", NOT_KILLED % ", ".join(first[0])
                 if outcome != "killed":
                     return outcome, why
                 outcome, why = confirm(output, work, run, broken, unbroken)
@@ -16299,7 +16406,7 @@ _ROWS = {}
 def guarded(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
     """`attempt`, with anything it raises made an ERROR for this mutant, so that the others still report."""
     try:
-        return attempt(mutant, root, run, trees)
+        return attempt(mutant, root, run, trees, alone=True)
     except Exception as err:    # a failed copy, read or run; never a kill
         return "ERROR", "the run failed with %s: %s%s" % (type(err).__name__, err, AGAIN)
 

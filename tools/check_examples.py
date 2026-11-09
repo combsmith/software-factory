@@ -274,8 +274,12 @@ def _bars_stated(root: pathlib.Path, found: dict) -> list:
     path = root / found.get("record", "")
     if "record" not in found or not path.is_file():
         return ["names no record that states its bars"]
-    if bars_said(found) not in path.read_text(encoding="utf-8"):
-        return ["its record does not say %r" % bars_said(found)]
+    try:
+        said = bars_said(found)
+    except (KeyError, TypeError, ValueError, IndexError):     # bars or a least the schema leaves out (Muse's read of #642)
+        return ["gives no bars and least of a kind that can be stated"]
+    if said not in path.read_text(encoding="utf-8"):
+        return ["its record does not say %r" % said]
     return []
 
 
@@ -370,7 +374,9 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
         if kind == "eval-set" and not errors and value.get("gate") is True:
-            errors = _bars_stated(root, value) + _preflight_held(root, value)
+            # Held first as the job reads it, so that a gate set the schema lets leave out what it gives of its own is
+            # a problem named, never a crash further on (the Claude read of the follow-on to #642).
+            errors = _held(value) or _bars_stated(root, value) + _preflight_held(root, value)
         for err in errors:
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle", "evals"):

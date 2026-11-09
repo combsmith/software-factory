@@ -163,8 +163,8 @@ def _run(transport, repo: str, commit: str):
 
 def _dispatches(transport, repo: str, commit: str):
     """Every dispatch of the eval job on `commit`, by its GitHub id, conclusion and attempt, oldest first, whatever it
-    concluded; None where the list is not read whole, holds a run of another commit, event or workflow, or holds a run
-    still going (issue 613). The list shows a run's latest attempt alone (P-27, decision 0111)."""
+    concluded; None where the list is not read whole, holds a run of another commit, event or workflow, holds a run
+    still going, or names one twice (issue 613). The list shows a run's latest attempt alone (P-27, decision 0111)."""
     try:
         answer = transport.send(request("GET", "/repos/%s/actions/workflows/%s/runs?head_sha=%s&event=workflow_dispatch"
                                                "&per_page=100" % (repo, EVAL_WORKFLOW, commit)))
@@ -177,7 +177,8 @@ def _dispatches(transport, repo: str, commit: str):
     ours = [r for r in runs if isinstance(r, dict) and r.get("head_sha") == commit and r.get("status") == "completed"
             and r.get("event") == "workflow_dispatch" and r.get("path") == ".github/workflows/%s" % EVAL_WORKFLOW
             and type(r.get("id")) is int and r["id"] > 0 and type(r.get("run_number")) is int]
-    if len(ours) != len(runs):
+    # Each dispatch once, by its id: one listed twice is one dispatch's evidence, never two (Muse's read of #642).
+    if len(ours) != len(runs) or len({r["id"] for r in ours}) != len(ours):
         return None
     return [(r["id"], r.get("conclusion"), r.get("run_attempt")) for r in sorted(ours, key=lambda r: r["run_number"])]
 
