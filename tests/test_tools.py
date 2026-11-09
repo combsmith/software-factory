@@ -10388,6 +10388,35 @@ class Mutants(unittest.TestCase):
             self.assertEqual(mutants.attempt(mutant, root, run)[0], "SURVIVED")
         self.assertEqual(calls, [{"only": ("tests.test_x.T.test_y",)}, {"first": ("tests.test_x.T.test_y",)}])
 
+    def test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite(self):
+        # On 2026-11-09 two mutants named tests that passed on them, so each leg that held one ran the whole suite after
+        # them: 10 to 21 minutes of a 27-minute step, and a wrong name nobody saw. The mutant run holds each mutant to
+        # the tests it names, alone: a pass of them is an ERROR that names them, and nothing else runs.
+        calls = []
+
+        def run(work, **given):
+            calls.append(given)
+            return (0, "OK\n") if (work / "k.py").read_text() == "rule\n" or given.get("only") == ("t.missed",) \
+                else (1, FAILS_A_TEST)
+        root = tree({"k.py": "rule\n"})
+        missed = ("missed", "k.py", "rule\n", "x\n", ("t.missed",))
+        outcome, why = mutants.guarded(missed, root, run)
+        self.assertEqual((outcome, calls), ("ERROR", [{"only": ("t.missed",)}]))
+        self.assertTrue(why.startswith("named_test_does_not_kill: t.missed passed on it") and why.endswith(AGAIN), why)
+        # One they kill is killed, and confirmed as before.
+        del calls[:]
+        self.assertEqual(mutants.guarded(("hit", "k.py", "rule\n", "x\n", ("t.hit",)), root, run), ("killed", ""))
+        self.assertEqual(calls[0], {"only": ("t.hit",)})
+        # From the front door it fails the run.
+        with mock.patch.object(mutants, "unnamed", return_value=[]), contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(mutants.main([missed], root, run, workers=1), 1)
+        self.assertIn("ERROR     missed (named_test_does_not_kill", said.getvalue())
+        # tools/untested.py's edits, through attempt with no `alone`, still run the whole suite after their tests, which
+        # here fails on it.
+        del calls[:]
+        self.assertEqual(mutants.attempt(missed, root, run), ("killed", ""))
+        self.assertEqual(calls[0], {"first": ("t.missed",)})
+
     def test_the_summary_counts_only_the_mutants_killed(self):
         stale = [("gone", "k.py", "not there\n", "x\n")]
         code, lines, _ = self.check({"fails": (0, 1, FAILS_A_TEST), "passes": (0, 0, "OK\n")},
@@ -10713,7 +10742,12 @@ class Mutants(unittest.TestCase):
         mutants.baseline(every[1:2], root / "gone", run, 2, (every, 0, 2))
         self.assertEqual(sorted(calls), [("tests.test_x.T", "tests.test_x.T.test_g"), ("tests.test_x.T.test_b",)])
         # From the front door, a shard runs its share, and a filtered run its own names on FILTER_WORKERS. The names
-        # are this throwaway tree's, which this checkout's check of them could not find.
+        # are this throwaway tree's, which this checkout's check of them could not find. The baseline runs in the tree;
+        # each mutant, which runs its named tests alone too, in a copy of it.
+
+        def run(work, first=(), only=None):
+            calls.append(only if work == root else None)
+            return PASSES[1:]
         for environ, paths, parts in (({"MUTANTS_SHARD": "1", "MUTANTS_SHARDS": "4"}, [],
                                        [("tests.test_x.T.test_b",), ("tests.test_x.T.test_f",)]),
                                       ({}, ["k.py"], [tests[0::2], tests[1::2]])):

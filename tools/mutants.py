@@ -110,6 +110,7 @@ BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_o
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
+NOT_KILLED_TESTS = ("tests.test_tools.Mutants.test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
@@ -4188,6 +4189,15 @@ MUTANTS = ISSUE + [
      ' if not _exempt(cell, root)]\n    return "%d of %d', ']\n    return "%d of %d', MAIN_ROWS),
     ('verify says nothing of the mutants', 'tools/verify.py',
      ',\n            "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]\n', ']\n', MAIN_ROWS),
+    ("a mutant its named tests miss runs the whole suite", 'tools/mutants.py',
+     "        return attempt(mutant, root, run, trees, alone=True)\n", "        return attempt(mutant, root, run, trees)\n",
+     NOT_KILLED_TESTS),
+    ("the tests a mutant names run before the whole suite though it runs alone", 'tools/mutants.py',
+     "            if alone and first:\n                named = {\"only\": first[0]}\n", "", NOT_KILLED_TESTS),
+    ("a mutant its named tests miss survives", 'tools/mutants.py',
+     '                if outcome == "SURVIVED" and alone and first:\n', "                if False:\n", NOT_KILLED_TESTS),
+    ("an edit untested.py tries is held to its named tests alone", 'tools/mutants.py',
+     "            if alone and first:\n", "            if first:\n", NOT_KILLED_TESTS),
     ('a mutant a row names is killed by any test', 'tools/mutants.py',
      '({"only": first[0]} if name in _held_by_rows(root) ' 'else {"first": first[0]})', '{"first": first[0]}', RUN_ALONE),
     ("the impostor workflow posts from the Lens's own file", "sim/world.py",
@@ -15571,7 +15581,7 @@ TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer i
 # method by method, shared among its workers, each part one run held to TIMEOUT, never the whole suite, which outgrew
 # TIMEOUT on a CI runner (issue 396). A shard runs a disjoint share of what every shard's mutants name, so that its
 # baseline shrinks as shards are added (issue 398).
-# The whole suite, which a mutant runs once the tests it names pass, runs in parts of at most PART_MOST tests dealt in
+# The whole suite, which an edit tools/untested.py tries runs once the tests it names pass, runs in parts of at most PART_MOST tests dealt in
 # turn, one after another, each one run held to TIMEOUT, so that no run grows with the suite (issue 398). On a loaded
 # desk, where the suite took 940 s, its 1,311 tests made 14 parts of 9 to 124 s.
 # A run filtered by path, `python3 -m tools.mutants PATH...`, is the one local run allowed (the Maintainer, 2026-10-19,
@@ -15594,6 +15604,8 @@ NAMED_WIDTH = 200   # the characters of each
 NAMED_SCAN = 200    # the lines after a failure's head its error is looked for in
 # Said of a failure not shown to be the mutant's: one more run of the suite on the mutant decides.
 UNCONFIRMED = "unconfirmed"
+# Why a mutant the tests it names pass on is an ERROR: the whole suite does not run to find the test that kills it.
+NOT_KILLED = "named_test_does_not_kill: %s passed on it; name the test that fails on it" + AGAIN
 # How a FLAKY's reason ends. FLAKY fails the run as an ERROR does: nobody has shown that a test notices the mutant.
 MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
@@ -15845,16 +15857,18 @@ class Trees:
 STAMPS = iter(range(1, 2 ** 31))     # next() on it is one step, whichever worker asks
 
 
-def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
+def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None, alone: bool = False) -> tuple:
     """Break one rule in a worker's copy of `root` and run the tests there: (outcome, why).
 
     A failure kills the mutant only once `confirm` shows it is the mutant's. One that is not runs the suite once more
     on the mutant: a pass is SURVIVED, and a second failure that is not the mutant's is FLAKY. However the runs end,
-    the file's own bytes are written back and read again before the copy is lent to another mutant.
+    the file's own bytes are written back and read again before the copy is lent to another mutant. `alone`, as the
+    mutant run gives it, holds a mutant to the tests it names: a pass of them is an ERROR, NOT_KILLED, and the whole
+    suite never runs after them; tools/untested.py's edits run it after their tests, as a mutant naming none does.
     """
     if trees is None:
         with tempfile.TemporaryDirectory() as where:
-            return attempt(mutant, root, run, Trees(root, where))
+            return attempt(mutant, root, run, Trees(root, where), alone)
     name, rel, old, new, *first = mutant
     with trees.lent() as work:
         target = work / rel
@@ -15889,9 +15903,15 @@ def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tupl
             # A mutant a decision's Boundary row names is held to the tests it lists, alone: one any other test kills
             # would let the row's test look like the one that notices the break (issue 590).
             named = ({"only": first[0]} if name in _held_by_rows(root) else {"first": first[0]}) if first else {}
+            # A mutant the tests it names miss ran the whole suite after them, 10 to 21 minutes of a 27-minute leg, and
+            # hid the wrong name (2026-11-09): run alone, it is told as an ERROR instead.
+            if alone and first:
+                named = {"only": first[0]}
             for _ in range(2):
                 status, output = run(work, **named)
                 outcome, why = verdict(status, output)
+                if outcome == "SURVIVED" and alone and first:
+                    return "ERROR", NOT_KILLED % ", ".join(first[0])
                 if outcome != "killed":
                     return outcome, why
                 outcome, why = confirm(output, work, run, broken, unbroken)
@@ -15917,7 +15937,7 @@ _ROWS = {}
 def guarded(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
     """`attempt`, with anything it raises made an ERROR for this mutant, so that the others still report."""
     try:
-        return attempt(mutant, root, run, trees)
+        return attempt(mutant, root, run, trees, alone=True)
     except Exception as err:    # a failed copy, read or run; never a kill
         return "ERROR", "the run failed with %s: %s%s" % (type(err).__name__, err, AGAIN)
 
