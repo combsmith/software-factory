@@ -304,8 +304,19 @@ class Record(unittest.TestCase):
         moved = dict(once["record"], now="2026-10-11T12:55:00Z")
         twice = passed(reads(pulls=[pr(42), left()], runs=[run()]), previous=[clean, moved])
         self.assertEqual(twice["alerts"], ["facts_unreadable"])
+        # What the last record left out for another reason, or another item it left out as moved, or one it could not
+        # name, makes this move a first (the Claude review).
+        for held in ([{"item": item, "code": "facts_unanswered"}], [{"item": dict(item, number=44), "code": "pull_moved"}],
+                     [{"item": None, "code": "pull_moved"}]):
+            last = dict(clean, now="2026-10-11T12:55:00Z", left_out=held)
+            out = passed(reads(pulls=[pr(42), left()], runs=[run()]), previous=[clean, last])
+            self.assertEqual(out["alerts"], [], held)
         settled = passed(reads(pulls=[pr(42), pr(43)], runs=[run()]), previous=[clean, moved])
         self.assertEqual(([d["item"]["number"] for d in decisions(settled)], settled["alerts"]), ([42, 43], []))
+        # An issue left out as moved earns no grace: the grace is a pull request's (Muse).
+        issue_moved = {"facts": {"item": dict(test_issue.ITEM, number=7)}, "title": None, "unread": "pull_moved"}
+        out = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean])
+        self.assertEqual(out["alerts"], ["facts_unreadable"])
         # Any other read left out is the alert at once: one GitHub did not answer, or facts that are not facts.
         for entry in (left("facts_unanswered"), {"facts": {"item": dict(item)}, "title": None}, left("anything")):
             out = passed(reads(pulls=[pr(42), entry], runs=[run()]), previous=[clean])

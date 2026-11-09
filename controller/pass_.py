@@ -272,8 +272,8 @@ def moved_once(left_out: list, why: list, before) -> set:
     if not isinstance(held, list):
         return set()
     again = {key(e["item"]) for e in held if e["code"] == reads_.MOVED and e["item"] is not None}
-    return {key(i) for i, code in zip(left_out, why)
-            if code == reads_.MOVED and reads_.item(i) is not None and key(i) not in again}
+    return {key(i) for i, code in zip(left_out, why) if code == reads_.MOVED and reads_.item(i) is not None
+            and i["type"] == "pull_request" and key(i) not in again}
 
 
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
