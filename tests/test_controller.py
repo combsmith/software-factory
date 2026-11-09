@@ -287,6 +287,45 @@ class Record(unittest.TestCase):
         self.assertEqual(len(twice["dispatch"]), 1)
         self.assertEqual(twice["left_out"], [dict(support.ITEM, number=42)] * 2 + [dict(test_issue.ITEM, number=7)] * 2)
 
+    def test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert(self):  # issue 658
+        # Moved while it was read, and not in the last pass: deferred, no facts and no act, with no alert, and the record
+        # keeps why. Moved again in the next pass, it is the alert; read clean after a move, it is decided.
+        item = dict(support.ITEM, number=43)
+
+        def left(code="pull_moved"):
+            return {"facts": {"item": dict(item)}, "title": None, "unread": code}
+        clean = earlier("2026-10-11T12:50:00Z")
+        once = passed(reads(pulls=[pr(42), left()], runs=[run()]), previous=[clean])
+        alone = passed(reads(pulls=[pr(42)], runs=[run()]), previous=[clean])
+        self.assertEqual((decisions(once), once["dispatch"]), (decisions(alone), alone["dispatch"]))
+        self.assertEqual(once["alerts"], [])
+        self.assertEqual(once["record"]["left_out"], [{"item": item, "code": "pull_moved"}])
+        self.assertEqual(shared.errors(once["record"], "pass"), [])
+        moved = dict(once["record"], now="2026-10-11T12:55:00Z")
+        twice = passed(reads(pulls=[pr(42), left()], runs=[run()]), previous=[clean, moved])
+        self.assertEqual(twice["alerts"], ["facts_unreadable"])
+        settled = passed(reads(pulls=[pr(42), pr(43)], runs=[run()]), previous=[clean, moved])
+        self.assertEqual(([d["item"]["number"] for d in decisions(settled)], settled["alerts"]), ([42, 43], []))
+        # Any other read left out is the alert at once: one GitHub did not answer, or facts that are not facts.
+        for entry in (left("facts_unanswered"), {"facts": {"item": dict(item)}, "title": None}, left("anything")):
+            out = passed(reads(pulls=[pr(42), entry], runs=[run()]), previous=[clean])
+            self.assertEqual(out["alerts"], ["facts_unreadable"], entry)
+        self.assertEqual(out["record"]["left_out"], [{"item": item, "code": "not_facts"}])
+        # A last record that cannot be read, none at all, or one written before it kept what it left out, cannot say the
+        # move is a first: it is the alert.
+        older = dict(clean)
+        del older["left_out"]
+        for previous in (None, (), [older], [dict(clean, now="2026-10-11T12:50:00")]):
+            out = passed(reads(pulls=[pr(42), left()], runs=[run()]), previous=previous)
+            self.assertEqual(out["alerts"], ["facts_unreadable"], previous)
+        # An item listed twice is so whatever its read says; an item that names none is kept as null.
+        twin = passed(reads(pulls=[left(), left()], runs=[run()]), previous=[clean])
+        self.assertEqual((twin["alerts"], [e["code"] for e in twin["record"]["left_out"]]),
+                         (["facts_unreadable"], ["listed_twice"] * 2))
+        nameless = passed(reads(pulls=[{"facts": {"item": {"number": 0}}, "unread": "pull_moved"}]), previous=[clean])
+        self.assertEqual((nameless["alerts"], nameless["record"]["left_out"]),
+                         (["facts_unreadable"], [{"item": None, "code": "pull_moved"}]))
+
     def test_the_pass_asks_the_kernel_through_its_entry_points_alone(self):  # issue 193, ruling 8, amended for 270
         # The entry, `__main__.py`, is the one place that reads the clock and the environment (Entry, below).
         for module in sorted(m for m in (ROOT / "controller").glob("*.py") if m.name != "__main__.py"):
@@ -1201,6 +1240,55 @@ class Entry(unittest.TestCase):
         self.assertEqual((efforts["runs"][2], efforts["passes"][5]), (set(), set()))
         # And it cannot say what has left, so what it saw is short, though each read of it was whole.
         self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"])
+
+    def test_a_snapshot_that_moved_is_kept_by_its_code_and_its_writes_are_owed_once(self):  # issue 658
+        # A snapshot that moved while it was read is kept in the record as `pull_moved`, one GitHub did not answer as
+        # `facts_unanswered`. Moved for the first time, its writes are not read: they are owed to the next pass, and this
+        # reconciliation is whole. Moved again, or after a record that cannot say, it is read short, as any is.
+        spied = []
+
+        def snapshot(raised):
+            def read(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded,
+                     opened):
+                if number == 8:
+                    raise raised
+                return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+            return read
+
+        def read(transport, item, kept, identities, apps, since):
+            spied.append(item["number"])
+            return ([], [], kept is not None)
+
+        def entry_with(raised, records):
+            del spied[:]
+            with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot(raised)), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: records), \
+                    unittest.mock.patch.object(entry.seen_, "read", read), \
+                    unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                    unittest.mock.patch.object(entry.applied, "effects",
+                                               lambda *a: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                    unittest.mock.patch.object(entry.passes, "written",
+                                               lambda *a: {"written": [], "read": [], "at": {}, "whole": True}):
+                code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7, 8])))
+            self.assertEqual(code, 0)
+            return files["pass.json"]
+
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before.update(now="2026-10-12T11:58:00Z", left_out=[])
+        item = {"repo": self.HOME, "type": "pull_request", "number": 8}
+        once = entry_with(entry.facts_.Moved("moved"), [before])
+        self.assertEqual(once["left_out"], [{"item": item, "code": "pull_moved"}])
+        self.assertEqual((7 in spied, 8 in spied, once["reconciled"]["owed"]), (True, False, [8]))
+        self.assertFalse({"facts_unreadable", "reconciliation_unreadable"} & set(once["alerts"]))
+        older = dict(before)
+        del older["left_out"]
+        for previous in ([dict(before, left_out=once["left_out"])], [older]):
+            again = entry_with(entry.facts_.Moved("moved"), previous)
+            self.assertEqual((8 in spied, again["reconciled"]["owed"]), (True, [8]))
+            self.assertLessEqual({"facts_unreadable", "reconciliation_unreadable"}, set(again["alerts"]))
+        unanswered = entry_with(github.Unanswered("no"), [before])
+        self.assertEqual(unanswered["left_out"], [{"item": item, "code": "facts_unanswered"}])
+        self.assertLessEqual({"facts_unreadable", "reconciliation_unreadable"}, set(unanswered["alerts"]))
 
     def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
