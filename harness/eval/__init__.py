@@ -1198,7 +1198,7 @@ def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib
 def part_names(kept: dict) -> list:
     """The parts of a split run, the preflight and each shard by its number, as many shards as the plan kept, which
     the configuration bounds at sixteen: a count the scratch holds otherwise is no plan of this run's."""
-    shards = next((n for n in range(1, 17) if n == kept.get("shards")), None)
+    shards = next((n for n in range(1, 17) if type(kept.get("shards")) is int and n == kept["shards"]), None)
     if shards is None:
         raise Stop("scratch_unreadable")
     return [PREFLIGHT] + [str(i) for i in range(shards)]
