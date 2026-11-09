@@ -400,8 +400,8 @@ class Fixture(unittest.TestCase):
 
     def test_the_next_cut_moved_next_on(self):
         # Run 42697380276 cut factory/v0.1.1 on 2026-11-09 at the commit eval run 42694638100 had passed, the eval job's
-        # own dispatch, on that commit, before the cut. `next` moved to it with a Deployment of its own, the newest, and
-        # factory/v0.1.0 and its Deployment stayed as the first cut left them.
+        # own dispatch and its one run on that commit, ended before the cut. `next` moved to it with a Deployment of its
+        # own, the newest; factory/v0.1.0 stayed where the first cut left it, and its Deployment went inactive.
         fixture, first = json.loads(self.NEXT_CUT.read_text()), json.loads(self.CUT.read_text())
         self.assertEqual(check_release.fixture_problems(fixture, "cut.v0-1-1.json"), [])
         made = self.item(fixture, "cut_and_move_of_next")
@@ -412,8 +412,10 @@ class Fixture(unittest.TestCase):
         body = lambda path: (lambda answer: self.assertEqual(answer["status"], 200, path) or answer["body"])(
             self.answered(made, path))
         run, ran = body("/repos/%s/actions/runs/%d" % (REPO, made["run"])), body("/repos/%s/actions/runs/42694638100" % REPO)
-        self.assertEqual((ran["path"], ran["event"], ran["conclusion"], ran["head_sha"]),
-                         (".github/workflows/eval.yml", "workflow_dispatch", "success", commit))
+        self.assertEqual((ran["id"], ran["path"], ran["event"], ran["conclusion"], ran["head_sha"]),
+                         (42694638100, ".github/workflows/eval.yml", "workflow_dispatch", "success", commit))
+        listed = body("/repos/%s/actions/workflows/%d/runs?head_sha=%s" % (REPO, ran["workflow_id"], commit))
+        self.assertEqual((listed["total_count"], [r["id"] for r in listed["workflow_runs"]]), (1, [ran["id"]]))
         self.assertLess(ran["updated_at"], run["created_at"], "the eval had ended before the cut was asked")
         for tag in (fixture["version"], channel):
             with self.subTest(tag=tag):
@@ -427,6 +429,9 @@ class Fixture(unittest.TestCase):
                           (earlier["printed"]["deployments"][0], earlier["asked"]["cut_commit"], first["version"])])
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))
         self.assertEqual([s["state"] for s in statuses], ["success"])
+        # GitHub marks the Deployment `next` moved off inactive, newest first, beside the success it kept.
+        statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, deployed[1]["id"]))
+        self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
 
     def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
         # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,
