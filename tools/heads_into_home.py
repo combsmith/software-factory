@@ -30,17 +30,26 @@ COMMIT = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 
 
-def put(folder: pathlib.Path, name: str, data: bytes) -> None:
-    """`data` written as `folder/name`, whole or not at all: into a new file beside it, then moved over it, so that a
-    link already at that name is replaced, never written through, and nothing is left half written."""
-    fd, temporary = tempfile.mkstemp(dir=str(folder), prefix=".heads-into-home-")
+def put(folder: pathlib.Path, files: dict) -> None:
+    """Each of `files`, `{name: bytes}`, written in `folder`, all or none: each name held to be nothing yet, a link or a
+    regular file, each written whole into a new file beside it, and only then each moved over its name, so that a link
+    there is replaced, never written through, and no case is left with its head half written."""
+    for name in files:
+        target = str(folder / name)
+        if os.path.lexists(target) and not (os.path.islink(target) or os.path.isfile(target)):
+            raise OSError("not a file")
+    staged = {}
     try:
-        with os.fdopen(fd, "wb") as out:
-            out.write(data)
-        os.replace(temporary, str(folder / name))
+        for name, data in files.items():
+            fd, staged[name] = tempfile.mkstemp(dir=str(folder), prefix=".heads-into-home-")
+            with os.fdopen(fd, "wb") as out:
+                out.write(data)
+        for name, temporary in staged.items():
+            os.replace(temporary, str(folder / name))
     except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(temporary)
+        for temporary in staged.values():
+            with contextlib.suppress(OSError):
+                os.unlink(temporary)
         raise
 
 
@@ -58,9 +67,10 @@ def read(path: pathlib.Path):
 
 
 def pinned(data: bytes, transport, folder: pathlib.Path, ident: str):
-    """`(the case's new bytes, None)` once its head's tarball and tree are written beside it in `folder`, or `(None, code)`:
+    """`({name: bytes}, None)`: the head's tarball and tree to write beside the case in `folder`, and the case anew,
+    pinning them, which `put` writes all or none; or `(None, code)`:
     `not_a_case` for bytes that are no case with a head of a repo, and `head_unreadable` for a head not read, unpacked,
-    held to its tree, or within what the eval job reads, whole. Nothing is written for a case not pinned."""
+    held to its tree, or within what the eval job reads, whole. Nothing is written here."""
     from adapters import github, heldout
     from harness import head
     try:
@@ -96,9 +106,7 @@ def pinned(data: bytes, transport, folder: pathlib.Path, ident: str):
         if key == "head":
             out["head_sha256"], out["tree_sha256"] = hashlib.sha256(tar).hexdigest(), hashlib.sha256(listed).hexdigest()
     new = (json.dumps(out, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    put(folder, "%s.tar.gz" % ident, tar)
-    put(folder, "%s.tree.json" % ident, listed)
-    return new, None
+    return {"%s.tar.gz" % ident: tar, "%s.tree.json" % ident: listed, "%s.json" % ident: new}, None
 
 
 def main(argv: list, env=None, transport=None, out=None) -> int:
@@ -120,9 +128,11 @@ def main(argv: list, env=None, transport=None, out=None) -> int:
         ident = path.name[:-len(".json")]
         data = read(path) if PART.fullmatch(ident) else None
         try:
-            new, code = pinned(data, transport, folder, ident) if data is not None else (None, "not_a_case")
-            if new is not None:
-                put(folder, path.name, new)
+            files, code = pinned(data, transport, folder, ident) if data is not None else (None, "not_a_case")
+            new = None
+            if files is not None:
+                put(folder, files)
+                new = files[path.name]
         except Exception:       # by its code alone: no message, which could quote a case
             new, code = None, "not_written"
         said[code or "pinned"] = said.get(code or "pinned", 0) + 1
