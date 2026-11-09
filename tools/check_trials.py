@@ -57,10 +57,11 @@ STARRED = re.compile(r"^[A-Z]+ /user/starred/([^/?,\s]+)/([^/?,\s]+)(?:[?,\s]|$)
 TRIALS_OF_FORKS = {"P-27"}
 TRIALS_OF_REACH = {"P-4"}
 # A trial that can only run in the Factory's own repo, and records it: P-30 cuts a Release under the tag ruleset of the
-# repo that holds the Releases, which the canary is not. It is held to every rule of a fixture of the canary, with this
-# repo in the canary's place, and no other trial records this repo.
+# repo that holds the Releases, which the canary is not, and P-63 runs the eval job from its environment, which the
+# canary has not either. Each is held to every rule of a fixture of the canary, with this repo in the canary's place, and
+# no other trial records this repo.
 FACTORY = ORG + "/software-factory"
-TRIALS_OF_THE_FACTORY = {"P-30"}
+TRIALS_OF_THE_FACTORY = {"P-30", "P-63"}
 # A command-line read names a repo by --repo, -R or GH_REPO, with or without a space, an equals sign, quotes or the
 # site's address; by `gh repo <verb> owner/name`; or by a path or an address in its words.
 CLI_REPO = re.compile(r"(?:--repo|-R|GH_REPO)[ =]?[\"']?(?:https://github\.com/)?([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)"

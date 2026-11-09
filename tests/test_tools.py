@@ -2789,6 +2789,35 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make verify\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
 
+    def test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix(self):
+        # On 2026-11-09 `make verify` as one job was cut at its step's 26 minutes in a merge group, so it runs in legs. A
+        # leg told CHECKS_SHARD as a number would run another's share, leaving its own tests in no leg, and CHECKS_SHARDS
+        # as a number could differ from the matrix's size; each is the matrix's own expression, as the mutant shards'.
+        job = GOOD[GOOD.index("  checks:\n"):GOOD.index("  mutants:\n")]
+        index, total = "      CHECKS_SHARD: ${{ strategy.job-index }}\n", "      CHECKS_SHARDS: ${{ strategy.job-total }}\n"
+        run = "      - run: make verify\n"
+        self.assertEqual((job.count(index), job.count(total), job.count(run)), (1, 1, 1))
+        told, shape = "not told CHECKS_SHARD", "whose steps are not a checkout of the head"
+        cases = [(index, "      CHECKS_SHARD: 0\n", told), (total, "      CHECKS_SHARDS: 3\n", told),
+                 (total, "", told), (index, index + "      OTHER: 1\n", told),
+                 ("        shard:\n", "        leg:\n", "not the one key shard"),
+                 ("          - 2\n", "          - 2\n        exclude:\n          - shard: 2\n", "not the one key shard"),
+                 ("    env:\n      CHECKS_SHARD", "    container: ghcr.io/x/y:1\n    env:\n      CHECKS_SHARD", "keys other than"),
+                 ("      contents: read\n", "      contents: write\n", "granted other than"),
+                 (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          CHECKS_SHARD: 0\n", shape),
+                 (run, run + "      - run: make fast\n", shape),
+                 (run, "      - run: make fast\n      - run: make verify\n", shape),
+                 ("          fetch-depth: 0\n      - run: make verify\n", "      - run: make verify\n", shape)]
+        for old, new, said in cases:
+            text = GOOD.replace(job, job.replace(old, new))
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), (old, new, said))
+        # No job runs `make verify` at all: the checks and the tests are gone, not reshaped.
+        gone = "has no job that runs `make verify`"
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
+        self.assertEqual(self.lens_problems(GOOD), [])
+
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
         # the merge queue, and of nothing else, so a change cannot make its own verdict pass (decision 0023).
@@ -4135,15 +4164,13 @@ class Workflows(unittest.TestCase):
                  "factory-run": "run-jobs.yml", "APPROVER_TOKEN": "approve-job.yml", "factory-approve": "approve-job.yml",
                  "CONTROLLER_APP_KEY": "pass.yml", "factory-poller": "pass.yml"}
         for key, owner in named.items():
-            text = GOOD.replace("    permissions:\n      contents: read\n",
-                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % key, 1)
+            text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % key, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text),
                                    "it names a key or the environment that holds it, which only %s names" % owner), key)
             self.assertFalse(caught(check_workflows.shim_problems(owner, text), "which only %s names" % owner), key)
         # GitHub's names of these ignore case, and so does the rule.
         for spelt in ("Pr_Review_App_Key", "FACTORY-APPLY", "Factory-Poller"):
-            text = GOOD.replace("    permissions:\n      contents: read\n",
-                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % spelt, 1)
+            text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % spelt, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "it names a key"), spelt)
         # A comment that names one names nothing.
         self.assertFalse(check_workflows.shim_problems("other.yml", "# READER_APP_KEY\n" + GOOD))
@@ -5632,6 +5659,14 @@ class Trials(unittest.TestCase):
         outside = json.loads(json.dumps(data))
         outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
         self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
+
+    def test_the_eval_jobs_trial_records_the_factorys_own_repo(self):  # issue 309, decision 0173
+        # P-63, the eval job's trial, ran in this repo from main: recorded there it holds, and on the canary it is refused.
+        data = json.loads((ROOT / "trials" / "P-63.json").read_text())
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        canary = check_trials.ORG + "/" + check_trials.CANARY
+        self.assertEqual(check_trials._of_the_factory(dict(data, repo=canary)),
+                         [("repo", "is %s, and P-63 runs in %s; record where it ran" % (canary, check_trials.FACTORY))])
 
     def test_a_write_in_a_fixture_of_the_factory_is_held_to_a_node_of_the_factory(self):
         # What holds a canary fixture's writes holds this one's, with the Factory's id in the canary's. Each node id is
@@ -9803,6 +9838,137 @@ class Writes(unittest.TestCase):
             "harness/shadowtext.py": "from harness.portc import Port\n\nLABEL = 'ok'\n\n\ndef install(LABEL):\n    Port.w = LABEL\n",
             "harness/tupleset.py": "from adapters import effects\nfrom harness.portc import Port\n\nPort.w, _ = effects.approve, 1\n",
             "harness/abspath.py": "import subprocess\n\n\ndef go():\n    return subprocess.run(['/usr/local/bin/gh', 'pr', 'merge', '1'])\n",
+            # Issue 640: a class by another name, an object's class, setattr by another name; a for or a with target; a text
+            # constant a nested def, class or catch shadows; a setter under an if; an instance, a dict or a module set from
+            # another module; sys by getattr, its namespace, another name or another module; and a command a shell runs.
+            "harness/aliasclass.py": "from adapters import effects\nfrom harness.portc import Port\n\nP = Port\nP.w = effects.approve\n",
+            "harness/defaultclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install(cls=Port):\n"
+                                       "    cls.w = effects.approve\n",
+            "harness/kwclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install(*, cls=Port):\n"
+                                  "    cls.w = effects.approve\n",
+            "harness/localclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n    P = Port\n"
+                                     "    P.w = effects.approve\n",
+            "harness/typeset.py": "from adapters import effects\nfrom harness.portc import Port\n\np = Port()\ntype(p).w = effects.approve\n"
+                                  "p.__class__.v = effects.approve\n",
+            "harness/putset.py": "from adapters import effects\nfrom harness import approve\n\nput = setattr\nput(approve.Port, 'w', effects.approve)\n"
+                                 "type.__setattr__(approve.Port, 'v', effects.approve)\n",
+            "harness/forset.py": "from adapters import effects\nfrom harness.portc import Port\n\nfor Port.w in [effects.approve]:\n    pass\n",
+            "harness/withset.py": "import contextlib\n\nfrom adapters import effects\nfrom harness.portc import Port\n\n"
+                                  "with contextlib.nullcontext(effects.approve) as Port.w:\n    pass\n",
+            "harness/compset.py": "from adapters import effects\nfrom harness.portc import Port\n\n[0 for Port.w in [effects.approve]]\n",
+            "harness/shadowdef.py": "from harness.portc import Port\n\nLABEL = 'ok'\n\n\ndef install():\n    def LABEL():\n"
+                                    "        return None\n    Port.w = LABEL\n",
+            "harness/shadowcls.py": "from harness.portc import Port\n\nLABEL = 'ok'\n\n\ndef install():\n    class LABEL:\n"
+                                    "        pass\n    Port.w = LABEL\n",
+            "harness/shadowexc.py": "from harness.portc import Port\n\nLABEL = 'ok'\n\n\ndef install():\n    try:\n        pass\n"
+                                    "    except Exception as LABEL:\n        Port.w = LABEL\n",
+            "harness/ifsetter.py": "class Port:\n    pass\n\n\nif True:\n    def install(w):\n        Port.w = w\n",
+            "harness/portinst.py": "class Port:\n    pass\n\n\nPORT = Port()\nTABLE = {}\n\n\ndef go():\n    return None\n",
+            "adapters/lendinst.py": "from adapters import effects\nfrom harness import portinst\n\nportinst.PORT.w = effects.approve\n"
+                                    "portinst.TABLE['w'] = effects.approve\nportinst.TABLE['a']['b'] = effects.approve\n",
+            "adapters/lendmod.py": "from adapters import effects\nimport harness.portinst\n\nharness.portinst.go = effects.approve\n",
+            "harness/lendfn.py": "from adapters import effects\nfrom harness.portinst import go\n\ngo.w = effects.approve\n",
+            "harness/sysget.py": "import sys\n\n\ndef go(t):\n    return getattr(sys, 'modules')['adapters.effects'].approve(t)\n",
+            "harness/sysdict.py": "import sys\n\n\ndef go(t, name):\n    return sys.__dict__[name]\n",
+            "harness/sysalias.py": "import sys\n\ns = sys\n\n\ndef go(t):\n    return s.modules['adapters.effects'].approve(t)\n",
+            "harness/ossys.py": "import os\n\n\ndef go(t):\n    return os.sys\n",
+            "harness/sysvia.py": "import harness.sysa as a\n\n\ndef go(t):\n    return a.sys\n",
+            "harness/fromossys.py": "from os import sys as s\n\n\ndef go(t):\n    return s\n",
+            "harness/sysc.py": "from harness.sysa import sys\n\nS = sys\n",
+            "harness/envgh.py": "import os\n\n\ndef go():\n    return os.system('env gh pr merge 1')\n",
+            "harness/andgh.py": "import subprocess\n\n\ndef go():\n    return subprocess.run('true && gh pr merge 1', shell=True)\n",
+            "harness/vargh.py": "import os\n\n\ndef go():\n    return os.system('FOO=1 gh pr merge 1')\n",
+            "harness/quotedgh.py": "import os\n\n\ndef go():\n    return os.system('\"gh\" pr merge 1')\n",
+            "harness/shc.py": "import subprocess\n\n\ndef go():\n    return subprocess.run(['sh', '-c', 'cd x && git push'])\n",
+            "harness/subshell.py": "import os\n\n\ndef go():\n    return os.system('echo $(git push)')\n",
+            "harness/winexe.py": "import subprocess\n\n\ndef go():\n    return subprocess.run(['C:\\\\tools\\\\gh.exe', 'pr', 'merge', '1'])\n",
+            "harness/upper.py": "import subprocess\n\n\ndef go():\n    return subprocess.run(['GIT', 'push'])\n",
+            "harness/bytesgit.py": "import subprocess\n\n\ndef go():\n    return subprocess.run([b'git', b'push'])\n",
+            "harness/getossys.py": "import os\n\n\ndef go(t):\n    return getattr(os, 'sys')\n",
+            # Their reads: another module's name by an alias, a default, a walrus, under a nested scope's same name or
+            # filled by a call; a class by two steps, a tuple, an outer function or a walrus; an object's class held by a
+            # name; more commands a shell runs; code run by way of __builtins__; and sys by a key or anything's modules.
+            "adapters/aliasowner.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n"
+                                      "    table = portinst.TABLE\n    table['go'] = effects.approve\n",
+            "adapters/modalias.py": "from adapters import effects\nfrom harness import portinst\n\nm = portinst\nm.go = effects.approve\n",
+            "adapters/defowner.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install(d=portinst.TABLE):\n"
+                                    "    d['k'] = effects.approve\n",
+            "adapters/nestshadow.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n"
+                                      "    _ = lambda portinst: None\n    portinst.go = effects.approve\n",
+            "adapters/localattr.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n    m = portinst\n"
+                                     "    m.PORT.w = effects.approve\n",
+            "adapters/fills.py": "from adapters import effects\nfrom harness import portinst\n\nportinst.TABLE.update(go=effects.approve)\n"
+                                 "portinst.TABLE.setdefault('w', effects.approve)\n",
+            "adapters/varsset.py": "from adapters import effects\nfrom harness import portinst\n\nvars(portinst)['go'] = effects.approve\n",
+            "adapters/walrus.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n"
+                                  "    if (y := portinst.TABLE):\n        y['k'] = effects.approve\n",
+            "harness/twostep.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n    a = Port\n"
+                                  "    b = a\n    b.w = effects.approve\n",
+            "harness/outerparam.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef outer(cls=Port):\n"
+                                     "    def inner():\n        cls.w = effects.approve\n    return inner\n",
+            "harness/tupleclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                     "    cls, _ = Port, 1\n    cls.w = effects.approve\n",
+            "harness/walrusclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                      "    if (P := Port):\n        P.w = effects.approve\n",
+            "harness/typealias.py": "from adapters import effects\n\n\ndef install(x):\n    c = type(x)\n    c.w = effects.approve\n"
+                                    "    d = x.__class__\n    d.v = effects.approve\n    x.__mro__[0].u = effects.approve\n"
+                                    "    x.__bases__[0].t = effects.approve\n    e = x.__mro__[0]\n    e.s = effects.approve\n",
+            "harness/nlgit.py": "import os\n\n\ndef go():\n    return os.system('cd x\\ngit push')\n",
+            "harness/execgit.py": "import os\n\n\ndef go():\n    return os.system('exec git push')\n",
+            "harness/envflag.py": "import os\n\n\ndef go():\n    return os.system('env -i gh pr merge 1')\n",
+            "harness/bracegit.py": "import os\n\n\ndef go():\n    return os.system('{ git push; }')\n",
+            "harness/semigh.py": "import os\n\n\ndef go():\n    return os.system('gh;true')\n",
+            "harness/dollargh.py": "import os\n\n\ndef go():\n    return os.system('echo $(gh)')\n",
+            "harness/shquoted.py": "import os\n\n\ndef go():\n    return os.system('sh -c \"git push\"')\n",
+            "harness/thengit.py": "import os\n\n\ndef go():\n    return os.system('if true; then git push; fi')\n",
+            "harness/builtinsname.py": "def go(s):\n    return __builtins__.exec(s)\n",
+            "harness/importattr.py": "import os\n\n\ndef go():\n    return os.__import__('adapters.effects')\n",
+            "harness/pkgload.py": "import pkgutil\n\n\ndef go():\n    return pkgutil.resolve_name('adapters.effects:approve')\n",
+            "harness/runpyload.py": "import runpy\n",
+            "harness/syskey.py": "import os\n\n\ndef go():\n    return vars(os)['sys']\n",
+            "harness/anymodules.py": "def go(x):\n    return x.modules\n",
+            "harness/innerok.py": "from harness import portinst\n\n\ndef go(m):\n    def inner():\n        m = portinst\n"
+                                  "        return m\n    m.PORT = 1\n    return inner\n",
+            "harness/rebinds.py": "from re import compile\n\nPATTERN = compile('x')\n",
+            # Their reads of the first fix round: more shell spellings, __base__, exec as a default, a default that is its
+            # own parameter's name, a walrus set on, and a class a local module's constant is.
+            "harness/ifgh.py": "import os\n\n\ndef go():\n    return os.system('if gh pr merge 1; then true; fi')\n",
+            "harness/sudogh.py": "import os\n\n\ndef go():\n    return os.system('sudo -u root gh pr merge 1')\n",
+            "harness/quotedsemi.py": "import os\n\n\ndef go():\n    return os.system('sh -c \"gh;true\"')\n",
+            "harness/banggit.py": "import os\n\n\ndef go():\n    return os.system('! git push')\n",
+            "harness/baseset.py": "from adapters import effects\n\n\ndef install(x):\n    x.__base__.w = effects.approve\n",
+            "harness/execdefault.py": "def go(s, exec=exec):\n    return exec(s)\n",
+            "harness/selfdefault.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install(Port=Port):\n"
+                                      "    Port.w = effects.approve\n",
+            "harness/walrustarget.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                       "    (c := Port).w = effects.approve\n",
+            "harness/portalias.py": "from harness.portc import Port\n\nP = Port\n",
+            "harness/viaalias2.py": "from adapters import effects\nfrom harness import portalias\n\n\ndef install(m=portalias):\n"
+                                    "    m.P.w = effects.approve\n",
+            "harness/globalclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef f():\n    global C\n"
+                                      "    C = Port\n    C.w = effects.approve\n",
+            "harness/nonlocalclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef f():\n    c = None\n\n"
+                                        "    def g():\n        nonlocal c\n        c = Port\n    g()\n    c.w = effects.approve\n",
+            "harness/reloader.py": "from tools.mutants import importlib\n",
+            "harness/attrloader.py": "import tools.mutants as m\n\n\ndef go():\n    return m.importlib\n",
+            "adapters/topwalrus.py": "from adapters import effects\nfrom harness import portinst\n\nif (W := portinst):\n    pass\n\n\n"
+                                     "def install():\n    W.go = effects.approve\n",
+            "adapters/tryalias.py": "from adapters import effects\nfrom harness import portinst\n\ntry:\n    W = portinst\n"
+                                    "except ImportError:\n    W = None\n\n\ndef install():\n    W.go = effects.approve\n",
+            "harness/compwalrus.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                     "    [(c := Port) for _ in (1,)]\n    c.w = effects.approve\n",
+            "harness/setitems.py": "import operator\n\nfrom harness import portinst\n\noperator.setitem(portinst.TABLE, 'w', len)\n"
+                                   "portinst.TABLE.__setitem__('v', len)\n",
+            "harness/handsvars.py": "from harness import portinst\n\ndict.update(vars(portinst), go=len)\n",
+            "harness/timeoutgit.py": "import os\n\n\ndef go():\n    return os.system('timeout 60 git push')\n",
+            "harness/modstore.py": "class C:\n    def __init__(self):\n        self.modules = {}\n",
+            "harness/sysstore.py": "import sys\n\n\ndef go(d):\n    sys.modules = d\n",
+            "harness/execs.py": "def go(t):\n    exec('from adapters import effects')\n    return eval('effects.approve(t)')\n",
+            "harness/compiles.py": "CODE = compile('1', 'x', 'eval')\n",
+            # And what runs nothing, or sets a name of the function's own, passes.
+            "harness/says.py": "MESSAGES = (\"git's index cannot be read\", 'run `git update-index`', 'a .git file', 'github', 'digit 1')\n",
+            "harness/localok.py": "from harness import portinst\n\n\ndef go(portinst):\n    portinst.PORT = 1\n",
+            "harness/ownok.py": "TABLE = {}\nTABLE['w'] = len\n",
         }
         problems = check_writes.run(clone(files))
         for rel, said in (("harness/value.py:5", "uses the module adapters.effects as a value"),
@@ -9843,19 +10009,119 @@ class Writes(unittest.TestCase):
                           ("harness/sysstar.py:1", "loads a module by its name"),
                           ("harness/shadowtext.py:7", "sets w on the class Port from outside its module's top level"),
                           ("harness/tupleset.py:4", "sets w on the class Port from outside its module's top level"),
-                          ("harness/abspath.py:5", "names gh or git as a command")):
+                          ("harness/abspath.py:5", "names gh or git as a command"),
+                          ("harness/aliasclass.py:5", "sets w on the class Port from outside its module's top level"),
+                          ("harness/defaultclass.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/kwclass.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/localclass.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/typeset.py:5", "sets w on an object's class"),
+                          ("harness/typeset.py:6", "sets v on an object's class"),
+                          ("harness/putset.py:4", "sets an attribute by setattr, or may"),
+                          ("harness/putset.py:6", "sets an attribute by setattr, or may"),
+                          ("harness/forset.py:4", "sets w on the class Port from outside its module's top level"),
+                          ("harness/withset.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/compset.py:4", "sets w on the class Port from outside its module's top level"),
+                          ("harness/shadowdef.py:9", "sets w on the class Port from outside its module's top level"),
+                          ("harness/shadowcls.py:9", "sets w on the class Port from outside its module's top level"),
+                          ("harness/shadowexc.py:10", "sets w on the class Port from outside its module's top level"),
+                          ("harness/ifsetter.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("adapters/lendinst.py:4", "sets harness.portinst.PORT.w from another module"),
+                          ("adapters/lendinst.py:5", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/lendinst.py:6", "sets an attribute or a key of harness.portinst.TABLE from another module"),
+                          ("adapters/lendmod.py:4", "sets harness.portinst.go from another module"),
+                          ("harness/lendfn.py:4", "sets harness.portinst.go.w from another module"),
+                          ("harness/sysc.py:3", "loads a module by its name"),
+                          ("adapters/aliasowner.py:7", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/modalias.py:5", "sets harness.portinst.go from another module"),
+                          ("adapters/defowner.py:6", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/nestshadow.py:7", "sets harness.portinst.go from another module"),
+                          ("adapters/localattr.py:7", "sets harness.portinst.PORT.w from another module"),
+                          ("adapters/fills.py:4", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/fills.py:5", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/varsset.py:4", "sets a key of harness.portinst from another module"),
+                          ("adapters/walrus.py:7", "sets a key of harness.portinst.TABLE from another module"),
+                          ("harness/twostep.py:8", "sets w on the class Port from outside its module's top level"),
+                          ("harness/outerparam.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/tupleclass.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/walrusclass.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/typealias.py:6", "sets w on an object's class"),
+                          ("harness/typealias.py:8", "sets v on an object's class"),
+                          ("harness/typealias.py:9", "sets u on an object's class"),
+                          ("harness/typealias.py:10", "sets t on an object's class"),
+                          ("harness/typealias.py:12", "sets s on an object's class"),
+                          ("harness/nlgit.py:5", "names gh or git as a command"),
+                          ("harness/execgit.py:5", "names gh or git as a command"),
+                          ("harness/envflag.py:5", "names gh or git as a command"),
+                          ("harness/bracegit.py:5", "names gh or git as a command"),
+                          ("harness/semigh.py:5", "names gh or git as a command"),
+                          ("harness/dollargh.py:5", "names gh or git as a command"),
+                          ("harness/shquoted.py:5", "names gh or git as a command"),
+                          ("harness/thengit.py:5", "names gh or git as a command"),
+                          ("harness/builtinsname.py:2", "loads a module by its name"),
+                          ("harness/builtinsname.py:2", "runs code from text"),
+                          ("harness/importattr.py:5", "loads a module by its name"),
+                          ("harness/pkgload.py:1", "loads a module by its name"),
+                          ("harness/runpyload.py:1", "loads a module by its name"),
+                          ("harness/syskey.py:5", "loads a module by its name"),
+                          ("harness/anymodules.py:2", "loads a module by its name"),
+                          ("harness/ifgh.py:5", "names gh or git as a command"),
+                          ("harness/sudogh.py:5", "names gh or git as a command"),
+                          ("harness/quotedsemi.py:5", "names gh or git as a command"),
+                          ("harness/banggit.py:5", "names gh or git as a command"),
+                          ("harness/baseset.py:5", "sets w on an object's class"),
+                          ("harness/execdefault.py:1", "runs code from text"),
+                          ("harness/selfdefault.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/walrustarget.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/viaalias2.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/globalclass.py:8", "sets w on the class Port from outside its module's top level"),
+                          ("harness/nonlocalclass.py:12", "sets w on the class Port from outside its module's top level"),
+                          ("harness/reloader.py:1", "loads a module by its name"),
+                          ("harness/attrloader.py:5", "loads a module by its name"),
+                          ("adapters/topwalrus.py:9", "sets harness.portinst.go from another module"),
+                          ("adapters/tryalias.py:11", "sets harness.portinst.go from another module"),
+                          ("harness/compwalrus.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/setitems.py:5", "sets an attribute by setattr, or may"),
+                          ("harness/setitems.py:6", "sets an attribute by setattr, or may"),
+                          ("harness/handsvars.py:3", "hands on harness.portinst's names"),
+                          ("harness/timeoutgit.py:5", "names gh or git as a command"),
+                          ("harness/sysstore.py:5", "loads a module by its name"),
+                          ("harness/sysget.py:5", "loads a module by its name"),
+                          ("harness/sysdict.py:5", "loads a module by its name"),
+                          ("harness/sysalias.py:3", "loads a module by its name"),
+                          ("harness/ossys.py:5", "loads a module by its name"),
+                          ("harness/sysvia.py:5", "loads a module by its name"),
+                          ("harness/fromossys.py:5", "loads a module by its name"),
+                          ("harness/envgh.py:5", "names gh or git as a command"),
+                          ("harness/andgh.py:5", "names gh or git as a command"),
+                          ("harness/vargh.py:5", "names gh or git as a command"),
+                          ("harness/quotedgh.py:5", "names gh or git as a command"),
+                          ("harness/shc.py:5", "names gh or git as a command"),
+                          ("harness/subshell.py:5", "names gh or git as a command"),
+                          ("harness/winexe.py:5", "names gh or git as a command"),
+                          ("harness/upper.py:5", "names gh or git as a command"),
+                          ("harness/bytesgit.py:5", "names gh or git as a command"),
+                          ("harness/getossys.py:5", "loads a module by its name"),
+                          ("harness/execs.py:2", "runs code from text"),
+                          ("harness/execs.py:3", "runs code from text"),
+                          ("harness/compiles.py:1", "runs code from text")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
+        for rel in ("harness/says.py", "harness/localok.py", "harness/ownok.py", "harness/rebinds.py", "harness/innerok.py",
+                    "harness/modstore.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
     def test_a_namespace_package_is_read_as_one(self):  # issue 596
         # With no adapters/__init__.py, Python imports adapters as a namespace package: a dotted import of one of its
         # modules reaches what that module writes.
         root = clone({"harness/nsdotted.py": "import adapters.effects\n\n\ndef go(t):\n    return adapters.effects.approve(t)\n",
-                      "harness/nsother.py": "import adapters.effects\n\n\ndef go(t):\n    return adapters.no_such(t)\n"})
+                      "harness/nsother.py": "import adapters.effects\n\n\ndef go(t):\n    return adapters.no_such(t)\n",
+                      "harness/nsstar.py": "import adapters.effects\nfrom adapters import *\n"})
         (root / "adapters" / "__init__.py").unlink()
         problems = check_writes.run(root)
         self.unlisted(problems, "harness/nsdotted.py", "adapters.effects:approve")
         # A name such a package lacks, being no module of it, cannot be read (Argon).
         self.assertTrue(caught(problems, "harness/nsother.py:5 names no_such, which adapters does not define"), problems)
+        # Nor can what an import of all of such a package binds (issue 640).
+        self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
@@ -9874,6 +10140,11 @@ class Writes(unittest.TestCase):
         # So does a RUNNERS entry that holds no command (issue 596).
         with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("harness/approve.py",)):
             self.assertTrue(caught(check_writes.run(), "RUNNERS names harness/approve.py, which holds no command"))
+        # And a PATCHERS entry for a name it does not set; and a listed patcher that sets another (issue 640).
+        with mock.patch.dict(check_writes.PATCHERS, {"harness/approve.py": {"x.y"}}):
+            self.assertTrue(caught(check_writes.run(), "PATCHERS names harness/approve.py for x.y, which it does not set"))
+        corpus = (ROOT / "tools" / "make_corpus.py").read_text() + "\n\nsim.world.other = len\n"
+        self.assertTrue(caught(check_writes.run(clone({"tools/make_corpus.py": corpus})), "sets sim.world.other from another module"))
 
     def test_a_graphql_mutation_is_a_write_and_a_query_a_read(self):
         peek = "from adapters import %s\n\n\ndef peek(transport):\n    return %s.mark(transport, 'x')\n"
@@ -10119,6 +10390,55 @@ class Verify(unittest.TestCase):
             self.assertFalse(verify.failed([("never", lambda: [])]))
         self.assertIn("a problem", said.getvalue())
 
+    def test_the_legs_of_make_verify_run_every_test_once(self):
+        # CI runs `make verify` in legs (docs/standards/workflows.md): each runs every check and each count-th test from
+        # its place, so that across the legs every test of the whole suite runs, the seeded simulation's included, and
+        # none twice. A leg it cannot read stops the run before any check or test.
+        whole = [test.id() for test in verify._tests(verify.suite(False))]
+        self.assertTrue({"tests.test_simulator", "tests.test_issue_simulator"} <= {i.rsplit(".", 2)[0] for i in whole})
+        for count in (1, 2, 3, 5):
+            legs = [[test.id() for test in verify._tests(verify.suite(False, (index, count)))] for index in range(count)]
+            dealt = [i for leg in legs for i in leg]
+            self.assertEqual((sorted(dealt), len(dealt)), (sorted(whole), len(whole)), count)
+            self.assertLessEqual(max(map(len, legs)) - min(map(len, legs)), 1, count)
+        self.assertIsNone(verify.leg({}))
+        self.assertEqual(verify.leg({"CHECKS_SHARD": "2", "CHECKS_SHARDS": "3"}), (2, 3))
+        for shard, count, said in (("1", None, "set both"), (None, "3", "set both"), ("", "3", "set both"),
+                                   ("one", "3", "set both"), ("-1", "3", "set both"), ("1.0", "3", "set both"),
+                                   ("3", "3", "below the count"), ("0", "0", "below the count")):
+            given = {k: v for k, v in (("CHECKS_SHARD", shard), ("CHECKS_SHARDS", count)) if v is not None}
+            with self.assertRaises(ValueError, msg=given) as raised:
+                verify.leg(given)
+            self.assertIn(said, str(raised.exception), given)
+        ran = []
+        real = (verify.failed, verify.unittest.TextTestRunner)
+
+        class Runner:
+            def __init__(self, **_):
+                pass
+
+            def run(self, suite):
+                ran.append(sorted(test.id() for test in verify._tests(suite)))
+                return unittest.TestResult()
+
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks: ran.append("checks") or False), Runner
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 0)
+                self.assertEqual(ran, ["checks", sorted(whole[1::3])])
+                self.assertIn("leg 1 of 3", said.getvalue())
+                del ran[:]
+                self.assertEqual(verify.main([], {"CHECKS_SHARD": "3", "CHECKS_SHARDS": "3"}), 1)
+                self.assertEqual(ran, [], "a leg outside the count runs nothing")
+        finally:
+            verify.failed, verify.unittest.TextTestRunner = real
+        # From the front door, as CI's matrix tells it: the leg is read from the environment.
+        env = dict(os.environ, CHECKS_SHARD="3", CHECKS_SHARDS="3")
+        done = subprocess.run([sys.executable, "-m", "tools.verify"], cwd=str(ROOT), env=env, capture_output=True,
+                              text=True, timeout=60)
+        self.assertEqual((done.returncode, done.stdout.strip()), (1, "CHECKS_SHARD is 3 and CHECKS_SHARDS is 3; the leg "
+                                                                     "is counted from 0, below the count"))
+
     def test_make_fast_is_verify_without_the_seeded_simulation(self):
         """The required check runs every test file at any depth; only `make fast` leaves the slow ones out."""
         everything = {".".join(p.relative_to(ROOT).with_suffix("").parts) for p in walk.files(ROOT, "tests")
@@ -10309,6 +10629,43 @@ class Mutants(unittest.TestCase):
                        ("plain", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_y",))):
             self.assertEqual(mutants.attempt(mutant, root, run)[0], "SURVIVED")
         self.assertEqual(calls, [{"only": ("tests.test_x.T.test_y",)}, {"first": ("tests.test_x.T.test_y",)}])
+
+    def test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite(self):
+        # On 2026-11-09 two mutants named tests that passed on them, so each leg that held one ran the whole suite after
+        # them: 10 to 21 minutes of a 27-minute step, and a wrong name nobody saw. The mutant run holds each mutant to
+        # the tests it names, alone: a pass of them is an ERROR that names them, and nothing else runs.
+        calls = []
+
+        def run(work, **given):
+            calls.append(given)
+            return (0, "OK\n") if (work / "k.py").read_text() == "rule\n" or given.get("only") == ("t.missed",) \
+                else (1, FAILS_A_TEST)
+        root = tree({"k.py": "rule\n"})
+        missed = ("missed", "k.py", "rule\n", "x\n", ("t.missed",))
+        outcome, why = mutants.guarded(missed, root, run)
+        self.assertEqual((outcome, calls), ("ERROR", [{"only": ("t.missed",)}]))
+        self.assertTrue(why.startswith("named_test_does_not_kill: t.missed passed on it") and why.endswith(AGAIN), why)
+        # One they kill is killed, and confirmed as before.
+        del calls[:]
+        self.assertEqual(mutants.guarded(("hit", "k.py", "rule\n", "x\n", ("t.hit",)), root, run), ("killed", ""))
+        self.assertEqual(calls[0], {"only": ("t.hit",)})
+        # A named test that fails once and then passes, alone or again, is flaky, not a wrong name: as before, the
+        # second pass of the named tests is SURVIVED, which fails the run too.
+        del calls[:]
+        flaky = iter([(1, FAILS_A_TEST)])
+        self.assertEqual(mutants.guarded(missed, root, lambda work, **given: (calls.append(given), next(flaky, (0, "OK\n")))[1]),
+                         ("SURVIVED", ""))
+        self.assertEqual(calls, [{"only": ("t.missed",)}, {"only": "tests.test_x.T.test_x"}, {"only": "tests.test_x.T.test_x"},
+                                 {"only": ("t.missed",)}])
+        # From the front door it fails the run.
+        with mock.patch.object(mutants, "unnamed", return_value=[]), contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(mutants.main([missed], root, run, workers=1), 1)
+        self.assertIn("ERROR     missed (named_test_does_not_kill", said.getvalue())
+        # tools/untested.py's edits, through attempt with no `alone`, still run the whole suite after their tests, which
+        # here fails on it.
+        del calls[:]
+        self.assertEqual(mutants.attempt(missed, root, run), ("killed", ""))
+        self.assertEqual(calls[0], {"first": ("t.missed",)})
 
     def test_the_summary_counts_only_the_mutants_killed(self):
         stale = [("gone", "k.py", "not there\n", "x\n")]
@@ -10635,7 +10992,12 @@ class Mutants(unittest.TestCase):
         mutants.baseline(every[1:2], root / "gone", run, 2, (every, 0, 2))
         self.assertEqual(sorted(calls), [("tests.test_x.T", "tests.test_x.T.test_g"), ("tests.test_x.T.test_b",)])
         # From the front door, a shard runs its share, and a filtered run its own names on FILTER_WORKERS. The names
-        # are this throwaway tree's, which this checkout's check of them could not find.
+        # are this throwaway tree's, which this checkout's check of them could not find. The baseline runs in the tree;
+        # each mutant, which runs its named tests alone too, in a copy of it.
+
+        def run(work, first=(), only=None):
+            calls.append(only if work == root else None)
+            return PASSES[1:]
         for environ, paths, parts in (({"MUTANTS_SHARD": "1", "MUTANTS_SHARDS": "4"}, [],
                                        [("tests.test_x.T.test_b",), ("tests.test_x.T.test_f",)]),
                                       ({}, ["k.py"], [tests[0::2], tests[1::2]])):

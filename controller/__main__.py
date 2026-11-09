@@ -13,7 +13,8 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    effects step holds to it, and the view's three files under `view/`.
 
 The Release is the one tag `factory/vX.Y.Z` on the commit the pass checked out (`harness/steps.release`), read before any key. A snapshot that cannot be read leaves its pull
-request out of the pass, by its item, as one alert. A list of open pull requests not read whole, a Release, a key or
+request out of the pass, by its item and the code of why, as one alert; one that moved while it was read, and had not in
+the last pass, is deferred with no alert and its writes are owed to the next pass (#658). A list of open pull requests not read whole, a Release, a key or
 a run id that cannot be read, or a pass `pass_.py` refuses, writes nothing, so that nothing is dispatched; the step
 prints one code and exits 1, and nothing it prints is GitHub's text."""
 from __future__ import annotations
@@ -30,7 +31,7 @@ from adapters import applied, facts as facts_, identity, items, passes, pause as
 from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher, opener_of as opener, queue_of
 from adapters.github import Live, Unanswered
 from controller import configuration as configured, pass_, reads as reads_, reconcile, writes as writes_
-from controller.shared import Refused
+from controller.shared import Refused, key as page
 from harness import steps
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -92,11 +93,12 @@ def dated(answer) -> list:
     return [{"date": at["date"], "age": at["age"]}] if at else []
 
 
-def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock) -> tuple:
+def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock, owed=()) -> tuple:
     """`(seen/1, the pull requests read short)`: what each Factory identity wrote on what this pass served, or on what the
     pass before served or could not read and has left (decision 0061). What a snapshot could not read is short, and one that
     is short is read again by the next pass, so that nothing leaves unread. So is a pass with no records before it to say
-    what has left. Nothing is guessed."""
+    what has left. Nothing is guessed. One `owed`, a pull request that moved for the first time, is not read: it is owed
+    to the next pass, as one read short is, and leaves this reconciliation whole (#658)."""
     controller = config["controller"]
     home, accounts_held = controller["home"]["repo"], controller["accounts"]
     identities, _ = seen_.identities(accounts_held)
@@ -105,6 +107,9 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     served = {e["facts"]["item"]["number"] for e in last} | set(reconcile.owed(before))
     parts, unread = [], []
     for number, held in [(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(served - set(numbers))]:
+        if number in owed:
+            unread.append(number)
+            continue
         try:
             part = seen_.read(transport, {"repo": home, "type": "pull_request", "number": number}, held, identities, apps,
                               since)
@@ -176,11 +181,17 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
             pulls.append({"facts": facts, "title": title, "head": head})
             kept[number] = held
             facts_reads += dated(through.first)
-        except Unanswered:
-            pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None})
+        except Unanswered as err:
+            # Its code goes in the record: one that moved while it was read is not one GitHub did not answer (#658).
+            pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None,
+                          "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
     before = pass_.earlier(reads_.previous_records(previous), now)
     since = utc(lambda: clock() - WINDOW - controller["not_run_seconds"])
-    seen, unread = writes_seen(transport, config, numbers, kept, before, since, clock)
+    # A pull request that moved for the first time is owed to the next pass's reconciliation, not read short here.
+    left = [e for e in pulls if "unread" in e]
+    graced = pass_.moved_once([e["facts"]["item"] for e in left], [e["unread"] for e in left], before)
+    owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
+    seen, unread = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": facts_reads, "usage": {},
             "seen": seen, "unread": unread, "effects": recorded_effects(transport, config, runs, int(run_id), before, since)}
