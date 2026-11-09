@@ -345,13 +345,22 @@ class Reverts(unittest.TestCase):
                      "    ('a', helper().replace('x')),\n]\n",
                      "import os\nMUTANTS = [\n    ('a', os.environ['X'].replace('a', 'b').replace('c', 'd')),\n]\n",
                      "import os\n\n\ndef helper(x):\n    return x\n\n\nglobals()['helper'] = os.getenv\nMUTANTS = [\n"
-                     "    ('a', helper('X')),\n]\n"):
+                     "    ('a', helper('X')),\n]\n",
+                     "import os\nVAL = [1]\n\n\ndef helper(x):\n    VAL[0] = os.environ['X']\n    return x\n\n\n"
+                     "MUTANTS = [\n    ('b', VAL),\n]\n",
+                     "def open(x) -> str:\n    return x\n\n\ndel open\nMUTANTS = [\n    ('a', open('README.md')),\n]\n",
+                     "import os\n\n\ndef helper(x):\n    VAL.append(os.environ['X'])\n    return x\n\n\nVAL = [1]\n"
+                     "MUTANTS = [\n    ('b', VAL),\n]\n",
+                     "import os\nEMPTY = ()\nA, B = *EMPTY, *(os.getcwd(), os.getcwd())\nMUTANTS = [\n    ('a', A),\n]\n"):
             self.assertEqual(untested.data_lines(case), set(), case)
         # A helper's own name, an annotated text, and a method on a text are no change to what a name is.
         kept = ("TEXT: str = 'a'\nPAIR = ('a', 'b')\n\n\ndef helper(text: str, PAIR=()) -> str:\n    text.upper()\n"
                 "    PAIR.index('a')\n    return text\n\n\nMUTANTS = [\n    ('a', TEXT.replace('a', 'b')),\n"
                 "    ('b', helper('x').replace('x', 'y')),\n    ('c', PAIR),\n]\n")
         self.assertEqual(untested.data_lines(kept), {12, 13, 14})
+        later = ("def helper(x: str) -> str:\n    return LATER.replace('a', x)\n\n\nLATER = 'a'\nMUTANTS = [\n"
+                 "    ('a', LATER.replace('a', 'b')),\n]\n")
+        self.assertEqual(untested.data_lines(later), {7})
         # An import behind an if, a try or a with binds its name as one at the top does; a star import binds names no
         # one can read, so a name nothing bound is code; and so is a name bound to what code gave, or by an unpacking.
         for fenced in ("if True:\n    import os\n", "try:\n    import os\nexcept ImportError:\n    os = None\n",

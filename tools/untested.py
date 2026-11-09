@@ -199,7 +199,8 @@ def _bind(bound: dict, node) -> None:
             # A, B = x, y binds each name to its own value; any other unpacking may bind anything.
             pairs = [(target, node.value)] if isinstance(target, ast.Name) else (
                 list(zip(target.elts, node.value.elts)) if isinstance(target, ast.Tuple)
-                and isinstance(node.value, ast.Tuple) and len(target.elts) == len(node.value.elts) else [])
+                and isinstance(node.value, ast.Tuple) and len(target.elts) == len(node.value.elts)
+                and not any(isinstance(e, ast.Starred) for e in target.elts + node.value.elts) else [])
             for name, value in pairs:
                 if not isinstance(name, ast.Name):
                     named += [(inner.id, "code") for inner in ast.walk(name) if isinstance(inner, ast.Name)]
@@ -222,6 +223,8 @@ def _bind(bound: dict, node) -> None:
 
 
 REFLECTS = ("globals", "locals", "vars", "exec", "eval", "setattr", "delattr")
+TEXT_METHODS = ("replace", "format", "join", "split", "strip", "startswith", "endswith", "upper", "lower", "index",
+                "count", "find", "splitlines", "partition")
 
 
 def _unsettle(bound: dict, node) -> None:
@@ -242,10 +245,20 @@ def _unsettle(bound: dict, node) -> None:
             own.update(arg.arg for arg in ast.walk(inner.args) if isinstance(arg, ast.arg))
             own.update(name.id for name in ast.walk(inner) if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store))
     for inner in ast.walk(node):
-        if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
-                and isinstance(inner.func.value, ast.Name) and inner.func.value.id not in own
-                and bound.get(inner.func.value.id) not in (None, "text")):
-            bound[inner.func.value.id] = "code"
+        changed = None
+        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) and isinstance(inner.func.value, ast.Name):
+            # A method on a text changes nothing; on a name not bound yet, only one no text has may change what it
+            # will be, as a helper defined before its list fills it when called.
+            name = inner.func.value.id
+            if bound.get(name) != "text" and not (name not in bound and inner.func.attr in TEXT_METHODS):
+                changed = name
+        elif (isinstance(inner, (ast.Subscript, ast.Attribute)) and isinstance(inner.ctx, (ast.Store, ast.Del))
+              and isinstance(inner.value, ast.Name)):
+            changed = inner.value.id        # X[0] = ..., del X[0], X.y = ..., in a function or at the top
+        elif isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Del):
+            changed = inner.id              # del X: it may then be a builtin
+        if changed is not None and changed not in own:
+            bound[changed] = "code"
 
 
 def _literal(node, bound: dict) -> bool:
