@@ -11266,7 +11266,7 @@ MUTANTS = ISSUE + [
     ("the reader reads the issue texts unnamed", "harness/read.py",
      '    with reading("issue_texts"):\n        issues = texts.issues(', '    if True:\n        issues = texts.issues(', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
     ("the reader names a read no stage named by no code", "harness/read.py",
-     '        if isinstance(err, Unanswered):\n            raise Stop("facts_unreadable") from None\n', '', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
+     '        if isinstance(err, Unanswered):\n            raise Stop(shared.unread(err)) from None\n', '', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
     ("the read again names the opening Runs' records as the Lenses'", "harness/reread.py",
      '    with shared.staged("opened_records"):\n', '    with shared.staged("lens_records"):\n', ('tests.test_steps.Reread.test_the_item_is_read_again',)),
     ("the read again reads the Pause unnamed", "harness/reread.py",

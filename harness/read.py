@@ -198,7 +198,7 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         if revoke() is not True:
             raise Stop("token_not_revoked") from None
         if isinstance(err, Unanswered):
-            raise Stop("facts_unreadable") from None
+            raise Stop(shared.unread(err)) from None
         if isinstance(err, ReleaseMoved):
             # No Task: the Run's outcome alone, under its own Release, for the job's last step to carry.
             steps.write(folder, "outcome.json", {"schema": "outcome/1", "run": parts["run"], "release": err.release,
