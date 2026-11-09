@@ -3379,6 +3379,7 @@ class EvalJob(unittest.TestCase):
         development = {k: v for k, v in found.items() if k not in ("gate",) + job.OWN}
         development["cases"] = [{k: v for k, v in c.items() if k != "natural"} for c in found["cases"]]
         for manifest in (dict(development, criterion_bars={"PR-3": [1, 2]}), dict(found, criterion_bars={"pr-3": [1, 2]}),
+                         dict(found, criterion_bars={"PR-99": [1, 2]}),
                          dict(found, criterion_bars={"PR-3": [3, 2]}), dict(found, criterion_bars={"PR-3": [0, 0]}),
                          dict(found, criterion_bars={"PR-3": [1]})):
             with self.subTest(manifest={k: v for k, v in manifest.items() if k != "cases"}):
