@@ -135,11 +135,12 @@ def held(data: bytes) -> tuple:
     # no person need approve, cannot lower the gate (the security read).
     if [key for key in OWN if key in found] != (list(OWN) if gate_set(found) else []):
         raise Stop("eval_set_unreadable")
-    # A floor per criterion is a gate set's alone, each a whole fraction of the case-runs that expect it, of a criterion
-    # its Role's rubric names, so that no floor stands on one no case can cite (issue 692; lane d's build of it).
+    # A floor per criterion is a gate set's alone, each a whole fraction of the case-runs that expect it, of one case-run
+    # at least, of a criterion its Role's rubric names, so that no floor stands on one no case can cite or asks nothing
+    # (issue 692; lane d's build of it; Argon's read).
     floors, named = found.get("criterion_bars", {}), eval_result._criteria(found["role"]) or set()
     if ("criterion_bars" in found and not gate_set(found)) or any(
-            name not in named or bar[1] < 1 or bar[0] > bar[1] for name, bar in floors.items()):
+            name not in named or not 1 <= bar[0] <= bar[1] for name, bar in floors.items()):
         raise Stop("eval_set_unreadable")
     if gate_set(found) and (found["kind_least"] < KIND_LEAST or any(
             not found["bars"][kind][0] <= found["bars"][kind][1] or found["bars"][kind][1] < 1

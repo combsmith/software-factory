@@ -3390,6 +3390,10 @@ class EvalJob(unittest.TestCase):
         self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 9), ("PR-1", "met", 20)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 10), ("PR-1", "met", 20)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-1", "met", 20)])))
+        # Every floor is held to it, not one of them: PR-4 of one beside PR-3 of ten, ten beyond them (Muse's read).
+        two = {"PR-3": [1, 2], "PR-4": [1, 2]}
+        self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-5", "finding", 10),
+                                                       ("PR-1", "met", 21)], floors=two)))
         # The report's counts are the job's: of the floored criteria and no other, each of FLOOR_LEAST cases, within the
         # kind's cases and passes, each interval its counts'; none where no kind was read; the floors the set's.
         def changed(**criteria):
@@ -3431,7 +3435,8 @@ class EvalJob(unittest.TestCase):
         development["cases"] = [{k: v for k, v in c.items() if k != "natural"} for c in held["cases"]]
         for manifest in (dict(development, criterion_bars={"PR-3": [1, 2]}), dict(held, criterion_bars={"pr-3": [1, 2]}),
                          dict(held, criterion_bars={"PR-99": [1, 2]}), dict(held, criterion_bars={"PR-3": [3, 2]}),
-                         dict(held, criterion_bars={"PR-3": [0, 0]}), dict(held, criterion_bars={"PR-3": [1]})):
+                         dict(held, criterion_bars={"PR-3": [0, 0]}), dict(held, criterion_bars={"PR-3": [0, 5]}),
+                         dict(held, criterion_bars={"PR-3": [1]})):
             with self.subTest(manifest=manifest.get("criterion_bars")):
                 with self.assertRaises(job.Stop):
                     job.held(data(manifest))
