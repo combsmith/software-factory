@@ -741,10 +741,9 @@ def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates:
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
     causes, usages, results, alternates, surplus)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
-    asked, told, spent, answers, *marked = ahead or ({}, {}, {}, {})
     # Each case asked first with its marks, at an alternate place alone or drawing gating Findings away (Muse's read of
     # #646), as the set's are listed.
-    beside, away = marked if marked else (set(), {})
+    asked, told, spent, answers, beside, away = ahead or ({}, {}, {}, {}, set(), {})
     first = [dict(case, **({"result": answers[case["id"]]} if case["id"] in answers else {}))
              for case in report(kept, dict(found, cases=kept.get("preflight", [])), asked, causes=told,
                                 alternates=beside, surplus=away, usages=spent)["cases"]]

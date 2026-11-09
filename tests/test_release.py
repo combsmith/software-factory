@@ -361,15 +361,18 @@ class Fixture(unittest.TestCase):
             with self.subTest(tag=tag):
                 ref = self.answered(made, "/repos/%s/git/ref/tags/%s" % (REPO, tag))
                 self.assertEqual((ref["status"], ref["body"]["object"]["sha"]), (200, commit))
-        deployed = self.answered(made, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]
+        # Each read is GitHub's answer, 200 (the Claude read of the follow-on to #627).
+        body = lambda item, path: (lambda answer: self.assertEqual(answer["status"], 200, path) or answer["body"])(
+            self.answered(item, path))
+        deployed = body(made, "/repos/%s/deployments?environment=factory-next" % REPO)
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
                          [(made["printed"]["deployments"][0], commit, fixture["version"])])
-        statuses = self.answered(made, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))["body"]
+        statuses = body(made, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))
         self.assertEqual([s["state"] for s in statuses], ["success"])
         again = self.item(fixture, "refused_move_of_the_release")
         self.assertEqual((again["conclusion"], again["printed"]),
                          ("failure", {"writes": [], "deployments": [], "refused": cut.ALREADY_RELEASED}))
-        self.assertEqual(len(self.answered(again, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]), 1)
+        self.assertEqual(len(body(again, "/repos/%s/deployments?environment=factory-next" % REPO)), 1)
         calls = [e["request"]["call"].split(" ")[:2] for e in again["exchanges"]]
         forcing = again["exchanges"][calls.index(["PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, fixture["version"])])]
         asked, forced = forcing["request"]["body"], forcing["response"]
@@ -386,8 +389,8 @@ class Fixture(unittest.TestCase):
         self.assertEqual(made_at, sorted(made_at))
         read = "/repos/%s/git/ref/tags/%s" % (REPO, fixture["version"])
         self.assertLess(again["exchanges"].index(forcing), calls.index(["GET", read]))
-        self.assertEqual(self.answered(again, read)["body"]["object"]["sha"], commit)
-        rules = self.answered(again, "/repos/%s/rulesets/25996980" % REPO)["body"]
+        self.assertEqual(body(again, read)["object"]["sha"], commit)
+        rules = body(again, "/repos/%s/rulesets/25996980" % REPO)
         self.assertEqual((rules["target"], rules["enforcement"], rules["bypass_actors"]), ("tag", "active", []))
         # The rules the repo holds this ruleset to, force-pushes among them (tools/check_rulesets.py).
         self.assertLessEqual(check_rulesets.TAG_RULESETS["factory releases are immutable"], {rule["type"] for rule in rules["rules"]})

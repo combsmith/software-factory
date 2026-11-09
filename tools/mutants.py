@@ -4077,6 +4077,12 @@ MUTANTS = ISSUE + [
     ('the tag ruleset exempts the Release', 'release/fixtures/cut.v0-1-0.json',
      '"exclude": []', '"exclude": ["refs/tags/factory/v0.1.0"]', CUT_FIXTURE),
     # Muse's read of #646: a preflight case's marks in the ledger, and the ledger's preflight required.
+    ('the run step hands the ledger no preflight mark', 'harness/eval/__init__.py',
+     '(ahead, told, spent, answers, beside, away)), indent=2',
+     '(ahead, told, spent, answers, set(), {})), indent=2', ('tests.test_evals.EvalJob.test_a_gate_run_carries_its_preflights_marks_into_the_ledger',)),
+    ('the preflight is asked with no containers for its marks', 'harness/eval/__init__.py',
+     'review, told, beside, away,\n                   usages=spent',
+     'review, told,\n                   usages=spent', ('tests.test_evals.EvalJob.test_a_gate_run_carries_its_preflights_marks_into_the_ledger',)),
     ('a preflight case keeps no mark in the ledger', 'harness/eval/__init__.py',
      '                                alternates=beside, surplus=away, usages=spent)["cases"]]',
      '                                usages=spent)["cases"]]', ('tests.test_evals.EvalJob.test_a_preflight_case_keeps_its_marks_in_the_ledger_as_the_sets_do',)),
@@ -4100,6 +4106,10 @@ MUTANTS = ISSUE + [
     ('a case the reviewer failed is counted a fault', 'harness/eval/__init__.py',
      'for verdict_of, reasons in assessed.values() if verdict_of == "unreadable" for code in reasons]',
      'for verdict_of, reasons in assessed.values() for code in reasons]', ('tests.test_evals.EvalJob.test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone',)),
+    # Muse's read of #627: the refused rollback's evidence is read only where GitHub answered it.
+    ('the refused rollback\'s deployments are read from a refused answer', 'release/fixtures/rollback.refused.json',
+     'deployments?environment=factory-next (gh api --include)",\n            "headers": {\n              "accept": "application/vnd.github+json"\n            },\n            "body": null\n          },\n          "response": {\n            "status": 200,',
+     'deployments?environment=factory-next (gh api --include)",\n            "headers": {\n              "accept": "application/vnd.github+json"\n            },\n            "body": null\n          },\n          "response": {\n            "status": 500,', ('tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing',)),
     # Muse's read of #617: the PATCH is the Maintainer's admin role's, refused as a protected ref, and the ruleset holds
     # the rules tools/check_rulesets.py holds it to.
     ('the refused PATCH is no admin role\'s', 'release/fixtures/cut.v0-1-0.json', ', the admin role)', ')', CUT_FIXTURE),
@@ -9329,8 +9339,8 @@ MUTANTS = ISSUE + [
      ' or kept.get("preflight") != preflight_of(root, found):\n',
      ':\n', ('tests.test_evals.EvalJob.test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case',)),
     ("the check holds no live gate set's preflight", 'tools/check_examples.py',
-     '_bars_stated(root, value) + _preflight_held(root, value)',
-     '_bars_stated(root, value)', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
+     '_held(value) or _bars_stated(root, value) + _preflight_held(root, value)',
+     '_held(value) or _bars_stated(root, value)', ('tests.test_evals.EvalJob.test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them',)),
     ('the preflight is never fetched', 'harness/eval/__init__.py',
      '    if kept["preflight"]:\n        ahead = _fetched(',
      '    if False:\n        ahead = _fetched(', ('tests.test_evals.EvalJob.test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it',)),

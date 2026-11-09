@@ -374,7 +374,9 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
         if kind == "eval-set" and not errors and value.get("gate") is True:
-            errors = _bars_stated(root, value) + _preflight_held(root, value)
+            # Held first as the job reads it, so that a gate set the schema lets leave out what it gives of its own is
+            # a problem named, never a crash further on (the Claude read of the follow-on to #642).
+            errors = _held(value) or _bars_stated(root, value) + _preflight_held(root, value)
         for err in errors:
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle", "evals"):

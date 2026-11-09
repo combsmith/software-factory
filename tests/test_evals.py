@@ -2751,6 +2751,27 @@ class EvalJob(unittest.TestCase):
         marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
         self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
 
+    def test_a_gate_run_carries_its_preflights_marks_into_the_ledger(self):  # the Claude read of the follow-on to #646
+        # The run step asks the preflight with containers for its marks, and hands them to the ledger: a preflight case
+        # the scorer marks at an alternate place, or as drawing gating Findings away, is listed so.
+        from harness import eval as job
+        self.set(self.cases, gate=True, natural=[])
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases, gate=True))
+        real, first = job.assess, sorted(self.pre)
+
+        def marking(found, why, place, review, causes=None, alternates=None, surplus=None, usages=None, results=None):
+            said = real(found, why, place, review, causes, alternates, surplus, usages, results)
+            if alternates is not None and [e["id"] for e in found["cases"]] == list(self.pre):
+                alternates.add(first[0])
+                surplus[first[1]] = 2
+            return said
+        with mock.patch.object(job, "assess", marking):
+            self.step(job.score, lambda case: example_result())
+        ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+        marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
+        self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
+
     def test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone(self):  # Muse's read of #628
         # A case the reviewer failed is counted under its kind, never as a fault: only a case not read says its code,
         # by how many (decision 0164).
@@ -3201,6 +3222,12 @@ class EvalJob(unittest.TestCase):
             self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")],
                              ["evals/gate/cases.json: its preflight is refused where it is read: eval_set_unreadable"])
             (live / "evals" / "pr-review" / "moved.json").rename(live / "evals" / "pr-review" / "cases.json")
+            # A gate set the schema lets leave out its preflight, or its bars, is held as the job reads it, never crashes.
+            for left in ("preflight", "bars"):
+                (live / "evals" / "gate" / "cases.json").write_text(json.dumps({k: v for k, v in found.items() if k != left}))
+                self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")],
+                                 ["evals/gate/cases.json: is refused where it is read: eval_set_unreadable"], left)
+            (live / "evals" / "gate" / "cases.json").write_text(json.dumps(found))
             # And an example of one is held as the job reads it.
             (live / "examples").mkdir()
             (live / "examples" / "eval-set.gate.json").write_text(json.dumps(dict(found, kind_least=-1, bars={
