@@ -546,7 +546,7 @@
       }
     },
     "criteria": {
-      "description": "Of each criterion the set's cases expect, its cases, how many passed and their Wilson interval at 95%, counts alone, so that runs on one commit can be pooled and a criterion's floor applied (issue 692). Null where a case was not read or its answer is no kind.",
+      "description": "Of each criterion the set's manifest floors, and no other, its cases that expect a Finding on it, how many passed and their Wilson interval at 95%: counts alone, each of FLOOR_LEAST cases at least, so that runs on one commit can be pooled and each floor applied, and no count tells one case's verdict (issue 692). Null where a case was not read or its answer is no kind.",
       "type": [
         "object",
         "null"

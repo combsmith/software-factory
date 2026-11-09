@@ -317,8 +317,7 @@ class Candidate(unittest.TestCase):
                         "passed": finding + met,
                         "kinds": {kind: {"cases": 20, "passed": p, "interval": eval_gate.wilson(p, 20)}
                                   for kind, p in (("finding", finding), ("met", met))},
-                        "criteria": {name: {"cases": 20, "passed": p, "interval": eval_gate.wilson(p, 20)}
-                                     for name, p in (("PR-1", finding), ("PR-2", met))},
+                        "criteria": {},
                         "origin": {"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": finding + met}},
                         "faults": [], "preflight": {"cases": 3, "passed": 3, "faults": []},
                         "usage": {"answered": 40, "input_tokens": 1, "cache_creation_input_tokens": 0,

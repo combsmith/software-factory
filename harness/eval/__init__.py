@@ -44,7 +44,6 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 # review Intent's, SET.
 SETS, DEFAULT_SET = pathlib.Path("evals"), "pr-review"
 SET_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
-CRITERION = re.compile(r"[A-Z]+-[0-9]+")     # a criterion's id, as a case expects it (eval-case/1)
 SET = SETS / DEFAULT_SET / "cases.json"
 REPORT = "eval-report.json"
 AGGREGATE = "eval-aggregate/1"
@@ -53,6 +52,9 @@ Z = 1.959964                # a Wilson interval's, at 95%
 # The fewest cases a gate set may mark natural, or not, where it marks any: a group of one would tell its case's verdict
 # by its count, under the case's public id (issue 612, the security read).
 ORIGIN_LEAST = 10
+# The fewest cases expecting a Finding on a criterion a gate set floors: as many as a group of natural cases or others
+# needs, so that no published count is one case's verdict (the Factory Builder's ruling on issue 692).
+FLOOR_LEAST = ORIGIN_LEAST
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -408,7 +410,10 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
     if kept["preflight"]:
         ahead = _fetched(env, workspace, transport, heads, dict(found, cases=kept["preflight"]), place / PREFLIGHT)
         said = ", %d of %d to preflight" % (ahead, len(kept["preflight"]))
-    return "fetched %d of %d cases" % (_fetched(env, workspace, transport, heads, found, place), found["count"]) + said
+    fetched = _fetched(env, workspace, transport, heads, found, place)
+    if floor_short(found, place):
+        raise Stop("eval_floor_short")
+    return "fetched %d of %d cases" % (fetched, found["count"]) + said
 
 
 def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, place: pathlib.Path) -> int:
@@ -624,13 +629,23 @@ def kinds_of(found: dict, place: pathlib.Path):
 
 
 def criteria_of(found: dict, place: pathlib.Path):
-    """`{id: criterion}` of the set's cases, each as its fetched case expects it, as `kinds_of` reads each kind (issue
-    692): the manifest carries none. None where `_expected` can say nothing, or a case names no criterion."""
+    """`{criterion: [id, ...]}` of each criterion the gate set floors, `criterion_bars_of`, with the cases that expect a
+    Finding on it, read from each fetched case as `kinds_of` reads each kind (issue 692): its recall, so that a reviewer
+    blind to it cannot clear it by raising nothing on the cases that expect none. No criterion the set does not floor is
+    counted, and no case's text names one. None where `_expected` can say nothing."""
     expected = _expected(found, place)
-    if expected is None or not all(isinstance(said.get("criterion"), str) and CRITERION.fullmatch(said["criterion"])
-                                   for said in expected.values()):
+    if expected is None:
         return None
-    return {case: said["criterion"] for case, said in expected.items()}
+    return {name: [case for case, said in expected.items() if said["verdict"] == "finding" and said.get("criterion") == name]
+            for name in sorted(criterion_bars_of(found))}
+
+
+def floor_short(found: dict, place: pathlib.Path) -> bool:
+    """Whether a criterion the set floors has fewer than FLOOR_LEAST cases that expect a Finding on it: its counts would
+    tell a case's verdict, so the dispatch stops before anything is asked (issue 692). False where the cases cannot be
+    read: that run fails by them."""
+    floored = criteria_of(found, place)
+    return floored is not None and any(len(cases) < FLOOR_LEAST for cases in floored.values())
 
 
 def split_ok(found: dict, place: pathlib.Path):
@@ -851,11 +866,10 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
     counted = None if kinds is None else {
         kind: {"cases": n, "passed": p, "interval": wilson(p, n)}
         for kind, n, p in ((k, list(kinds.values()).count(k), len([c for c in passed if kinds[c] == k])) for k in KINDS)}
-    criteria = None if counted is None else criteria_of(found, place)
-    by_criterion = None if criteria is None else {
-        name: {"cases": n, "passed": p, "interval": wilson(p, n)}
-        for name, n, p in ((c, list(criteria.values()).count(c), len([k for k in passed if criteria[k] == c]))
-                           for c in sorted(set(criteria.values())))}
+    floored = None if counted is None else criteria_of(found, place)
+    by_criterion = None if floored is None else {
+        name: {"cases": len(cases), "passed": len(set(cases) & passed), "interval": wilson(len(set(cases) & passed), len(cases))}
+        for name, cases in floored.items()}
     natural = {e["id"] for e in found["cases"] if e.get("natural") is True}
     origin = {"natural": natural, "constructed": {e["id"] for e in found["cases"]} - natural}
     return {"schema": AGGREGATE, "release": kept["release"], "commit": kept["commit"], "role": found["role"],
@@ -931,16 +945,16 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], bars[k]) for k in KINDS}
             or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < least)):
         return "count_differs"
-    # Each criterion's counts add up to the set's and to the report's own passes, and every criterion the set has a floor
-    # for is counted; where no kind could be read, neither could a criterion (issue 692).
+    # The criteria counted are the ones the set floors, each of FLOOR_LEAST cases that expect a Finding at least, within
+    # the cases and passes of that kind, as each case expects one criterion; where no kind could be read, none could be
+    # counted (issue 692).
     criteria, floors = document["criteria"], criterion_bars_of(found)
     if (criteria is None) != (kinds is None) or criteria is not None and (
-            not all(CRITERION.fullmatch(name) for name in criteria)
-            or sum(c["cases"] for c in criteria.values()) != found["count"]
-            or sum(c["passed"] for c in criteria.values()) != passed
-            or any(c["cases"] < 1 or c["passed"] > c["cases"] or c["interval"] != wilson(c["passed"], c["cases"])
-                   for c in criteria.values())
-            or not set(floors) <= set(criteria)):
+            set(criteria) != set(floors)
+            or sum(c["cases"] for c in criteria.values()) > kinds["finding"]["cases"]
+            or sum(c["passed"] for c in criteria.values()) > kinds["finding"]["passed"]
+            or any(c["cases"] < FLOOR_LEAST or c["passed"] > c["cases"] or c["interval"] != wilson(c["passed"], c["cases"])
+                   for c in criteria.values())):
         return "count_differs"
     if document["bars"] != {kind: list(bars[kind]) for kind in KINDS} or document["kind_least"] != least \
             or document["criterion_bars"] != {name: list(bar) for name, bar in floors.items()}:
