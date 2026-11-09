@@ -57,6 +57,8 @@
     "facts",
     "diff",
     "head",
+    "head_sha256",
+    "tree_sha256",
     "expected"
   ],
   "properties": {
@@ -85,6 +87,16 @@
       "description": "The commit the case's diff was taken at, whole, in lower case: the head the review reads (decision 0138).",
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
+    },
+    "head_sha256": {
+      "description": "The sha256 of the head's tarball as GitHub archived the commit, kept beside the case in the held-out home, `<role>/<id>.tar.gz`: the eval job reads the head there, with the home's token, and none with no credential (issue 611).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tree_sha256": {
+      "description": "The sha256 of the commit's tree, every level of it, as GitHub answered it, kept beside the case in the held-out home, `<role>/<id>.tree.json`: the head is held to it file by file (issue 611; decision 0142).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "issue": {
       "description": "The issue the change serves, as a live Run's Task holds it (decision 0110): optional, so a case without one is reviewed on its diff alone.",

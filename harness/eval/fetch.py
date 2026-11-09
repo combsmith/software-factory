@@ -1,7 +1,8 @@
 """The eval job's fetch: each case from the private home, with the Maintainer's own token for it, read-only on the home
 alone (decision 0053), and nothing else. The token is used for reads alone: a request that is not a GET is refused
-before it is sent, so no change to this step's code can write with it. Each case's head is read with no credential at
-all, its tarball alone (decision 0138): the cases' repo is public, and the home's token is never sent anywhere else."""
+before it is sent, so no change to this step's code can write with it. Each case's head is read from the home as well,
+its tarball and its commit's tree beside the case, each pinned by its sha256 there (issue 611): the home's token is
+never sent anywhere else, and nothing is read with no credential."""
 from harness.eval import Stop, exit_with, fetch
 
 
@@ -27,8 +28,7 @@ def transport(env: dict):
 
 
 def step(env, root, workspace):
-    from adapters import github
-    return fetch(env, root, workspace, transport(env), github.Live.anonymous())
+    return fetch(env, root, workspace, transport(env))
 
 
 if __name__ == "__main__":

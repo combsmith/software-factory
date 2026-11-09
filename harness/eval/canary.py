@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -49,6 +50,22 @@ def told(call):
     return asked
 
 
+def head_of(data: bytes, folder: pathlib.Path, ident: str, transport):
+    """The example's head, its commit's tarball read through `transport`, with no credential, from this repo, which is
+    public, and unpacked into `folder` under its id; or `head_unreadable`. The eval job reads a case's head from the
+    held-out home instead, pinned by the case (issue 611): the example is no case of the home, and pins none it keeps."""
+    from harness import head
+    case = json.loads(data)
+    repo, sha = case["facts"]["item"]["repo"], case["head"]
+    folder.mkdir(mode=0o700, exist_ok=True)
+    try:
+        head.unpack(head.fetch(transport, repo, sha), sha, job.within(folder, ident))
+    except (head.Refused, OSError, job.Stop):
+        shutil.rmtree(str(folder / ident), ignore_errors=True)
+        return "head_unreadable"
+    return None
+
+
 def review(env: dict, call=live.cli_call, clock=time.time, heads=None) -> int:
     """One review by the eval job's path: 0 if the CLI answered in a status the Engine may write, its answer read and
     scored, and 1 otherwise, a `failed` Result among them. A scorer that raises fails the step. The example's head is
@@ -72,7 +89,7 @@ def review(env: dict, call=live.cli_call, clock=time.time, heads=None) -> int:
         if heads is None:
             from adapters import github
             heads = github.Live.anonymous()
-        fetched = job.head_of(data, pathlib.Path(unpacked), case["id"], heads)
+        fetched = head_of(data, pathlib.Path(unpacked), case["id"], heads)
         verdict, reasons = job.assess(found, {case["id"]: fetched}, place, answered)[case["id"]]
     status = results[0].get("status") if results else None
     print("status %s, verdict %s, reasons %s" % (status, verdict, ",".join(reasons) or "none"))

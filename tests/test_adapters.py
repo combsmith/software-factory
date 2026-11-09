@@ -3489,6 +3489,17 @@ def home_file(name: str, data: bytes, path: str = None, **change) -> dict:
             "response": {"status": 200, "headers": {"content-type": "application/json; charset=utf-8"}, "body": body}}
 
 
+def home_beside(name: str, kind: str, data: bytes, status: int = 200, role: str = "pr-review", **change) -> dict:
+    """What a stand-in home, `o/home`, keeps beside a case, `<role>/<name>.<kind>`, its head's tarball or its tree, as the
+    contents API answers the raw media type: the bytes as they are, under its own type (trials/P-62.json)."""
+    from adapters import github, heldout
+    headers = dict({"content-type": heldout.RAW + "; charset=utf-8", "content-length": str(len(data))}, **change)
+    return {"request": {"via": "rest", "call": "GET /repos/o/home/contents/%s/%s.%s" % (role, name, kind),
+                        "headers": {"accept": heldout.RAW}},
+            "response": {"status": status, "headers": headers,
+                         "body": data.decode("utf-8", errors="surrogateescape") if status == 200 else "404: Not Found"}}
+
+
 def home_set(*named) -> dict:
     return {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(named),
             "cases": [{"id": n, "sha256": hashlib.sha256(d).hexdigest()} for n, d in named]}
@@ -3553,6 +3564,59 @@ class Heldout(unittest.TestCase):
         self.assertEqual(asked, [])
         self.assertEqual(heldout.case(Anything(), "o", "home", "pr-review", entry), (self.ONE, None))
         self.assertEqual(asked, ["/repos/o/home/contents/pr-review/c-1.json"])
+
+    def test_what_the_home_keeps_beside_a_case_is_read_raw_by_the_hash_the_case_pins(self):  # issue 611
+        # A head's tarball and its tree, beside the case, are asked with the raw media type, whose answer is the file's
+        # bytes whole however large (trials/P-62.json), and handed back only as the bytes the case pinned.
+        tar, tree = bytes(range(256)) * 9, b'{"tree": [], "truncated": false}\n'
+        pins = {"tar.gz": hashlib.sha256(tar).hexdigest(), "tree.json": hashlib.sha256(tree).hexdigest()}
+        # The answer's headers as GitHub gave them to the Maintainer's login for a file of 1.5 MiB (P-62's exchange 5).
+        p62 = json.loads((ROOT / "trials" / "P-62.json").read_text())["exchanges"][5]
+        self.assertEqual(p62["request"]["headers"]["accept"], heldout.RAW)
+        grounded = {k: v for k, v in p62["response"]["headers"].items() if k in ("content-type",)}
+        home = github.Replay([home_beside("c-1", "tar.gz", tar, **grounded), home_beside("c-1", "tree.json", tree)])
+        self.assertEqual([heldout.beside(home, "o", "home", "pr-review", "c-1", k, pins[k]) for k in ("tar.gz", "tree.json")],
+                         [(tar, None), (tree, None)])
+
+        def read(found, kind="tar.gz", pin=pins["tar.gz"], owner="o", name="home", role="pr-review", ident="c-1"):
+            return heldout.beside(github.Replay(found), owner, name, role, ident, kind, pin)
+        json_typed = home_beside("c-1", "tar.gz", tar, **{"content-type": "application/json; charset=utf-8"})
+        raw_json = home_beside("c-1", "tar.gz", tar, **{"content-type": heldout.RAW + "+json; charset=utf-8"})
+        untyped = home_beside("c-1", "tar.gz", tar)
+        del untyped["response"]["headers"]["content-type"]
+        failed = home_beside("c-1", "tar.gz", tar)
+        failed["response"]["status"] = 500
+        large = home_beside("c-1", "tar.gz", b"\0" * (heldout.BESIDE["tar.gz"] + 1))
+        for found, code in (([home_beside("c-1", "tar.gz", tar[1:])], "hash_differs"),
+                            ([home_beside("c-1", "tar.gz", tar, status=404)], "not_found"),
+                            ([failed], "unanswered"), ([], "unanswered"), ([json_typed], "unanswered"),
+                            ([raw_json], "unanswered"), ([untyped], "unanswered"),
+                            ([large], "too_large"), ([home_beside("c-1", "tree.json", tree)], "unanswered")):
+            self.assertEqual(read(found), (None, code), code)
+        self.assertEqual(read([home_beside("c-1", "tree.json", b"\0" * (heldout.BESIDE["tree.json"] + 1))],
+                              kind="tree.json", pin=pins["tree.json"]), (None, "too_large"))
+        self.assertEqual(read([home_beside("c-1", "tree.json", tree)], kind="tree.json", pin=pins["tar.gz"]),
+                         (None, "hash_differs"))
+        # A name, a kind or a pin that could name another file, or a home that could name another repo, is refused
+        # before anything is asked.
+        asked = []
+
+        class Anything:
+            def send(self, req):
+                asked.append((req["path"], req["accept"]))
+                return home_beside("c-1", "tar.gz", tar)["response"]
+        for kind, role, ident, pin in (("json", "pr-review", "c-1", pins["tar.gz"]), ("tar.gz", "pr-review/..", "c-1", pins["tar.gz"]),
+                                       ("tar.gz", "pr-review", "../c-1", pins["tar.gz"]), ("tar.gz", "pr-review", "c-1.json", pins["tar.gz"]),
+                                       ("tar.gz", "pr-review", "c-1", "x"), ("tar.gz", "pr-review", "c-1", None),
+                                       ("tar.gz", None, "c-1", pins["tar.gz"]), (None, "pr-review", "c-1", pins["tar.gz"])):
+            self.assertEqual(heldout.beside(Anything(), "o", "home", role, ident, kind, pin), (None, "not_this_set"),
+                             (kind, role, ident, pin))
+        for owner, name in (("o", ".."), ("o/x", "home"), (None, "home"), ("o", None)):
+            self.assertEqual(heldout.beside(Anything(), owner, name, "pr-review", "c-1", "tar.gz", pins["tar.gz"]),
+                             (None, "unanswered"), (owner, name))
+        self.assertEqual(asked, [])
+        self.assertEqual(heldout.beside(Anything(), "o", "home", "pr-review", "c-1", "tar.gz", pins["tar.gz"]), (tar, None))
+        self.assertEqual(asked, [("/repos/o/home/contents/pr-review/c-1.tar.gz", heldout.RAW)])
 def per_hundred(found: dict) -> dict:
     """A fixture's exchange asked as the port asks a list: a full page of a hundred, GitHub's answer kept."""
     found = copy.deepcopy(found)

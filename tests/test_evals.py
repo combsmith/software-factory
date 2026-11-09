@@ -75,8 +75,9 @@ def opened(sealed: pathlib.Path, cert: pathlib.Path, key: pathlib.Path) -> bytes
 
 
 class Heads:
-    """A transport standing in for the anonymous one `fetch` reads each case's head with: each commit's tarball as
-    codeload serves one (P-60), or, for a commit in `refused`, a 404. What it was asked is kept by path."""
+    """A transport standing in for the anonymous one the canary reads its example's head with: each commit's tarball as
+    codeload serves one (P-60), or, for a commit in `refused`, a 404. What it was asked is kept by path. The eval job
+    reads a case's head from the home instead (issue 611)."""
 
     def __init__(self, refused=()):
         self.refused, self.asked = set(refused), []
@@ -89,6 +90,46 @@ class Heads:
         if sha in self.refused:
             return {"status": 404, "headers": {}, "body": "404: Not Found"}
         return {"status": 200, "headers": {}, "body": support.tarball(sha).decode("utf-8", errors="surrogateescape")}
+
+
+def stand_in_head(sha: str) -> tuple:
+    """`(tarball, tree)`: what the home keeps beside a case whose head is `sha`, its tarball as codeload serves one (P-60)
+    and its commit's tree as the API answers it (trials/P-60.tree.json), each byte for byte as the eval job reads it
+    there (issue 611). The head holds one file, as `tests/support.tarball` writes it."""
+    from tests import support
+    body = b"# a repo\n"
+    blob = hashlib.sha1(b"blob %d\0" % len(body) + body).hexdigest()
+    tree = {"sha": "e" * 40, "truncated": False,
+            "tree": [{"path": "README.md", "mode": "100644", "type": "blob", "sha": blob, "size": len(body)}]}
+    return support.tarball(sha), (json.dumps(tree, indent=2) + "\n").encode()
+
+
+def pinned(case: dict) -> dict:
+    """`case`, its head pinned by the sha256 of its stand-in tarball and tree, as the Maintainer's tool pins a case's."""
+    tar, tree = stand_in_head(case["head"])
+    return dict(case, head_sha256=hashlib.sha256(tar).hexdigest(), tree_sha256=hashlib.sha256(tree).hexdigest())
+
+
+def home_of(cases: dict, kept=None) -> list:
+    """The exchanges of a stand-in home for each of `cases`, in order: the case, and, for one that pins a head, what the
+    home keeps beside it, `kept(id, sha)` where given, as far as the job asks: the tree is not asked once the tarball is
+    not the one pinned."""
+    from tests.test_adapters import home_beside, home_file
+    exchanges = []
+    for ident, data in cases.items():
+        exchanges.append(home_file(ident, data))
+        try:
+            case = json.loads(data)
+            sha, pins = case["head"], (case["head_sha256"], case["tree_sha256"])
+        except (ValueError, TypeError, KeyError, RecursionError):
+            continue
+        if not (isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha)):
+            continue
+        tar, tree = (kept or (lambda i, h: stand_in_head(h)))(ident, sha)
+        exchanges.append(home_beside(ident, "tar.gz", tar))
+        if hashlib.sha256(tar).hexdigest() == pins[0]:
+            exchanges.append(home_beside(ident, "tree.json", tree))
+    return exchanges
 
 
 def github_tarred() -> int:
@@ -924,7 +965,7 @@ class EvalJob(unittest.TestCase):
         self.root, self.work, self.temp = base / "root", base / "work", base / "temp"
         for place in (self.root, self.work, self.temp):
             place.mkdir()
-        one = load("examples/eval-case.json")
+        one = pinned(load("examples/eval-case.json"))
         # A case's facts name the content its diff is, as the set's must.
         one["facts"]["content_id"] = "sha256:" + hashlib.sha256(one["diff"].encode()).hexdigest()
         two = dict(copy.deepcopy(one), id="poc-two")
@@ -978,19 +1019,16 @@ class EvalJob(unittest.TestCase):
 
     def step(self, step, *given, env=None):
         from harness import eval as job
-        if getattr(step, "__module__", None) == job.__name__ and getattr(step, "__name__", None) == "fetch" \
-                and len(given) == 1:
-            given += (Heads(),)     # each case's head, read as codeload would answer it (decision 0138)
         try:
             return step(dict(self.env, **(env or {})), self.root, self.work, *given)
         except job.Stop as stop:
             return stop.code
 
     def home(self, cases: dict, gate: bool = False):
-        """A home that answers for each of `cases`, in order; for a gate set's run, for its preflight first."""
+        """A home that answers for each of `cases`, in order, with what it keeps beside each; for a gate set's run, for
+        its preflight first."""
         from adapters import github
-        from tests.test_adapters import home_file
-        return github.Replay([home_file(i, d) for i, d in (dict(self.pre, **cases) if gate else cases).items()])
+        return github.Replay(home_of(dict(self.pre, **cases) if gate else cases))
 
     def test_a_set_of_no_case_ends_the_run_before_anything_is_read(self):
         import os
@@ -1597,7 +1635,7 @@ class EvalJob(unittest.TestCase):
         for raw in self.cases.values():
             if json.loads(raw)["expected"]["verdict"] == "met":
                 met = json.loads(raw)
-        met = met or load("examples/eval-case.met.json")
+        met = met or pinned(load("examples/eval-case.met.json"))
         met["facts"] = dict(met["facts"], content_id="sha256:" + hashlib.sha256(met["diff"].encode()).hexdigest())
 
         def run(miss):
@@ -1649,7 +1687,7 @@ class EvalJob(unittest.TestCase):
         """A held-out case of the review Intent, as #183 writes them: its facts name the content its diff is, so its
         Task is a live Run's Task of that content. Made from tests/test_harness.py's change; nothing of the home."""
         from tests import test_harness as live
-        case = dict(load("examples/eval-case.json"), id="poc-reviewed", facts=live.facts(), diff=live.DIFF.decode())
+        case = pinned(dict(load("examples/eval-case.json"), id="poc-reviewed", facts=live.facts(), diff=live.DIFF.decode()))
         return case, live
 
     def test_the_facts_the_set_was_made_with_read_as_todays_once_filled(self):  # decision 0105
@@ -1717,13 +1755,17 @@ class EvalJob(unittest.TestCase):
             built.append(json.dumps(the_task, sort_keys=True))
             return answered(the_task, *given, **named)
 
-        def scored(heads=None, case=case):
+        def scored(kept=None, case=case):
+            from adapters import github
             seen["files"], seen["folders"] = {}, []
             self.clean()     # each run's scratch and heads are its own
+            if kept is not None:    # the head the home keeps, and the case pins it
+                tar, tree = kept(case["id"], case["head"])
+                case = dict(case, head_sha256=hashlib.sha256(tar).hexdigest(), tree_sha256=hashlib.sha256(tree).hexdigest())
             cases = {case["id"]: (json.dumps(case, indent=2) + "\n").encode()}
             self.set(cases)
             self.step(job.plan)
-            self.step(job.fetch, self.home(cases), *([heads] if heads else []))
+            self.step(job.fetch, github.Replay(home_of(cases, kept)))
             kept_plan = json.loads((self.temp / "heldout" / "plan.json").read_text())
             (self.temp / "heldout" / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
             cli = Reading(said=live.answer(live.judged(findings=[], effects={})))
@@ -1768,14 +1810,11 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(given[2], given[0])
         # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
 
-        class Historied(Heads):
-            def send(self, req):
-                from adapters import github
-                from tests import support
-                sha = github.TARBALL.fullmatch(req["path"]).group(3)
-                return {"status": 200, "headers": {}, "body": support.tarball(sha, [("README.md", b"0", b"# a repo\n"),
-                        (".git/HEAD", b"0", b"ref: refs/heads/main\n")]).decode("utf-8", errors="surrogateescape")}
-        said, cli = scored(Historied())
+        def historied(ident, sha):
+            from tests import support
+            return (support.tarball(sha, [("README.md", b"0", b"# a repo\n"), (".git/HEAD", b"0", b"ref: refs/heads/main\n")]),
+                    stand_in_head(sha)[1])
+        said, cli = scored(historied)
         self.assertEqual((said, cli.asked()), ("scored 1 of 1 cases, 0 passed", []))
         self.assertEqual([c["reasons"] for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [["head_unreadable"]])
 
@@ -2547,7 +2586,7 @@ class EvalJob(unittest.TestCase):
         # The plan makes the heads folder, as closed as the scratch (issue 626).
         self.assertTrue((self.temp / "heads").is_dir(), "the plan makes the heads folder")
         self.assertEqual(os.stat(str(self.temp / "heads")).st_mode & 0o777, 0o700)
-        self.assertEqual(self.step(fetch, self.home(cases), Heads()), "fetched 1 of 1 cases")
+        self.assertEqual(self.step(fetch, self.home(cases)), "fetched 1 of 1 cases")
         place = self.temp / "heldout"
         kept_plan = json.loads((place / "plan.json").read_text())
         (place / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
@@ -2587,48 +2626,150 @@ class EvalJob(unittest.TestCase):
         (self.temp / "heldout").mkdir()
         self.assertEqual(self.step(plan), "scratch_unreadable")
 
-    def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
-        # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its
-        # own, never the home's, and unpacks it under heads/; the run step reads it as the case's folder and removes it
-        # once the case is asked. A head that cannot be read whole is the case's `head_unreadable`, an Engine's or the
-        # Factory's fault, never the reviewer's: the gate closes.
+    def test_each_cases_head_is_read_from_the_home_by_its_pins_and_one_not_read_closes_the_gate(self):  # issue 611
+        # The fetch reads each case's head from the home, with the home's token, beside the case: its tarball, then its
+        # commit's tree, each by the raw media type and the sha256 the case pins; unpacks it under heads/ and holds it to
+        # the tree file by file (decision 0142). Nothing is read with no credential. The run step reads the head as the
+        # case's folder and removes it once the case is asked. A head not the one pinned is `hash_differs`, and one
+        # that cannot be read, unpacked or held whole `head_unreadable`, a fault of the run or the Engine, never the
+        # reviewer's: the gate closes.
+        from adapters import github, heldout
         from harness import eval as job
         from harness.eval import run as step
+        from tests import support
+        from tests.test_adapters import home_beside, home_file
         case, live = self.reviewed()
-        cases = {i: (json.dumps(dict(case, id=i, head=h), indent=2) + "\n").encode()
-                 for i, h in (("poc-one", "1" * 40), ("poc-two", "2" * 40))}
+        tar, tree = stand_in_head(case["head"])
+        other = {"sha": "e" * 40, "truncated": False, "tree": [dict(json.loads(tree)["tree"][0], path="OTHER.md")]}
+        truncated = dict(json.loads(tree), truncated=True)
+        kept = {"poc-one": (tar, tree), "poc-two": (None, None), "poc-three": (support.tarball("3" * 40), None),
+                "poc-four": (tar, (json.dumps(other) + "\n").encode()), "poc-five": (tar, b"not json\n"),
+                "poc-six": (tar, (json.dumps(truncated) + "\n").encode())}
+        cases, exchanges = {}, []
+        for ident, (has, holds) in kept.items():
+            # Each pins what the home keeps for poc-one, but poc-four, -five and -six pin the tree the home keeps.
+            pin = dict(case, id=ident)
+            if holds is not None:
+                pin["tree_sha256"] = hashlib.sha256(holds).hexdigest()
+            cases[ident] = (json.dumps(pin, indent=2) + "\n").encode()
+            exchanges.append(home_file(ident, cases[ident]))
+            exchanges.append(home_beside(ident, "tar.gz", b"", status=404) if has is None else home_beside(ident, "tar.gz", has))
+            if has is not None and has == tar:
+                exchanges.append(home_beside(ident, "tree.json", holds))
         self.set(cases)
         self.step(job.plan)
-        heads = Heads(refused={"2" * 40})
-        self.assertEqual(self.step(job.fetch, self.home(cases), heads), "fetched 1 of 2 cases")
-        repo = case["facts"]["item"]["repo"]
-        self.assertEqual(heads.asked, [("/repos/%s/tarball/%s" % (repo, "1" * 40), True, github_tarred()),
-                                       ("/repos/%s/tarball/%s" % (repo, "2" * 40), True, github_tarred())])
+        asked = []
+
+        class Home(github.Replay):
+            def send(self, req):
+                asked.append((req["path"].rsplit("/", 1)[-1], req["accept"]))
+                return super().send(req)
+        self.assertEqual(self.step(job.fetch, Home(exchanges)), "fetched 1 of 6 cases")
+        self.assertEqual(asked[:3], [("poc-one.json", github.JSON), ("poc-one.tar.gz", heldout.RAW),
+                                     ("poc-one.tree.json", heldout.RAW)])
+        self.assertEqual(len(asked), len(exchanges), "each answer the home keeps is asked, once, in its order")
         place = self.temp / "heldout"
-        self.assertEqual(json.loads((place / "fetched.json").read_text()), {"poc-one": None, "poc-two": "head_unreadable"})
+        self.assertEqual(json.loads((place / "fetched.json").read_text()),
+                         {"poc-one": None, "poc-two": "head_unreadable", "poc-three": "hash_differs",
+                          "poc-four": "head_unreadable", "poc-five": "head_unreadable", "poc-six": "head_unreadable"})
         self.assertEqual(sorted(p.name for p in (self.temp / "heads").iterdir()), ["poc-one"])
-        self.assertTrue((self.temp / "heads" / "poc-one" / "README.md").is_file())
+        self.assertEqual((self.temp / "heads" / "poc-one" / "README.md").read_bytes(), b"# a repo\n")
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
         kept_plan = json.loads((place / "plan.json").read_text())
         (place / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
         self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
-        asked, = cli.asked()
-        self.assertEqual(pathlib.Path(asked["head"]).parts[-2:], ("heads", "poc-one"))
+        asked_of, = cli.asked()
+        self.assertEqual(pathlib.Path(asked_of["head"]).parts[-2:], ("heads", "poc-one"))
         self.assertFalse((self.temp / "heads" / "poc-one").exists(), "removed once its case is asked")
         report = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual({c["id"]: c["reasons"] for c in report["cases"]}["poc-three"], ["hash_differs"])
         self.assertEqual({c["id"]: c["reasons"] for c in report["cases"]}["poc-two"], ["head_unreadable"])
         self.assertIn("head_unreadable", job.ENGINE_FAULTS)
         self.assertEqual(self.step(job.judge.step if hasattr(job.judge, "step") else job.judge), "engine_fault")
-        # The fetch step's own transport for the heads sends no token: the home's is never sent anywhere else.
+        # The fetch step's one transport is the home's, read-only, with its token: no transport with no credential.
         import importlib
-        from adapters import github
         fetching = importlib.import_module("harness.eval.fetch")
         made = []
-        with mock.patch.object(fetching, "fetch", lambda env, root, work, home, heads: made.append((home, heads)) or "x"):
+        with mock.patch.object(fetching, "fetch", lambda env, root, work, *given: made.append(given) or "x"):
             fetching.step({"HELDOUT_TOKEN": "a-stand-in-held-out-token"}, self.root, self.work)
-        (home, anonymous), = made
-        self.assertIsNone(anonymous._token)
-        self.assertIsInstance(anonymous, github.Live)
+        (home,), = made
+        self.assertIsInstance(home, fetching.ReadOnly)
+        self.assertEqual(home._transport._token, "a-stand-in-held-out-token")
+
+    def test_the_maintainers_tool_pins_each_head_beside_its_case_and_prints_counts_and_hashes_alone(self):  # issue 611
+        # Run at his terminal in his checkout of the home, the tool reads each case's head, its tarball and its tree,
+        # holds the one to the other, writes both beside the case and pins them in it; a case it cannot pin is left as
+        # it was. It prints counts, then each pinned case's id and new sha256, never a byte of a case, and what it
+        # writes is what the eval job's fetch reads.
+        from adapters import github
+        from harness import eval as job
+        from harness import head
+        from tests import support
+        from tests.test_adapters import home_beside, home_file
+        from tools import heads_into_home as tool
+        case, live = self.reviewed()
+        plain = {k: v for k, v in case.items() if k not in ("head_sha256", "tree_sha256")}
+        tar, tree = stand_in_head(case["head"])
+        home = self.temp / "home"
+        (home / "pr-review").mkdir(parents=True)
+        written = {"poc-one": (json.dumps(dict(plain, id="poc-one"), indent=2) + "\n").encode(),
+                   "poc-two": (json.dumps(dict(plain, id="poc-two", head="2" * 40), indent=2) + "\n").encode(),
+                   "poc-three": b"no case\n", "poc-four": (json.dumps(dict(plain, id="poc-other"), indent=2) + "\n").encode()}
+        for ident, data in written.items():
+            (home / "pr-review" / ("%s.json" % ident)).write_bytes(data)
+        (home / "pr-review" / "poc-old.tree.json").write_bytes(b"{}\n")      # a tree an earlier run wrote: no case
+        asked = []
+
+        class GitHub:
+            """The repo the cases are of: each commit's tarball as codeload serves one, and its tree as the API answers;
+            but commit 2..2's tree lists a file its tarball does not hold."""
+            def send(self, req):
+                asked.append(req["path"])
+                tarred, listed = github.TARBALL.fullmatch(req["path"]), github.TREE.fullmatch(req["path"])
+                if tarred:
+                    return {"status": 200, "headers": {}, "body": support.tarball(tarred.group(3)).decode("utf-8", errors="surrogateescape")}
+                body = json.loads(stand_in_head(listed.group(3))[1])
+                if listed.group(3) == "2" * 40:
+                    body["tree"].append(dict(body["tree"][0], path="MISSING.md"))
+                return {"status": 200, "headers": {}, "body": body}
+        out = io.StringIO()
+        self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 1)
+        new = (home / "pr-review" / "poc-one.json").read_bytes()
+        self.assertEqual(out.getvalue(), "pinned 1 of 4 cases; head_unreadable 1; not_a_case 2\n%s\n"
+                         % json.dumps({"id": "poc-one", "sha256": hashlib.sha256(new).hexdigest()}))
+        for word in (case["diff"][:40], case["facts"]["item"]["repo"], case["head"]):
+            self.assertNotIn(word, out.getvalue())
+        # The case pins what was written beside it, after its head, and is otherwise as it was.
+        self.assertEqual((home / "pr-review" / "poc-one.tar.gz").read_bytes(), tar)
+        self.assertEqual(json.loads((home / "pr-review" / "poc-one.tree.json").read_bytes()), json.loads(tree))
+        self.assertEqual(json.loads(new), dict(plain, id="poc-one", head_sha256=hashlib.sha256(tar).hexdigest(),
+                                               tree_sha256=hashlib.sha256((home / "pr-review" / "poc-one.tree.json").read_bytes()).hexdigest()))
+        keys = list(json.loads(new))
+        self.assertEqual(keys[keys.index("head"):keys.index("head") + 3], ["head", "head_sha256", "tree_sha256"])
+        for ident in ("poc-two", "poc-three", "poc-four"):
+            self.assertEqual((home / "pr-review" / ("%s.json" % ident)).read_bytes(), written[ident], ident)
+            self.assertFalse((home / "pr-review" / ("%s.tar.gz" % ident)).exists(), ident)
+        repo = case["facts"]["item"]["repo"]
+        self.assertEqual(asked, [head.path_of(repo, case["head"]), head.tree_path(repo, case["head"]),
+                                 head.path_of(repo, "2" * 40), head.tree_path(repo, "2" * 40)])
+        # Run again, it pins the case anew, to the same bytes.
+        (home / "pr-review" / "poc-two.json").unlink()
+        (home / "pr-review" / "poc-three.json").unlink()
+        (home / "pr-review" / "poc-four.json").unlink()
+        out = io.StringIO()
+        self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 0)
+        self.assertEqual((home / "pr-review" / "poc-one.json").read_bytes(), new)
+        # What it wrote is what the eval job's fetch reads, with the home's token, beside the case.
+        cases = {"poc-one": new}
+        self.set(cases)
+        self.step(job.plan)
+        files = [home_file("poc-one", new), home_beside("poc-one", "tar.gz", (home / "pr-review" / "poc-one.tar.gz").read_bytes()),
+                 home_beside("poc-one", "tree.json", (home / "pr-review" / "poc-one.tree.json").read_bytes())]
+        self.assertEqual(self.step(job.fetch, github.Replay(files)), "fetched 1 of 1 cases")
+        # Asked wrongly, or with no token, it reads nothing.
+        for argv in ([str(home)], [str(home), "pr-review/.."], [str(home), "absent"]):
+            self.assertEqual(tool.main(argv, {}, GitHub(), io.StringIO()), 2, argv)
+        self.assertEqual(tool.main([str(home), "pr-review"], {}, None, io.StringIO()), 2)
 
     def test_the_step_gives_each_case_the_release_dispatched_and_a_fresh_run(self):  # issue 309, ruling 5
         # Through the step as the workflow runs it: each case's Task names the Release the dispatch named, which plan

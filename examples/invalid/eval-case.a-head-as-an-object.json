@@ -240,6 +240,8 @@
   "head": {
     "sha": "c514ff021d93934192c9dbb14b6c31c2b421e6c7"
   },
+  "head_sha256": "6bbe1f08b91c69085d33a368e265ba4f7ef7438228aa0047546ab018b61eeec2",
+  "tree_sha256": "c8037a8b9d2fca258427534558b219fa94635816faf136ab59684a97d2429010",
   "expected": {
     "verdict": "finding",
     "criterion": "PR-3",
