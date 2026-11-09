@@ -1,4 +1,4 @@
-# 0171. The eval job's trial records the Factory's own repo beside P-30, and a live read stands for a refusal
+# 0172. The eval job's trial records the Factory's own repo beside P-30, and a live read stands for a refusal
 
 Status: accepted. The Factory Builder's rulings of 2026-11-09 on the fixtures of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182), for "Workflows: eval.yml runs the review Intent's held-out cases and writes eval-report/1" (issue 309) and "Trial P-30: one identity cuts a Release and moves a channel tag under the tag ruleset" (issue 189). Pre-approved by the Maintainer on 2026-11-08. It amends decision 0113's row "Which trials may", whose "P-30 alone" now reads "P-30 and P-63 alone", and changes nothing else of it.
 
