@@ -9344,6 +9344,9 @@ MUTANTS = ISSUE + [
      '        return None if not uses.startswith("actions/upload-artifact@") else', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
     # Issue 613: a gate set gives its own bars, and its gate pools every dispatch on the commit.
     # Issue 692: a gate set's floor per criterion, read from each case's expected criterion.
+    ('the pool holds the first floor alone', 'harness/eval/__init__.py',
+     '               for name, bar in criterion_bars_of(found).items()):\n', '               for name, bar in sorted(criterion_bars_of(found).items())[:1]):\n',
+     ('tests.test_evals.EvalJob.test_a_gate_set_holds_a_floor_per_criterion_read_from_each_cases_expected_criterion',)),
     ("the pool skips each criterion's floor", 'harness/eval/__init__.py',
      '        return "criterion_failed"\n', '        pass\n',
      ('tests.test_evals.EvalJob.test_a_gate_set_holds_a_floor_per_criterion_read_from_each_cases_expected_criterion',)),

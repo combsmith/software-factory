@@ -3365,6 +3365,12 @@ class EvalJob(unittest.TestCase):
         self.assertEqual((pooled([half] * 3, found), pooled([four] * 3, found), pooled([half, half, blind], found),
                           pooled([self.written(found, place, set()), half, four], found)),
                          ("pass", "criterion_failed", "criterion_failed", "pass"))
+        # Every floor is held, not the first alone: PR-4 at four of ten under its own half fails the pool, PR-3 clear
+        # (lane d's Muse read).
+        both, _ = self.floored(groups, floors={"PR-3": [1, 2], "PR-4": [1, 2]})
+        pr4 = [c["id"] for c in both["cases"][20:30]]
+        self.assertEqual(pooled([self.written(both, place, set(pr3[5:]) | set(pr4[4:]))] * 3, both), "criterion_failed")
+        self.assertEqual(pooled([self.written(both, place, set(pr3[5:]) | set(pr4[5:]))] * 3, both), "pass")
         # A criterion the set does not floor is not counted, and fails nothing: PR-4 at none of ten, and no floor at all.
         unfloored = [c["id"] for c in found["cases"][20:30]]
         self.assertEqual(pooled([self.written(found, place, set(unfloored[:7]))] * 3, found), "pass")
