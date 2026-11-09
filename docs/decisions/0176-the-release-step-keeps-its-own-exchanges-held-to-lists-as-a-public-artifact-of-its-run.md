@@ -1,4 +1,4 @@
-# NNNN. The release step keeps its own exchanges, held to lists, as a public artifact of its run
+# 0176. The release step keeps its own exchanges, held to lists, as a public artifact of its run
 
 Status: accepted. The Factory Builder's rulings of 2026-11-09 on the design for "The release step records its own exchanges, redacted, after factory/v0.1.0" (issue 531), which ruling 9′ of "Release: cut an immutable tag, move next, and roll back in one action" (issue 197), as amended on 2026-11-03, left open: a fixture of a Release's runs could show each run's outcome and what was read from outside it, but not what the step itself read and wrote. The edit to `.github/workflows/release.yml` was pre-approved by the Maintainer on 2026-11-08 and ruled by the Factory Builder.
 
