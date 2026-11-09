@@ -105,8 +105,8 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
         facts, head, runs, context = read()
     except Moved:
         return _records(run, release, "refused", None, ("superseded", "head_moved"))
-    except Exception:     # any read that failed is the environment's, never a Run that died with no outcome (ruling 6)
-        return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
+    except Exception as err:     # any read that failed is the environment's, never a Run that died with no outcome (ruling 6)
+        return _records(run, release, "refused", None, ("environment", shared.unread(err)))
     # A Pause that cannot be read is a read that failed: the environment's, not a change under the act.
     # Each part read is held to its schema before anything is asked of it, so none can end the job unrecorded (Codex).
     if shared.errors(facts, "facts") or not isinstance(head, str) \

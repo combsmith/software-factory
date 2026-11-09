@@ -50,17 +50,15 @@ FILES = ("record.json", "run", "facts.json", "diff", "texts.json", "role.json", 
 
 @contextlib.contextmanager
 def reading(read: str):
-    """A read GitHub did not answer stops the step by the read's name, `<read>_unreadable`, and a snapshot's by its part
-    too, `snapshot_<part>_unreadable` (`adapters/facts.py`): codes of the step's own, never what GitHub said, so a Run
-    that stops says which read it was (pull request 688, the dry run, stopped twice at one code for every read). A pull
-    request that moved while it was read stops `pull_moved`."""
+    """A read GitHub did not answer stops the step by its code, `shared.unread`'s for the stage `read`; a pull request
+    that moved while it was read stops `pull_moved`."""
     try:
-        yield
+        with shared.staged(read):
+            yield
     except facts_.Moved:
         raise Stop("pull_moved") from None
     except Unanswered as err:
-        part = getattr(err, "part", None)
-        raise Stop("%s_%s_unreadable" % (read, part) if part else "%s_unreadable" % read) from None
+        raise Stop(shared.unread(err)) from None
 
 
 class ReleaseMoved(Stop):
