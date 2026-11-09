@@ -1,4 +1,4 @@
-# NNNN. A pull request that moved while a pass read it is deferred once with no alert
+# 0172. A pull request that moved while a pass read it is deferred once with no alert
 
 Status: accepted. The Factory Builder's ruling of 2026-11-08 on issue 658, "Controller: a pull request that changes while a pass reads it raises facts_unreadable and reconciliation_unreadable, though Moved means read it again". From 2026-11-08 05:38Z, Factory alerts were opened seven times and closed within minutes. Each time, one pull request had merged, taken a commit or taken a comment less than a minute before the pass read it. The snapshot raised `Moved`, which means "read it again at the next pass". The entry took it as any read GitHub did not answer, so it raised `facts_unreadable`, and the item's writes, never read, left reconciliation short. It adds a grace pass and amends nothing else: decision 0056's tracking issue still opens on a pass's first cause.
 
