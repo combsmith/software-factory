@@ -112,6 +112,8 @@ RULES = (
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
+    # Contradicted by P-2 (trials/P-2.no-pass.json, issue 659): GitHub's queue merges a queued pull request on its required
+    # checks alone, with no pass read between. Left unverified, as it is, until the fake changes: issue 677's story.
     ("a_pass_comes_before_the_merge", "The merge queue merges a pull request only after a pass has read it whole and "
      "current, and found the same facts GitHub holds at the merge", ("P-2",), None, None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
