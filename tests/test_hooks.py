@@ -2848,7 +2848,7 @@ class ProtectedPaths(Asks):
                     self.assertIn(entry["is"], said)
         for rel in (".claude/settings.json", ".claude/settings.local.json", "lifecycle/new/deep.json",
                     "tools/hooks/protected.py", "config/rubric-pr-review.json", ".github/workflows/verify.yml",
-                    "config/apps.json", "evals/pr-review/cases.json"):
+                    "config/apps.json", "evals/pr-review/cases.json", "evals/gate/cases.json"):
             self.asked(self.edit(self.project / rel), "protected_path", rel)
 
     def test_a_copy_or_move_that_makes_a_directory_asks_about_what_it_will_hold(self):  # issue 696
