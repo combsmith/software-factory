@@ -66,7 +66,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the same file asked with the raw media type. gh formats a body whose type names json, and wrote none; asked so again in exchange 7 it exited 1, saying only that a buffer was short. The body GitHub sends for this type is seen with no credential in exchange 2, and for this login, under application/vnd.github.raw, in exchange 5",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the same file asked with the raw media type. gh formats a body whose type names json, and wrote none; asked so again in exchange 7 it exited 1, saying only that a buffer was short. The body GitHub sends for this type is seen with no credential in exchange 2, and for this login, under application/vnd.github.raw, in exchange 5. By the Factory Builder's ruling of 2026-11-08, quoted in exchange 5, a fault of the client, not GitHub's answer",
         "headers": {
           "accept": "application/vnd.github.raw+json"
         },
@@ -231,7 +231,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file asked with application/vnd.github.raw, a type that does not name json, on the same commit, its branch made again for this second pass and deleted after. gh follows a redirect without saying so; the answer's headers are the API's own, and exchanges 2 and 6, which follow none, show no redirect",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file asked with application/vnd.github.raw, a type that does not name json, on the same commit, its branch made again for this second pass and deleted after. gh follows a redirect without saying so; the answer's headers are the API's own, and exchanges 2 and 6, which follow none, show no redirect. The Factory Builder's ruling of 2026-11-08 on this trial's verdict, pass: \"the raw media type\" in the pass condition is answered by application/vnd.github.raw, the type the transport must ask for, since adapters/github.py reads any type ending in json as JSON; it returned the file's bytes exactly, by their sha256, with no redirect, with the Maintainer's login (this exchange) and with no credential (exchange 6). Asked as application/vnd.github.raw+json, it returned the bytes exactly with no credential (exchange 2); with the login its content-length was 1,577,185, but gh wrote no body, saying \"transform: short source buffer\" three times (exchanges 1 and 7): a fault of the client, on a type the Factory will not use, not GitHub's answer",
         "headers": {
           "accept": "application/vnd.github.raw"
         },
@@ -313,7 +313,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): exchange 1 asked again: gh wrote no body, and exited 1 saying \"transform: short source buffer\"; asked a third time without --include, the body alone to a file, it did the same",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): exchange 1 asked again: gh wrote no body, and exited 1 saying \"transform: short source buffer\"; asked a third time without --include, the body alone to a file, it did the same. By the Factory Builder's ruling of 2026-11-08, quoted in exchange 5, a fault of the client, not GitHub's answer",
         "headers": {
           "accept": "application/vnd.github.raw+json"
         },
