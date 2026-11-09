@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "eval-set/1: what this repo holds of a held-out eval set: the Role and Intent it tests, the count of cases, and each case's id and the sha256 of its file in the private home. A gate set says so, and of each case whether it is natural: a fresh set the gate reads, whose report is of counts alone (issue 612). No case content is here, and none may be.",
+  "title": "eval-set/1: what this repo holds of a held-out eval set: the Role and Intent it tests, the count of cases, and each case's id and the sha256 of its file in the private home. A gate set says so, and of each case whether it is natural: a fresh set the gate reads, whose report is of counts alone (issue 612), with its own bars, least of a kind and the record that states them, and the development cases each of its dispatches asks first (issue 613). No case content is here, and none may be.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -29,6 +29,56 @@
     "gate": {
       "description": "Whether this is a gate set, whose report is eval-aggregate/1, of counts alone; absent, a development set, whose report is eval-report/1.",
       "type": "boolean"
+    },
+    "bars": {
+      "description": "A gate set's own bar for each kind, as a whole fraction [passed, of], applied to its cases summed over every dispatch on a commit (issue 613); no other set gives any.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding",
+        "met"
+      ],
+      "properties": {
+        "finding": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "met": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "kind_least": {
+      "description": "How many cases of each kind a gate set must hold (issue 613); no other set gives it.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "record": {
+      "description": "The decision record that states a gate set's bars and least of a kind, word for word as `harness.eval.bars_said` gives them (issue 613).",
+      "type": "string",
+      "pattern": "^docs/decisions/[0-9]{4}-[a-z0-9-]+\\.md$"
+    },
+    "preflight": {
+      "description": "The cases of the review Intent's development set, `evals/pr-review`, by id, that each dispatch of a gate set asks first and scores apart, so that a broken pipeline stops the dispatch before any of the gate set's cases is asked (issue 613). None may be a gate set's case, by its id or its hash; no other set gives any.",
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 3,
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      }
     },
     "cases": {
       "type": "array",

@@ -43,6 +43,11 @@
       "count": 1
     }
   ],
+  "preflight": {
+    "cases": 3,
+    "passed": 3,
+    "faults": []
+  },
   "usage": {
     "answered": 44,
     "input_tokens": 1320000,

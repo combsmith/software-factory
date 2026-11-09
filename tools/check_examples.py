@@ -256,6 +256,40 @@ def _reason_unsuited(result: dict) -> list:
     return [] if engine.reason_given(result) else ["$.reason: not one its status may give"]
 
 
+def _held(found: dict) -> list:
+    """A manifest's example as the eval job and the gate read it, `harness.eval.held`, and not by its schema alone: a
+    gate set's groups, bars and least of a kind among it (the Claude review of issue 613)."""
+    from harness.eval import Stop, held
+    try:
+        held(json.dumps(found).encode("utf-8"))
+    except Stop as stop:
+        return ["is refused where it is read: %s" % stop.code]
+    return []
+
+
+def _bars_stated(root: pathlib.Path, found: dict) -> list:
+    """A gate set's bars and least of a kind, as its record states them word for word, so that nothing reads a record at
+    run time (issue 613)."""
+    from harness.eval import bars_said
+    path = root / found.get("record", "")
+    if "record" not in found or not path.is_file():
+        return ["names no record that states its bars"]
+    if bars_said(found) not in path.read_text(encoding="utf-8"):
+        return ["its record does not say %r" % bars_said(found)]
+    return []
+
+
+def _preflight_held(root: pathlib.Path, found: dict) -> list:
+    """A gate set's preflight as its job reads it, `harness.eval.preflight_of`: each a case of the development set, and
+    none a case of any gate set, by its id or its hash (issue 613)."""
+    from harness.eval import Stop, preflight_of
+    try:
+        preflight_of(root, found)
+    except Stop as stop:
+        return ["its preflight is refused where it is read: %s" % stop.code]
+    return []
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
 
@@ -293,6 +327,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
         errors = errors or (_reason_unsuited(value) if kind == "result" else [])
+        errors = errors or (_held(value) if kind == "eval-set" else [])
         for err in errors:
             problems.append("%s: %s" % (path.name, err))
     for path in sorted((root / "examples" / "invalid").glob("*.json")):
@@ -334,6 +369,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
+        if kind == "eval-set" and not errors and value.get("gate") is True:
+            errors = _bars_stated(root, value) + _preflight_held(root, value)
         for err in errors:
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle", "evals"):

@@ -1601,6 +1601,46 @@ class Identity(unittest.TestCase):
         # So is one inside a nested one, which opens unquoted whatever quote holds it; main refused it, by its count.
         self.assertIn(["echo", "${x:-a}"], [w for w, _ in shell.commands('echo "$(echo "$(echo ${x:-\'a\'})")"')])
 
+    def test_a_backtick_in_double_quotes_has_quotes_of_its_own(self):  # issue 605
+        # A backtick in double quotes ends at its next backtick, and a " in it is its own, as in a "$(...)": what follows
+        # its quotes is read as commands, \" \` \$ and \\ in it as the shell takes them out.
+        for command in ('echo "`echo "a b"; git push`"', 'echo "`echo \\"a b\\"; git push`"',
+                        'echo "`echo \\`date\\`; git push`"', 'echo "a `date` b"; git push'):
+            commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
+            self.assertIn(["git", "push"], [w for w, _ in commands if w], command)
+        self.assertIn(["echo", "a b"], [w for w, _ in shell.commands(identity._quoted('echo "`echo \\"a b\\"`"'))])
+        self.assertEqual(identity._quoted('echo "`echo \\$HOME`"'), 'echo "$(echo $HOME)"')
+        # One escaped is text, and one that never closes is read as main reads it.
+        self.assertEqual(identity._quoted('echo "\\`git push\\`"'), 'echo "\\`git push\\`"')
+        self.assertEqual(identity._quoted('echo "`echo a'), 'echo "`echo a')
+        # So is one whose quote or comment would run past the ) it is given: main refuses the first and reads the
+        # second's push (Argon). One that never closes leaves what an expanded body runs read (the Claude review).
+        with self.assertRaises(ValueError):
+            shell.commands(identity._quoted('echo "`echo \'` $(git push) )\'"'))
+        for command in ('echo "`echo a #` $(git push)\n)"', 'cat <<EOF\n$(echo "a b"; git push)\nEOF\necho "`date"'):
+            commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), scopes=True)
+            self.assertIn(["git", "push"], [w for w, _ in commands if w], command)
+
+    def test_a_quote_past_a_backtick_in_a_here_documents_substitution_is_not_read_as_data(self):  # issue 605
+        # A backtick in a body's substitution whose quote runs past its end: the shell fails the backtick and runs what
+        # follows, so the hooks ask, as they do outside a here-document. A quote in a comment there is no quote.
+        # A $(...) in the backtick has quotes and comments of its own, and a # after a character a backslash holds
+        # begins a word (Argon, Astra).
+        for body in ("$(echo `echo '`\nrm kernel/gate.py\n# '`\n)", '$(echo `echo "$(echo a # "\n)`\nrm kernel/gate.py\n# "`\n)',
+                     "$(echo `echo \\ #'`\nrm kernel/gate.py\n# '`\n)"):
+            with self.assertRaises(shell.Unread, msg=body):
+                shell.without_heredocs("cat <<EOF\n" + body + "\nEOF")
+        for body in ("$(echo `echo \"$(printf '%s' '\"')\"`)", "$(echo `echo \"$(echo '\"')\"`)"):
+            self.assertIn(["cat"], [w for w, _ in shell.commands("cat <<EOF\n" + body + "\nEOF")], body)
+        self.assertIn(["date"], [w for w, _ in shell.commands("cat <<EOF\n$(echo `date # it's`)\nEOF")])
+        self.assertIn(["echo", "a b"], [w for w, _ in shell.commands('cat <<EOF\n$(echo `echo "a b"`)\nEOF')])
+        # A backslash holds a quote, but not in single quotes, where it is a character.
+        for body in ("$(echo `echo \\'`)", "$(echo `echo '\\'`)"):
+            self.assertIn(["cat"], [w for w, _ in shell.commands("cat <<EOF\n%s\nEOF" % body)], body)
+        # Prose between backticks at a body's top level is still data, as on main: a commit message may hold `it's`.
+        self.assertIn(["git", "commit", "-m", "$(cat <<EOF\nEOF\n)"],
+                      [w for w, _ in shell.commands('git commit -m "$(cat <<EOF\nFix `it\'s` here\nEOF\n)"')])
+
     def test_whether_a_command_defines_a_printers_name_is_searched_once_a_name(self):  # issue 605
         # Whether a command defines a function of a printer's name is searched once for each name, not once for each
         # command that prints, so a command of many short ones reads in linear time.
@@ -3108,6 +3148,30 @@ class MergesAndSettings(Asks):
         # Past Python's own depth, a nest is one the hook cannot read (Astra on #520).
         self.asked(self.run_(('echo "$(' * 1500) + "true" + (')"' * 1500)), "command_unreadable", "a nest 1500 deep")
 
+    def test_a_double_quoted_substitution_in_a_double_quoted_one_hides_no_command_after_it(self):  # issue 605
+        # A "$(...)" or "`...`" nested in a "$(...)" has quotes of its own, as the identity hook reads them: they do not
+        # end the outer quote, so a write after the nested one is asked about. On main each was let through.
+        for command in ('echo "$(echo "$(date)"; rm kernel/gate.py)"',
+                        'echo "$(echo "$(echo ${x:-a})"; rm kernel/gate.py)"',
+                        "echo \"$(echo \"$(echo ${x:-'a'})\"; rm kernel/gate.py)\"",
+                        'echo "`echo "a b"; rm kernel/gate.py`"',
+                        'cat <(echo "$(echo "$(date)"; rm kernel/gate.py)")'):
+            self.asked(self.run_(command), "protected_path", command)
+        self.assertEqual(self.run_('x="$(basename "$(pwd)")"; echo "$x"'), "")
+        # A quote past a backtick in a here-document's substitution is asked about, as it is outside one.
+        self.asked(self.run_("cat <<EOF\n$(echo `echo '`\nrm kernel/gate.py\n# '`\n)\nEOF"), "command_unreadable", "(d)")
+        # The command is read as main reads it too, so what main asks about is still asked: a body's substitution
+        # before a backtick that never closes, and a quote past an unquoted backtick (the Claude review).
+        self.asked(self.run_('cat <<EOF\n$(echo "a b"; rm kernel/gate.py)\nEOF\necho "`date"'), "protected_path", "an open `")
+        self.asked(self.run_("echo `echo '`\nrm kernel/gate.py\n# '`"), "command_unreadable", "a quote past a backtick")
+        # A reading that fails leaves main's to stand; each is read from where the command began; what both ask, once.
+        self.assertEqual(self.run_('x="`case $1 in a) echo 1;; esac`"'), "")
+        self.assertEqual(self.run_('touch x.json; cd lifecycle; echo "$(echo "$(date)")"'), "")
+        self.assertEqual(self.run_('rm kernel/gate.py; echo "$(echo "$(date)"; true)"').count("protected_path"), 1)
+        # Past RESPELT_MOST characters the command is read once, as main reads it, in linear time (the security pass).
+        long = 'echo %s; echo "$(echo "$(date)"; rm kernel/gate.py)"' % ("a" * protected.RESPELT_MOST)
+        self.assertEqual(self.run_(long), "")
+
 
     def test_what_does_not_merge_is_not_asked_about(self):
         for command in ("gh pr view 5", "gh pr create --fill", "gh pr checks 5", "gh pr view 5 --json mergeable",
@@ -3806,7 +3870,83 @@ class RulesChanged(unittest.TestCase):
         self.assertIn("could not be listed", json.loads(out)["systemMessage"])
 
 
+# Each hook's two cases through its front door, as the settings run it: (a violation it speaks up about, a clean case it
+# passes in silence). A hook the settings run, or a module in hooks/ with a main(), that is missing here fails
+# test_every_hook_is_fed_a_violation_and_a_clean_case (issue 595).
+def fed_identity():
+    here, path = repo(), programs("git", "gh")
+    return (hook("identity", bash("git push", here), path, FAKE_GH_USER=MACHINE),
+            hook("identity", bash("git push", here), path))
+
+
+def fed_protected():
+    project = a_tree()
+    payload = {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(project),
+               "tool_input": {"file_path": str(project / "lifecycle" / "issue.json"), "content": "{}"}}
+    clean = dict(payload, tool_input={"file_path": str(project / "docs" / "notes.md"), "content": "{}"})
+    return tuple(hook("protected", case, programs(), CLAUDE_PROJECT_DIR=str(project)) for case in (payload, clean))
+
+
+def fed_after_edit():
+    project = a_project()
+    payload = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": str(project), "tool_response": {},
+               "tool_input": {"file_path": str(project / "kernel" / "decide.py")}}
+    return tuple(hook("after_edit", payload, programs("make"), FAKE_MAKE_EXIT=code, CLAUDE_PROJECT_DIR=str(project))
+                 for code in ("1", "0"))
+
+
+def fed_before_stop():
+    project = a_project()
+    payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(project)}
+    return tuple(hook("before_stop", payload, programs("make"), FAKE_MAKE_EXIT=code, CLAUDE_PROJECT_DIR=str(project))
+                 for code in ("2", "0"))
+
+
+def fed_rules_changed():
+    where = repo(fresh=True)
+    git(where, "update-ref", "refs/remotes/origin/main", "HEAD")
+    payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
+    clean = hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where))
+    (where / "lifecycle").mkdir()
+    (where / "lifecycle" / "issue.json").write_text("{}\n")
+    git(where, "add", "-A")
+    git(where, "commit", "-q", "-m", "a rule")
+    return hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where)), clean
+
+
+def said(done) -> dict:
+    """What a hook wrote on standard output, read as JSON; {} where it wrote none, or wrote something else."""
+    try:
+        return json.loads(done.stdout) if done.stdout else {}
+    except ValueError:
+        return {}
+
+
+# Each hook's cases, and how it must answer the violation: the identity hook refuses, the protected hook asks, the
+# checks' hooks send the agent back, and the stop's list of rules tells the person. Any other answer, an allow among
+# them, is no enforcement.
+FED = {"identity": (fed_identity, lambda done: done.returncode == 2 and "account_is_machine_user" in done.stderr),
+       "protected": (fed_protected, lambda done: done.returncode == 0 and said(done).get("hookSpecificOutput", {}).get(
+           "permissionDecision") == "ask"),
+       "after_edit": (fed_after_edit, lambda done: done.returncode == 2 and "The checks fail after this edit" in done.stderr),
+       "before_stop": (fed_before_stop, lambda done: done.returncode == 2 and "make checks in" in done.stderr),
+       "rules_changed": (fed_rules_changed, lambda done: done.returncode == 0 and "lifecycle/issue.json" in said(
+           done).get("systemMessage", ""))}
+
+
 class Settings(unittest.TestCase):
+    def test_every_hook_is_fed_a_violation_and_a_clean_case(self):  # issue 595
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        hooks = {found.group(1) for groups in settings["hooks"].values() for group in groups for handler in group["hooks"]
+                 for found in [re.search(r'tools/hooks/(\w+)\.py', handler["command"])] if found}
+        hooks |= {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
+        self.assertEqual(set(FED), hooks)
+        for name in sorted(hooks):
+            fed, enforced = FED[name]
+            violation, clean = fed()
+            self.assertTrue(enforced(violation), "%s: %r" % (name, violation))
+            self.assertEqual((clean.returncode, clean.stdout, clean.stderr), (0, "", ""), name)
+
     def test_the_hook_that_asks_blocks_when_it_fails_to_answer(self):
         settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
         found = [h for g in settings["hooks"]["PreToolUse"] for h in g["hooks"] if "protected.py" in h["command"]]

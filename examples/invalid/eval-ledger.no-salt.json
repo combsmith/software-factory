@@ -145,5 +145,40 @@
         "exit": 1
       }
     }
+  ],
+  "preflight": [
+    {
+      "id": "synthetic-dev-00",
+      "sha256": "0e4a72675e3c2ffc766284e0d85419b88df0353c346018a66415c00f8301c9bf",
+      "verdict": "pass",
+      "reasons": [],
+      "usage": {
+        "turns": 3,
+        "cost_usd": 0.12,
+        "seconds": 24.0
+      }
+    },
+    {
+      "id": "synthetic-dev-01",
+      "sha256": "5be5854e1eb9854e669d17a7fe3c71c8c968a84453a56a9b9d8db595cc210927",
+      "verdict": "pass",
+      "reasons": [],
+      "usage": {
+        "turns": 3,
+        "cost_usd": 0.12,
+        "seconds": 24.0
+      }
+    },
+    {
+      "id": "synthetic-dev-02",
+      "sha256": "13e2cd22e34eca10259c41123fb44ad3b6022f4e624e94c55bb5a7120d393563",
+      "verdict": "pass",
+      "reasons": [],
+      "usage": {
+        "turns": 3,
+        "cost_usd": 0.12,
+        "seconds": 24.0
+      }
+    }
   ]
 }

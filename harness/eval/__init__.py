@@ -8,7 +8,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   a scratch directory outside the workspace, on a runner thrown away when the job ends, and each case's head, the
   commit its diff was taken at, as its tarball with no credential, unpacked by hand beside it (decision 0138);
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
-  (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`;
+  (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`; for a gate
+  set, the development cases its manifest names as its preflight first, scored apart (issue 613);
 - `seal`, for a gate set alone, encrypts the ledger `run` left in the scratch to the Maintainer's certificates (issue 612);
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: each
   kind's bar of decision 0150, and no fault of the Engine or the run (decision 0120).
@@ -53,6 +54,7 @@ Z = 1.959964                # a Wilson interval's, at 95%
 ORIGIN_LEAST = 10
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 PASS = "pass"
 # The bar each kind's cases must clear, as whole fractions so that a boundary is exact: those of a criterion met, the clean
 # cases, and those that expect a Finding. A guard against regression, set under the measured recall so that a run's noise
@@ -65,6 +67,12 @@ KIND_LEAST = 20
 KINDS = ("finding", "met")
 BLOCKING = "blocking"       # whether every case that expects a Finding of this severity passed is said, and closes nothing
 BLOCKING_LEAST = 1          # by itself (decision 0150); a set holds one, or a true word for them could mean none exist
+# How many dispatches on one commit a gate set's gate pools, every one of them counted, so that no run is the best of
+# several (issue 613).
+POOL_LEAST = 3
+OWN = ("bars", "kind_least", "record", "preflight")     # what a gate set's manifest gives of its own, and no other set's does
+# The scratch's folder of the development cases a gate set's dispatch asks first, apart from the set's own (issue 613).
+PREFLIGHT = "preflight"
 # What a case's `cause` may say, each held to a shape that holds no words: an exception's class, the last line of this
 # repo's own code it passed, a code, and the CLI's subtype and exit. Never a message, which could quote a case.
 CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,63}")
@@ -119,8 +127,21 @@ def held(data: bytes) -> tuple:
             len({c["id"] for c in found["cases"]}) != len(found["cases"]) or \
             (gate_set(found) and not all("natural" in c for c in found["cases"])):
         raise Stop("eval_set_unreadable")
+    # A gate set gives its own bars, its least of a kind and the record that states them; no other set gives any, its
+    # being BAR_OF_A_KIND and KIND_LEAST (issue 613). Neither is under the development set's, so that a manifest, which
+    # no person need approve, cannot lower the gate (the security read).
+    if [key for key in OWN if key in found] != (list(OWN) if gate_set(found) else []):
+        raise Stop("eval_set_unreadable")
+    if gate_set(found) and (found["kind_least"] < KIND_LEAST or any(
+            not found["bars"][kind][0] <= found["bars"][kind][1] or found["bars"][kind][1] < 1
+            or found["bars"][kind][0] * BAR_OF_A_KIND[kind][1] < BAR_OF_A_KIND[kind][0] * found["bars"][kind][1]
+            for kind in KINDS)):
+        raise Stop("eval_set_unreadable")
     natural = len([c for c in found["cases"] if c.get("natural") is True])
     if gate_set(found) and any(0 < group < ORIGIN_LEAST for group in (natural, found["count"] - natural)):
+        raise Stop("eval_set_unreadable")
+    # A case of the set's own is never one it asks first: `preflight_of` holds the rest, every gate set's.
+    if gate_set(found) and set(found["preflight"]) & {c["id"] for c in found["cases"]}:
         raise Stop("eval_set_unreadable")
     return found, hashlib.sha256(data).hexdigest()
 
@@ -129,6 +150,50 @@ def gate_set(found: dict) -> bool:
     """Whether a manifest is a gate set's, whose report is of counts alone (issue 612): one that says so. A set that does
     not is a development set, as every set was before."""
     return found.get("gate") is True
+
+
+def bars_of(found: dict) -> dict:
+    """The bar each kind of the set is held to: a gate set's own, as its manifest gives them and its record states them
+    (issue 613); BAR_OF_A_KIND for every other set."""
+    return {kind: tuple(found["bars"][kind]) for kind in KINDS} if gate_set(found) else dict(BAR_OF_A_KIND)
+
+
+def kind_least_of(found: dict) -> int:
+    """How many cases of each kind the set must hold: a gate set's own, as its manifest gives it (issue 613); KIND_LEAST
+    for every other set."""
+    return found["kind_least"] if gate_set(found) else KIND_LEAST
+
+
+def bars_said(found: dict) -> str:
+    """The sentence a gate set's record holds of its bars and its least of a kind, word for word, so that a check can hold
+    the record to the manifest and nothing reads a record at run time (issue 613)."""
+    bars = bars_of(found)
+    return "Its bars: %s; at least %d cases of each kind." % (
+        ", ".join("%s %d of %d" % (kind, bars[kind][0], bars[kind][1]) for kind in KINDS), kind_least_of(found))
+
+
+def preflight_of(root: pathlib.Path, found: dict) -> list:
+    """The cases a gate set's dispatch asks first, each `{id, sha256}` as the review Intent's development set,
+    DEFAULT_SET, names it, in the order the gate set does; none for any other set (issue 613). A development set that
+    cannot be read, is a gate set or is of another Role or Intent, or an id it does not name, is `eval_set_unreadable`;
+    a case any gate set under `evals/` names, by its id or its hash, is `eval_set_overlaps_a_gate_set`: its outcome would
+    be told, by its count, beside the gate set's."""
+    if not gate_set(found):
+        return []
+    named, _ = manifest(root, DEFAULT_SET)
+    if gate_set(named) or (named["role"], named["intent"]) != (found["role"], found["intent"]):
+        raise Stop("eval_set_unreadable")
+    entries = {c["id"]: {"id": c["id"], "sha256": c["sha256"]} for c in named["cases"]}
+    if not set(found["preflight"]) <= set(entries):
+        raise Stop("eval_set_unreadable")
+    ahead = [entries[ident] for ident in found["preflight"]]
+    # Every manifest under `evals/`, the dispatched set's own among them, as `found` is always read from there.
+    gated = [m for m in (manifest(root, other.parent.name)[0] for other in sorted((root / SETS).glob("*/cases.json")))
+             if gate_set(m)]
+    held_back = {c[key] for m in gated for c in m["cases"] for key in ("id", "sha256")}
+    if held_back & {e[key] for e in ahead for key in ("id", "sha256")}:
+        raise Stop("eval_set_overlaps_a_gate_set")
+    return ahead
 
 
 def scratch(env: dict, workspace: pathlib.Path) -> pathlib.Path:
@@ -199,6 +264,7 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     if found["count"] == 0:
         raise Stop("eval_set_empty")
     held_out(root, name, found)
+    ahead = preflight_of(root, found)
     # The heads beside the scratch, made new as it is: a folder an earlier job left is no head of this run. Both are
     # placed first, and the heads made first, so that a heads folder left behind stops the plan before any scratch is
     # made; a scratch left behind stops it with the new heads beside it, and either stops the next (issue 626).
@@ -207,13 +273,17 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         heads.mkdir(mode=0o700)
         place.mkdir(mode=0o700)
         (place / "cases").mkdir(mode=0o700)
+        if ahead:
+            (place / PREFLIGHT).mkdir(mode=0o700)
+            (place / PREFLIGHT / "cases").mkdir(mode=0o700)
     except OSError:
         raise Stop("scratch_unreadable") from None
     # When the plan was made, the job's own start to within its checkout: the run step's time is counted from it, so
     # that the fetch and the install spend it too (the run step's BUDGET).
     _write(place, "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
-                                 "name": name, "set": {"count": found["count"], "sha256": digest}, "planned_at": now()})
-    return "planned %d cases" % found["count"]
+                                 "name": name, "set": {"count": found["count"], "sha256": digest}, "preflight": ahead,
+                                 "planned_at": now()})
+    return "planned %d cases" % found["count"] + (" after %d to preflight" % len(ahead) if ahead else "")
 
 
 def held_out(root: pathlib.Path, name: str, found: dict) -> None:
@@ -237,13 +307,14 @@ def now() -> int:
 
 
 def _planned(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> tuple:
-    """`(plan, manifest, scratch)`, the set as `plan` hashed it: a set changed since is no set of this run."""
+    """`(plan, manifest, scratch)`, the set as `plan` hashed it, and the cases it asks first as `plan` read them: a set
+    changed since is no set of this run."""
     place = scratch(env, workspace)
     kept = _read(place, "plan.json")
     if not isinstance(kept, dict):
         raise Stop("eval_set_changed")
     found, digest = manifest(root, kept.get("name"))
-    if kept.get("set") != {"count": found["count"], "sha256": digest}:
+    if kept.get("set") != {"count": found["count"], "sha256": digest} or kept.get("preflight") != preflight_of(root, found):
         raise Stop("eval_set_changed")
     return kept, found, place
 
@@ -313,9 +384,19 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
     why each that is not there is not: `fetched.json`, by id, a code or null, and `fetch-causes.json`, by id, what a read
     that raised raised, by its class and place alone. Each case's head is read through `heads`, with no credential, and
     a case whose head cannot be read whole is not there either, `head_unreadable`. Heads are unpacked in `heads_place`,
-    apart from the cases (issue 623)."""
+    apart from the cases (issue 623). A gate set's preflight is read first, the same way, into the scratch's own folder
+    of it, PREFLIGHT; its heads beside the set's, by their ids, which `preflight_of` holds apart (issue 613)."""
+    kept, found, place = _planned(env, root, workspace)
+    said = ""
+    if kept["preflight"]:
+        ahead = _fetched(env, workspace, transport, heads, dict(found, cases=kept["preflight"]), place / PREFLIGHT)
+        said = ", %d of %d to preflight" % (ahead, len(kept["preflight"]))
+    return "fetched %d of %d cases" % (_fetched(env, workspace, transport, heads, found, place), found["count"]) + said
+
+
+def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, place: pathlib.Path) -> int:
+    """How many of `found`'s cases `fetch` read into `place`, writing why each other was not read there."""
     from adapters import heldout
-    _, found, place = _planned(env, root, workspace)
     why, causes = {}, {}
     # Each case is written as it is read, so that no more than one is held at a time, whatever the set's count.
     for entry in found["cases"]:
@@ -333,7 +414,7 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
                 out.write(data)
     _write(place, "fetched.json", why)
     _write(place, "fetch-causes.json", causes)
-    return "fetched %d of %d cases" % (len([c for c in why.values() if c is None]), found["count"])
+    return len([c for c in why.values() if c is None])
 
 
 # The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
@@ -521,12 +602,12 @@ def kinds_of(found: dict, place: pathlib.Path):
 
 
 def split_ok(found: dict, place: pathlib.Path):
-    """Whether the set's cases hold KIND_LEAST of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
+    """Whether the set's cases hold `kind_least_of` of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
     the whole set, never how many of any: the gate needs no more (decision 0120). None where `kinds_of` can say nothing."""
     kinds = kinds_of(found, place)
     if kinds is None:
         return None
-    return min(list(kinds.values()).count(kind) for kind in KINDS) >= KIND_LEAST \
+    return min(list(kinds.values()).count(kind) for kind in KINDS) >= kind_least_of(found) \
         and len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST
 
 
@@ -535,18 +616,20 @@ def _clears(passed: int, of: int, bar: tuple) -> bool:
     return passed * bar[1] >= of * bar[0]
 
 
-def least_passed(count: int, least: int) -> int:
-    """The fewest of `count` cases a set can have passed with each kind on its BAR_OF_A_KIND and holding `least` cases at
-    least: those `least` of each kind, and every other case in the kind whose bar asks fewest of them (decision 0150). A
+def least_passed(count: int, least: int, bars: dict = None) -> int:
+    """The fewest of `count` cases a set can have passed with each kind on its bar, `bars` or BAR_OF_A_KIND, and holding
+    `least` cases at least, over every split of the cases between the two kinds that does (decision 0150): as each
+    kind's fewest is rounded up, a split between the ends can ask fewer than either end (Codex's read of issue 613). A
     set too small to hold `least` of each kind is read with no least."""
+    bars = BAR_OF_A_KIND if bars is None else bars
     least = least if count >= least * len(KINDS) else 0
     on = lambda bar, cases: -(-cases * bar[0] // bar[1])        # the fewest of `cases` that clear `bar`, in whole numbers
-    return min(sum(on(BAR_OF_A_KIND[kind], count - least * (len(KINDS) - 1) if kind == rest else least) for kind in KINDS)
-               for rest in KINDS)
+    finding, met = KINDS
+    return min(on(bars[finding], cases) + on(bars[met], count - cases) for cases in range(least, count - least + 1))
 
 
 def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
-    """`{kind: whether at least its BAR_OF_A_KIND of its cases passed}`, read where the cases are: one word for each, never
+    """`{kind: whether at least its bar, `bars_of`, of its cases passed}`, read where the cases are: one word for each, never
     how many (decisions 0120 and 0150). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
     holds that."""
     kinds = kinds_of(found, place)
@@ -556,7 +639,7 @@ def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     for kind in KINDS:
         cases = [case for case, its in kinds.items() if its == kind]
         passed = [case for case in cases if assessed[case] == (PASS, [])]
-        said[kind] = _clears(len(passed), len(cases), BAR_OF_A_KIND[kind])
+        said[kind] = _clears(len(passed), len(cases), bars_of(found)[kind])
     return said
 
 
@@ -653,16 +736,21 @@ def wilson(passed: int, of: int) -> dict:
 
 
 def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates: set, results: dict,
-              surplus: dict = None, usages: dict = None) -> dict:
+              surplus: dict = None, usages: dict = None, ahead: tuple = None) -> dict:
     """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
-    what it holds. It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
+    causes, usages, results)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    asked, told, spent, answers = ahead or ({}, {}, {}, {})
+    first = [dict(case, **({"result": answers[case["id"]]} if case["id"] in answers else {}))
+             for case in report(kept, dict(found, cases=kept.get("preflight", [])), asked, causes=told,
+                                usages=spent)["cases"]]
     natural = {e["id"]: e.get("natural") is True for e in found["cases"]}
     cases = [dict(case, natural=natural[case["id"]], **({"result": results[case["id"]]} if case["id"] in results else {}))
              for case in report(kept, found, assessed, causes=causes, alternates=alternates, surplus=surplus,
                                    usages=usages)["cases"]]
     return {"schema": "eval-ledger/1", "salt": os.urandom(16).hex(), "release": kept["release"], "commit": kept["commit"],
-            "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases}
+            "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases, "preflight": first}
 
 
 # What a gate set's report sums of its Results' usage: each a count, and the cost in dollars.
@@ -695,14 +783,29 @@ def engine_of(role: str) -> dict:
     return dict({"name": name, "version": version, "model": model}, **identity(ROOT, role))
 
 
+def faults_of(assessed: dict) -> list:
+    """Each code of a case not read, by how many cases gave it: never which."""
+    codes = [code for verdict_of, reasons in assessed.values() if verdict_of == "unreadable" for code in reasons]
+    return [{"code": code, "count": codes.count(code)} for code in sorted(set(codes))]
+
+
+def preflight_stops(ahead: dict) -> bool:
+    """Whether the cases a gate set's dispatch asked first stop it before any of the set's own is asked: one of them
+    stopped by the Engine or the run, or none passed, as a scorer that fails every case would have it (issue 613). One
+    the reviewer missed, beside others it passed, is the reviewer's, and the preflight weighs no reviewer."""
+    return any(set(reasons) & set(ENGINE_FAULTS + RUN_FAULTS) for _, reasons in ahead.values()) \
+        or not any(said == (PASS, []) for said in ahead.values())
+
+
 def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, results: dict, ledger: bytes,
-              usages: dict = None) -> dict:
+              usages: dict = None, ahead: dict = None) -> dict:
     """The `eval-aggregate/1` of a gate set's run: counts alone, with no case id, per-case verdict or a case's code (issue
     612). How many passed; of each kind, its cases, its passes and their Wilson interval, null where `kinds_of` can say
     nothing; the natural cases and those that are not, apart; each code of a case not read, by how many; the usage
     summed; what answered, as the checkout pins it and as `models` says of `usages` (issue 616); the bars applied; the
-    words `verdict` reads; and the ledger's salted sha256, beside which `seal` writes its ciphertext's. Raw counts, so
-    that reports on one commit can be pooled (issue 613)."""
+    words `verdict` reads; the cases asked first, `ahead`, counted apart; and the ledger's salted sha256, beside which
+    `seal` writes its ciphertext's. Raw counts, so that reports on one commit can be pooled (issue 613)."""
+    ahead = ahead or {}
     passed = {case for case, said in assessed.items() if said == (PASS, [])}
     kinds = kinds_of(found, place)
     counted = None if kinds is None else {
@@ -710,13 +813,14 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
         for kind, n, p in ((k, list(kinds.values()).count(k), len([c for c in passed if kinds[c] == k])) for k in KINDS)}
     natural = {e["id"] for e in found["cases"] if e.get("natural") is True}
     origin = {"natural": natural, "constructed": {e["id"] for e in found["cases"]} - natural}
-    codes = [code for verdict_of, reasons in assessed.values() if verdict_of == "unreadable" for code in reasons]
     return {"schema": AGGREGATE, "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "passed": len(passed), "kinds": counted,
             "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
-            "faults": [{"code": code, "count": codes.count(code)} for code in sorted(set(codes))],
+            "faults": faults_of(assessed),
+            "preflight": {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
+                          "faults": faults_of(ahead)},
             "usage": usage_of(results), "engine": engine_of(found["role"]), "models": models(usages or {}),
-            "bars": {kind: list(BAR_OF_A_KIND[kind]) for kind in KINDS}, "kind_least": KIND_LEAST,
+            "bars": {kind: list(bars_of(found)[kind]) for kind in KINDS}, "kind_least": kind_least_of(found),
             "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
             "blocking_pass": blocking_pass(found, place, assessed),
             "ledger": {"salted_sha256": hashlib.sha256(ledger).hexdigest()}}
@@ -739,15 +843,22 @@ def _judged(document: dict, found: dict, digest: str, commit: str, release: str)
 def aggregate_verdict(document, found: dict, digest: str, commit: str, release: str) -> str:
     """`verdict`'s word on a gate set's report: `pass` only for an `eval-aggregate/1` of this set on this commit for
     this Release, sealed, with no fault of the Engine or the run, whose counts add up to the set's and to its own words,
-    held to the bars applied here, and each kind's bar cleared (decision 0150); otherwise the one code that says why not."""
+    held to the set's bars, `bars_of`, and each kind's bar cleared (decision 0150); otherwise the one code that says why not.
+    Its preflight is counted to the set's, and one that `preflight_stops` is `preflight_failed`, whatever came after it
+    (issue 613)."""
     if _errors(document, "eval-aggregate"):
         return "report_unreadable"
     judged = _judged(document, found, digest, commit, release)
     if judged is not None:
         return judged
-    codes = [fault["code"] for fault in document["faults"]]
-    if len(set(codes)) != len(codes) or not set(codes) <= eval_result_codes():
+    codes, ahead = [fault["code"] for fault in document["faults"]], document["preflight"]
+    first = [fault["code"] for fault in ahead["faults"]]
+    if any(len(set(said)) != len(said) or not set(said) <= eval_result_codes() for said in (codes, first)):
         return "count_differs"
+    if ahead["cases"] != len(found["preflight"]) or ahead["passed"] + sum(f["count"] for f in ahead["faults"]) > ahead["cases"]:
+        return "count_differs"
+    if set(first) & set(ENGINE_FAULTS + RUN_FAULTS) or ahead["passed"] == 0:
+        return "preflight_failed"
     if set(codes) & set(ENGINE_FAULTS):
         return "engine_fault"
     if set(codes) & set(RUN_FAULTS):
@@ -760,7 +871,7 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or any(o["passed"] > o["cases"] for o in origin.values()) \
             or passed + sum(fault["count"] for fault in document["faults"]) > found["count"]:
         return "count_differs"
-    kinds, words = document["kinds"], document["kinds_pass"]
+    kinds, words, bars, least = document["kinds"], document["kinds_pass"], bars_of(found), kind_least_of(found)
     if (kinds is None) != (words is None):
         return "count_differs"
     # Where no kind could be read, the job says nothing of the split or of the blocking cases either.
@@ -770,16 +881,50 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             sum(kinds[k]["cases"] for k in KINDS) != found["count"] or sum(kinds[k]["passed"] for k in KINDS) != passed
             or any(kinds[k]["passed"] > kinds[k]["cases"] or kinds[k]["interval"] != wilson(kinds[k]["passed"], kinds[k]["cases"])
                    for k in KINDS)
-            or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], BAR_OF_A_KIND[k]) for k in KINDS}
-            or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < KIND_LEAST)):
+            or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], bars[k]) for k in KINDS}
+            or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < least)):
         return "count_differs"
-    if document["bars"] != {kind: list(BAR_OF_A_KIND[kind]) for kind in KINDS} or document["kind_least"] != KIND_LEAST:
+    if document["bars"] != {kind: list(bars[kind]) for kind in KINDS} or document["kind_least"] != least:
         return "bars_differ"
-    if passed < least_passed(found["count"], KIND_LEAST if document["split_ok"] is True else 0) \
+    if passed < least_passed(found["count"], least if document["split_ok"] is True else 0, bars) \
             or (words is not None and not all(words.values())):
         return "case_failed"
     if document["split_ok"] is not True or kinds is None or document["blocking_pass"] is None:
         return "eval_split_short"
+    return PASS
+
+
+def pooled(documents: list) -> dict:
+    """What the gate set's reports on one commit say together: each kind's cases and passes summed over every report,
+    the passes summed, and the blocking word true only where every report's is (issue 613). Each must be one
+    `aggregate_verdict` has held whole, with its kinds read."""
+    return {"kinds": {kind: {field: sum(d["kinds"][kind][field] for d in documents) for field in ("cases", "passed")}
+                      for kind in KINDS},
+            "passed": sum(d["passed"] for d in documents),
+            "blocking_pass": all(d["blocking_pass"] is True for d in documents)}
+
+
+def pooled_verdict(documents: list, found: dict, digest: str, commit: str, release: str) -> str:
+    """The gate's word on a gate set from every dispatch on the commit that the gate counted, each report in
+    `documents` (issue 613): `pass` only where there are POOL_LEAST at least, each is this set's report on this commit
+    for this Release held whole by `aggregate_verdict`, and each kind's cases, summed over all of them, clear its bar.
+    A report the job could not read, or one of a run the Engine or the Factory stopped, or its preflight did, closes the
+    gate as a faulted dispatch, `eval_dispatch_faulted`; one whose own run fell under the bar is pooled, as the bar is the pool's. The
+    blocking word closes nothing (decision 0150)."""
+    if len(documents) < POOL_LEAST:
+        return "eval_pool_short"
+    said = [aggregate_verdict(document, found, digest, commit, release) for document in documents]
+    if set(said) & {"report_unreadable", "engine_fault", "run_fault", "preflight_failed"}:
+        return "eval_dispatch_faulted"
+    closed = [code for code in said if code not in (PASS, "case_failed")]
+    if closed:
+        return closed[0]
+    # The split held in each, and so each kind was read (`aggregate_verdict` holds that), or the pool has no kinds to sum.
+    if any(d["split_ok"] is not True or d["blocking_pass"] is None for d in documents):
+        return "eval_split_short"
+    together, bars = pooled(documents), bars_of(found)
+    if not all(_clears(together["kinds"][k]["passed"], together["kinds"][k]["cases"], bars[k]) for k in KINDS):
+        return "case_failed"
     return PASS
 
 
@@ -856,14 +1001,24 @@ def written_out(workspace: pathlib.Path, found: dict, assessed: dict, written: d
 def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: dict, alternates: set, surplus: dict,
                 usages: dict) -> tuple:
     """`(assessed, report)` of a gate set's run: each case, with its Result, written to the ledger in the scratch, and the
-    report of counts alone that binds it (issue 612)."""
-    results = {}
-    assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages, results)
-    ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages), indent=2,
-                         sort_keys=True) + "\n").encode("utf-8")
+    report of counts alone that binds it (issue 612). The cases its preflight names are asked first, scored apart; where
+    `preflight_stops`, none of the set's own is asked, and each is `unanswered` (issue 613)."""
+    results, first, spent, answers = {}, dict(found, cases=kept["preflight"]), {}, {}
+    # What a preflight case's read raised, as `score` reads the set's own, so that the ledger says why it was not read.
+    try:
+        told = _read(place / PREFLIGHT, "fetch-causes.json")
+    except Stop:
+        told = {}
+    told = dict(told) if isinstance(told, dict) else {}
+    ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, usages=spent,
+                   results=answers)
+    why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
+    assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
+    ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
+                                   (ahead, told, spent, answers)), indent=2, sort_keys=True) + "\n").encode("utf-8")
     with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(ledger)
-    return assessed, aggregate(kept, found, assessed, place, results, ledger, usages)
+    return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)
 
 
 def closed_of(document: dict) -> list:
@@ -883,9 +1038,13 @@ def answered_by(document: dict, configured: str = None) -> list:
 
 def tally_of_aggregate(document: dict, configured: str = None) -> str:
     """One line of a gate set's report that holds to its schema: how many passed, each code of a case not read by how
-    many, what `closed_of` says and what `answered_by` does. Counts and codes alone, as the report is."""
+    many, how many of its preflight passed and each of their codes (issue 613), what `closed_of` says and what
+    `answered_by` does. Counts and codes alone, as the report is."""
+    ahead = document["preflight"]
     return "; ".join(["%d of %d passed" % (document["passed"], document["set"]["count"]),
-                      ", ".join("%s %d" % (f["code"], f["count"]) for f in document["faults"]) or "no code"]
+                      ", ".join("%s %d" % (f["code"], f["count"]) for f in document["faults"]) or "no code",
+                      ", ".join(["preflight %d of %d passed" % (ahead["passed"], ahead["cases"])]
+                                + ["%s %d" % (f["code"], f["count"]) for f in ahead["faults"]])]
                      + closed_of(document) + answered_by(document, configured))
 
 
@@ -931,7 +1090,7 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     if said != PASS:
         # Either comes only once `verdict` has held the report to its schema, so what is printed is the enum's codes,
         # whatever wrote the report. A run that clears the bar says the same line, as its cases not passed still count.
-        if said in ("engine_fault", "run_fault", "case_failed"):
+        if said in ("engine_fault", "run_fault", "case_failed", "preflight_failed"):
             print(tally(written, configured_model(root)))
         raise Stop(said)
     return tally(written, configured_model(root))
