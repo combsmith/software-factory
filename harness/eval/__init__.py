@@ -950,13 +950,15 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < least)):
         return "count_differs"
     # The criteria counted are the ones the set floors, each of FLOOR_LEAST cases that expect a Finding at least, within
-    # the cases and passes of that kind, as each case expects one criterion; where no kind could be read, none could be
+    # the cases, passes and failures of that kind, as each case expects one criterion; where no kind could be read, none could be
     # counted (issue 692).
     criteria, floors = document["criteria"], criterion_bars_of(found)
     if (criteria is None) != (kinds is None) or criteria is not None and (
             set(criteria) != set(floors)
             or sum(c["cases"] for c in criteria.values()) > kinds["finding"]["cases"]
             or sum(c["passed"] for c in criteria.values()) > kinds["finding"]["passed"]
+            # Nor do the floors fail more than the kind: what passes beyond them is held within what lies beyond them.
+            or sum(c["cases"] - c["passed"] for c in criteria.values()) > kinds["finding"]["cases"] - kinds["finding"]["passed"]
             or any(c["cases"] < FLOOR_LEAST or c["passed"] > c["cases"] or c["interval"] != wilson(c["passed"], c["cases"])
                    for c in criteria.values())
             # What the kind holds beyond the floors is published too, by subtraction: none, or FLOOR_LEAST at least.

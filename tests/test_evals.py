@@ -3400,7 +3400,7 @@ class EvalJob(unittest.TestCase):
                        changed(**{"PR-3": count(10, 11, {"low": 0.0, "high": 1.0})}),
                        changed(**{"PR-3": count(10, 5, job.wilson(4, 10))}),
                        # Fifteen of the kind's twenty leaves five beyond the floors, told by subtraction.
-                       changed(**{"PR-3": count(15, 5)}),
+                       changed(**{"PR-3": count(15, 10)}),
                        dict(half, criteria=None), dict(half, kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None)):
             with self.subTest(criteria=report["criteria"], kinds=report["kinds"] is not None):
                 self.assertEqual(judged(report, found), "count_differs")
@@ -3408,10 +3408,14 @@ class EvalJob(unittest.TestCase):
         short = self.written(found, place, set(pr3[6:]) | set(unfloored))
         self.assertEqual((judged(short, found), short["kinds"]["finding"]["passed"]), ("pass", 6))
         self.assertEqual(judged(dict(short, criteria={"PR-3": count(10, 7)}), found), "count_differs")
+        # Nor can the floors fail more than the kind: every finding passed, so PR-3 cannot say four of ten (Argon's read).
+        every = self.written(found, place, set())
+        self.assertEqual((judged(every, found), judged(dict(every, criteria={"PR-3": count(10, 4)}), found)),
+                         ("pass", "count_differs"))
         self.assertEqual(judged(dict(half, criterion_bars={}), found), "bars_differ")
         self.assertEqual(judged(dict(half, criterion_bars={"PR-3": [1, 3]}), found), "bars_differ")
         # Every run of one set counts the same cases of each floored criterion.
-        moved = dict(half, criteria={"PR-3": count(20, 5)})
+        moved = dict(half, criteria={"PR-3": count(20, 15)})
         self.assertEqual(judged(moved, found), "pass")
         self.assertEqual(pooled([half, half, moved], found), "count_differs")
         # A floor is a gate set's alone, on a criterion its Role's rubric names, a whole fraction of a case-run at least.
@@ -3420,6 +3424,9 @@ class EvalJob(unittest.TestCase):
         held, _ = self.aggregate_of()[:2]
         floored = dict(held, criterion_bars={"PR-3": [1, 2]})
         self.assertEqual(job.held(data(floored))[0], floored)
+        # Every case-run is a floor too, on a whole case-run (Muse's read).
+        for whole in ([1, 1], [5, 5]):
+            self.assertEqual(job.held(data(dict(held, criterion_bars={"PR-3": whole})))[0]["criterion_bars"], {"PR-3": whole})
         development = {k: v for k, v in held.items() if k not in ("gate",) + job.OWN}
         development["cases"] = [{k: v for k, v in c.items() if k != "natural"} for c in held["cases"]]
         for manifest in (dict(development, criterion_bars={"PR-3": [1, 2]}), dict(held, criterion_bars={"pr-3": [1, 2]}),
@@ -3432,6 +3439,9 @@ class EvalJob(unittest.TestCase):
                          ({"PR-3": (1, 2)}, {}, {}))
         self.assertTrue(job.bars_said(floored).endswith("at least 20 cases of each kind; its floors: PR-3 1 of 2."))
         self.assertTrue(job.bars_said(held).endswith("at least 20 cases of each kind."))
+        # Several floors are said in the order of their criteria, whatever the manifest's (Muse's read).
+        self.assertTrue(job.bars_said(dict(held, criterion_bars={"PR-4": [1, 2], "PR-3": [1, 3]})).endswith(
+            "; its floors: PR-3 1 of 3, PR-4 1 of 2."))
         # And the job stops a dispatch whose floored criterion has too few such cases at its fetch, before anything is
         # asked: here at one more than the cases that expect a Finding on its first case's criterion, and not at as many.
         first = json.loads(list(self.cases.values())[0])["expected"]["criterion"]
