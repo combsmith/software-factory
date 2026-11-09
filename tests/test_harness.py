@@ -1093,9 +1093,6 @@ class Job(unittest.TestCase):
         self.assertEqual(done.stdout, "\ufffd{")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 def resummed(header: bytes, at: int, value: bytes) -> bytes:
     """A tar header with `value` at `at`, its checksum made its own again."""
@@ -1108,7 +1105,9 @@ def resummed(header: bytes, at: int, value: bytes) -> bytes:
 
 class Head(unittest.TestCase):
     """`harness/head.py`: a pull request's head read as its tarball and written by hand, member by member, into a folder
-    of its own (decision 0138). Each archive it refuses, it refuses whole, by the check that names why."""
+    of its own (decision 0138). Each archive it refuses, it refuses at the first check that fails, by the check that names
+    why; what it wrote before that is its caller's to remove, as `harness/read.py` removes it
+    (`tests/test_steps.py`'s cases of `head_unreadable`)."""
 
     SHA = "9f1c2d3e4b5a69788796a5b4c3d2e1f0a9b8c7d6"
 
@@ -1254,6 +1253,13 @@ class Head(unittest.TestCase):
                          "more than 4 members")
             head.MEMBERS, head.UNPACKED = original[0], 4096
             self.refused(support.tarball(sha, [("big", b"0", b"x" * 5000)]), "more than 4096 bytes")
+            # The cap is on the whole archive unpacked, every member's header and padding among it: one of exactly that
+            # many bytes is written, and one byte fewer allowed refuses it (Argon's read of #540).
+            data = support.tarball(sha, [("a", b"0", b"x" * 2048), ("b", b"0", b"x" * 2049)])
+            head.UNPACKED = len(zlib.decompress(data, 16 + zlib.MAX_WBITS))
+            self.unpacked(data)
+            head.UNPACKED -= 1
+            self.refused(data, "more than %d bytes" % head.UNPACKED)
         finally:
             head.MEMBERS, head.UNPACKED = original
         # The folder is new: one that stands already is never written into.
@@ -1400,3 +1406,7 @@ class Head(unittest.TestCase):
                     self.assertIsInstance(err, head.Refused)
                 else:
                     self.fail("read, not refused")
+
+
+if __name__ == "__main__":
+    unittest.main()
