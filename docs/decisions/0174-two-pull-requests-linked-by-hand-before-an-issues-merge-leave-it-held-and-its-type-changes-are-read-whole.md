@@ -1,4 +1,4 @@
-# NNNN. Two pull requests linked by hand before an issue's merge leave it held, and its type changes are read whole
+# 0174. Two pull requests linked by hand before an issue's merge leave it held, and its type changes are read whole
 
 Status: accepted. Replaces `docs/decisions/0141-a-linked-drafts-flag-is-read-from-its-timeline-and-no-linked-drafts-label-holds-an-issue-at-its-merge.md`, and keeps all of it but what it says carries no time of a link by hand and of an issue's type, which it overturns: a link by hand carries its time, and two such links before the first merge's second keep the issue `held`. It amends decision 0132's row "What stays", whose contradictions it joins. The Factory Builder's rulings of 2026-11-09 on "Trial P-61: an issue's type changes and a pull request linked by hand, each timed on the issue's timeline" (issue 551): its plan, and the narrowing of decision 0132's same second.
 

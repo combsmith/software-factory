@@ -1,6 +1,6 @@
 # 0141. A linked draft's flag is read from its timeline, and no linked draft's label holds an issue at its merge
 
-Status: replaced by `docs/decisions/NNNN-two-pull-requests-linked-by-hand-before-an-issues-merge-leave-it-held-and-its-type-changes-are-read-whole.md`, which holds the rule in force.
+Status: replaced by `docs/decisions/0174-two-pull-requests-linked-by-hand-before-an-issues-merge-leave-it-held-and-its-type-changes-are-read-whole.md`, which holds the rule in force.
 
 ## Decision
 
