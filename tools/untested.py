@@ -159,10 +159,12 @@ def data_lines(text: str) -> set:
     except SyntaxError:
         return set()
     lines, found, code = source_lines(text), set(), set()
-    bound = _bound(tree)
+    bound = {}
     for node in tree.body:
-        if not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
-                                                     for target in node.targets)):
+        listed = isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
+                                                      for target in node.targets)
+        if not listed:
+            _bind(bound, node)
             continue
         found.update(at for at in range(node.lineno, node.end_lineno + 1)
                      if not lines[at - 1].strip() or lines[at - 1].strip().startswith("#"))
@@ -176,34 +178,52 @@ def data_lines(text: str) -> set:
                     found.update(range(child.lineno, child.end_lineno + 1))
                 else:
                     todo.append(child)
+        _bind(bound, node)
     return found - code
 
 
-def _bound(tree) -> dict:
-    """What each name the module binds at its top is: "helper" for a function it defines, "text" for a name it gives a
-    text, "module" for one an import binds."""
-    bound = {}
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef):
-            bound[node.name] = "helper"
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            bound.update((alias.asname or alias.name.split(".")[0], "module") for alias in node.names)
-        elif (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
-              and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)):
-            bound[node.targets[0].id] = "text"
-    return bound
+def _bind(bound: dict, node) -> None:
+    """Read into `bound` what the statement `node`, at the module's top, binds each name to, as the module runs in
+    order: "helper" for a function it defines, "text" for a text it gives, "value" for another value, and "code" for
+    what an import, a class or anything else binds, and for a name bound a second time, which may then be anything."""
+    named = []
+    if isinstance(node, ast.FunctionDef):
+        named = [(node.name, "helper")]
+    elif isinstance(node, (ast.Import, ast.ImportFrom)):
+        named = [(alias.asname or alias.name.split(".")[0], "code") for alias in node.names]
+    elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            # A, B = x, y binds each name to its own value; any other unpacking may bind anything.
+            pairs = [(target, node.value)] if isinstance(target, ast.Name) else (
+                list(zip(target.elts, node.value.elts)) if isinstance(target, ast.Tuple)
+                and isinstance(node.value, ast.Tuple) and len(target.elts) == len(node.value.elts) else [])
+            for name, value in pairs:
+                if isinstance(name, ast.Name):
+                    text = isinstance(value, ast.Constant) and isinstance(value.value, str)
+                    named.append((name.id, "text" if text else "value"))
+                else:
+                    named += [(inner.id, "code") for inner in ast.walk(name) if isinstance(inner, ast.Name)]
+            if not pairs:
+                named += [(inner.id, "code") for inner in ast.walk(target) if isinstance(inner, ast.Name)]
+    else:
+        named = [(inner.id, "code") for inner in ast.walk(node)
+                 if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Store)]
+        named += [(node.name, "code")] if isinstance(node, (ast.ClassDef, ast.AsyncFunctionDef)) else []
+    for name, kind in named:
+        bound[name] = "code" if name in bound else kind
 
 
 def _literal(node, bound: dict) -> bool:
     """Whether `node` is made of constants, names, attributes and items alone, in tuples, lists, sums, products, and
     calls given no keyword of a helper the module defines, or of `replace` on a text, each maybe unpacked: a mutant's
     entry, as its helpers build one, and nothing that decides. A builtin's call or another module's, and anything read
-    from a module an import binds, as `os.environ` or `sys.platform`, may read the world, so it is code (decision
-    0166). `bound` is what `_bound` reads of the module."""
+    from a name an import binds, as `os.environ` or `sys.platform`, may read the world, so it is code (decision
+    0166). `bound` is what `_bind` has read of the module before the list."""
     if isinstance(node, ast.Constant):
         return True
     if isinstance(node, ast.Name):
-        return bound.get(node.id) != "module"
+        return bound.get(node.id) != "code"
     if isinstance(node, (ast.Attribute, ast.Starred)):
         return _literal(node.value, bound)
     if isinstance(node, ast.Subscript):
