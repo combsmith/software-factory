@@ -69,11 +69,12 @@ def unlabelled(label: str, by=None, minute: int = 2) -> dict:
 
 
 def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=None, closed=None, empty=False,
-       events=(), opened=0, closed_issue="merge", drafts=()) -> dict:
+       events=(), opened=0, closed_issue="merge", drafts=(), links=()) -> dict:
     """A pull request that closes the issue. By default the Maintainer's, opened with the issue, open and ready. A
     merged one closed then, and closed the issue in its second, as the issue's timeline records it (P-33);
     `closed_issue=None` is one the issue's timeline never names, as one whose reference an edit added (P-46). `drafts`
-    are its conversions to a draft and its markings ready, as (action, minute), the last of which is its flag now."""
+    are its conversions to a draft and its markings ready, as (action, minute), the last of which is its flag now; `links`
+    its links to the issue by hand and unlinkings, as (action, minute), none by default, as a closing keyword's."""
     if merged is not None and closed is None:
         closed = merged
     if closed_issue == "merge":
@@ -82,7 +83,8 @@ def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=N
             "draft": draft, "opened_at": at(opened), "merged_at": None if merged is None else at(merged),
             "closed_at": None if closed is None else at(closed), "empty": empty, "label_events": list(events),
             "closed_issue_at": None if closed_issue is None else at(closed_issue),
-            "draft_events": [{"action": action, "at": at(minute)} for action, minute in drafts]}
+            "draft_events": [{"action": action, "at": at(minute)} for action, minute in drafts],
+            "link_events": [{"action": action, "at": at(minute)} for action, minute in links]}
 
 
 def agents(**over) -> dict:
@@ -98,7 +100,7 @@ def strangers(admitted=False, **over) -> dict:
 
 def facts(**over) -> dict:
     """An open issue the Maintainer opened at minute 0, with no label and no pull request, read in full."""
-    f = {"schema": "issue-facts/1", "item": dict(ITEM), "state": "open", "author": dict(WRITER), "type": None, "label_names": [], "assignees": [],
+    f = {"schema": "issue-facts/1", "item": dict(ITEM), "state": "open", "author": dict(WRITER), "type": None, "type_events": [], "label_names": [], "assignees": [],
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
          "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None,
@@ -324,6 +326,18 @@ class Unreadable(unittest.TestCase):
                dict(good, draft_events=["ready_for_review"]),
                dict(good, opened_at=at(2), draft_events=[{"action": "converted_to_draft", "at": at(1)},
                                                          {"action": "ready_for_review", "at": at(3)}]),
+               # Its links by hand and unlinkings (issue 551): each one or the other with its time, alternating, the
+               # first a link, none before it opened, in order.
+               dict(good, link_events=None), dict(good, link_events=["connected"]),
+               dict(good, link_events=[{"action": "linked", "at": at(3)}]),
+               dict(good, link_events=[{"action": "connected", "at": "2026-10-11"}]),
+               dict(good, link_events=[{"action": "connected"}]),
+               dict(good, link_events=[{"action": "disconnected", "at": at(3)}]),
+               dict(good, link_events=[{"action": "connected", "at": at(3)}, {"action": "connected", "at": at(4)}]),
+               dict(good, link_events=[{"action": "connected", "at": at(4)}, {"action": "disconnected", "at": at(3)}]),
+               dict(good, opened_at=at(2), link_events=[{"action": "connected", "at": at(1)}]),
+               dict(good, link_events=[{"action": "connected", "at": "2026-10-11T12:30:00"}]),
+               dict(good, link_events=[{"action": "connected", "at": at(3)}, {"action": "linked", "at": at(4)}]),
                ]
         no_class = dict(good)
         del no_class["class"]
@@ -337,6 +351,28 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[strangers()])), "new")
+        # A link by hand in its opening second, unlinked and linked again in one second, is read (issue 551).
+        both = pr(links=[("connected", 0), ("disconnected", 3), ("connected", 3)])
+        self.assertEqual(state(facts(linked=[both])), "in_review")
+
+    def test_an_issues_type_changes_are_read_whole_or_defer(self):  # issue 551
+        # Each change of the type, the type before and after with its time, each from the last, the last the type now.
+        task, bug = {"from": None, "to": "Task", "at": at(2)}, {"from": "Task", "to": "Bug", "at": at(3)}
+        for over in ({"type_events": None}, {"type_events": ["Task"]}, {"type": "Task", "type_events": [dict(task, at="soon")]},
+                     {"type": "Task", "type_events": [{"to": "Task", "at": at(2)}]},
+                     {"type": "Task", "type_events": [dict(task, to="")]},
+                     {"type": "Bug", "type_events": [dict(bug, at=at(1)), task]},
+                     {"type": "Bug", "type_events": [task, dict(bug, **{"from": "Feature"})]},
+                     {"type": "Bug", "type_events": [task]}, {"type": None, "type_events": [task]},
+                     {"type": "Task", "type_events": [dict(task, **{"from": 5})]},
+                     {"type": "Bug", "type_events": [dict(task, at=at(3)), dict(bug, at=at(2))]}):
+            d = derive(facts(**over))
+            self.assertEqual((d["state"], d["reason"]), (None, "type_unreadable"), over)
+        # The other side: none with no type, the chain to the type now, and a removal that leaves none.
+        for over in ({}, {"type": "Bug", "type_events": [task, bug]},
+                     {"type": None, "type_events": [task, {"from": "Task", "to": None, "at": at(3)}]},
+                     {"type": "Task", "type_events": [task, dict(task, **{"from": "Task", "at": at(2)})]}):
+            self.assertEqual(derive(facts(**over))["reason"], "acceptance_due", over)
 
     def test_draft_events_in_the_opening_second_and_after_the_close_are_read(self):  # issue 554
         # Opened as a draft and marked ready in that second: a chronology, read whole. One after the close is read too:
@@ -883,6 +919,32 @@ class Done(unittest.TestCase):
         self.assertEqual(derive(facts(linked=[dict(outsider, empty=True)], **closed))["reason"], "closed")
         self.assertEqual(derive(facts(linked=[dict(outsider, closed_issue_at=None)], **closed))["reason"],
                          "merged_while_declined")
+
+    def test_two_links_by_hand_before_the_merge_leave_the_issue_held(self):  # issue 551, decision 0132
+        # Two pull requests linked by hand before the first merge's second, neither closed before it, were two links at
+        # it: the issue stood held, and the merge leaves it held, whichever was linked first.
+        closed = dict(state="closed", closed_first_at=at(5))
+        own = agents(number=11, is_open=False, merged=5, links=[("connected", 2)])
+        for rival in (pr(number=12, links=[("connected", 3)]), pr(number=12, links=[("connected", 1)]),
+                      pr(number=12, is_open=False, closed=5, links=[("connected", 3)]),
+                      pr(number=12, links=[("connected", 1), ("disconnected", 2), ("connected", 4)])):
+            d = derive(facts(linked=[own, rival], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]), rival)
+        # Two queue merges in one second, each linked by hand before it, leave it held too.
+        other = agents(number=12, is_open=False, merged=5, links=[("connected", 3)])
+        d = derive(facts(linked=[own, other], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]))
+        # The other side: a rival linked in the merge's second, with no time (a closing keyword's), linked after the
+        # merge, unlinked before it, or closed before it, is no second link at it; nor is the merge's own link made in
+        # its second. The Factory's merge is done (decision 0132).
+        for rival in (pr(number=12, links=[("connected", 5)]), pr(number=12), pr(number=12, links=[("connected", 6)]),
+                      pr(number=12, links=[("connected", 3), ("disconnected", 4)]),
+                      pr(number=12, is_open=False, closed=4, links=[("connected", 3)])):
+            d = derive(facts(linked=[own, rival], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), rival)
+        late = agents(number=11, is_open=False, merged=5, links=[("connected", 5)])
+        d = derive(facts(linked=[late, pr(number=12, links=[("connected", 3)])], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]))
 
     def test_an_empty_merge_is_not_done(self):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=True)])), "new")

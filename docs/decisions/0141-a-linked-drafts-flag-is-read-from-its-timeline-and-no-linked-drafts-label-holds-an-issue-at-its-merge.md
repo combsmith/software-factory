@@ -1,6 +1,6 @@
 # 0141. A linked draft's flag is read from its timeline, and no linked draft's label holds an issue at its merge
 
-Status: accepted. Replaces `docs/decisions/0139-a-platform-close-keeps-the-state-a-person-set-on-an-issue-held-or-not-served.md`, and keeps all of it but what it reads of a linked draft at the merge, which it overturns: that a Hold on a linked draft, hands-off anyone but a person placed on one, and a person's hands-off on one that lets a Hold pass, are read from the draft's flag and the link as they stand now. The Factory Builder's rulings of 2026-11-04 on "Facts: the times of a link, a left-out label and an issue's type, so that row 1 reads them at the merge" (issue 542), of "Epic: slice 1, first approval. A Release on next reviews a pull request to this repo, and the machine user's approval stands" (issue 182): its split three ways, into this change, "Trial P-61: an issue's type changes and a pull request linked by hand, each timed on the issue's timeline" (issue 551) and "Facts: a closing keyword's link timed by the first pass that saw it, and the Consumer entry at the merge (after the first cut)" (issue 552); and ruling (ii) on this change's reads.
+Status: replaced by `docs/decisions/NNNN-two-pull-requests-linked-by-hand-before-an-issues-merge-leave-it-held-and-its-type-changes-are-read-whole.md`, which holds the rule in force.
 
 ## Decision
 
