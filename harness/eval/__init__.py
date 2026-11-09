@@ -931,6 +931,10 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
     first = [fault["code"] for fault in ahead["faults"]]
     if any(len(set(said)) != len(said) or not set(said) <= eval_result_codes() for said in (codes, first)):
         return "count_differs"
+    # Each part's ledger once, and a whole run's alone (issue 611).
+    parts = [entry["part"] for entry in document["ledger"]]
+    if len(set(parts)) != len(parts) or ("whole" in parts and parts != ["whole"]):
+        return "count_differs"
     if ahead["cases"] != len(found["preflight"]) or ahead["passed"] + sum(f["count"] for f in ahead["faults"]) > ahead["cases"]:
         return "count_differs"
     if set(first) & set(ENGINE_FAULTS + RUN_FAULTS) or ahead["passed"] == 0:

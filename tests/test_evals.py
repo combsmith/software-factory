@@ -3178,7 +3178,11 @@ class EvalJob(unittest.TestCase):
         for report, code in (
                 # A gate set's report is of counts alone, and a development set's is per case: neither stands for the other.
                 (loaded("examples/eval-report.json"), "report_of_another_kind"),
-                (changed(["ledger", "sealed_sha256"], KeyError), "report_unreadable"),
+                (changed(["ledger", 0, "sealed_sha256"], KeyError), "report_unreadable"),
+                (changed(["ledger"], []), "report_unreadable"),
+                # A part's ledger named twice, or a whole run's beside a part's, is no run's (issue 611).
+                (changed(["ledger"], good["ledger"] * 2), "count_differs"),
+                (changed(["ledger"], good["ledger"] + [dict(good["ledger"][0], part="0")]), "count_differs"),
                 (changed(["models"], KeyError), "report_unreadable"),
                 (changed(["cases"], [{"id": "c-0", "verdict": "pass"}]), "report_unreadable"),
                 (changed(["faults"], [{"code": "case c-0 timed out", "count": 1}]), "report_unreadable"),
@@ -3488,6 +3492,156 @@ class EvalJob(unittest.TestCase):
         development.write_text(json.dumps(own))
         self.assertEqual(check_examples._preflight_held(self.root, manifest),
                          ["its preflight is refused where it is read: eval_set_overlaps_a_gate_set"])
+
+    def part_run(self, part: str, home, review, run=("4242", "1"), certs: bool = False) -> tuple:
+        """One job of a split run, on a runner of its own: its scratch, its heads and its workspace, planned, fetched and
+        scored as the part `part`, and sealed where `certs`; `(what each step said, its workspace)` (issue 611)."""
+        from harness import eval as job
+        from harness.eval import seal
+        base = pathlib.Path(self.dir.name) / ("job-%s-%s" % (part, run[1]))
+        shutil.rmtree(str(base), ignore_errors=True)
+        (base / "temp").mkdir(parents=True)
+        (base / "work").mkdir()
+        env = dict(self.env, RUNNER_TEMP=str(base / "temp"), EVAL_PART=part, GITHUB_RUN_ID=run[0], GITHUB_RUN_ATTEMPT=run[1])
+        said = []
+        for step, given in ((job.plan, ()), (the_fetch(), (home,)), (job.score, (review,))) + (((seal.step, ()),) if certs else ()):
+            try:
+                said.append(step(env, self.root, base / "work", *given))
+            except job.Stop as stop:
+                said.append(stop.code)
+                break
+        return said, base / "work"
+
+    def merged_run(self, parts: dict) -> tuple:
+        """The merge job of a split run, given each part's workspace by its name: `(what it said, the report, its outputs)`."""
+        from harness import eval as job
+        base = pathlib.Path(self.dir.name) / "job-merge"
+        shutil.rmtree(str(base), ignore_errors=True)
+        (base / "temp").mkdir(parents=True)
+        (base / "work" / "parts").mkdir(parents=True)
+        for name, work in parts.items():
+            (base / "work" / "parts" / ("eval-part-%s" % name)).mkdir()
+            shutil.copy(str(work / job.PART), str(base / "work" / "parts" / ("eval-part-%s" % name) / job.PART))
+        env = dict(self.env, RUNNER_TEMP=str(base / "temp"), EVAL_PART="merge", GITHUB_OUTPUT=str(base / "outputs"))
+        (base / "outputs").write_text("")
+        job.plan(env, self.root, base / "work")
+        said = job.merge(env, self.root, base / "work")
+        return said, json.loads((base / "work" / job.REPORT).read_text()), (base / "outputs").read_text()
+
+    def shards(self, count: int) -> None:
+        (self.root / "config").mkdir(exist_ok=True)
+        (self.root / "config" / "harness.json").write_text(json.dumps({"eval_shards": count}))
+
+    def test_a_development_sets_run_split_into_shards_is_merged_into_the_report_of_the_whole(self):  # issue 611
+        # A development set's case k is the shard k modulo the shards; the preflight's job asks nothing, as the set has
+        # no preflight; and the merge job's report is the one the whole run would write, its words said from the
+        # shards' counts. No step's line names a case.
+        from adapters import github
+        from harness import eval as job
+        cases = {"poc-k%d" % i: (json.dumps(dict(json.loads(next(iter(self.cases.values()))), id="poc-k%d" % i), indent=2)
+                                 + "\n").encode() for i in range(5)}
+        self.set(cases)
+        self.shards(2)
+        result = example_result()
+        review = lambda case: result
+        ids = list(cases)
+        parts = {}
+        for part, mine in (("preflight", []), ("0", ids[0::2]), ("1", ids[1::2])):
+            said, parts[part] = self.part_run(part, github.Replay(home_of({i: cases[i] for i in mine})), review)
+            self.assertEqual(said[1], "fetched %d of %d cases%s" % (len(mine), len(mine), "" if part == "preflight" else " of shard " + part))
+            for line in said:
+                for ident in ids:
+                    self.assertNotIn(ident, line, (part, line))
+        said, written, outputs = self.merged_run(parts)
+        self.assertEqual(said, "merged 3 of 3 parts, 5 passed")
+        self.assertEqual(outputs, "", "a development set has no ledger to name")
+        # The whole run's report, from one job.
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(cases))
+        self.step(job.score, review)
+        whole = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(written, whole)
+        self.assertEqual(job.verdict(written, job.manifest(self.root)[0], json.loads(self.path().read_text()) and
+                                     job.manifest(self.root)[1], self.env["GITHUB_SHA"], self.env["RELEASE"]), "pass")
+        # A shard that left nothing leaves its cases unanswered, a fault of the run, and no kind can be read.
+        said, short, _ = self.merged_run({"preflight": parts["preflight"], "0": parts["0"]})
+        self.assertEqual(said, "merged 2 of 3 parts, 3 passed")
+        self.assertEqual({c["id"]: c["reasons"] for c in short["cases"]},
+                         {i: [] if i in ids[0::2] else ["unanswered"] for i in ids})
+        self.assertEqual((short["split_ok"], short["kinds_pass"], short["blocking_pass"]), (None, None, None))
+        self.assertEqual(job.verdict(short, *job.manifest(self.root), self.env["GITHUB_SHA"], self.env["RELEASE"]), "run_fault")
+        # So does one that is not this run's part, or of another commit.
+        (parts["1"] / job.PART).write_text(json.dumps(dict(json.loads((parts["1"] / job.PART).read_text()), part="0")))
+        self.assertEqual(self.merged_run(parts)[0], "merged 2 of 3 parts, 3 passed")
+        # A part the configuration does not name, or the merge's own part asked to fetch, is refused.
+        for part in ("2", "-1", "", "whole"):
+            self.assertEqual(self.part_run(part, github.Replay([]), review)[0], ["part_unreadable"], part)
+        self.assertEqual(self.part_run("merge", github.Replay([]), review)[0][1], "part_unreadable")
+
+    def test_a_gate_sets_shards_are_drawn_by_the_homes_salt_and_merged_by_their_counts_alone(self):  # issue 611
+        # A gate set's case goes to the shard the sha256 of the home's salt, the run's id and attempt and its id give,
+        # never by its place in the public manifest; the preflight's job asks the preflight alone and the shards need
+        # it; each part writes counts alone and seals a ledger of its own; the merge's report holds each part's ledger,
+        # the preflight's first, and the job's one output hashes their list. No part's line or file names a case.
+        from adapters import github
+        from harness import eval as job
+        from tests.test_adapters import home_beside
+        keys = pathlib.Path(self.dir.name) / "keys"
+        keys.mkdir()
+        (first, _), = [recipient(keys, "first")]
+        pin(self.root, {"first": first})
+        cases = {"poc-g%d" % i: (json.dumps(dict(json.loads(next(iter(self.cases.values()))), id="poc-g%d" % i), indent=2)
+                                 + "\n").encode() for i in range(6)}
+        self.set(cases, gate=True, natural=[])
+        self.shards(2)
+        ids = list(cases)
+        drawn = lambda salt, run, attempt: {
+            i for i in ids if int(hashlib.sha256(b"\0".join([salt, run.encode(), attempt.encode(), i.encode()])).hexdigest(), 16) % 2 == 0}
+        # A salt whose shard 0 is not the cases of even place, so the place in the manifest could not have chosen it.
+        salt = next(s for s in (b"salt-%02d-of-the-gate-set" % n for n in range(99))
+                    if drawn(s, "4242", "1") not in (set(ids[0::2]), set(ids[1::2]), set(), set(ids)))
+        result = example_result()
+        review = lambda case: result
+        salted = home_beside("pr-review-gate", "salt", salt)
+        parts = {}
+        said, parts["preflight"] = self.part_run("preflight", github.Replay(home_of(self.pre)), review, certs=True)
+        self.assertEqual(said[1:3], ["fetched 0 of 0 cases, 3 of 3 to preflight", "scored 3 cases of the part preflight, 0 passed"])
+        for part in ("0", "1"):
+            mine = drawn(salt, "4242", "1") if part == "0" else set(ids) - drawn(salt, "4242", "1")
+            home = github.Replay([salted] + home_of({i: cases[i] for i in ids if i in mine}))
+            said, parts[part] = self.part_run(part, home, review, certs=True)
+            self.assertEqual(said[1], "fetched %d of %d cases of shard %s" % (len(mine), len(mine), part))
+            self.assertEqual(said[3], "sealed the ledger to 1 recipients")
+            self.assertEqual(set(json.loads((pathlib.Path(self.dir.name) / ("job-%s-1" % part) / "temp" / "heldout" / "part.json").read_text())), mine)
+        for part, work in parts.items():
+            text = (work / job.PART).read_text()
+            self.assertEqual(json.loads(text)["cases"], [])
+            for ident in ids + list(self.pre):
+                self.assertNotIn(ident, text, part)
+        said, written, outputs = self.merged_run(parts)
+        self.assertEqual(said, "merged 3 of 3 parts, 6 passed")
+        self.assertEqual([e["part"] for e in written["ledger"]], ["preflight", "0", "1"])
+        self.assertEqual(outputs, "ledger_sha256=%s\n" % job.ledger_digest(written["ledger"]))
+        self.assertEqual(written["preflight"], {"cases": 3, "passed": 3, "faults": []})
+        found, digest = job.manifest(self.root, "pr-review-gate")
+        self.assertEqual(job.verdict(written, found, digest, self.env["GITHUB_SHA"], self.env["RELEASE"]), "pass")
+        # Another attempt of the run draws its shards anew.
+        self.assertTrue(any(drawn(salt, "4242", str(a)) != drawn(salt, "4242", "1") for a in range(2, 9)))
+        # A gate set with no salt in the home stops the fetch.
+        self.assertEqual(self.part_run("0", github.Replay([home_beside("pr-review-gate", "salt", b"", status=404)]), review)[0][1],
+                         "no_shard_salt")
+        # A preflight that stops fails its own job, and the merge, with no shard, says so.
+        failing = lambda case: dict(result, status="failed")
+        said, stopped = self.part_run("preflight", github.Replay(home_of(self.pre)), failing, certs=True)
+        from harness.eval import judge as judging
+        env = dict(self.env, RUNNER_TEMP=str(pathlib.Path(self.dir.name) / "job-preflight-1" / "temp"), EVAL_PART="preflight")
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            with self.assertRaises(job.Stop) as stop:
+                job.judge(env, self.root, stopped)
+        self.assertEqual(stop.exception.code, "preflight_failed")
+        said, alone, _ = self.merged_run({"preflight": stopped})
+        self.assertEqual(job.verdict(alone, found, digest, self.env["GITHUB_SHA"], self.env["RELEASE"]), "preflight_failed")
+        self.assertEqual(dict(alone["faults"][0]), {"code": "unanswered", "count": 6})
 
     def test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it(self):  # issue 613
         from harness import eval as job
