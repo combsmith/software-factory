@@ -5633,7 +5633,7 @@ class Trials(unittest.TestCase):
         outside["exchanges"][0]["request"]["call"] = "GET /repos/outside/x/pulls/7"
         self.assertTrue(any("on a node no read" in p for p in check_trials.fixture_problems(outside)))
 
-    def test_the_eval_jobs_trial_records_the_factorys_own_repo(self):  # issue 309, decision 0172
+    def test_the_eval_jobs_trial_records_the_factorys_own_repo(self):  # issue 309, decision 0173
         # P-63, the eval job's trial, ran in this repo from main: recorded there it holds, and on the canary it is refused.
         data = json.loads((ROOT / "trials" / "P-63.json").read_text())
         self.assertEqual(check_trials.fixture_problems(data), [])
