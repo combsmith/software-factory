@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "What the release step sent through its token, and what GitHub answered, kept for its run's artifact (issue 531).",
+  "$comment": "Anyone signed in may download it, so what is kept is held to lists: the headers below, and of a JSON body the fields release/exchanges.py's FIELDS names, which no schema here can say at any depth; a download, a file at a commit and a body that is not JSON are kept as their size and sha256 alone. tests/test_release_exchanges.py holds what no schema can.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "exchanges",
+    "removed",
+    "dropped",
+    "unkept"
+  ],
+  "properties": {
+    "schema": {
+      "const": "release-exchanges/1"
+    },
+    "exchanges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/exchange"
+      }
+    },
+    "removed": {
+      "description": "Where tools/redact_trial.py took out something shaped like a credential.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "dropped": {
+      "description": "Where a field no list names was left out.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "unkept": {
+      "description": "How many exchanges could not be kept, and were left out.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "exchange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "response"
+      ],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/request"
+        },
+        "response": {
+          "$ref": "#/$defs/response"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "as",
+        "via",
+        "call",
+        "headers",
+        "body"
+      ],
+      "properties": {
+        "as": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name"
+          ],
+          "properties": {
+            "kind": {
+              "const": "app"
+            },
+            "name": {
+              "const": "release"
+            }
+          }
+        },
+        "via": {
+          "const": "rest"
+        },
+        "call": {
+          "type": "string",
+          "pattern": "^(GET|POST|PUT|PATCH|DELETE) /[^ ]*$"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The headers a trial's fixture keeps (tools/check_trials.py's HEADERS), but location, a redirect's address: no other is written.",
+          "properties": {
+            "accept": {
+              "type": "string"
+            },
+            "age": {
+              "type": "string"
+            },
+            "cache-control": {
+              "type": "string"
+            },
+            "content-length": {
+              "type": "string"
+            },
+            "content-type": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "etag": {
+              "type": "string"
+            },
+            "if-none-match": {
+              "type": "string"
+            },
+            "last-modified": {
+              "type": "string"
+            },
+            "link": {
+              "type": "string"
+            },
+            "retry-after": {
+              "type": "string"
+            },
+            "server": {
+              "type": "string"
+            },
+            "user-agent": {
+              "type": "string"
+            },
+            "vary": {
+              "type": "string"
+            },
+            "x-accepted-github-permissions": {
+              "type": "string"
+            },
+            "x-accepted-oauth-scopes": {
+              "type": "string"
+            },
+            "x-github-api-version": {
+              "type": "string"
+            },
+            "x-github-media-type": {
+              "type": "string"
+            },
+            "x-github-request-id": {
+              "type": "string"
+            },
+            "x-ratelimit-limit": {
+              "type": "string"
+            },
+            "x-ratelimit-remaining": {
+              "type": "string"
+            },
+            "x-ratelimit-reset": {
+              "type": "string"
+            },
+            "x-ratelimit-resource": {
+              "type": "string"
+            },
+            "x-ratelimit-used": {
+              "type": "string"
+            }
+          }
+        },
+        "body": {
+          "description": "The JSON body sent, its fields held to FIELDS, or null."
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What GitHub answered: a status, its headers and a body or its measure; or the transport's error, by its class alone.",
+      "properties": {
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The headers a trial's fixture keeps (tools/check_trials.py's HEADERS), but location, a redirect's address: no other is written.",
+          "properties": {
+            "accept": {
+              "type": "string"
+            },
+            "age": {
+              "type": "string"
+            },
+            "cache-control": {
+              "type": "string"
+            },
+            "content-length": {
+              "type": "string"
+            },
+            "content-type": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "etag": {
+              "type": "string"
+            },
+            "if-none-match": {
+              "type": "string"
+            },
+            "last-modified": {
+              "type": "string"
+            },
+            "link": {
+              "type": "string"
+            },
+            "retry-after": {
+              "type": "string"
+            },
+            "server": {
+              "type": "string"
+            },
+            "user-agent": {
+              "type": "string"
+            },
+            "vary": {
+              "type": "string"
+            },
+            "x-accepted-github-permissions": {
+              "type": "string"
+            },
+            "x-accepted-oauth-scopes": {
+              "type": "string"
+            },
+            "x-github-api-version": {
+              "type": "string"
+            },
+            "x-github-media-type": {
+              "type": "string"
+            },
+            "x-github-request-id": {
+              "type": "string"
+            },
+            "x-ratelimit-limit": {
+              "type": "string"
+            },
+            "x-ratelimit-remaining": {
+              "type": "string"
+            },
+            "x-ratelimit-reset": {
+              "type": "string"
+            },
+            "x-ratelimit-resource": {
+              "type": "string"
+            },
+            "x-ratelimit-used": {
+              "type": "string"
+            }
+          }
+        },
+        "body": {
+          "description": "A JSON body, its fields held to FIELDS."
+        },
+        "measured": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "size",
+            "sha256"
+          ],
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "raised": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    }
+  }
+}

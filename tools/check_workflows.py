@@ -754,7 +754,9 @@ EVAL_STEP_KEYS = {"uses", "run", "with", "env", "timeout-minutes"}
 # one job, `release`, on its own environment, whose deployment branches are main's alone, so no other ref's copy of
 # this file reaches its key. Its token is minted by the one pinned action below, for this repo alone and the grants the
 # step needs; the checkout is the commit the run is of, never a ref an output names; and its one step is
-# `python3 -m release.move`, given its inputs and the token under env: and nothing else.
+# `python3 -m release.move`, given its inputs and the token under env: and nothing else. Its last step uploads the
+# step's own exchanges, kept as release/exchanges.py keeps them, as the one artifact `release-exchanges`, whatever
+# stopped the step, for 90 days as the eval job's are, and nothing prints them (issue 531).
 RELEASE_WORKFLOW, RELEASE_JOB, RELEASE_ENVIRONMENT = "release.yml", "release", "factory-release"
 RELEASE_TOP = {"name": "sf-release", "on": "", "permissions": "{}", "jobs": ""}
 # Its triggers, word for word: a list the reader keeps no entry of, an option or a schedule, is held this way alone.
@@ -785,7 +787,8 @@ RELEASE_CONCURRENCY = {"group": "sf-release", "cancel-in-progress": "false"}
 RELEASE_GRANTED = [("contents", "read")]       # the job's own token: its writes are the App's
 # The one action that mints the release App's token, as CHECKOUT is the one checkout: a bump edits this too.
 APP_TOKEN = ("actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510", "# v3.3.0")
-RELEASE_ORDER = ("mint", "checkout", "step")
+RELEASE_ORDER = ("mint", "checkout", "step", "upload")
+RELEASE_EXCHANGES = "${{ github.workspace }}"      # where the step writes release-exchanges.json, uploaded from there
 RELEASE_STEP = "python3 -m release.move"
 RELEASE_GIVEN = {
     "mint": {"with": {"client-id": "${{ vars.RELEASE_APP_CLIENT_ID }}", "private-key": "${{ secrets.RELEASE_APP_KEY }}",
@@ -795,9 +798,12 @@ RELEASE_GIVEN = {
     "checkout": {"with": {"persist-credentials": "false"}},
     "step": {"env": {"RELEASE_COMMAND": "${{ inputs.command || 'cut' }}", "RELEASE_VERSION": "${{ inputs.version }}",
                      "RELEASE_TO": "${{ inputs.to }}", "RELEASE_CUT_COMMIT": "${{ github.sha }}",
-                     "RELEASE_TOKEN": "${{ steps.mint.outputs.token }}"}},
+                     "RELEASE_TOKEN": "${{ steps.mint.outputs.token }}", "RELEASE_EXCHANGES": RELEASE_EXCHANGES}},
+    "upload": {"with": {"name": "release-exchanges", "path": "release-exchanges.json", "if-no-files-found": "ignore",
+                        "retention-days": "90"}},
 }
-RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"}, "step": {"run", "env", "timeout-minutes"}}
+RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"}, "step": {"run", "env", "timeout-minutes"},
+                     "upload": {"if", "uses", "with"}}
 # What names the release job's environment, its key or its token, in a workflow that is not release.yml.
 RELEASE_ONLY = re.compile(r"factory-release|RELEASE_APP_|RELEASE_TOKEN|release\.move", re.I)
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
@@ -1477,11 +1483,14 @@ def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
 
 
 def _release_kind(step: dict):
-    """What one step of the release job is: the token's mint, the listed checkout, the release step, or None."""
+    """What one step of the release job is: the token's mint, the listed checkout, the release step, the upload of its
+    exchanges, or None."""
     uses = step.get("uses", {}).get("value", "") if "uses" in step else None
     if uses is not None and "run" not in step:
         if (uses, step["uses"]["comment"]) == CHECKOUT:
             return "checkout"
+        if (uses, step["uses"]["comment"]) == UPLOAD:
+            return "upload"
         return "mint" if (uses, step["uses"]["comment"]) == APP_TOKEN else None
     return "step" if _lines(step.get("run")) == [RELEASE_STEP] and "uses" not in step else None
 
@@ -1530,7 +1539,8 @@ def release_problems(text: str) -> list:
             continue
         number = next(iter(step.values()))["step"]
         own = set(step) - RELEASE_STEP_KEYS[kind]
-        if own or (kind == "mint" and step.get("id", {}).get("value") != "mint"):
+        if own or (kind == "mint" and step.get("id", {}).get("value") != "mint") or \
+                (kind == "upload" and step.get("if", {}).get("value") != "always()"):
             problems.append("its %s step has exactly %s" % (kind, ", ".join(sorted(RELEASE_STEP_KEYS[kind]))))
         for under in ("with", "env"):
             have = {e["key"]: e["value"] for e in entries if e["step"] == number
