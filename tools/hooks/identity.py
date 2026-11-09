@@ -1433,6 +1433,19 @@ def _quoted(text: str) -> str:
             out.append("$(%s)" % _spelt(text[i + 2:end], room).replace("\\", "\\\\").replace('"', '\\"'))
             i = end + 1
             continue
+        elif quote == '"' and c == "`":
+            # A backtick in double quotes ends at its next backtick no backslash holds, and its quotes are its own: it is
+            # spelt as a $(...) is, its \", \`, \$ and \\ the character, as the shell takes them out (#605 (g)). One that
+            # never closes, or whose quote or comment would run past the ) it is given, is read as main reads it (Argon).
+            end = shell._tick_end(text, i)
+            inner = re.sub(r'\\([\\`$"])', r"\1", text[i + 1:end])
+            if end < len(text) and shell._left_open(inner) == (False, False):
+                out.append("$(%s)" % _spelt(inner, room).replace("\\", "\\\\").replace('"', '\\"'))
+                i = end + 1
+                continue
+            out.append(c)
+            i += 1
+            continue
         elif quote == '"':
             quote = None if c == '"' else quote
         elif text.startswith("$'", i):      # $'...', in which a backslash escapes, \' among them
