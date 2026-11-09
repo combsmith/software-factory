@@ -9,6 +9,7 @@
     "count": 44,
     "sha256": "05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f"
   },
+  "attempt": "1",
   "asked": 10,
   "passed": 8,
   "kinds": {
@@ -22,8 +23,8 @@
     }
   },
   "blocking": {
-    "cases": 1,
-    "passed": 1
+    "some": true,
+    "passed": true
   },
   "origin": {
     "natural": {

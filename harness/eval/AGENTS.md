@@ -4,9 +4,9 @@ The eval job's steps, a module each, in the order `__init__.py` gives. Their rul
 issue 612, "The eval job reads a named set, and a gate set's report is aggregates only", issue 613, "The gate pools k dispatches on one commit and reads all of them",
 and issue 611, "A case's head is read from the private home, pinned by its hash, and the run is sharded".
 A dispatch names its set. A set whose manifest says it is a gate set is reported by counts alone, `eval-aggregate/1`, and each case's outcome with its Result goes to a ledger, `eval-ledger/1`, kept in the scratch.
-`seal.py` encrypts the ledger with `openssl cms` to each of the Maintainer's certificates that its pins, in a protected path under `.github/`, name by sha256 (`seal.RECIPIENTS`). The ciphertext alone is uploaded, as `eval-ledger`.
+`seal.py` encrypts the ledger with `openssl cms` to each of the Maintainer's certificates that its pins, in a protected path under `.github/`, name by sha256 (`seal.RECIPIENTS`). The ciphertext alone is uploaded, as `eval-ledger`, or each part's as `eval-ledger-<part>` in a split run.
 No key that opens a ledger is in the job or the repo, and nothing automated reads one. Until the Maintainer commits his certificates, a gate set's run fails at the seal, `no_recipient`.
-The ciphertext lives only as a run artifact under its retention until a storage decision is made; its hash is the job's output, `ledger_sha256`. Where ledgers are kept is not built yet.
+The ciphertext lives only as a run artifact under its retention until a storage decision is made; the run's one output, `ledger_sha256`, is its hash, or in a split run the merge's hash of every part's. Where ledgers are kept is not built yet.
 A gate set gives its own bars and least of a kind. The Release's gate pools every dispatch on a commit of the gate set `config/harness.json` names, `gate_set`.
 Until one is named, the gate reads the review Intent's set by its newest successful dispatch, which a re-dispatch can still make the best of several.
 A gate set's dispatch asks its preflight first, a few cases of the review Intent's set scored apart, so that a broken pipeline stops it before any held-out case is asked.
@@ -24,7 +24,7 @@ The run is split into the preflight's job, a matrix of shards and a merge job wi
 | No set but a gate set names a gate set's case, by its id or its hash | `tests/test_evals.py::test_no_set_but_a_gate_set_names_a_case_of_one` |
 | A gate set marks no group of natural cases, or of others, under ten but none | `tests/test_evals.py::test_a_gate_set_marks_no_group_of_natural_cases_or_others_too_small_to_hide_one` |
 | A gate set's judge prints counts and codes, never a case | `tests/test_evals.py::test_a_gate_sets_judge_says_counts_and_codes_and_never_a_case` |
-| The seal and the ledger's upload come after the run and before the report's; the seal is given nothing and sets the job's one output | `tests/test_evals.py::test_the_eval_workflow_names_each_credential_in_one_step_alone` |
+| The seal and the ledger's upload come after the run and before the report's; the seal is given nothing, and the merge step alone sets the run's one output | `tests/test_evals.py::test_the_eval_workflow_names_each_credential_in_one_step_alone` |
 | A gate set gives its own bars, least of a kind and the record that states them word for word, and its job and gate hold them; no other set gives any | `tests/test_evals.py::test_a_gate_set_gives_its_own_bars_and_least_and_its_record_states_them` |
 | The pool is three runs at least, every one, each kind summed under the set's bars; one faulted closes it | `tests/test_evals.py::test_the_gate_pools_every_dispatch_on_the_commit_and_one_faulted_closes_it` |
 | A gate set's preflight is three to five of the review Intent's cases, none a gate set's by its id or its hash | `tests/test_evals.py::test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case` |

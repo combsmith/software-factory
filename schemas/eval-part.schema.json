@@ -11,6 +11,7 @@
     "role",
     "intent",
     "set",
+    "attempt",
     "asked",
     "passed",
     "kinds",
@@ -65,6 +66,14 @@
           "pattern": "^[0-9a-f]{64}$"
         }
       }
+    },
+    "attempt": {
+      "description": "The attempt of the run a gate set's shard was drawn for, by which the merge refuses a shard of another; null for the preflight and a development set's.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[1-9][0-9]{0,19}$"
     },
     "asked": {
       "description": "How many of the set's cases the part was given.",
@@ -126,26 +135,24 @@
       }
     },
     "blocking": {
+      "description": "Of the part's cases that expect a blocking Finding, whether there is one and whether every one passed: two words, never how many (decision 0120). Null where `kinds` is.",
       "type": [
         "object",
         "null"
       ],
       "additionalProperties": false,
       "required": [
-        "cases",
+        "some",
         "passed"
       ],
       "properties": {
-        "cases": {
-          "type": "integer",
-          "minimum": 0
+        "some": {
+          "type": "boolean"
         },
         "passed": {
-          "type": "integer",
-          "minimum": 0
+          "type": "boolean"
         }
-      },
-      "description": "The part's cases that expect a blocking Finding, and how many passed; null where `kinds` is."
+      }
     },
     "origin": {
       "description": "The cases the manifest marks natural and those it does not, each counted with how many passed.",

@@ -12,8 +12,11 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`; for a gate
   set, the development cases its manifest names as its preflight first, scored apart (issue 613);
 - `seal`, for a gate set alone, encrypts the ledger `run` left in the scratch to the Maintainer's certificates (issue 612);
+- `merge`, in the merge job of a run split into parts, writes the one report from what the preflight's job and each
+  shard's wrote (issue 611);
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too: each
-  kind's bar of decision 0150, and no fault of the Engine or the run (decision 0120).
+  kind's bar of decision 0150, and no fault of the Engine or the run (decision 0120). The preflight's job judges what it
+  wrote, and fails where the preflight stops the dispatch.
 
 Nothing a step prints is of a case, a Result or the home: counts and codes alone. A step that fails ends on one code and
 exits 1, the judge's count of the report's codes before it, and no traceback, which could quote a case, reaches the
@@ -1079,7 +1082,7 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     if kept.get("part") == MERGE:
         raise Stop("part_unreadable")
     if kept.get("part") is not None:
-        return part_scored(kept, found, place, workspace, review, causes)
+        return part_scored(kept, found, place, workspace, review, causes, env.get("GITHUB_RUN_ATTEMPT"))
     if gate_set(found):
         return written_out(workspace, found,
                            *gate_scored(kept, found, place, review, causes, alternates, surplus, usages))
@@ -1134,8 +1137,9 @@ def part_cases(kept: dict, found: dict, place: pathlib.Path) -> dict:
 
 
 def counts_of(found: dict, place: pathlib.Path, assessed: dict) -> tuple:
-    """`(kinds, blocking)` of `found`'s cases: of each kind, how many and how many passed, and of those that expect a
-    blocking Finding the same; `(None, None)` where `_expected` can say nothing. Counts alone, which the merge sums."""
+    """`(kinds, blocking)` of `found`'s cases: of each kind, how many and how many passed, which the merge sums; and of
+    those that expect a blocking Finding, two words, whether there is one and whether every one passed, never how many
+    (decision 0120); `(None, None)` where `_expected` can say nothing."""
     expected = _expected(found, place)
     if expected is None:
         return None, None
@@ -1143,10 +1147,11 @@ def counts_of(found: dict, place: pathlib.Path, assessed: dict) -> tuple:
     kinds = {kind: {"cases": len([c for c, e in expected.items() if e["verdict"] == kind]),
                     "passed": len([c for c, e in expected.items() if e["verdict"] == kind and c in passed])} for kind in KINDS}
     blocked = blocking_cases(found, expected)
-    return kinds, {"cases": len(blocked), "passed": len([c for c in blocked if c in passed])}
+    return kinds, {"some": bool(blocked), "passed": all(c in passed for c in blocked)}
 
 
-def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib.Path, review, causes: dict) -> str:
+def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib.Path, review, causes: dict,
+                attempt=None) -> str:
     """The `run` step of one part of a split run (issue 611): the preflight's cases, or a shard's, assessed, and what
     the part found written as `PART` where the upload finds it, `eval-part/1`. A development set's part lists its
     cases as the report does; a gate set's holds counts alone, and its cases, with their Results, go to a ledger of the
@@ -1171,7 +1176,9 @@ def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib
     natural = {e["id"] for e in mine["cases"] if e.get("natural") is True}
     origin = {"natural": natural, "constructed": {e["id"] for e in mine["cases"]} - natural}
     written = {"schema": PART_SCHEMA, "part": kept["part"], "release": kept["release"], "commit": kept["commit"],
-               "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "asked": len(mine["cases"]),
+               "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]),
+               # The attempt a gate set's shard was drawn for: the merge reads no shard of another (issue 611).
+               "attempt": attempt if gate and kept["part"] != PREFLIGHT else None, "asked": len(mine["cases"]),
                "passed": len(passed), "kinds": kinds, "blocking": blocking,
                "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
                "faults": faults_of(assessed),
@@ -1185,22 +1192,38 @@ def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib
     return "scored %d cases of the part %s, %d passed" % (len(mine["cases"]) + len(ahead), kept["part"], len(passed))
 
 
-def parts_of(kept: dict, found: dict, folder: pathlib.Path) -> dict:
+def _part_file(path: str):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError, RecursionError):
+        return None
+
+
+def parts_of(kept: dict, found: dict, folder: pathlib.Path, attempt=None) -> dict:
     """`{part: what it wrote, or None}` for the preflight and each shard, read from `folder` as the merge job's download
-    puts them, `eval-part-<part>/eval-part.json`: one not there, not `eval-part/1`, or of another part, Release,
-    commit or set than this run's, is None, and its cases are not answered."""
+    puts them, `eval-part-<part>/eval-part.json`, or the one part it found at `eval-part.json` itself. One not there,
+    not `eval-part/1`, of another part, Release, commit or set than this run's, a gate set's that lists a case or holds
+    no ledger but its own, a development set's that holds one, or a gate set's shard drawn for another attempt than
+    `attempt`, the merge's, is None, and its cases are not answered: a shard run again draws its cases anew."""
+    names, gate = [PREFLIGHT] + [str(i) for i in range(kept["shards"])], gate_set(found)
     read = {}
-    for part in [PREFLIGHT] + [str(i) for i in range(kept["shards"])]:
+    for part in names:
         try:
-            with open(within(within(folder, "eval-part-%s" % part), PART), encoding="utf-8") as f:
-                document = json.load(f)
-        except (Stop, OSError, ValueError, RecursionError):
-            document = None
-        if document is not None and (_errors(document, "eval-part") or document["part"] != part
-                                     or document["cases"] and gate_set(found) or _judged(
-                                         document, found, kept["set"]["sha256"], kept["commit"], kept["release"])):
-            document = None
-        read[part] = document
+            read[part] = _part_file(within(within(folder, "eval-part-%s" % part), PART))
+        except Stop:
+            read[part] = None
+    flat = _part_file(os.path.join(os.path.realpath(str(folder)), PART))
+    if isinstance(flat, dict) and flat.get("part") in names and read[flat["part"]] is None and not any(read.values()):
+        read[flat["part"]] = flat
+    for part, document in read.items():
+        if document is None:
+            continue
+        if _errors(document, "eval-part") or document["part"] != part or _judged(
+                document, found, kept["set"]["sha256"], kept["commit"], kept["release"]) \
+                or (document["cases"] or [e["part"] for e in document["ledger"]] != [part] if gate else document["ledger"]) \
+                or (gate and part != PREFLIGHT and document["attempt"] != attempt):
+            read[part] = None
     return read
 
 
@@ -1222,11 +1245,14 @@ def merged(kept: dict, found: dict, read: dict, root: pathlib.Path) -> dict:
     whole = len(present) == kept["shards"] and sum(d["asked"] for d in present) == found["count"]
     kinds = {k: _summed([None if d["kinds"] is None else d["kinds"][k] for d in present]) for k in KINDS} if whole else None
     kinds = None if kinds is None or None in kinds.values() else kinds
-    blocked = _summed([d["blocking"] for d in present]) if kinds is not None else None
+    blocked = None if kinds is None or any(d["blocking"] is None for d in present) else {
+        "some": any(d["blocking"]["some"] for d in present), "passed": all(d["blocking"]["passed"] for d in present)}
     least, bars = kind_least_of(found), bars_of(found)
-    held = None if kinds is None else min(kinds[k]["cases"] for k in KINDS) >= least and blocked["cases"] >= BLOCKING_LEAST
+    # A part says whether it has a blocking case, never how many, so the merge can hold a least of one at most.
+    held = None if blocked is None or BLOCKING_LEAST > 1 else \
+        min(kinds[k]["cases"] for k in KINDS) >= least and (blocked["some"] or BLOCKING_LEAST == 0)
     words = None if kinds is None else {k: _clears(kinds[k]["passed"], kinds[k]["cases"], bars[k]) for k in KINDS}
-    clear = None if blocked is None else blocked["passed"] == blocked["cases"]
+    clear = None if blocked is None else blocked["passed"]
     unanswered = found["count"] - sum(d["asked"] for d in present)
     answering = sorted({m for d in present for m in d["models"]})
     if not gate_set(found):
@@ -1279,7 +1305,7 @@ def merge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     kept, found, _ = _planned(env, root, workspace)
     if kept.get("part") != MERGE:
         raise Stop("part_unreadable")
-    read = parts_of(kept, found, pathlib.Path(within(workspace, "parts")))
+    read = parts_of(kept, found, pathlib.Path(within(workspace, "parts")), env.get("GITHUB_RUN_ATTEMPT"))
     written = merged(kept, found, read, root)
     _write(workspace, REPORT, written)
     output = env.get("GITHUB_OUTPUT")

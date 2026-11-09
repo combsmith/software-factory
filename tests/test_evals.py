@@ -3544,7 +3544,7 @@ class EvalJob(unittest.TestCase):
                 break
         return said, base / "work"
 
-    def merged_run(self, parts: dict) -> tuple:
+    def merged_run(self, parts: dict, attempt: str = "1", flat: bool = False) -> tuple:
         """The merge job of a split run, given each part's workspace by its name: `(what it said, the report, its outputs)`."""
         from harness import eval as job
         base = pathlib.Path(self.dir.name) / "job-merge"
@@ -3552,9 +3552,12 @@ class EvalJob(unittest.TestCase):
         (base / "temp").mkdir(parents=True)
         (base / "work" / "parts").mkdir(parents=True)
         for name, work in parts.items():
-            (base / "work" / "parts" / ("eval-part-%s" % name)).mkdir()
-            shutil.copy(str(work / job.PART), str(base / "work" / "parts" / ("eval-part-%s" % name) / job.PART))
-        env = dict(self.env, RUNNER_TEMP=str(base / "temp"), EVAL_PART="merge", GITHUB_OUTPUT=str(base / "outputs"))
+            # The download puts each part in a folder of its own name, or one alone where it is put.
+            folder = base / "work" / "parts" if flat else base / "work" / "parts" / ("eval-part-%s" % name)
+            folder.mkdir(exist_ok=True)
+            shutil.copy(str(work / job.PART), str(folder / job.PART))
+        env = dict(self.env, RUNNER_TEMP=str(base / "temp"), EVAL_PART="merge", GITHUB_OUTPUT=str(base / "outputs"),
+                   GITHUB_RUN_ATTEMPT=attempt)
         (base / "outputs").write_text("")
         job.plan(env, self.root, base / "work")
         said = job.merge(env, self.root, base / "work")
@@ -3602,9 +3605,12 @@ class EvalJob(unittest.TestCase):
                          {i: [] if i in ids[0::2] else ["unanswered"] for i in ids})
         self.assertEqual((short["split_ok"], short["kinds_pass"], short["blocking_pass"]), (None, None, None))
         self.assertEqual(job.verdict(short, *job.manifest(self.root), self.env["GITHUB_SHA"], self.env["RELEASE"]), "run_fault")
-        # So does one that is not this run's part, or of another commit.
-        (parts["1"] / job.PART).write_text(json.dumps(dict(json.loads((parts["1"] / job.PART).read_text()), part="0")))
-        self.assertEqual(self.merged_run(parts)[0], "merged 2 of 3 parts, 3 passed")
+        # So does one that is not this run's part, of another commit, or one that holds a ledger.
+        kept = json.loads((parts["1"] / job.PART).read_text())
+        for change in ({"part": "0"}, {"commit": "b" * 40},
+                       {"ledger": [{"part": "1", "salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}]}):
+            (parts["1"] / job.PART).write_text(json.dumps(dict(kept, **change)))
+            self.assertEqual(self.merged_run(parts)[0], "merged 2 of 3 parts, 3 passed", change)
         # A part the configuration does not name, or the merge's own part asked to fetch, is refused.
         for part in ("2", "-1", "", "whole"):
             self.assertEqual(self.part_run(part, github.Replay([]), review)[0], ["part_unreadable"], part)
@@ -3658,8 +3664,21 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(written["preflight"], {"cases": 3, "passed": 3, "faults": []})
         found, digest = job.manifest(self.root, "pr-review-gate")
         self.assertEqual(job.verdict(written, found, digest, self.env["GITHUB_SHA"], self.env["RELEASE"]), "pass")
-        # Another attempt of the run draws its shards anew.
+        # A part says of its blocking cases two words, never how many (decision 0120).
+        self.assertEqual(json.loads((parts["0"] / job.PART).read_text())["blocking"], {"some": False, "passed": True})
+        # Another attempt of the run draws its shards anew, so the merge of another attempt reads no shard of this one:
+        # a shard run again is no part of a run whose others were drawn before it.
         self.assertTrue(any(drawn(salt, "4242", str(a)) != drawn(salt, "4242", "1") for a in range(2, 9)))
+        self.assertEqual(self.merged_run(parts, attempt="2")[0], "merged 1 of 3 parts, 0 passed")
+        # A gate set's part that holds no ledger but its own is no part of the run.
+        kept = json.loads((parts["1"] / job.PART).read_text())
+        row = {"id": "c-0", "sha256": "0" * 64, "verdict": "pass", "reasons": [], "usage": dict(job.NOT_ASKED)}
+        for change in ({"ledger": []}, {"ledger": [dict(kept["ledger"][0], part="0")]}, {"cases": [row]}):
+            (parts["1"] / job.PART).write_text(json.dumps(dict(kept, **change)))
+            self.assertEqual(self.merged_run(parts)[0], "merged 2 of 3 parts, %d passed" % len(drawn(salt, "4242", "1")), change)
+        (parts["1"] / job.PART).write_text(json.dumps(kept))
+        # The one part the download found, put where it was put, is read by what it says it is.
+        self.assertEqual(self.merged_run({"preflight": parts["preflight"]}, flat=True)[0], "merged 1 of 3 parts, 0 passed")
         # A gate set with no salt in the home stops the fetch.
         self.assertEqual(self.part_run("0", github.Replay([home_beside("pr-review-gate", "salt", b"", status=404)]), review)[0][1],
                          "no_shard_salt")
