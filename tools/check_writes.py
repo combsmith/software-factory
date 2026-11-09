@@ -537,7 +537,8 @@ def _loaded(mods: dict, mod: Module) -> list:
                    or isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in LOADER_MODULES
                    or isinstance(n, ast.Name) and n.id == "__import__"
                    or isinstance(n, ast.ImportFrom) and n.module == "sys" and any(a.name in ("modules", "*") for a in n.names)
-                   or isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and n.attr in ("modules", "__import__")
+                   or isinstance(n, ast.Attribute) and n.attr in ("modules", "__import__")
+                   and (isinstance(n.ctx, ast.Load) or isinstance(n.value, ast.Name) and _sys(mods, mod, n.value.id))
                    or isinstance(n, ast.ImportFrom) and any(a.name in LOADER_MODULES for a in n.names)
                    or isinstance(n, ast.Attribute) and n.attr in LOADER_MODULES
                    or isinstance(n, ast.Name) and n.id == "__builtins__"

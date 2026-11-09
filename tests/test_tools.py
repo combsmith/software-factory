@@ -9927,6 +9927,7 @@ class Writes(unittest.TestCase):
             "harness/handsvars.py": "from harness import portinst\n\ndict.update(vars(portinst), go=len)\n",
             "harness/timeoutgit.py": "import os\n\n\ndef go():\n    return os.system('timeout 60 git push')\n",
             "harness/modstore.py": "class C:\n    def __init__(self):\n        self.modules = {}\n",
+            "harness/sysstore.py": "import sys\n\n\ndef go(d):\n    sys.modules = d\n",
             "harness/execs.py": "def go(t):\n    exec('from adapters import effects')\n    return eval('effects.approve(t)')\n",
             "harness/compiles.py": "CODE = compile('1', 'x', 'eval')\n",
             # And what runs nothing, or sets a name of the function's own, passes.
@@ -10048,6 +10049,7 @@ class Writes(unittest.TestCase):
                           ("harness/setitems.py:6", "sets an attribute by setattr, or may"),
                           ("harness/handsvars.py:3", "hands on harness.portinst's names"),
                           ("harness/timeoutgit.py:5", "names gh or git as a command"),
+                          ("harness/sysstore.py:5", "loads a module by its name"),
                           ("harness/sysget.py:5", "loads a module by its name"),
                           ("harness/sysdict.py:5", "loads a module by its name"),
                           ("harness/sysalias.py:3", "loads a module by its name"),
