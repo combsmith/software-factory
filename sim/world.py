@@ -869,13 +869,10 @@ class World:
         elif d["action"] == "enqueue":
             self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
                        "I-45 a change to the list enqueued with no review of its head")
-            # What a merge must carry, held at the Factory's own enqueue: the queue merges on its checks alone (issue 677).
-            self.check(any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved"
-                           and rv["content_id"] == self.cid() for rv in self.reviews),
-                       "NFR-4 enqueued without an approval of its content")
-            self.check(self.accepted(self.acceptance(), self.reviews, self.cid()),
-                       "I-29, I-31 enqueued without a contract a person approved, unchanged, or with a criterion lacking "
-                       "passing evidence from its reporter on its content")
+            # The queue merges on its checks alone (trials/P-2.no-pass.json, issue 677): whatever the item may not merge
+            # over, the approval of its content among them (L-19, NFR-4, I-29, I-31), is held at the Factory's own enqueue.
+            objections = self.objections()
+            self.check(not objections, "L-19 enqueued over %s" % ", ".join(objections))
             self.check(not self.needs_review() or self.reviewed(self.runs, self.cid()),
                        "I-37 enqueued with no successful review of its content by every required model Lens")
             # GitHub: an_app_enters_the_queue
@@ -1229,7 +1226,8 @@ class World:
         # GitHub: the_merge_group_is_not_checked
         # GitHub: the_queue_merges_on_its_required_checks
         if self.queue and self.rng.random() < 0.6 and all(v == "success" for v in self.checks.values()):
-            # The queue merges on its required checks alone, with no pass read between (trials/P-2.no-pass.json).
+            # The queue merges on its required checks alone, with no pass read between, whoever enqueued it
+            # (trials/P-2.no-pass.json, trials/P-2.queue-app.json); the head's checks stand in for the merge group's.
             objections = self.objections()
             self.read_at_merge = self.read == self.unstamped(self.facts())
             if self.read_at_merge:
@@ -1458,8 +1456,14 @@ class World:
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-2 one writer per item")
         for rv in self.reviews:
             self.check(rv["by"]["name"] not in (self.author,), "I-26 the approver is the author")
-        # What a merge carries is the Factory's to hold only where a pass read the item as it was merged; a merge GitHub
-        # made over what came since the last read is the queue's, and the Factory held each at its enqueue (issue 677).
+        # A push takes the item out of the queue, and run records only grow: the reviews a merge carries are held always.
+        if self.pr_state == "merged":
+            self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
+                       "I-45 a change to the list merged with no review of the merged content")
+            self.check(not self.needs_review() or self.reviewed(self.runs, self.cid()),
+                       "I-37 merged with no successful review of the merged content by every required model Lens")
+        # An approval or a contract can be withdrawn while queued, and the queue merges over it unless a pass reads it
+        # first: they are the Factory's to hold at the merge only where a pass read the item as it was merged (issue 677).
         if self.pr_state == "merged" and self.read_at_merge:
             ok = any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved"
                      and rv["content_id"] == self.cid() for rv in self.reviews)
@@ -1467,10 +1471,6 @@ class World:
             self.check(self.accepted(self.acceptance(), self.reviews, self.cid()),
                        "I-29, I-31 merged without a contract a person approved, unchanged, or with a criterion lacking "
                        "passing evidence from its reporter on the merged content")
-            self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
-                       "I-45 a change to the list merged with no review of the merged content")
-            self.check(not self.needs_review() or self.reviewed(self.runs, self.cid()),
-                       "I-37 merged with no successful review of the merged content by every required model Lens")
         # A Lens's thread comes only from its review that succeeded: one that left a criterion uncovered applied nothing.
         for th in self.threads:
             if th["opened_by"]["kind"] == "lens":

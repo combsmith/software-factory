@@ -113,7 +113,8 @@ RULES = (
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
     ("the_queue_merges_on_its_required_checks", "The merge queue merges a queued pull request once its required checks "
-     "pass, whoever enqueued it, with no read of the Factory's between", ("P-2",), "trials/P-2.no-pass.json", None),
+     "pass, whoever enqueued it, with no read of the Factory's between", ("P-2",),
+     ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json"), None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
      "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "

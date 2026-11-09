@@ -363,7 +363,7 @@ class Simulation(unittest.TestCase):
         # Once the rule is held, the same breach raises.
         self.assertRaises(world.Broken, w.check_unheld, False, "test_later", "a rule")
 
-    def test_what_happens_while_queued_takes_the_item_out_before_it_merges(self):  # L-19
+    def test_what_happens_while_queued_is_merged_over_unless_a_pass_reads_it_first(self):  # L-19
         # The Maintainer asks for changes, opens a thread, dismisses the approval or adds a Hold after the item
         # entered the queue. The queue does not wait for a pass (trials/P-2.no-pass.json, issue 677): what comes while
         # queued is merged over, noted and never asserted, unless a pass reads it first and takes it out. A required
@@ -384,6 +384,7 @@ class Simulation(unittest.TestCase):
             else:
                 self.assertEqual(w.pr_state, "merged", name)
                 self.assertIn("merged before a pass read", "\n".join(w.trace), name)
+                w.invariants()      # merged over, and the queue's: no invariant of the Factory's is broken
             # A pass that reads it first takes it out.
             w = queued()
             w.caused(act(w))
@@ -407,6 +408,36 @@ class Simulation(unittest.TestCase):
             w.platform()
             self.assertEqual(w.pr_state, "merged", read)
             self.assertNotIn("merged before a pass read", "\n".join(w.trace), read)
+
+    def test_the_factorys_own_enqueue_holds_what_the_queue_merges_on_alone(self):  # L-19, NFR-4, I-29, I-37
+        # The queue merges on its checks alone (issue 677), so whatever the item may not merge over is held at the
+        # Factory's own enqueue. A Kernel that enqueues over one breaks there; one that enqueues a clean item does not.
+        def enqueue(w):
+            d = {"outcome": terms.ACT, "action": "enqueue", "content_id": w.cid(), "reason": "converged"}
+            with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: d):
+                w.apply_action(d)
+
+        def contract(w):
+            w.criteria, w.kinds, w.results, w.head = ["AC-1"], {"AC-1": "test"}, [], w.digest()
+
+        def failed(w):
+            for r in w.runs:
+                r["conclusion"] = "failure"
+
+        over = {"L-19 enqueued over no standing approval": lambda w: w.while_queued("dismiss"),
+                "L-19 enqueued over a writer's open thread": lambda w: w.while_queued("thread"),
+                "L-19 enqueued over a required check that failed": lambda w: w.checks.update({sorted(w.checks)[0]: "failure"}),
+                "L-19 enqueued over a contract no person approved": contract,
+                "I-37 enqueued with no successful review": failed}
+        for said, make in over.items():
+            w = queued()
+            w.queue = False
+            make(w)
+            self.assertRaisesRegex(world.Broken, said, enqueue, w)
+        w = queued()
+        w.queue = False
+        enqueue(w)
+        self.assertTrue(w.queue)
 
     def test_a_run_listed_unnamed_admits_nothing(self):  # I-46, decision 0036
         # On a seed that lists a new Run unnamed, the pass after its admission reads it among the unidentified Runs and
@@ -1070,9 +1101,9 @@ class Simulation(unittest.TestCase):
                                      for i, r in enumerate(w.runs))
         self.assertTrue(noted and again and exhausted, (noted, again, exhausted))
 
-    def test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges(self):  # I-31
+    def test_a_queued_item_whose_evidence_is_gone_is_merged_over_unless_a_pass_reads_it_first(self):  # I-31
         # GitHub's merge queue knows nothing of the contract. The evidence a queued item converged on is gone, as an
-        # artifact is after its retention: the queue waits for a pass, and the pass takes it out.
+        # artifact is after its retention: the queue merges over it unless a pass reads it first and takes it out.
         class Never:
             def random(self):
                 return 0.99
@@ -1092,6 +1123,7 @@ class Simulation(unittest.TestCase):
         w.platform()
         self.assertEqual(w.pr_state, "merged")
         self.assertIn("merged before a pass read", "\n".join(w.trace))
+        w.invariants()
         w = queued()
         gone(w)
         w.caused("platform")
@@ -1103,7 +1135,7 @@ class Simulation(unittest.TestCase):
         gone(w)
         w.read = w.unstamped(w.facts())
         self.assertRaises(world.Broken, w.platform)
-        # The other side: with the evidence there, on this content, the queue merges once a pass has read it.
+        # The other side: with the evidence there, on this content, the queue merges, here after a pass has read it.
         w = queued()
         gone(w)
         w.results = [{"criterion": "AC-1", "content_id": w.cid(), "result": "passing", "check": dict(world.REPORTER)}]
