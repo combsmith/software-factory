@@ -961,10 +961,11 @@ class Done(unittest.TestCase):
         excused = dict(closed, label_events=[labelled(HANDS_OFF, minute=4), unlabelled(HANDS_OFF, minute=6)])
         d = derive(facts(linked=[own, pr(number=12, links=[("connected", 3)])], **excused))
         self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
-        # A person who unlinks the rival after the merge, or in its second, lets the merge read on, as a Hold removed
-        # does; linked again since, it holds again.
+        # An unlinking of the rival after the merge, or in its second, lets the merge read on for good, as a Hold's
+        # removal does: linked again since, it holds nothing, so no one moves a done issue back and forth.
         for links, held in (([("connected", 3), ("disconnected", 7)], False), ([("connected", 3), ("disconnected", 5)], False),
-                            ([("connected", 3), ("disconnected", 7), ("connected", 8)], True)):
+                            ([("connected", 3), ("disconnected", 7), ("connected", 8)], False),
+                            ([("connected", 3), ("disconnected", 7), ("connected", 8), ("disconnected", 9), ("connected", 10)], False)):
             d = derive(facts(linked=[own, pr(number=12, links=links)], **closed))
             self.assertEqual(d["state"], "held" if held else "done", links)
 

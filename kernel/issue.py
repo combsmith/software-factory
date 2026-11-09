@@ -592,11 +592,12 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # Two pull requests linked by hand before the first merge's second, neither closed before it, were two links at
         # it: the issue stood held (row 4), and the merge leaves it so (issue 551). Each is read as it stood at the
         # merge: an outsider's only where a person had admitted it by then, so no admission after the merge moves a
-        # done issue. One a person has unlinked since lets the merge read on, as a Hold a person removes does. A link in
-        # the merge's second, or one with no time, a closing keyword's, reads as before: the Factory's merge beside
+        # done issue. One unlinked at or after the merge lets the merge read on for good, as a Hold's removal does: a
+        # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A link
+        # in the merge's second, or one with no time, a closing keyword's, reads as before: the Factory's merge beside
         # another in its second is done (decision 0132).
-        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
-                 and linked_by_hand_before(p, first) and p["link_events"][-1]["action"] == CONNECTED
+        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first)) and linked_by_hand_before(p, first)
+                 and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
                  and (p["closed_at"] is None or p["closed_at"] >= first)]
         # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
         # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.
