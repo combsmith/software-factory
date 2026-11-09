@@ -1,7 +1,8 @@
 # harness/eval/
 
-The eval job's steps, a module each, in the order `__init__.py` gives. Their rules are `evals/AGENTS.md`'s, beside the sets they run, but for what two issues add, which are here:
-issue 612, "The eval job reads a named set, and a gate set's report is aggregates only", and issue 613, "The gate pools k dispatches on one commit and reads all of them".
+The eval job's steps, a module each, in the order `__init__.py` gives. Their rules are `evals/AGENTS.md`'s, beside the sets they run, but for what three issues add, which are here:
+issue 612, "The eval job reads a named set, and a gate set's report is aggregates only", issue 613, "The gate pools k dispatches on one commit and reads all of them",
+and issue 611, "A case's head is read from the private home, pinned by its hash, and the run is sharded".
 A dispatch names its set. A set whose manifest says it is a gate set is reported by counts alone, `eval-aggregate/1`, and each case's outcome with its Result goes to a ledger, `eval-ledger/1`, kept in the scratch.
 `seal.py` encrypts the ledger with `openssl cms` to each of the Maintainer's certificates that its pins, in a protected path under `.github/`, name by sha256 (`seal.RECIPIENTS`). The ciphertext alone is uploaded, as `eval-ledger`.
 No key that opens a ledger is in the job or the repo, and nothing automated reads one. Until the Maintainer commits his certificates, a gate set's run fails at the seal, `no_recipient`.
@@ -9,6 +10,7 @@ The ciphertext lives only as a run artifact under its retention until a storage 
 A gate set gives its own bars and least of a kind. The Release's gate pools every dispatch on a commit of the gate set `config/harness.json` names, `gate_set`.
 Until one is named, the gate reads the review Intent's set by its newest successful dispatch, which a re-dispatch can still make the best of several.
 A gate set's dispatch asks its preflight first, a few cases of the review Intent's set scored apart, so that a broken pipeline stops it before any held-out case is asked.
+A case's head is read from the home beside the case, its tarball and its tree each by the sha256 the case pins, and held to that tree (issue 611); nothing in the job reads with no credential.
 
 | Rule | Held by |
 |---|---|
@@ -26,5 +28,6 @@ A gate set's dispatch asks its preflight first, a few cases of the review Intent
 | The pool is three runs at least, every one, each kind summed under the set's bars; one faulted closes it | `tests/test_evals.py::test_the_gate_pools_every_dispatch_on_the_commit_and_one_faulted_closes_it` |
 | A gate set's preflight is three to five of the review Intent's cases, none a gate set's by its id or its hash | `tests/test_evals.py::test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case` |
 | The preflight is asked first; a fault in it, or no pass, stops the dispatch before a case of the set is asked, and the gate reads it as faulted | `tests/test_evals.py::test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it` |
+| Each case's head is read from the home by its pins, unpacked and held to its tree; one not the one pinned, or not read whole, closes the gate | `tests/test_evals.py::test_each_cases_head_is_read_from_the_home_by_its_pins_and_one_not_read_closes_the_gate` |
 | The Release's gate judges a gate set named in the configuration by every completed dispatch on the commit | `tests/test_release_step.py::test_a_gate_set_is_judged_by_every_dispatch_on_the_commit` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

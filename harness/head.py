@@ -234,9 +234,15 @@ def tree(transport, repo: str, sha: str) -> dict:
         answer = transport.send(github.request("GET", path))
     except github.Unanswered:
         raise Refused("the commit's tree could not be read") from None
-    body = answer.get("body")
-    if answer.get("status") != 200 or not isinstance(body, dict) or body.get("truncated") is not False \
-            or not isinstance(body.get("tree"), list):
+    if answer.get("status") != 200:
+        raise Refused("the commit's tree was not answered whole")
+    return tree_of(answer.get("body"))
+
+
+def tree_of(body) -> dict:
+    """A commit's tree, every level of it, as `tree` reads GitHub's answer, from the answer's body: so an eval case's
+    tree, kept beside it in the held-out home as GitHub answered it, is read by the same checks (issue 611)."""
+    if not isinstance(body, dict) or body.get("truncated") is not False or not isinstance(body.get("tree"), list):
         raise Refused("the commit's tree was not answered whole")
     files, links, seen = {}, set(), set()
     for entry in body["tree"]:

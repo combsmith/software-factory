@@ -6,7 +6,8 @@ each a `run:` line of `.github/workflows/eval.yml`, in this order:
   names; a set of no case ends the run here, `eval_set_empty`, before any credential is used (ruling 8);
 - `fetch` reads each case from the private home through `adapters/heldout.py`, with the Maintainer's read-only token, into
   a scratch directory outside the workspace, on a runner thrown away when the job ends, and each case's head, the
-  commit its diff was taken at, as its tarball with no credential, unpacked by hand beside it (decision 0138);
+  commit its diff was taken at, from the home too: its tarball and its commit's tree, kept beside the case and each
+  pinned by its sha256 there, the tarball unpacked by hand and held to the tree (decision 0138, issue 611);
 - `run` gives each case to the review Intent, its Task built and its Engine called by the functions a live Run's are
   (`harness/task.from_admission`, `harness/run.answer`), and scores its Result with `tools/eval_result.py`; for a gate
   set, the development cases its manifest names as its preflight first, scored apart (issue 613);
@@ -358,43 +359,59 @@ def seen_of(review) -> dict:
     return said
 
 
-def head_of(data: bytes, folder: pathlib.Path, ident: str, transport):
-    """The head a case names, its tarball read through `transport` and unpacked into `folder` under its id, or the code
-    `head_unreadable` when it cannot be read or unpacked whole; None, and nothing read, for a case with no head to read,
-    which its schema refuses after (decision 0138). Nothing of the head is printed or kept but its files there."""
+def head_of(env: dict, data: bytes, folder: pathlib.Path, role: str, ident: str, transport):
+    """The head a case names, read from the home through `transport` beside the case, its tarball and its commit's tree
+    each by the sha256 the case pins, unpacked into `folder` under its id and held to that tree file by file (issue 611;
+    decision 0142); or the code that says why not: `hash_differs` for a file not the one pinned, and `head_unreadable`
+    for one that cannot be read, unpacked or held whole. None, and nothing read, for a case with no head to read, which
+    its schema refuses after (decision 0138). Nothing of the head is printed or kept but its files there."""
+    from adapters import heldout
     from harness import head
     try:
         case = json.loads(data)
-        repo, sha = case["facts"]["item"]["repo"], case["head"]
+        sha, pins = case["head"], (case["head_sha256"], case["tree_sha256"])
     except (ValueError, TypeError, KeyError, RecursionError):
         return None
-    if not (isinstance(sha, str) and COMMIT.fullmatch(sha) and isinstance(repo, str)):
+    # A case whose head or pins are not whole is no case of this set, which its schema says after: nothing is read.
+    if not (isinstance(sha, str) and COMMIT.fullmatch(sha) and all(isinstance(p, str) and SHA256.fullmatch(p) for p in pins)):
         return None
+    read = {}
+    for kind, pin in zip(("tar.gz", "tree.json"), pins):
+        read[kind], code = heldout.beside(transport, env.get("HELDOUT_OWNER"), env.get("HELDOUT_REPO"), role, ident,
+                                          kind, pin)
+        if code is not None:
+            return "hash_differs" if code == "hash_differs" else "head_unreadable"
     folder.mkdir(mode=0o700, exist_ok=True)
+    into = None
     try:
-        head.unpack(head.fetch(transport, repo, sha), sha, within(folder, ident))
-    except (head.Refused, OSError, Stop):
-        shutil.rmtree(str(folder / ident), ignore_errors=True)
+        tree = head.tree_of(json.loads(read["tree.json"]))
+        into = within(folder, ident)
+        head.unpack(read["tar.gz"], sha, into)
+        head.held(into, tree)
+    except (head.Refused, OSError, Stop, ValueError, RecursionError):
+        if into is not None:
+            shutil.rmtree(into, ignore_errors=True)
         return "head_unreadable"
     return None
 
 
-def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, heads=None) -> str:
+def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> str:
     """Each case the set names, read from the home into the scratch directory as the bytes its manifest hashed, and
     why each that is not there is not: `fetched.json`, by id, a code or null, and `fetch-causes.json`, by id, what a read
-    that raised raised, by its class and place alone. Each case's head is read through `heads`, with no credential, and
-    a case whose head cannot be read whole is not there either, `head_unreadable`. Heads are unpacked in `heads_place`,
-    apart from the cases (issue 623). A gate set's preflight is read first, the same way, into the scratch's own folder
-    of it, PREFLIGHT; its heads beside the set's, by their ids, which `preflight_of` holds apart (issue 613)."""
+    that raised raised, by its class and place alone. Each case's head is read from the home too, beside the case, by
+    `head_of`, and a case whose head cannot be read whole is not there either. No head is read with no credential
+    (issue 611). Heads are unpacked in `heads_place`, apart from the cases (issue 623). A gate set's preflight is read
+    first, the same way, into the scratch's own folder of it, PREFLIGHT; its heads beside the set's, by their ids, which
+    `preflight_of` holds apart (issue 613)."""
     kept, found, place = _planned(env, root, workspace)
     said = ""
     if kept["preflight"]:
-        ahead = _fetched(env, workspace, transport, heads, dict(found, cases=kept["preflight"]), place / PREFLIGHT)
+        ahead = _fetched(env, workspace, transport, dict(found, cases=kept["preflight"]), place / PREFLIGHT)
         said = ", %d of %d to preflight" % (ahead, len(kept["preflight"]))
-    return "fetched %d of %d cases" % (_fetched(env, workspace, transport, heads, found, place), found["count"]) + said
+    return "fetched %d of %d cases" % (_fetched(env, workspace, transport, found, place), found["count"]) + said
 
 
-def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, place: pathlib.Path) -> int:
+def _fetched(env: dict, workspace: pathlib.Path, transport, found: dict, place: pathlib.Path) -> int:
     """How many of `found`'s cases `fetch` read into `place`, writing why each other was not read there."""
     from adapters import heldout
     why, causes = {}, {}
@@ -405,8 +422,8 @@ def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, 
         except Exception as err:
             data, code = None, "unanswered"
             causes[entry["id"]] = cause_of(err)
-        if data is not None and heads is not None:
-            code = head_of(data, heads_place(env, workspace), entry["id"], heads)
+        if data is not None:
+            code = head_of(env, data, heads_place(env, workspace), found["role"], entry["id"], transport)
         why[entry["id"]] = code
         if data is not None and code is None:
             path = within(place / "cases", "%s.json" % entry["id"])
