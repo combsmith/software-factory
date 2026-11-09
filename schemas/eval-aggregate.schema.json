@@ -14,6 +14,7 @@
     "kinds",
     "origin",
     "faults",
+    "preflight",
     "usage",
     "engine",
     "models",
@@ -265,6 +266,90 @@
           "count": {
             "type": "integer",
             "minimum": 1
+          }
+        }
+      }
+    },
+    "preflight": {
+      "description": "The development cases the dispatch asked first, its set's `preflight`, scored apart and counted in nothing else here: how many there were, how many passed, and each code of one not read (issue 613). One stopped by the Engine or the run, or none passed, stopped the dispatch before any of the set's cases was asked, and each of those is then `unanswered`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cases",
+        "passed",
+        "faults"
+      ],
+      "properties": {
+        "cases": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "faults": {
+          "description": "Each code of a preflight case not read, with how many cases gave it: never which.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "count"
+            ],
+            "properties": {
+              "code": {
+                "enum": [
+                  "schema",
+                  "not_found",
+                  "hash_differs",
+                  "too_large",
+                  "unanswered",
+                  "not_this_set",
+                  "facts_not_current",
+                  "facts_read_short",
+                  "diff_unreadable",
+                  "diff_not_content",
+                  "pusher_unnamed",
+                  "diff_not_whole",
+                  "issue_not_whole",
+                  "issue_unreadable",
+                  "credential_missing",
+                  "engine_version",
+                  "engine_model",
+                  "engine_failed",
+                  "no_answer",
+                  "engine_timeout",
+                  "task_too_large",
+                  "rubric_unreadable",
+                  "head_unreadable",
+                  "answer_off_rubric",
+                  "result_not_completed",
+                  "finding_not_raised",
+                  "finding_uncited",
+                  "finding_cites_another",
+                  "finding_elsewhere",
+                  "category_differs",
+                  "severity_differs",
+                  "location_differs",
+                  "coverage_disagrees",
+                  "finding_raised_wrongly",
+                  "finding_not_in_hunk",
+                  "surplus_at_place",
+                  "surplus_gating_elsewhere",
+                  "criterion_not_met",
+                  "answer_disagrees_with_verdict",
+                  "location_unreadable",
+                  "criterion_unknown"
+                ]
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
           }
         }
       }

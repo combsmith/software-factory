@@ -301,7 +301,7 @@ class Candidate(unittest.TestCase):
         gate_set = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "gate": True, "count": 40,
                     "cases": [{"id": "g-%d" % i, "sha256": "%064x" % i, "natural": False} for i in range(40)],
                     "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
-                    "record": "docs/decisions/0164-the-gate-sets-record.md"}
+                    "record": "docs/decisions/0164-the-gate-sets-record.md", "preflight": ["p-0", "p-1", "p-2"]}
         gate_bytes = (json.dumps(gate_set, indent=2) + "\n").encode()
         path = "evals/pr-review-gate/cases.json"
         named = config(document=dict(HARNESS, gate_set="pr-review-gate"))
@@ -318,7 +318,8 @@ class Candidate(unittest.TestCase):
                         "kinds": {kind: {"cases": 20, "passed": p, "interval": eval_gate.wilson(p, 20)}
                                   for kind, p in (("finding", finding), ("met", met))},
                         "origin": {"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": finding + met}},
-                        "faults": [], "usage": {"answered": 40, "input_tokens": 1, "cache_creation_input_tokens": 0,
+                        "faults": [], "preflight": {"cases": 3, "passed": 3, "faults": []},
+                        "usage": {"answered": 40, "input_tokens": 1, "cache_creation_input_tokens": 0,
                                                 "cache_read_input_tokens": 0, "output_tokens": 1, "turns": 40,
                                                 "cost_usd": 1.5, "seconds": 60.0},
                         "engine": eval_gate.engine_of("pr-review"), "models": ["claude-opus"],
@@ -356,6 +357,12 @@ class Candidate(unittest.TestCase):
                                "met": {"cases": 20, "passed": 17, "interval": eval_gate.wilson(17, 20)}},
                         kinds_pass={"finding": True, "met": False})
         self.assertEqual(judged([counts(), counts(), engine])[0], "eval_dispatch_faulted")
+        # So does one whose preflight stopped it, its cases each unanswered (issue 613).
+        stopped = counts(faults=[{"code": "unanswered", "count": 40}], passed=0, preflight={
+            "cases": 3, "passed": 2, "faults": [{"code": "engine_timeout", "count": 1}]},
+            origin={"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": 0}},
+            kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None)
+        self.assertEqual(judged([counts(), counts(), counts(), stopped])[0], "eval_dispatch_faulted")
         for conclusion in ("cancelled", "timed_out", None, "skipped"):
             with self.subTest(conclusion=conclusion):
                 runs = [dict(run_of(id=100 + i, run_number=i), status="completed", run_attempt=1) for i in range(3)]

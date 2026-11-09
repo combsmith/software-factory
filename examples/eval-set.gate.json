@@ -217,5 +217,10 @@
     ]
   },
   "kind_least": 20,
-  "record": "docs/decisions/0169-a-gate-sets-gate-pools-every-dispatch-on-the-commit-and-a-development-set-stays-best-of-several.md"
+  "record": "docs/decisions/0169-a-gate-sets-gate-pools-every-dispatch-on-the-commit-and-a-development-set-stays-best-of-several.md",
+  "preflight": [
+    "synthetic-dev-00",
+    "synthetic-dev-01",
+    "synthetic-dev-02"
+  ]
 }
