@@ -1861,7 +1861,7 @@ class Convergence(unittest.TestCase):
         # A re-run whose dispatch was not read may be the act that read, made before it: nothing shows when, so it holds.
         unread = dict(act, started_at="2026-10-11T12:30:00Z", rerun_by_dispatcher=False)
         # The records are always given: with none, the anchor would be the approval's own time, which issue 608 ended.
-        with self.assertRaises(TypeError):
+        with self.assertRaisesRegex(TypeError, "runs"):
             derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z")
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=REVIEWED + [unread]), "")
         d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), REVIEWED + [unread])
