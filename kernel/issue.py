@@ -598,7 +598,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
                  and linked_by_hand_before(p, first) and p["link_events"][-1]["action"] == CONNECTED
                  and (p["closed_at"] is None or p["closed_at"] >= first)]
-        if len(stood) > 1:
+        # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
+        # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.
+        if len(stood) > 1 and not placed_by_a_person(standing_labels(past), past):
             return out(t.HELD, "merged_while_held", stood)
         # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where
         # only an outsider's did, a person decides whether the work is done (issue 280).

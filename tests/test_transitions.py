@@ -1457,8 +1457,10 @@ class AnyLifecycle(unittest.TestCase):
         # person's removal of hands-off then lets the merge read on to done.
         made, reached = issue_explored()
         self.assertLessEqual({("not_served", "merged_while_hands_off"), ("held", "merged_while_held")}, reached)
-        # It merges from held by two links each made by hand too, which the explored moves reach, and the State stays
-        # (issue 551): no platform exit from held, as asserted below.
+        # It merges from held by two links each made by hand too, and the State stays (issue 551): no platform exit from
+        # held, as asserted below. Held by two links is reached before the merge as well, so this alone does not show the
+        # merge; the mutant "two links by hand at the merge are read as before, in the exploration" does, which only a
+        # merge from it kills.
         self.assertIn(("held", "linked_twice"), reached)
         self.assertIn(("merged_while_hands_off", "merged"), made[("not_served", "done", "human")])
         self.assertEqual([m for m in made if m[0] in (t.HELD, t.NOT_SERVED) and m[2] == "platform"], [])

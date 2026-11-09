@@ -957,6 +957,10 @@ class Done(unittest.TestCase):
         later = strangers(number=13, events=[labelled(ADMIT, minute=9)], links=[("connected", 3)])
         d = derive(facts(linked=[own, later], **closed))
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]))
+        # A person's hands-off that stood beside them at the merge, removed since, excuses them, as it excuses a Hold.
+        excused = dict(closed, label_events=[labelled(HANDS_OFF, minute=4), unlabelled(HANDS_OFF, minute=6)])
+        d = derive(facts(linked=[own, pr(number=12, links=[("connected", 3)])], **excused))
+        self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
         # A person who unlinks the rival after the merge, or in its second, lets the merge read on, as a Hold removed
         # does; linked again since, it holds again.
         for links, held in (([("connected", 3), ("disconnected", 7)], False), ([("connected", 3), ("disconnected", 5)], False),
