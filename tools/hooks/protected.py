@@ -528,6 +528,7 @@ class Command:
             # either asks about is asked (check gives each ask once).
             self.here = start
             self.asks_of(again)
+            self.sessions(again)        # a Claude Code session the first reading missed is asked about too (Muse)
         return self.found
 
     def asks_of(self, commands: list):
