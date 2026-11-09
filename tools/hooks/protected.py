@@ -56,6 +56,8 @@ from tools.hooks import identity, shell  # noqa: E402
 
 DEADLINE = 5.0          # seconds to read one tool call; the settings give the hook 30
 LONGEST = 256 * 1024    # characters of a command the hook reads
+RESPELT_MOST = 8 * 1024     # characters of a command read again, spelt (#605 (g)): past it, a nest of quoted
+                            # substitutions is read in more than linear time (the security pass)
 LONGEST_PATH = 4096     # characters of a path
 NAME = 255              # characters of one name in a path
 MATCHES = 2000          # paths one wildcard may match
@@ -515,6 +517,21 @@ class Command:
             self.ask("command_unreadable", "the command cannot be split into words")
             return self.found
         self.sessions(commands)
+        try:
+            again = _respelt(self.text, self.spend) if len(self.text) <= RESPELT_MOST else []
+        except (ValueError, RecursionError):
+            again = []      # _split's reading stands, and asks about what it cannot read
+        start = self.here
+        self.asks_of(commands)
+        if again and again != commands:
+            # Read again from where the command began, so a cd in the first reading moves none in the second; what
+            # either asks about is asked (check gives each ask once).
+            self.here = start
+            self.asks_of(again)
+        return self.found
+
+    def asks_of(self, commands: list):
+        """Ask about what each of `commands` writes, from where the command stands."""
         stood = []      # where the command stood when each subshell a redirection's operand runs began (issue 376)
         for at, (words, redirections) in enumerate(commands):
             self.spend()
@@ -531,7 +548,6 @@ class Command:
             if words:
                 self.github(words, redirections)
                 self.simple(words, redirections)
-        return self.found
 
     def redirections(self, redirections: list):
         for operator, target in redirections:
@@ -1397,6 +1413,20 @@ def _split(text: str, spend) -> list:
     commands = shell.commands(outer, spend, places=True)
     for script in inner:
         commands += shell.commands(script, spend, places=True)
+    return commands
+
+
+def _respelt(text: str, spend) -> list:
+    """The simple commands of a command read again with each substitution spelt as the identity hook spells one, its
+    quotes its own (identity._quoted), so a "$(...)" in a "$(...)" ends no quote there and what follows it is read as
+    commands (#605 (g)). A script it spells nothing new in, or gives up on, is left to _split's reading."""
+    outer, inner = _process_substitutions(text)
+    commands = []
+    for script in [outer] + inner:
+        raw = shell.without_heredocs(script, raw=True)
+        spelt = identity._quoted(raw)
+        if spelt != raw:
+            commands += shell.commands(spelt, spend, places=True)
     return commands
 
 
