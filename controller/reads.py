@@ -42,8 +42,10 @@ def _read(entry) -> bool:
 
 
 def items(entries, kind: str) -> tuple:
-    """`(kept, left_out)`: the entries whose facts are facts of `kind`, and the item of each that is not, as one list.
-    An item listed twice is left out every time it is listed, so that one pass never decides it twice."""
+    """`(kept, left_out, why)`: the entries whose facts are facts of `kind`, the item of each that is not, as one list,
+    and why each is left out, as `pass/1` keeps it (#658): listed twice; else the facts port's word for a read that
+    failed, the entry's `unread`; else facts that are not facts. An item listed twice is left out every time it is
+    listed, so that one pass never decides it twice."""
     if not isinstance(entries, list):
         # A list of items that could not be read is no evidence that there are none: a pass that wrote an empty feed
         # from it would look healthy. It is refused, and the not-run alert reports it.
@@ -52,9 +54,26 @@ def items(entries, kind: str) -> tuple:
     # An item listed twice is counted wherever it can be named, readable or not, so a bad copy leaves the good one out.
     seen = [_named(e) for e in entries]
     kept = [e for e in readable if seen.count(key(e["facts"]["item"])) == 1]
+    out = [e for e in entries if not any(e is k for k in kept)]
     left_out = [e.get("facts", {}).get("item") if isinstance(e, dict) and isinstance(e.get("facts"), dict) else None
-                for e in entries if not any(e is k for k in kept)]
-    return kept, [i if isinstance(i, dict) else None for i in left_out]
+                for e in out]
+    why = [TWICE if _named(e) is not None and seen.count(_named(e)) > 1
+           else e["unread"] if isinstance(e, dict) and e.get("unread") in UNREAD else NOT_FACTS for e in out]
+    return kept, [i if isinstance(i, dict) else None for i in left_out], why
+
+
+# Why an item is left out of a pass (#658): a read that moved while it was read, which earns one pass's grace; one GitHub
+# did not answer; facts that are not facts; an item listed twice.
+MOVED, UNANSWERED, NOT_FACTS, TWICE = "pull_moved", "facts_unanswered", "not_facts", "listed_twice"
+UNREAD = (MOVED, UNANSWERED)
+
+
+def item(found):
+    """`found` if it is an item as `facts/1` spells one, which a pass record can keep; None otherwise."""
+    return found if (isinstance(found, dict) and set(found) == {"repo", "type", "number"}
+                     and isinstance(found["repo"], str) and found["repo"].count("/") == 1
+                     and "" not in found["repo"].split("/") and found["type"] in ("pull_request", "issue")
+                     and type(found["number"]) is int and found["number"] >= 1) else None
 
 
 def _named(entry):

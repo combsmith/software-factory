@@ -563,8 +563,13 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
             continue
         said = eval_result.score(case, result)
         # What the scorer says is codes of the report's enum: nothing of a case's content, and no word of the model's. A
-        # case's kind is not worth hiding, and a run cannot be read without them (decision 0120).
-        assessed[entry["id"]] = (said["verdict"], said["reasons"])
+        # case's kind is not worth hiding, and a run cannot be read without them (decision 0120). On a development set
+        # the surplus bound is told and fails no case, until its bar is measured again under the bound (issue 582); a
+        # gate set's fails as the scorer says (issue 610).
+        told = said["verdict"]
+        if told == "fail" and said["reasons"] and set(said["reasons"]) <= set(eval_result.SURPLUS) and not gate_set(found):
+            told = PASS
+        assessed[entry["id"]] = (told, said["reasons"])
         if said.get("at_alternate") is True:
             alternates.add(entry["id"])
         if said.get("surplus_gating"):
@@ -628,6 +633,12 @@ def least_passed(count: int, least: int, bars: dict = None) -> int:
     return min(on(bars[finding], cases) + on(bars[met], count - cases) for cases in range(least, count - least + 1))
 
 
+def is_pass(said: tuple) -> bool:
+    """Whether a case's `(verdict, codes)` is a pass: its verdict, and no code but the surplus bound's, which on a
+    development set is told and fails no case (issue 582)."""
+    return said[0] == PASS and set(said[1]) <= set(eval_result.SURPLUS)
+
+
 def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     """`{kind: whether at least its bar, `bars_of`, of its cases passed}`, read where the cases are: one word for each, never
     how many (decisions 0120 and 0150). None where `kinds_of` can say nothing. A kind with no case has nothing to fail: `split_ok`
@@ -638,7 +649,7 @@ def kinds_pass(found: dict, place: pathlib.Path, assessed: dict):
     said = {}
     for kind in KINDS:
         cases = [case for case, its in kinds.items() if its == kind]
-        passed = [case for case in cases if assessed[case] == (PASS, [])]
+        passed = [case for case in cases if is_pass(assessed[case])]
         said[kind] = _clears(len(passed), len(cases), bars_of(found)[kind])
     return said
 
@@ -668,7 +679,7 @@ def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
     expected = _expected(found, place)
     if expected is None:
         return None
-    return all(assessed[case] == (PASS, []) for case in blocking_cases(found, expected))
+    return all(is_pass(assessed[case]) for case in blocking_cases(found, expected))
 
 
 def used(usage) -> dict:
@@ -740,11 +751,13 @@ def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates:
     """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
-    causes, usages, results)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
-    asked, told, spent, answers = ahead or ({}, {}, {}, {})
+    causes, usages, results, alternates, surplus)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    # Each case asked first with its marks, at an alternate place alone or drawing gating Findings away (Muse's read of
+    # #646), as the set's are listed.
+    asked, told, spent, answers, beside, away = ahead or ({}, {}, {}, {}, set(), {})
     first = [dict(case, **({"result": answers[case["id"]]} if case["id"] in answers else {}))
              for case in report(kept, dict(found, cases=kept.get("preflight", [])), asked, causes=told,
-                                usages=spent)["cases"]]
+                                alternates=beside, surplus=away, usages=spent)["cases"]]
     natural = {e["id"]: e.get("natural") is True for e in found["cases"]}
     cases = [dict(case, natural=natural[case["id"]], **({"result": results[case["id"]]} if case["id"] in results else {}))
              for case in report(kept, found, assessed, causes=causes, alternates=alternates, surplus=surplus,
@@ -951,10 +964,11 @@ def verdict(document, found: dict, digest: str, commit: str, release: str) -> st
         return "engine_fault"
     if any(set(c["reasons"]) & set(RUN_FAULTS) for c in document["cases"]):
         return "run_fault"
-    # A case is passed by its verdict and no code, and any other names what became of it, as the job writes them; the
-    # report's own count must agree, or it is not the job's.
+    # A case is passed by its verdict and no code but the surplus bound's (issue 582), and any other names what became of
+    # it, as the job writes them; the report's own count must agree, or it is not the job's.
     passed = len([c for c in document["cases"] if c["verdict"] == PASS])
-    if any((c["verdict"] == PASS) == bool(c["reasons"]) for c in document["cases"]) or document["passed"] != passed:
+    if any((c["verdict"] == PASS) == bool(set(c["reasons"]) - set(eval_result.SURPLUS)) for c in document["cases"]) \
+            or document["passed"] != passed:
         return "count_differs"
     # A case marked as passed at an alternate place alone is a pass (decision 0143).
     if any(c.get("at_alternate") and c["verdict"] != PASS for c in document["cases"]):
@@ -1003,19 +1017,19 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     """`(assessed, report)` of a gate set's run: each case, with its Result, written to the ledger in the scratch, and the
     report of counts alone that binds it (issue 612). The cases its preflight names are asked first, scored apart; where
     `preflight_stops`, none of the set's own is asked, and each is `unanswered` (issue 613)."""
-    results, first, spent, answers = {}, dict(found, cases=kept["preflight"]), {}, {}
+    results, first, spent, answers, beside, away = {}, dict(found, cases=kept["preflight"]), {}, {}, set(), {}
     # What a preflight case's read raised, as `score` reads the set's own, so that the ledger says why it was not read.
     try:
         told = _read(place / PREFLIGHT, "fetch-causes.json")
     except Stop:
         told = {}
     told = dict(told) if isinstance(told, dict) else {}
-    ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, usages=spent,
-                   results=answers)
+    ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, beside, away,
+                   usages=spent, results=answers)
     why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
     assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
     ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
-                                   (ahead, told, spent, answers)), indent=2, sort_keys=True) + "\n").encode("utf-8")
+                                   (ahead, told, spent, answers, beside, away)), indent=2, sort_keys=True) + "\n").encode("utf-8")
     with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(ledger)
     return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)

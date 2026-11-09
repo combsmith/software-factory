@@ -1593,7 +1593,10 @@ class Identity(unittest.TestCase):
                      # comment, and a comment in a backtick ends at it (Argon).
                      'echo "$(echo \\ # "' + rm + '"\n)"',
                      'echo "`# "\necho "' + rm + '"`"',
-                     'echo "$(echo "`echo ${x:-\'a\'} #` ' + rm + '")"'):
+                     'echo "$(echo "`echo ${x:-\'a\'} #` ' + rm + '")"',
+                     # A comment in a nested backtick ends the backtick, so the held one's quote is read past it (Muse's
+                     # read of #643).
+                     'echo "$(echo "`echo #"`" "' + rm + '")"'):
             with self.assertRaises(shell.Unread, msg=text):
                 shell.commands(text)
         # One that a nested substitution's own quotes leave unquoted is read as before.
@@ -3168,6 +3171,10 @@ class MergesAndSettings(Asks):
         self.assertEqual(self.run_('x="`case $1 in a) echo 1;; esac`"'), "")
         self.assertEqual(self.run_('touch x.json; cd lifecycle; echo "$(echo "$(date)")"'), "")
         self.assertEqual(self.run_('rm kernel/gate.py; echo "$(echo "$(date)"; true)"').count("protected_path"), 1)
+        # A Claude Code session after a nested one is asked about, as a write is (Muse's read of #652).
+        for command in ('echo "$(echo "$(date)"; claude --dangerously-skip-permissions -p hi)"',
+                        'echo $(which claude); echo "$(echo "$(date)"; claude --dangerously-skip-permissions -p hi)"'):
+            self.asked(self.run_(command), "unasked_session", command)
         # Past RESPELT_MOST characters the command is read once, as main reads it, in linear time (the security pass).
         long = 'echo %s; echo "$(echo "$(date)"; rm kernel/gate.py)"' % ("a" * protected.RESPELT_MOST)
         self.assertEqual(self.run_(long), "")

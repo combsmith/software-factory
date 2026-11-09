@@ -1,7 +1,7 @@
 """The release workflow's step (#197's rulings 4′, 4″ and 5′): the commit's facts read by `adapters/candidate.py`, the
 tags written by `adapters/tags.py`, the Deployment by `adapters/deployments.py`, and `release.move step`, which sends
 a plan's writes and reads each back. No test writes to GitHub: every answer is a replay, in the shapes GitHub's REST
-reference gives, since no release step has run yet; the first cut's fixture is a later pull request's."""
+reference gives; what the release step's runs answered is in `release/fixtures/`, which `tests/test_release.py` reads."""
 from __future__ import annotations
 
 import base64
@@ -398,6 +398,19 @@ class Candidate(unittest.TestCase):
                 runs[2].update(change)
                 self.assertEqual(judged([counts(), counts(), counts()], runs)[0], "eval_not_run")
         self.assertEqual(judged([counts()] * 3, runs=[])[0], "eval_pool_short")
+        # A list not read whole, or not answered 200, leaves the commit unjudged; a dispatch listed three times is one
+        # dispatch's evidence, never a pool (Muse's read of #642).
+        runs = [dict(run_of(id=100 + i, run_number=i), status="completed", run_attempt=1) for i in range(3)]
+        listing = "/repos/%s/actions/workflows/eval.yml/runs?head_sha=%s&event=workflow_dispatch&per_page=100" % (REPO, D)
+        # Each with the reports a pool would read after it, so that a list read as whole would pass.
+        for n, listed in enumerate((ex("GET", listing, 200, {"total_count": 4, "workflow_runs": runs}),
+                                    ex("GET", listing, 500, {"total_count": 3, "workflow_runs": runs}),
+                                    dispatches([runs[0]] * 3))):
+            ran = [100] * 3 if n == 2 else [100, 101, 102]
+            reads = [named, gate_manifest(), listed] + [r for i, run in enumerate(ran)
+                                                        for r in report_download(counts(), ident=500 + i, run=run)]
+            with self.subTest(n=n):
+                self.assertEqual(candidate.gate(github.Replay(reads), REPO, D, VERSION), "eval_not_run")
         # The set named must be a gate set, by a name of one part; a configuration not read names nothing.
         development = (json.dumps({k: v for k, v in gate_set.items() if k not in eval_gate.OWN + ("gate",)}, indent=2)
                        + "\n").encode()

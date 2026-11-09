@@ -91,6 +91,18 @@ class Reverts(unittest.TestCase):
                                                ("pkg/calc.py", 12, "SURVIVED", "revert")], repr(ending))
             self.assertEqual(found["skipped"]["same"], 1)      # the annotation
 
+    def test_the_change_is_read_from_the_merge_base_and_not_from_main_as_it_moved_on(self):
+        # Muse's read of #634: main changed pkg/calc.py after the branch left it. Read from main as it is, the change
+        # would hold main's own hunk, put back; read from the merge base, it holds the branch's alone.
+        made, root, first, main = change({"pkg/calc.py": CALC, "tests/test_calc.py": CALC_TEST},
+                                         {"pkg/calc.py": CALC.replace("if a > b:", "if b < a:")}, "main moves on")
+        with made:
+            git(root, "checkout", "-q", "-b", "branch", first)
+            tree(root, {"pkg/calc.py": CALC.replace("x * 2", "x * 3")})
+            git(root, "commit", "-q", "-am", "the branch")
+            found = untested.check(root, main, git(root, "rev-parse", "HEAD").strip(), float("inf"), workers=2)
+            self.assertEqual(outcomes(found), [("pkg/calc.py", 12, "SURVIVED", "revert")])
+
     def test_a_line_is_what_git_numbers_one_and_not_each_break_python_splits_on(self):
         label = 'LABEL = "a b\x0cc"\n\n\ndef f():\n    return %d\n'
         test = "import unittest\n\nfrom pkg import label\n\n\nclass L(unittest.TestCase):\n    def test_f(self):\n" \
@@ -148,6 +160,17 @@ class Reverts(unittest.TestCase):
         self.assertIn("    if not (x > 1):\n", made[2])
         self.assertIn("        x = x + 3\n", made[3])
         self.assertIn("    return x < 3\n", made[8])
+        # The comparison's own operator, not one a string holds before it (Muse's read of #634).
+        quoted = dict(untested.candidates("def g(x):\n    return 'a < b' + str(x < 3)\n", {"new": 2, "new_n": 1}))
+        self.assertIn("    return 'a < b' + str(x <= 3)\n", quoted[2])
+        # A comparison it cannot swap is passed over, and one on another line of the statement is never read here.
+        passed = dict(untested.candidates("def g(x, y):\n    return x == 1 or y < 2\n", {"new": 2, "new_n": 1}))
+        self.assertIn("    return x == 1 or y <= 2\n", passed[2])
+        spread = dict(untested.candidates("def h(y):\n    return g(1,\n             y < 2)\n", {"new": 2, "new_n": 2}))
+        self.assertIn("    return g(2,\n", spread[2])
+        for now, then in (("x > 3", "x >= 3"), ("x >= 3", "x > 3")):
+            swapped = dict(untested.candidates("def g(x):\n    return %s\n" % now, {"new": 2, "new_n": 1}))
+            self.assertIn("    return %s\n" % then, swapped[2], now)
         self.assertIn("    pass\n", dict(untested.candidates("def f(x):\n    g(x)\n", {"new": 2, "new_n": 1}))[2])
         annotated = "from __future__ import annotations\n\n\ndef f(x: Literal[0]) -> int:\n    return x + 1\n"
         self.assertEqual(sorted(dict(untested.candidates(annotated, {"new": 4, "new_n": 2}))), [5])
@@ -264,18 +287,92 @@ class Reverts(unittest.TestCase):
         self.assertEqual(probed, [])        # no import is probed past the budget, the head's or an edit's
 
     def test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read(self):
-        text = ("ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n    # a note\n    3 if os.environ else 2,\n] + [m for m in (\n"
-                "    (4, f(5)),\n) if m]\n\n\ndef run():\n    return 4\n")
+        text = ("def run():\n    return 4\n\n\nISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n    # a note\n"
+                "    3 if os.environ else 2,\n] + [m for m in (\n    (4, run(5)),\n) if m]\n\n\ndef main():\n"
+                "    return run()\n")
         data = untested.data_lines(text)
-        self.assertEqual(data, {2, 5, 6, 9})
+        self.assertEqual(data, {6, 9, 10, 13})
         self.assertEqual(untested.data_lines("MUTANTS = [m for m in (1, 2) if True]\n"), set())
         self.assertEqual(untested.data_lines("MUTANTS = [\n    (1, 2),\n    (3, 4)] + [\n    (5, 6)]\n"), {2})
-        self.assertTrue(untested.is_data({"new": 5, "new_n": 2, "old": 5, "old_n": 1}, data, data))
-        self.assertTrue(untested.is_data({"new": 8, "new_n": 0, "old": 9, "old_n": 1}, data, data))
-        for hunk in ({"new": 7, "new_n": 1, "old": 7, "old_n": 1}, {"new": 8, "new_n": 1, "old": 8, "old_n": 1},
-                     {"new": 10, "new_n": 1, "old": 10, "old_n": 1}, {"new": 14, "new_n": 1, "old": 14, "old_n": 1},
-                     {"new": 5, "new_n": 1, "old": 7, "old_n": 1}):
+        self.assertTrue(untested.is_data({"new": 9, "new_n": 2, "old": 9, "old_n": 1}, data, data))
+        self.assertTrue(untested.is_data({"new": 12, "new_n": 0, "old": 13, "old_n": 1}, data, data))
+        for hunk in ({"new": 11, "new_n": 1, "old": 11, "old_n": 1}, {"new": 12, "new_n": 1, "old": 12, "old_n": 1},
+                     {"new": 14, "new_n": 1, "old": 14, "old_n": 1}, {"new": 18, "new_n": 1, "old": 18, "old_n": 1},
+                     {"new": 2, "new_n": 1, "old": 2, "old_n": 1}, {"new": 9, "new_n": 1, "old": 11, "old_n": 1}):
             self.assertFalse(untested.is_data(hunk, data, data), hunk)
+
+    def test_a_call_in_the_mutant_lists_is_data_only_of_the_modules_own_helpers(self):
+        # Muse's read of #634: a call of a builtin or of another module's function may read the world, so the entry
+        # that holds it decides, and its hunk is run. A helper the module defines, and a text's replace, are data.
+        text = ("MUTANTS = [\n    ('a', helper('x')),\n    ('b', os.getenv('X', 'old')),\n    ('c', abs(-1)),\n"
+                "    ('d', open('x').read()),\n    ('e', __import__('os').getenv('X')),\n"
+                "    ('f', TEXT.replace('a', 'b')),\n    ('g', helper(x=1)),\n    ('h', ROOT.replace('x')),\n"
+                "    ('i', os.environ['X']),\n    ('j', sys.platform),\n    ('k', OLD[sys.platform]),\n"
+                "    ('l', helper('x').replace('x', 'y')),\n    ('m', 'a b'.replace('a', 'c')),\n]\n")
+        head = ("import os\nimport sys\nimport pathlib\nTEXT = 'a'\nROOT = pathlib.Path('.')\n\n\n"
+                "def helper(text: str) -> str:\n    return text\n\n\n")
+        # A text's replace is data, but ROOT's, a path's, renames a file; what is read of os or sys reads the runner.
+        self.assertEqual(untested.data_lines(head + text), {13, 18, 24, 25})
+        # Another module's replace renames a file, as does a path's; a name bound twice may be anything, as here, where
+        # the list is read while helper is still os.getenv; a helper defined after the list is no helper of it.
+        self.assertEqual(untested.data_lines("import os\nMUTANTS = [\n    ('a', os.replace('x', 'y')),\n"
+                                             "    ('b', open('x').read().replace('a', 'b')),\n]\n"), set())
+        shadowed = ("from os import getenv as helper\nMUTANTS = [\n    ('a', helper('X')),\n]\n\n\n"
+                    "def helper(x):\n    return x\n")
+        self.assertEqual(untested.data_lines(shadowed), set())
+        later = "MUTANTS = [\n    ('a', later('X')),\n]\n\n\ndef later(x):\n    return x\n"
+        self.assertEqual(untested.data_lines(later), set())
+        # A, B = x, y binds each name to its own value, as tools/mutants.py binds the issue Kernel's path and tests.
+        paired = "PY, TESTS = 'kernel/issue.py', ('t',)\nMUTANTS = [\n    ('a', PY.replace('k', 'K'), TESTS),\n]\n"
+        self.assertEqual(untested.data_lines(paired), {3})
+        # Muse's and the Claude review's further cases. A walrus, a global in a helper, a method that fills a list, and
+        # globals() or eval may each change a name past what its assignment says; a helper's __globals__ is the whole
+        # module; a decorator may make a helper anything; and only a helper that says it gives a text gives one.
+        for case in ("import os\nTEXT = 'a'\nA = (TEXT := os.environ['X'])\nMUTANTS = [\n    ('a', TEXT),\n]\n",
+                     "import os\nVAL = [1]\nVAL.append(os.environ['X'])\nMUTANTS = [\n    ('a', VAL),\n]\n",
+                     "import os\nTEXT = 'a'\nglobals()['TEXT'] = os.environ['X']\nMUTANTS = [\n    ('a', TEXT),\n]\n",
+                     "TEXT = 'a'\nMUTANTS = [\n    (eval('1'), TEXT),\n]\n",
+                     "import os\nTEXT = 'a'\nMUTANTS = [\n    (TEXT := os.environ['X'], TEXT),\n]\n",
+                     "import os\nTEXT = 'a'\n\n\ndef helper():\n    global TEXT\n    TEXT = os.environ['X']\n"
+                     "    return 1\n\n\nMUTANTS = [\n    ('b', TEXT),\n]\n",
+                     "import os\nVAL = [1]\n\n\ndef helper(x):\n    VAL.append(x)\n    return x\n\n\n"
+                     "MUTANTS = [\n    ('b', VAL),\n]\n",
+                     "import os\n\n\ndef helper(x):\n    return x\n\n\nMUTANTS = [\n"
+                     "    ('a', helper.__globals__['os'].environ['X']),\n]\n",
+                     "import os\n\n\n@lambda f: os.getenv\ndef helper(x):\n    return x\n\n\nMUTANTS = [\n"
+                     "    ('a', helper('X')),\n]\n",
+                     "import pathlib\nROOT = pathlib.Path('.')\n\n\ndef helper():\n    return ROOT\n\n\nMUTANTS = [\n"
+                     "    ('a', helper().replace('x')),\n]\n",
+                     "import os\nMUTANTS = [\n    ('a', os.environ['X'].replace('a', 'b').replace('c', 'd')),\n]\n",
+                     "import os\n\n\ndef helper(x):\n    return x\n\n\nglobals()['helper'] = os.getenv\nMUTANTS = [\n"
+                     "    ('a', helper('X')),\n]\n",
+                     "import os\nVAL = [1]\n\n\ndef helper(x):\n    VAL[0] = os.environ['X']\n    return x\n\n\n"
+                     "MUTANTS = [\n    ('b', VAL),\n]\n",
+                     "def open(x) -> str:\n    return x\n\n\ndel open\nMUTANTS = [\n    ('a', open('README.md')),\n]\n",
+                     "import os\n\n\ndef helper(x):\n    VAL.append(os.environ['X'])\n    return x\n\n\nVAL = [1]\n"
+                     "MUTANTS = [\n    ('b', VAL),\n]\n",
+                     "import os\nEMPTY = ()\nA, B = *EMPTY, *(os.getcwd(), os.getcwd())\nMUTANTS = [\n    ('a', A),\n]\n",
+                     "TEXT = 'a'\nMUTANTS = [\n    ('a', TEXT.format(1)),\n]\n"):
+            self.assertEqual(untested.data_lines(case), set(), case)
+        # A helper's own name, an annotated text, and a method on a text are no change to what a name is.
+        kept = ("TEXT: str = 'a'\nPAIR = ('a', 'b')\n\n\ndef helper(text: str, PAIR=()) -> str:\n    text.upper()\n"
+                "    PAIR.index('a')\n    return text\n\n\nMUTANTS = [\n    ('a', TEXT.replace('a', 'b')),\n"
+                "    ('b', helper('x').replace('x', 'y')),\n    ('c', PAIR),\n]\n")
+        self.assertEqual(untested.data_lines(kept), {12, 13, 14})
+        later = ("def helper(x: str) -> str:\n    return LATER.replace('a', x)\n\n\nLATER = 'a'\nMUTANTS = [\n"
+                 "    ('a', LATER.replace('a', 'b')),\n]\n")
+        self.assertEqual(untested.data_lines(later), {7})
+        # An import behind an if, a try or a with binds its name as one at the top does; a star import binds names no
+        # one can read, so a name nothing bound is code; and so is a name bound to what code gave, or by an unpacking.
+        for fenced in ("if True:\n    import os\n", "try:\n    import os\nexcept ImportError:\n    os = None\n",
+                       "with x:\n    import os.path\n", "import os.path\n", "from os import *\n",
+                       "import os\nENV = os.environ\n", "import os\nA, B = os.environ['X'].split()\n",
+                       "import pathlib\nENV = 'a'\nfor ENV in [pathlib.Path('.')]:\n    pass\n",
+                       "class ENV:\n    pass\n", "os = 'a'\nif True:\n    import os\n", "os = 'a'\nimport os.path\n",
+                       "ENV = 'a'\nENV, B = os.environ['X'].split()\n"):
+            for read in ("os.environ['X']", "environ['X']", "ENV['X']", "A", "ENV.replace('x')"):
+                text = fenced + "MUTANTS = [\n    ('a', %s),\n]\n" % read
+                self.assertEqual(untested.data_lines(text), set(), text)
 
 
 CRASHED = ("=" * 70 + "\nERROR: test_x (tests.test_calc.Calc)\n" + "-" * 70 + "\nTraceback (most recent call last):\n"
@@ -331,6 +428,19 @@ class Trailers(unittest.TestCase):
         reworded = checked(base, {"pkg/calc.py": CALC.replace("The bigger", "Which is bigger")},
                            "Reworded\n\nBehaviour-preserving: pkg/calc.py:5-5\n")
         self.assertEqual((reworded["hunks"], reworded["problems"]), ([], []))
+
+    def test_a_trailer_is_read_from_the_head_commit_alone(self):
+        # Muse's read of #634: lines move each fix round, so a trailer an earlier commit of the change wrote names lines
+        # that may no longer be the ones it meant, and is never read.
+        made, root, first, earlier = change({"pkg/calc.py": CALC}, {"pkg/calc.py": CALC.replace("x * 2", "x + x")},
+                                            "Faster\n\nBehaviour-preserving: pkg/calc.py:12-12\n")
+        with made:
+            self.assertEqual(untested.trailers(root, earlier), ["pkg/calc.py:12-12"])
+            tree(root, {"pkg/notes.py": "A = 1\n"})
+            git(root, "add", "-A")
+            git(root, "commit", "-q", "-m", "A fix round\n\nIt says nothing of the lines.\n")
+            self.assertEqual(untested.trailers(root, git(root, "rev-parse", "HEAD").strip()), [])
+            self.assertEqual(untested.trailers(root, earlier), ["pkg/calc.py:12-12"])     # the commit asked, not HEAD
 
 
 class FirstTests(unittest.TestCase):

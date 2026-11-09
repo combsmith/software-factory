@@ -1173,13 +1173,28 @@ class EvalJob(unittest.TestCase):
         far = dict(result["findings"][0], location={"path": "kernel/gate.py", "start_line": 10, "end_line": 12})
         given = {one["id"]: dict(result, findings=result["findings"] + [dict(far, ref="n7")]),
                  two["id"]: dict(result, findings=result["findings"] + [dict(far, ref="n8"), dict(far, ref="n9")])}
-        self.assertEqual(self.step(job.score, lambda case: given[case["id"]]), "scored 2 of 2 cases, 1 passed")
+        self.assertEqual(self.step(job.score, lambda case: given[case["id"]]), "scored 2 of 2 cases, 2 passed")
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
-        # One away is allowed and still counted, on a pass; two fail, counted; the run's line sums them.
-        self.assertEqual({c["id"]: (c["reasons"], c.get("surplus_gating")) for c in written["cases"]},
-                         {one["id"]: ([], 1), two["id"]: (["surplus_gating_elsewhere"], 2)})
-        self.assertEqual(job.tally(written), "1 of 2 passed, 3 gating away from the place; surplus_gating_elsewhere 1")
+        # One away is allowed and still counted, on a pass; two are told, counted, and on a development set fail no case
+        # until the bar is measured again under the bound (issue 582); the run's line sums them.
+        self.assertEqual({c["id"]: (c["verdict"], c["reasons"], c.get("surplus_gating")) for c in written["cases"]},
+                         {one["id"]: ("pass", [], 1), two["id"]: ("pass", ["surplus_gating_elsewhere"], 2)})
+        self.assertEqual(job.tally(written), "2 of 2 passed, 3 gating away from the place; surplus_gating_elsewhere 1")
+        self.assertEqual(written["kinds_pass"]["finding"], True)
+        # Such a pass counts toward its kind's bar and the blocking word as any does; a code beside it is no pass.
+        self.assertEqual([job.is_pass(said) for said in (("pass", []), ("pass", ["surplus_gating_elsewhere"]),
+                                                         ("pass", list(eval_result.SURPLUS)), ("pass", ["finding_not_raised"]),
+                                                         ("fail", ["surplus_at_place"]), ("unreadable", []))],
+                         [True, True, True, False, False, False])
+        found, digest = job.manifest(self.root)
+        self.assertEqual(job.verdict(written, found, digest, written["commit"], written["release"]), "pass")
+        # Beside a miss, the case fails by both, as any miss does.
+        given[two["id"]] = dict(given[two["id"]], status="failed")
+        self.assertEqual(self.step(job.score, lambda case: given[case["id"]]), "scored 2 of 2 cases, 1 passed")
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in json.loads((self.work / job.REPORT).read_text())["cases"]][1:],
+                         [("fail", ["result_not_completed", "surplus_gating_elsewhere"])])
+        given[two["id"]] = dict(result, findings=result["findings"] + [dict(far, ref="n8"), dict(far, ref="n9")])
         given[one["id"]] = result
         self.step(job.score, lambda case: given[case["id"]])
         self.assertEqual([c.get("surplus_gating") for c in json.loads((self.work / job.REPORT).read_text())["cases"]], [None, 2])
@@ -1462,8 +1477,15 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(read(10, 3, others=(("unreadable", [code]),)), "pass", code)
             self.assertEqual(read(10, 2, others=(("unreadable", [code]),)), "case_failed", code)
         # And so does the reviewer's own: a miss, and an answer the Harness could not read, which a CLI with no answer gives too.
-        for code in ("finding_not_raised", "result_not_completed", "criterion_not_met") + eval_result.SURPLUS:
+        for code in ("finding_not_raised", "result_not_completed", "criterion_not_met"):
             self.assertEqual(read(10, 9, others=(("fail", [code]),)), "pass", code)
+        # The surplus bound's is told on a development set and fails no case (issue 582): the job writes the case passed,
+        # with its code; a report that fails a case on it alone, or passes one beside another code, is not the job's.
+        for code in eval_result.SURPLUS:
+            self.assertEqual(read(10, 9, others=(("pass", [code]),)), "pass", code)
+            self.assertEqual(read(10, 9, others=(("pass", list(eval_result.SURPLUS)),)), "pass", code)
+            self.assertEqual(read(10, 9, others=(("fail", [code]),)), "count_differs", code)
+            self.assertEqual(read(10, 9, others=(("pass", [code, "finding_not_raised"]),)), "count_differs", code)
         # What stops the run reaching or trusting a case closes it, however many passed.
         for code in job.RUN_FAULTS:
             self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "run_fault", code)
@@ -1478,7 +1500,7 @@ class EvalJob(unittest.TestCase):
     def test_each_kind_is_held_to_its_own_bar_where_the_cases_are(self):  # decisions 0120 and 0150
         from harness import eval as job
 
-        def told(finding_cases, finding_passed, met_cases, met_passed):
+        def told(finding_cases, finding_passed, met_cases, met_passed, won=("pass", [])):
             place = self.temp / "bar"
             shutil.rmtree(str(place), ignore_errors=True)
             (place / "cases").mkdir(parents=True)
@@ -1488,7 +1510,7 @@ class EvalJob(unittest.TestCase):
                     name = "c-%s-%d" % (kind, i)
                     (place / "cases" / (name + ".json")).write_text(json.dumps({"expected": {"verdict": kind}}))
                     found["cases"].append({"id": name})
-                    assessed[name] = ("pass", []) if i < passed else ("fail", ["criterion_not_met"])
+                    assessed[name] = won if i < passed else ("fail", ["criterion_not_met"])
             return job.kinds_pass(found, place, assessed)
         # Exactly 30% of the cases that expect a Finding clears, and exactly 90% of the clean ones; one case under does
         # not; each kind by itself.
@@ -1498,6 +1520,8 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(told(cases, finding - 1, cases, met), {"finding": False, "met": True}, cases)
             self.assertEqual(told(cases, finding, cases, met - 1), {"finding": True, "met": False}, cases)
         self.assertEqual(told(7, 3, 11, 10), {"finding": True, "met": True})
+        # A pass on the surplus bound alone, which a development set writes, counts as any pass does (issue 582).
+        self.assertEqual(told(10, 3, 10, 9, won=("pass", ["surplus_gating_elsewhere"])), {"finding": True, "met": True})
         self.assertEqual(told(7, 2, 11, 9), {"finding": False, "met": False})
         # Each kind's bar is its own: a share that clears one does not clear the other.
         self.assertEqual(told(10, 3, 10, 3), {"finding": True, "met": False})
@@ -1557,6 +1581,8 @@ class EvalJob(unittest.TestCase):
         self.assertIs(told(**{"c-met-on-pr-2": ("fail", ["criterion_not_met"])}), True)
         self.assertIs(told(**{"c-blocking": ("unreadable", ["diff_not_whole"])}), False, "a case's own fault is not passed")
         self.assertIs(told(**{"c-blocking": ("pass", ["finding_not_raised"])}), False)
+        # A pass on the surplus bound alone, which a development set writes, is a pass here too (issue 582).
+        self.assertIs(told(**{"c-blocking": ("pass", ["surplus_at_place"])}), True)
         # Any other severity, and a clean case, is the bar's to weigh.
         self.assertIs(told(**{"c-major": miss, "c-minor": miss, "c-met": ("fail", ["criterion_not_met"])}), True)
         # A set with none has nothing for the word to hold, and a set must hold one: it is short, by a code and no count.
@@ -2586,6 +2612,13 @@ class EvalJob(unittest.TestCase):
         self.clean()
         (self.temp / "heldout").mkdir()
         self.assertEqual(self.step(plan), "scratch_unreadable")
+        # The plan places the heads by heads_place: a heads folder linked to a place in the workspace that is not there
+        # yet stops it before it makes anything there (the Muse read of issue 626's change).
+        self.clean()
+        os.symlink(str(self.work / "evil"), str(self.temp / "heads"))
+        self.assertEqual(self.step(plan), "scratch_in_workspace")
+        self.assertFalse(os.path.lexists(str(self.work / "evil")), "nothing is made in the workspace")
+        os.unlink(str(self.temp / "heads"))
 
     def test_each_cases_head_is_read_with_no_credential_and_one_not_read_closes_the_gate(self):  # decision 0138
         # The fetch reads each case's head, the commit its diff was taken at, as its tarball through a transport of its
@@ -2730,6 +2763,55 @@ class EvalJob(unittest.TestCase):
                 self.set(three, gate=True, natural=natural)
                 self.assertEqual(self.step(job.plan), code, natural)
                 self.clean()
+            # A group of exactly the least is enough (Muse's read of #628).
+            four = dict(three, **{"poc-four": three["poc-three"].replace(b"poc-three", b"poc-four")})
+            self.set(four, gate=True, natural=tuple(four)[:2])
+            self.assertEqual(self.step(job.plan), "planned 4 cases after 3 to preflight")
+            self.clean()
+
+    def test_a_preflight_case_keeps_its_marks_in_the_ledger_as_the_sets_do(self):  # Muse's read of #646
+        # A case asked first is listed in the ledger as the set's are, but for whether it is natural: passed at an
+        # alternate place alone, or drawing gating Findings away from every place, it says so (decision 0170).
+        from harness import eval as job
+        self.set(self.cases, gate=True, natural=[])
+        found = job.manifest(self.root, "pr-review-gate")[0]
+        kept = {"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": "0" * 64},
+                "preflight": job.preflight_of(self.root, found)}
+        first = [e["id"] for e in kept["preflight"]]
+        asked = {i: ("pass", []) for i in first}
+        ledger = job.ledger_of(kept, dict(found, cases=[]), {}, {}, set(), {},
+                               ahead=(asked, {}, {}, {}, {first[0]}, {first[1]: 2}))
+        marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
+        self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
+
+    def test_a_gate_run_carries_its_preflights_marks_into_the_ledger(self):  # the Claude read of the follow-on to #646
+        # The run step asks the preflight with containers for its marks, and hands them to the ledger: a preflight case
+        # the scorer marks at an alternate place, or as drawing gating Findings away, is listed so.
+        from harness import eval as job
+        self.set(self.cases, gate=True, natural=[])
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases, gate=True))
+        real, first = job.assess, sorted(self.pre)
+
+        def marking(found, why, place, review, causes=None, alternates=None, surplus=None, usages=None, results=None):
+            said = real(found, why, place, review, causes, alternates, surplus, usages, results)
+            if alternates is not None and [e["id"] for e in found["cases"]] == list(self.pre):
+                alternates.add(first[0])
+                surplus[first[1]] = 2
+            return said
+        with mock.patch.object(job, "assess", marking):
+            self.step(job.score, lambda case: example_result())
+        ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+        marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
+        self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
+
+    def test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone(self):  # Muse's read of #628
+        # A case the reviewer failed is counted under its kind, never as a fault: only a case not read says its code,
+        # by how many (decision 0164).
+        from harness import eval as job
+        assessed = {"a": ("fail", ["finding_not_raised"]), "b": ("unreadable", ["not_found"]), "c": ("pass", []),
+                    "d": ("unreadable", ["not_found", "too_large"])}
+        self.assertEqual(job.faults_of(assessed), [{"code": "not_found", "count": 2}, {"code": "too_large", "count": 1}])
 
     def gate_run(self, natural=None):
         """A gate set of the two cases, planned, fetched and scored as passed: what `score` left in the scratch."""
@@ -2740,6 +2822,28 @@ class EvalJob(unittest.TestCase):
         result = example_result()
         self.assertEqual(self.step(job.score, lambda case: result), "scored 2 of 2 cases, 2 passed")
         return result
+
+    def test_a_gate_set_fails_a_case_on_the_surplus_bound_alone(self):  # issue 582
+        # Decision 0160 stands for a gate set: the case a development set passes, told, by the surplus bound alone, a
+        # gate set's run fails, counted under its kind and never as a fault, and its words say the kind fell under its bar.
+        from harness import eval as job
+        self.set(self.cases, gate=True, natural=list(self.cases)[:1])
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases, gate=True))
+        result = example_result()
+        far = dict(result["findings"][0], location={"path": "kernel/gate.py", "start_line": 10, "end_line": 12})
+        surplus = dict(result, findings=result["findings"] + [dict(far, ref="n8"), dict(far, ref="n9")])
+        own = set(self.cases)
+        self.assertEqual(self.step(job.score, lambda case: surplus if case["id"] in own else result),
+                         "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["passed"], written["faults"], written["kinds_pass"]["finding"], written["preflight"]["passed"]),
+                         (0, [], False, 3))
+        # Its preflight, of the development set's cases, asked under the gate set, fails them on it too, and stops it.
+        (self.temp / "heldout" / job.LEDGER).unlink()
+        self.assertEqual(self.step(job.score, lambda case: surplus), "scored 2 of 2 cases, 0 passed")
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual((written["preflight"]["passed"], written["faults"]), (0, [{"code": "unanswered", "count": 2}]))
 
     def test_a_gate_sets_report_holds_counts_alone_and_its_ledger_every_case(self):  # issue 612
         from harness import eval as job
@@ -3173,6 +3277,12 @@ class EvalJob(unittest.TestCase):
             self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")],
                              ["evals/gate/cases.json: its preflight is refused where it is read: eval_set_unreadable"])
             (live / "evals" / "pr-review" / "moved.json").rename(live / "evals" / "pr-review" / "cases.json")
+            # A gate set the schema lets leave out its preflight, or its bars, is held as the job reads it, never crashes.
+            for left in ("preflight", "bars"):
+                (live / "evals" / "gate" / "cases.json").write_text(json.dumps({k: v for k, v in found.items() if k != left}))
+                self.assertEqual([p for p in check_examples.run(live) if p.startswith("evals/gate/")],
+                                 ["evals/gate/cases.json: is refused where it is read: eval_set_unreadable"], left)
+            (live / "evals" / "gate" / "cases.json").write_text(json.dumps(found))
             # And an example of one is held as the job reads it.
             (live / "examples").mkdir()
             (live / "examples" / "eval-set.gate.json").write_text(json.dumps(dict(found, kind_least=-1, bars={
@@ -3192,6 +3302,10 @@ class EvalJob(unittest.TestCase):
                          ["its record does not say %r" % job.bars_said(dict(found, kind_least=21))])
         self.assertEqual(check_examples._bars_stated(self.root, {k: v for k, v in found.items() if k != "record"}),
                          ["names no record that states its bars"])
+        # A gate set the schema lets leave out its bars or its least is a problem named, never a crash (Muse's read of #642).
+        for left in ("bars", "kind_least"):
+            self.assertEqual(check_examples._bars_stated(self.root, {k: v for k, v in found.items() if k != left}),
+                             ["gives no bars and least of a kind that can be stated"], left)
 
     def test_the_gate_pools_every_dispatch_on_the_commit_and_one_faulted_closes_it(self):  # issue 613
         from harness import eval as job

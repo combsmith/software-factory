@@ -68,8 +68,10 @@ def unchanged(transport, pull: dict) -> bool:
     which no trial has asked yet. So a snapshot is never of a pull request that changed between its first read and
     its last; one that did is read again at the next pass."""
     again = read(transport, pull["base"]["repo"]["full_name"], pull["number"])
-    return (_same(again, pull) and isinstance(pull.get("updated_at"), str)
-            and again.get("updated_at") == pull["updated_at"])
+    if not (isinstance(pull.get("updated_at"), str) and isinstance(again.get("updated_at"), str)):
+        # A time that cannot be read is no move: the read GitHub did not answer, not one that earns a pass's grace (#658).
+        raise Unanswered("the pull request's updated_at cannot be read")
+    return _same(again, pull) and again["updated_at"] == pull["updated_at"]
 
 
 def _account(actor) -> tuple:

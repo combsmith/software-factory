@@ -10,8 +10,8 @@ Any other spelling is refused. An org standard is cited from combsmith/.github a
 
 ```yaml
 # The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
-# `checks` runs `make verify`, its simulators on 300 seeds. On 2026-10-21 the runs that finished took 11 to 14.5 minutes, and six runs in three pull requests were cut at its 15-minute timeout with the tests still running, so its timeout was raised to 25 minutes; by 2026-10-29 a run took up to 23, so the job has 28 and its step 26, two kept for the checkout. Raise both before a run nears the step's.
-# About 5,200 mutants, in twelve shards of about 434, each kill confirmed by two runs of one test. With six shards of 168, of about 1,000 mutants then, the legs ran 14 to 25 minutes against a 25-minute timeout, and legs were cut at 25:00 in three pull requests, once 22 ms after the last kill had printed. With eight shards of 651 the legs mostly ran 6 to 14 minutes, and on 2026-11-06 one was cut at its step's 27 minutes on a runner that ran it 2.8 times slower than a re-run of the same tree ("CI: twelve mutant shards, so a slow runner does not cut a leg at its limit", issue 583); the first run of twelve took 4.4 to 12.3 minutes a leg, 7.3 the median. Every mutant names the tests that kill it, which run first; the whole suite, its slow modules last, runs only when they pass ("Mutation run: every mutant names its tests, the slow suites run last, and a builder may break a few", issue 217). Add a shard before a leg nears its timeout, or before a leg of the median time would take more than 22 minutes on a runner three times slower. A runner as slow may still cut the longest leg: run it again.
+# `checks` runs `make verify` in three legs, its simulators on 300 seeds: each leg runs every check and every third test, told its place and the count by the matrix itself, never by a number written in, so that across the legs each test runs once. As one job, on 2026-10-21 the runs that finished took 11 to 14.5 minutes, and six runs in three pull requests were cut at its 15-minute timeout with the tests still running, so its timeout was raised to 25 minutes; by 2026-10-29 a run took up to 23, so the job was given 28 and its step 26, two kept for the checkout; and on 2026-11-09 the ten runs before took 19 to 23.4 and a merge group was cut at 26.2, so its tests were dealt into legs. Add a leg before one nears the step's limit.
+# About 5,200 mutants, in twelve shards of about 434, each kill confirmed by two runs of one test. With six shards of 168, of about 1,000 mutants then, the legs ran 14 to 25 minutes against a 25-minute timeout, and legs were cut at 25:00 in three pull requests, once 22 ms after the last kill had printed. With eight shards of 651 the legs mostly ran 6 to 14 minutes, and on 2026-11-06 one was cut at its step's 27 minutes on a runner that ran it 2.8 times slower than a re-run of the same tree ("CI: twelve mutant shards, so a slow runner does not cut a leg at its limit", issue 583); the first run of twelve took 4.4 to 12.3 minutes a leg, 7.3 the median. Every mutant names the tests that kill it, which run alone ("Mutation run: every mutant names its tests, the slow suites run last, and a builder may break a few", issue 217); a mutant they miss is an ERROR, named_test_does_not_kill, since the whole suite run after them took 10 to 21 minutes of a leg (2026-11-09). Add a shard before a leg nears its timeout, or before a leg of the median time would take more than 22 minutes on a runner three times slower. A runner as slow may still cut the longest leg: run it again.
 # `verify` checks out the base, never the head, and runs the base's tools/needs_passed.py, so a change cannot make its own verdict pass: decision 0023.
 # `commits` checks out the base too and runs the base's tools/commits_are_the_maintainers.py, which reads every commit the pull request carries and refuses unless each names the Maintainer ("Identity: every commit a pull request carries is the Maintainer's, checked outside the shell", issue 204). It reads the event's payload too, and refuses unless an account on the configuration's list opened the pull request from this repo: decision 0102. On a merge group, whose payload names no opener, it reads the pull request the queue's ref names, with this job's read-only token.
 name: factory
@@ -25,6 +25,16 @@ jobs:
     timeout-minutes: 28
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 0
+          - 1
+          - 2
+    env:
+      CHECKS_SHARD: ${{ strategy.job-index }}
+      CHECKS_SHARDS: ${{ strategy.job-total }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,8 +119,8 @@ name and the job's name: `factory / verify`. Renaming either silently stops it b
 `verify` needs every other job and has `if: always()`, the one job-level `if:` a Lens's job may have:
 GitHub passes a required check that is skipped, so `tools/needs_passed.py` fails it unless each passed.
 Its one checkout is of the base, never the head: the verdict is the base's `tools/needs_passed.py`, so a change
-cannot make its own pass (decision 0023). It runs on no event without a base. The checks and tests in `checks` and
-`mutants` are the head's. `commits` is the base's too: it fetches the head and reads who authored and committed each
+cannot make its own pass (decision 0023). It runs on no event without a base. The checks and tests in `checks` and `mutants` are the head's,
+run in legs their matrix alone tells their place and count, so each test and mutant runs once and every check in each leg. `commits` is the base's too: it fetches the head and reads who authored and committed each
 commit the pull request carries, which must be the Maintainer, read from `config/hooks.json` (decision 0041).
 
 The eval job is a reserved name, `factory / eval`, in eval.yml: the one job that holds the held-out home's credential
@@ -119,7 +129,7 @@ Its shape, each credential named by one step alone and its upload the one `UPLOA
 `tools/check_workflows.py`, by issue 309, "Workflows: eval.yml runs the review Intent's held-out cases and writes eval-report/1".
 
 Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
-Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_tools.py::test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape`, `tests/test_tools.py::test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`, `tests/test_evals.py::test_the_eval_workflow_names_each_credential_in_one_step_alone`
+Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_tools.py::test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape`, `tests/test_tools.py::test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix`, `tests/test_tools.py::test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix`, `tests/test_tools.py::test_the_legs_of_make_verify_run_every_test_once`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`, `tests/test_evals.py::test_the_eval_workflow_names_each_credential_in_one_step_alone`
 
 ## Pinned to what was looked up
 

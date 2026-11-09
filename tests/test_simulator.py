@@ -562,6 +562,8 @@ class Simulation(unittest.TestCase):
                 ([run(10), run(13, intent="review-change")], 12, True),
                 ([run(10), run(13, content="sha256:00c2")], 12, True),
                 ([run(5, intent="review-change")], 10, False),
+                # A Run of the item in the approval's own second is as old as it (the Muse read of issue 608's change).
+                ([run(15, intent="review-change")], 10, False),
                 ([], 10, True),
                 ([run(16)], 10, True)):
             self.assertEqual(self.read([review(machine, 15)], edited, runs), (held, held), (runs, edited))
@@ -914,6 +916,12 @@ class Simulation(unittest.TestCase):
                 w = World(seed)
                 for _ in range(250):
                     w.step()
+                    # The Lens's own App posts from another file, never the Lens's own, which the Kernel could not
+                    # tell from the Lens's run.
+                    own = [c for c in w.impostors for lens in world.CHECKS
+                           if c["name"] == world.CHECKS[lens] and c["app_id"] == world.APPS[lens]
+                           and c["workflow"] == world.WORKFLOWS[lens]]
+                    self.assertEqual(own, [], seed)
                 causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
                 impostors += sum("another App posted" in line for line in w.trace)
                 workflows += sum("another workflow posted" in line for line in w.trace)
