@@ -3806,7 +3806,83 @@ class RulesChanged(unittest.TestCase):
         self.assertIn("could not be listed", json.loads(out)["systemMessage"])
 
 
+# Each hook's two cases through its front door, as the settings run it: (a violation it speaks up about, a clean case it
+# passes in silence). A hook the settings run, or a module in hooks/ with a main(), that is missing here fails
+# test_every_hook_is_fed_a_violation_and_a_clean_case (issue 595).
+def fed_identity():
+    here, path = repo(), programs("git", "gh")
+    return (hook("identity", bash("git push", here), path, FAKE_GH_USER=MACHINE),
+            hook("identity", bash("git push", here), path))
+
+
+def fed_protected():
+    project = a_tree()
+    payload = {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(project),
+               "tool_input": {"file_path": str(project / "lifecycle" / "issue.json"), "content": "{}"}}
+    clean = dict(payload, tool_input={"file_path": str(project / "docs" / "notes.md"), "content": "{}"})
+    return tuple(hook("protected", case, programs(), CLAUDE_PROJECT_DIR=str(project)) for case in (payload, clean))
+
+
+def fed_after_edit():
+    project = a_project()
+    payload = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": str(project), "tool_response": {},
+               "tool_input": {"file_path": str(project / "kernel" / "decide.py")}}
+    return tuple(hook("after_edit", payload, programs("make"), FAKE_MAKE_EXIT=code, CLAUDE_PROJECT_DIR=str(project))
+                 for code in ("1", "0"))
+
+
+def fed_before_stop():
+    project = a_project()
+    payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(project)}
+    return tuple(hook("before_stop", payload, programs("make"), FAKE_MAKE_EXIT=code, CLAUDE_PROJECT_DIR=str(project))
+                 for code in ("2", "0"))
+
+
+def fed_rules_changed():
+    where = repo(fresh=True)
+    git(where, "update-ref", "refs/remotes/origin/main", "HEAD")
+    payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
+    clean = hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where))
+    (where / "lifecycle").mkdir()
+    (where / "lifecycle" / "issue.json").write_text("{}\n")
+    git(where, "add", "-A")
+    git(where, "commit", "-q", "-m", "a rule")
+    return hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where)), clean
+
+
+def said(done) -> dict:
+    """What a hook wrote on standard output, read as JSON; {} where it wrote none, or wrote something else."""
+    try:
+        return json.loads(done.stdout) if done.stdout else {}
+    except ValueError:
+        return {}
+
+
+# Each hook's cases, and how it must answer the violation: the identity hook refuses, the protected hook asks, the
+# checks' hooks send the agent back, and the stop's list of rules tells the person. Any other answer, an allow among
+# them, is no enforcement.
+FED = {"identity": (fed_identity, lambda done: done.returncode == 2 and "account_is_machine_user" in done.stderr),
+       "protected": (fed_protected, lambda done: done.returncode == 0 and said(done).get("hookSpecificOutput", {}).get(
+           "permissionDecision") == "ask"),
+       "after_edit": (fed_after_edit, lambda done: done.returncode == 2 and "The checks fail after this edit" in done.stderr),
+       "before_stop": (fed_before_stop, lambda done: done.returncode == 2 and "make checks in" in done.stderr),
+       "rules_changed": (fed_rules_changed, lambda done: done.returncode == 0 and "lifecycle/issue.json" in said(
+           done).get("systemMessage", ""))}
+
+
 class Settings(unittest.TestCase):
+    def test_every_hook_is_fed_a_violation_and_a_clean_case(self):  # issue 595
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        hooks = {found.group(1) for groups in settings["hooks"].values() for group in groups for handler in group["hooks"]
+                 for found in [re.search(r'tools/hooks/(\w+)\.py', handler["command"])] if found}
+        hooks |= {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
+        self.assertEqual(set(FED), hooks)
+        for name in sorted(hooks):
+            fed, enforced = FED[name]
+            violation, clean = fed()
+            self.assertTrue(enforced(violation), "%s: %r" % (name, violation))
+            self.assertEqual((clean.returncode, clean.stdout, clean.stderr), (0, "", ""), name)
+
     def test_the_hook_that_asks_blocks_when_it_fails_to_answer(self):
         settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
         found = [h for g in settings["hooks"]["PreToolUse"] for h in g["hooks"] if "protected.py" in h["command"]]
