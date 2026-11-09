@@ -64,6 +64,19 @@
       "type": "integer",
       "minimum": 0
     },
+    "criterion_bars": {
+      "description": "A gate set's own floor for each criterion it names, as a whole fraction [passed, of], applied to the cases whose expected criterion it is, summed over every dispatch on a commit (issue 692); a criterion it does not name has none, and no other set gives any.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
     "record": {
       "description": "The decision record that states a gate set's bars and least of a kind, word for word as `harness.eval.bars_said` gives them (issue 613).",
       "type": "string",

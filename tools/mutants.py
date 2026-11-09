@@ -109,6 +109,8 @@ SURPLUS = ("tests.test_evals.Scoring.test_a_result_that_hedges_at_the_place_or_g
 SURPLUS_JOB = ("tests.test_evals.EvalJob.test_the_report_counts_each_cases_gating_findings_away_from_the_place",)
 SURPLUS_GATE = ("tests.test_evals.EvalJob.test_a_gate_set_fails_a_case_on_the_surplus_bound_alone",)
 SURPLUS_BAR = ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)
+FLOORS = ("tests.test_evals.EvalJob.test_a_gate_set_holds_a_floor_per_criterion_over_the_pool",)
+FLOOR_JOB = ("tests.test_evals.EvalJob.test_a_gate_sets_report_counts_each_criterion_its_cases_expect",)
 CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
 ROLLBACK_FIXTURE = ("tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
@@ -8910,6 +8912,29 @@ MUTANTS = ISSUE + [
      '            "type": "integer",\n            "minimum": 0\n          }\n        }\n      }\n    },\n    "passed"', SURPLUS_JOB),
     ("the report holds no code for two Findings at the place", 'schemas/eval-report.schema.json',
      '                "surplus_at_place",\n', '', ('tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it',)),
+    # Issue 692: a gate set's floor per criterion, over the pool, and the counts it is held by.
+    ("the pool holds no criterion to its floor", 'harness/eval/__init__.py',
+     '            return "criterion_failed"\n', '            pass\n', FLOORS),
+    ("a floor is held to one run's counts, not the pool's", 'harness/eval/__init__.py',
+     'sum(d["criteria"].get(name, {}).get(field, 0) for d in documents)', 'max(d["criteria"].get(name, {}).get(field, 0) for d in documents)', FLOORS),
+    ("a development set may give floors", 'harness/eval/__init__.py',
+     '(not gate_set(found) or not set(floors)', '(not set(floors)', FLOORS),
+    ("a floor may name a criterion its rubric does not", 'harness/eval/__init__.py',
+     'not set(floors) <= (eval_result._criteria(found["role"]) or set())\n                               or ', '', FLOORS),
+    ("a floor may ask more than every case", 'harness/eval/__init__.py', 'any(not bar[0] <= bar[1] or bar[1] < 1 for', 'any(bar[1] < 1 for', FLOORS),
+    ("a floor of no cases is read", 'harness/eval/__init__.py', 'any(not bar[0] <= bar[1] or bar[1] < 1 for', 'any(not bar[0] <= bar[1] for', FLOORS),
+    ("the record need not state the floors", 'harness/eval/__init__.py', '                   if floors else "")', '                   if False else "")', FLOORS),
+    ("a criterion's cases need not add up to the set's", 'harness/eval/__init__.py',
+     'sum(c["cases"] for c in criteria.values()) != found["count"] or ', '', FLOORS),
+    ("a criterion's passes need not add up to the report's", 'harness/eval/__init__.py',
+     ' or sum(c["passed"] for c in criteria.values()) != passed', '', FLOORS),
+    ("a criterion's interval need not be its own", 'harness/eval/__init__.py',
+     ' or c["interval"] != wilson(c["passed"], c["cases"]) for c in criteria.values())', ' for c in criteria.values())', FLOORS),
+    ("a report may count under any word", 'harness/eval/__init__.py',
+     'not all(CRITERION.fullmatch(name) for name in criteria)\n            or ', '', FLOORS),
+    ("a report may leave the criteria out where the kinds are read", 'harness/eval/__init__.py',
+     '(criteria is None) != (kinds is None) or criteria is not None', 'criteria is not None', FLOORS),
+    ("the job counts no criterion", 'harness/eval/__init__.py', '            "criteria": by_criterion,', '            "criteria": None,', FLOOR_JOB),
     ("the report holds no code for gating Findings elsewhere", 'schemas/eval-report.schema.json',
      '                "surplus_gating_elsewhere",\n', '', SURPLUS_JOB),
     # Issue 582: on a development set the surplus bound is told and fails no case; a gate set's fails as it did.

@@ -78,6 +78,7 @@ PREFLIGHT = "preflight"
 CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,63}")
 AT = re.compile(r"(?:adapters|controller|harness|kernel|release|tools)/[a-z0-9_/]+\.py:[1-9][0-9]{0,5}")
 WORD = re.compile(r"[a-z][a-z_]{0,63}")
+CRITERION = re.compile(r"[A-Z]+-[0-9]+")    # a rubric's criterion, as eval-case/1 names the one a case expects
 # The subtypes a cause may name, as the CLI gives them at the pin (`trials/P-13.ended.json`, and the vendor's error of a
 # run that failed): any other is `other`, so that whatever a later pin echoes there is never words (the security pass).
 SUBTYPES = ("success", "error_during_execution", "error_max_turns", "error_max_structured_output_retries",
@@ -132,6 +133,12 @@ def held(data: bytes) -> tuple:
     # no person need approve, cannot lower the gate (the security read).
     if [key for key in OWN if key in found] != (list(OWN) if gate_set(found) else []):
         raise Stop("eval_set_unreadable")
+    # A floor per criterion is a gate set's alone, each a whole fraction of at most one, of a criterion its Role's rubric
+    # names, so that no floor stands on a criterion no case can cite (issue 692).
+    floors = found.get("criterion_bars")
+    if floors is not None and (not gate_set(found) or not set(floors) <= (eval_result._criteria(found["role"]) or set())
+                               or any(not bar[0] <= bar[1] or bar[1] < 1 for bar in floors.values())):
+        raise Stop("eval_set_unreadable")
     if gate_set(found) and (found["kind_least"] < KIND_LEAST or any(
             not found["bars"][kind][0] <= found["bars"][kind][1] or found["bars"][kind][1] < 1
             or found["bars"][kind][0] * BAR_OF_A_KIND[kind][1] < BAR_OF_A_KIND[kind][0] * found["bars"][kind][1]
@@ -158,6 +165,12 @@ def bars_of(found: dict) -> dict:
     return {kind: tuple(found["bars"][kind]) for kind in KINDS} if gate_set(found) else dict(BAR_OF_A_KIND)
 
 
+def criterion_bars_of(found: dict) -> dict:
+    """The floor each criterion a gate set names is held to, as its manifest gives them, a whole fraction of the case-runs
+    of the cases that expect that criterion (issue 692); none for a criterion it does not name, or for any other set."""
+    return {name: tuple(bar) for name, bar in found.get("criterion_bars", {}).items()} if gate_set(found) else {}
+
+
 def kind_least_of(found: dict) -> int:
     """How many cases of each kind the set must hold: a gate set's own, as its manifest gives it (issue 613); KIND_LEAST
     for every other set."""
@@ -167,9 +180,12 @@ def kind_least_of(found: dict) -> int:
 def bars_said(found: dict) -> str:
     """The sentence a gate set's record holds of its bars and its least of a kind, word for word, so that a check can hold
     the record to the manifest and nothing reads a record at run time (issue 613)."""
-    bars = bars_of(found)
-    return "Its bars: %s; at least %d cases of each kind." % (
+    bars, floors = bars_of(found), criterion_bars_of(found)
+    said = "Its bars: %s; at least %d cases of each kind." % (
         ", ".join("%s %d of %d" % (kind, bars[kind][0], bars[kind][1]) for kind in KINDS), kind_least_of(found))
+    # A set with a floor per criterion states those too; one with none says what it always said (issue 692).
+    return said + (" Its floors: %s." % ", ".join("%s %d of %d" % (name, bar[0], bar[1]) for name, bar in sorted(floors.items()))
+                   if floors else "")
 
 
 def preflight_of(root: pathlib.Path, found: dict) -> list:
@@ -600,6 +616,16 @@ def _expected(found: dict, place: pathlib.Path):
     return expected
 
 
+def criteria_of(found: dict, place: pathlib.Path):
+    """`{id: criterion}` of the set's cases, each its expected criterion as fetched, or None where `_expected` can say
+    nothing or a case names no criterion (issue 692): the manifest carries no criterion per case."""
+    expected = _expected(found, place)
+    if expected is None or not all(isinstance(said.get("criterion"), str) and CRITERION.fullmatch(said["criterion"])
+                                   for said in expected.values()):
+        return None
+    return {case: said["criterion"] for case, said in expected.items()}
+
+
 def kinds_of(found: dict, place: pathlib.Path):
     """`{id: kind}` of the set's cases, or None where `_expected` can say nothing."""
     expected = _expected(found, place)
@@ -814,20 +840,26 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
               usages: dict = None, ahead: dict = None) -> dict:
     """The `eval-aggregate/1` of a gate set's run: counts alone, with no case id, per-case verdict or a case's code (issue
     612). How many passed; of each kind, its cases, its passes and their Wilson interval, null where `kinds_of` can say
-    nothing; the natural cases and those that are not, apart; each code of a case not read, by how many; the usage
+    nothing, and the same of each criterion the cases expect (issue 692); the natural cases and those that are not, apart; each code of a case not read, by how many; the usage
     summed; what answered, as the checkout pins it and as `models` says of `usages` (issue 616); the bars applied; the
     words `verdict` reads; the cases asked first, `ahead`, counted apart; and the ledger's salted sha256, beside which
     `seal` writes its ciphertext's. Raw counts, so that reports on one commit can be pooled (issue 613)."""
     ahead = ahead or {}
     passed = {case for case, said in assessed.items() if said == (PASS, [])}
-    kinds = kinds_of(found, place)
+    kinds, criteria = kinds_of(found, place), criteria_of(found, place)
     counted = None if kinds is None else {
         kind: {"cases": n, "passed": p, "interval": wilson(p, n)}
         for kind, n, p in ((k, list(kinds.values()).count(k), len([c for c in passed if kinds[c] == k])) for k in KINDS)}
+    # Of each criterion the set's cases expect, the same counts, so that each named floor can be held (issue 692).
+    by_criterion = None if kinds is None or criteria is None else {
+        name: {"cases": n, "passed": p, "interval": wilson(p, n)}
+        for name, n, p in ((x, list(criteria.values()).count(x), len([c for c in passed if criteria[c] == x]))
+                           for x in sorted(set(criteria.values())))}
     natural = {e["id"] for e in found["cases"] if e.get("natural") is True}
     origin = {"natural": natural, "constructed": {e["id"] for e in found["cases"]} - natural}
     return {"schema": AGGREGATE, "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "passed": len(passed), "kinds": counted,
+            "criteria": by_criterion,
             "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
             "faults": faults_of(assessed),
             "preflight": {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
@@ -897,6 +929,13 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], bars[k]) for k in KINDS}
             or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < least)):
         return "count_differs"
+    # Each criterion's counts are the job's too: read where the kinds were, adding up to the set's, by criteria alone.
+    criteria = document["criteria"]
+    if (criteria is None) != (kinds is None) or criteria is not None and (
+            not all(CRITERION.fullmatch(name) for name in criteria)
+            or sum(c["cases"] for c in criteria.values()) != found["count"] or sum(c["passed"] for c in criteria.values()) != passed
+            or any(c["passed"] > c["cases"] or c["interval"] != wilson(c["passed"], c["cases"]) for c in criteria.values())):
+        return "count_differs"
     if document["bars"] != {kind: list(bars[kind]) for kind in KINDS} or document["kind_least"] != least:
         return "bars_differ"
     if passed < least_passed(found["count"], least if document["split_ok"] is True else 0, bars) \
@@ -909,10 +948,13 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
 
 def pooled(documents: list) -> dict:
     """What the gate set's reports on one commit say together: each kind's cases and passes summed over every report,
-    the passes summed, and the blocking word true only where every report's is (issue 613). Each must be one
+    and each criterion's (issue 692), the passes summed, and the blocking word true only where every report's is (issue 613). Each must be one
     `aggregate_verdict` has held whole, with its kinds read."""
+    named = sorted({name for d in documents for name in d["criteria"]})
     return {"kinds": {kind: {field: sum(d["kinds"][kind][field] for d in documents) for field in ("cases", "passed")}
                       for kind in KINDS},
+            "criteria": {name: {field: sum(d["criteria"].get(name, {}).get(field, 0) for d in documents)
+                                for field in ("cases", "passed")} for name in named},
             "passed": sum(d["passed"] for d in documents),
             "blocking_pass": all(d["blocking_pass"] is True for d in documents)}
 
@@ -921,6 +963,7 @@ def pooled_verdict(documents: list, found: dict, digest: str, commit: str, relea
     """The gate's word on a gate set from every dispatch on the commit that the gate counted, each report in
     `documents` (issue 613): `pass` only where there are POOL_LEAST at least, each is this set's report on this commit
     for this Release held whole by `aggregate_verdict`, and each kind's cases, summed over all of them, clear its bar.
+    Each criterion the set gives a floor for, summed the same way, clears it too, or the pool is `criterion_failed` (issue 692).
     A report the job could not read, or one of a run the Engine or the Factory stopped, or its preflight did, closes the
     gate as a faulted dispatch, `eval_dispatch_faulted`; one whose own run fell under the bar is pooled, as the bar is the pool's. The
     blocking word closes nothing (decision 0150)."""
@@ -938,6 +981,11 @@ def pooled_verdict(documents: list, found: dict, digest: str, commit: str, relea
     together, bars = pooled(documents), bars_of(found)
     if not all(_clears(together["kinds"][k]["passed"], together["kinds"][k]["cases"], bars[k]) for k in KINDS):
         return "case_failed"
+    # Each criterion the set names a floor for, its cases summed over the pool; one it names none for has none (issue 692).
+    for name, bar in sorted(criterion_bars_of(found).items()):
+        got = together["criteria"].get(name, {"cases": 0, "passed": 0})
+        if not _clears(got["passed"], got["cases"], bar):
+            return "criterion_failed"
     return PASS
 
 

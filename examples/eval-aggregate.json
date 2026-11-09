@@ -27,6 +27,32 @@
       }
     }
   },
+  "criteria": {
+    "PR-1": {
+      "cases": 14,
+      "passed": 8,
+      "interval": {
+        "low": 0.3259,
+        "high": 0.7862
+      }
+    },
+    "PR-3": {
+      "cases": 16,
+      "passed": 12,
+      "interval": {
+        "low": 0.505,
+        "high": 0.8982
+      }
+    },
+    "PR-6": {
+      "cases": 14,
+      "passed": 10,
+      "interval": {
+        "low": 0.4535,
+        "high": 0.8828
+      }
+    }
+  },
   "origin": {
     "natural": {
       "cases": 30,

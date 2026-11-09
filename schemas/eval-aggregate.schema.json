@@ -12,6 +12,7 @@
     "set",
     "passed",
     "kinds",
+    "criteria",
     "origin",
     "faults",
     "preflight",
@@ -153,6 +154,52 @@
                   "minimum": 0,
                   "maximum": 1
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "criteria": {
+      "description": "Of each criterion the set's cases expect, by its id, its cases, how many passed and their Wilson interval at 95%: counts alone, so that each floor the set names can be held over the pool (issue 692). Null where the kinds are.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cases",
+          "passed",
+          "interval"
+        ],
+        "properties": {
+          "cases": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "interval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "low",
+              "high"
+            ],
+            "properties": {
+              "low": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "high": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
               }
             }
           }

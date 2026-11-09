@@ -3051,9 +3051,10 @@ class EvalJob(unittest.TestCase):
                 self.assertEqual((place / "outside.json").read_text(), "{}")
                 (self.work / seal.SEALED).unlink()
 
-    def aggregate_of(self, finding=(20, 6), met=(20, 18), natural=(30, 18), faults=()):
+    def aggregate_of(self, finding=(20, 6), met=(20, 18), natural=(30, 18), faults=(), criteria=None):
         """A gate set of `finding` and `met` cases, `(cases, passed)` of each, and `natural` of them marked so, `(cases,
-        passed)`: `(found, digest, report)` as the job would have written it, sealed."""
+        passed)`: `(found, digest, report)` as the job would have written it, sealed. Its cases expect a criterion each,
+        `criteria`, `{criterion: (cases, passed)}`, or by default PR-1 for those that expect a Finding and PR-2 for the rest."""
         from harness import eval as job
         count = finding[0] + met[0]
         found = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "gate": True, "count": count,
@@ -3065,6 +3066,8 @@ class EvalJob(unittest.TestCase):
                   "intent": "review-change", "set": {"count": count, "sha256": "d" * 64}, "passed": passed,
                   "kinds": {kind: {"cases": n, "passed": p, "interval": job.wilson(p, n)}
                             for kind, (n, p) in (("finding", finding), ("met", met))},
+                  "criteria": {name: {"cases": n, "passed": p, "interval": job.wilson(p, n)}
+                               for name, (n, p) in sorted((criteria or {"PR-1": finding, "PR-2": met}).items())},
                   "origin": {"natural": {"cases": natural[0], "passed": natural[1]},
                              "constructed": {"cases": count - natural[0], "passed": passed - natural[1]}},
                   "faults": [{"code": c, "count": n} for c, n in faults],
@@ -3135,10 +3138,10 @@ class EvalJob(unittest.TestCase):
                 (changed(["kinds"], None), "count_differs"),
                 (changed(["kinds_pass"], None), "count_differs"),
                 # Where no kind was read, the job says nothing of the split or the blocking cases either.
-                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
-                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
-                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None), "eval_split_short"),
-                (dict(copy.deepcopy(good), kinds=None, split_ok=None, blocking_pass=None), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, kinds_pass=None, split_ok=None, blocking_pass=None), "eval_split_short"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, split_ok=None, blocking_pass=None), "count_differs"),
                 (self.aggregate_of(finding=(19, 6), met=(21, 19), natural=(30, 18))[2], "count_differs"),
                 (changed(["bars", "finding"], [2, 10]), "bars_differ"),
                 (changed(["kind_least"], 0), "bars_differ"),
@@ -3307,6 +3310,71 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(check_examples._bars_stated(self.root, {k: v for k, v in found.items() if k != left}),
                              ["gives no bars and least of a kind that can be stated"], left)
 
+    def test_a_gate_set_holds_a_floor_per_criterion_over_the_pool(self):  # issue 692
+        # A gate set may name a floor for a criterion: of the cases that expect it, summed over the pool, at least its share
+        # pass, or the gate is `criterion_failed`, each kind clear or not. A criterion it names none for has none.
+        from harness import eval as job
+        split = {"PR-1": (10, 2), "PR-3": (10, 4), "PR-2": (20, 18)}      # the Findings' 6 of 20 clear 30%; PR-1's 2 of 10 do not
+        found, digest, good = self.aggregate_of(criteria=split)
+        judged = lambda reports, of: job.pooled_verdict(reports, of, digest, "a" * 40, "factory/v0.1.0")
+        floored = lambda floors: dict(found, criterion_bars=floors)
+        self.assertEqual(judged([good] * 3, found), "pass")
+        self.assertEqual(judged([good] * 3, floored({"PR-1": [3, 10]})), "criterion_failed")
+        self.assertEqual(judged([good] * 3, floored({"PR-3": [3, 10], "PR-2": [9, 10]})), "pass")
+        self.assertEqual(judged([good] * 3, floored({"PR-1": [2, 10]})), "pass", "exactly on its floor clears it")
+        # Summed over the pool: one run under the floor beside two over it clears it, as a kind's bar is the pool's.
+        over = self.aggregate_of(criteria={"PR-1": (10, 4), "PR-3": (10, 2), "PR-2": (20, 18)})[2]
+        self.assertEqual(judged([good, over, over], floored({"PR-1": [3, 10]})), "pass")
+        self.assertEqual(judged([good, good, over], floored({"PR-1": [3, 10]})), "criterion_failed")
+        # A floor on a criterion no case expects holds nothing; a kind under its bar is said first.
+        self.assertEqual(judged([good] * 3, floored({"PR-9": [9, 10]})), "pass")
+        under = self.aggregate_of(finding=(20, 5), natural=(30, 17), criteria={"PR-1": (10, 1), "PR-3": (10, 4), "PR-2": (20, 18)})[2]
+        self.assertEqual(judged([under] * 3, floored({"PR-1": [3, 10]})), "case_failed")
+        # The counts are the job's: each criterion's adding up to the set's, its interval its own, by a criterion's id alone,
+        # and read where the kinds were.
+        verdict = lambda report: job.aggregate_verdict(report, found, digest, "a" * 40, "factory/v0.1.0")
+        self.assertEqual(verdict(good), "pass")
+        counts = good["criteria"]
+        for criteria in ({**counts, "PR-1": dict(counts["PR-1"], cases=11, interval=job.wilson(2, 11))},
+                         {**counts, "PR-1": dict(counts["PR-1"], passed=3, interval=job.wilson(3, 10))},
+                         {**counts, "PR-1": dict(counts["PR-1"], interval=job.wilson(3, 10))},
+                         {**{k: v for k, v in counts.items() if k != "PR-1"}, "pr-1": counts["PR-1"]},
+                         {k: v for k, v in counts.items() if k != "PR-1"}, None):
+            with self.subTest(criteria=criteria):
+                self.assertEqual(verdict(dict(good, criteria=criteria)), "count_differs")
+        self.assertEqual(verdict(dict(good, kinds=None, criteria=None, kinds_pass=None, split_ok=None, blocking_pass=None)),
+                         "eval_split_short")
+        # Only a gate set may give floors, each a whole fraction of at most one, of a criterion its Role's rubric names; and
+        # its record states them.
+        manifest = dict(found, criterion_bars={"PR-1": [3, 10]})
+        self.assertEqual(job.held(json.dumps(manifest).encode())[0]["criterion_bars"], {"PR-1": [3, 10]})
+        development = {k: v for k, v in manifest.items() if k not in ("gate",) + job.OWN}
+        development["cases"] = [{"id": c["id"], "sha256": c["sha256"]} for c in development["cases"]]
+        self.assertEqual(job.held(json.dumps({k: v for k, v in development.items() if k != "criterion_bars"}).encode())[0]["count"],
+                         found["count"])
+        for refused in (development, dict(manifest, criterion_bars={"PR-99": [1, 2]}), dict(manifest, criterion_bars={"PR-1": [3, 2]}),
+                        dict(manifest, criterion_bars={"PR-1": [0, 0]})):
+            with self.subTest(refused=refused.get("criterion_bars")), self.assertRaises(job.Stop) as stop:
+                job.held(json.dumps(refused).encode())
+            self.assertEqual(stop.exception.code, "eval_set_unreadable")
+        self.assertEqual((job.criterion_bars_of(manifest), job.criterion_bars_of(development)), ({"PR-1": (3, 10)}, {}))
+        self.assertEqual(job.bars_said(dict(manifest, criterion_bars={"PR-3": [1, 4], "PR-1": [3, 10]})),
+                         "Its bars: finding 3 of 10, met 9 of 10; at least 20 cases of each kind. Its floors: PR-1 3 of 10, PR-3 1 of 4.")
+        self.assertEqual(job.bars_said(found), "Its bars: finding 3 of 10, met 9 of 10; at least 20 cases of each kind.")
+
+    def test_a_gate_sets_report_counts_each_criterion_its_cases_expect(self):  # issue 692
+        # The job reads each case's criterion from the case it fetched, as it reads its kind; the manifest names none.
+        from harness import eval as job
+        self.gate_run()
+        written = json.loads((self.work / job.REPORT).read_text())
+        criterion = load("examples/eval-case.json")["expected"]["criterion"]
+        self.assertEqual(written["criteria"], {criterion: {"cases": 2, "passed": 2, "interval": job.wilson(2, 2)}})
+        sealed = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
+        self.assertEqual(validate(sealed, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertNotIn("criterion", json.dumps(json.loads(self.path().read_text())))
+        place = self.temp / "heldout"
+        self.assertEqual(set(job.criteria_of(job.manifest(self.root, "pr-review-gate")[0], place).values()), {criterion})
+
     def test_the_gate_pools_every_dispatch_on_the_commit_and_one_faulted_closes_it(self):  # issue 613
         from harness import eval as job
         found, digest, good = self.aggregate_of()
@@ -3350,7 +3418,7 @@ class EvalJob(unittest.TestCase):
         # So does one under the bar alone that says so: its own verdict is the bar's, which the pool reads past.
         self.assertEqual(judged([good, good, dict(under, split_ok=False)]), "eval_split_short")
         self.assertEqual(judged([good, good, dict(under, blocking_pass=None)]), "eval_split_short")
-        self.assertEqual(judged([good, good, dict(good, kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None)]),
+        self.assertEqual(judged([good, good, dict(good, kinds=None, criteria=None, kinds_pass=None, split_ok=None, blocking_pass=None)]),
                          "eval_split_short")
         # The blocking word is true only where every run's is, and closes nothing (decision 0150).
         missed = dict(good, blocking_pass=False)
