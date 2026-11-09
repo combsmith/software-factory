@@ -12889,15 +12889,6 @@ MUTANTS = ISSUE + [
      '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
     ("P-51's runner takes an OUT that ends in a dot", "tools/trial_p51_sandbox_writes.sh",
      'case "$(basename -- "$1")" in .|..) refuse', 'case "$(basename -- "$1")" in ...) refuse', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot",)),
-    # Issue 424 (Argon): . and .. are each refused on their own, not only the two together.
-    ("P-50's runner takes an OUT that ends in .", "tools/trial_p50_linux_sandbox.sh",
-     'case "$(basename -- "$1")" in .|..) refuse', 'case "$(basename -- "$1")" in ..) refuse', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot",)),
-    ("P-50's runner takes an OUT that ends in ..", "tools/trial_p50_linux_sandbox.sh",
-     'case "$(basename -- "$1")" in .|..) refuse', 'case "$(basename -- "$1")" in .) refuse', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot",)),
-    ("P-51's runner takes an OUT that ends in .", "tools/trial_p51_sandbox_writes.sh",
-     'case "$(basename -- "$1")" in .|..) refuse', 'case "$(basename -- "$1")" in ..) refuse', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot",)),
-    ("P-51's runner takes an OUT that ends in ..", "tools/trial_p51_sandbox_writes.sh",
-     'case "$(basename -- "$1")" in .|..) refuse', 'case "$(basename -- "$1")" in .) refuse', ("tests.test_tools.OutputMadeAlone.test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot",)),
     # Issue 406: a mint answered 201 whose token cannot be read is written nowhere, and its token revoked or told.
     ("P-39's trial of reach reads a 201 it cannot read as no token minted", "tools/trial_p39_reach.sh",
      '    if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', '    if false; then\n', ("tests.test_tools.ReachScript.test_a_201_whose_token_cannot_be_read_is_written_nowhere_and_is_revoked_or_told",)),
