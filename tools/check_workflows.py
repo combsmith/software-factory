@@ -89,8 +89,9 @@ SHIMS = {"run.yml": "e0888dab368e920697894e9064a075af9ef070aaaafccff0da748f07d78
 # act's, whose wake approve_job_problems holds the same way (trial P-55), and the queue act's, which queue_job_problems
 # holds so (decision 0128). The release job
 # moves the Release every Run calls, so it cannot be one: it runs main's file, and release_problems holds every line of
-# it (issue 197's ruling 4′).
-SHAPED = {"eval.yml": ("shim", "install"), "run-jobs.yml": ("install",), "approve-job.yml": ("install",),
+# it (issue 197's ruling 4′). The eval job's shards name what each uploads by the matrix's shard, an expression under
+# with:, which eval_problems holds word for word, so it is spared that rule too (issue 611).
+SHAPED = {"eval.yml": ("shim", "install", "expression"), "run-jobs.yml": ("install",), "approve-job.yml": ("install",),
           "queue-job.yml": ("install",), "release.yml": ("shim",)}
 # The one workflow that wakes on another's end, and the Run's, which it does not name (trial P-55).
 WAKES, RUN_WORKFLOW = "poller.yml", "sf-run"
@@ -704,8 +705,18 @@ EVAL_STEP = "python3 -m harness.eval.%s"
 # report: an action in the one job that holds both credentials can read them both (decision 0053), so a bump of it edits
 # this too.
 UPLOAD = ("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", "# v7.0.2")
-# A gate set's ledger is sealed after the run and its ciphertext uploaded before the report (issue 612).
-EVAL_ORDER = ("checkout", "plan", "install", "fetch", "run", "seal", "ledger", "upload", "judge")
+# The one download action, by its commit, the merge job's alone: what each part of the run uploaded (issue 611).
+DOWNLOAD = ("actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", "# v8.0.2")
+# The run's parts, each a job (issue 611): the preflight's, the shards' matrix behind it, and the merge, which holds no
+# credential and writes the one report whatever became of the rest. A gate set's ledger is sealed after the run, its
+# ciphertext uploaded before what the part found (issue 612).
+EVAL_JOBS = ("preflight", "eval", "merge")
+EVAL_ORDERS = {"preflight": ("checkout", "plan", "install", "fetch", "run", "seal", "ledger", "upload", "judge"),
+               "eval": ("checkout", "plan", "install", "fetch", "run", "seal", "ledger", "upload"),
+               "merge": ("checkout", "plan", "download", "merge", "upload", "judge")}
+EVAL_ORDER = EVAL_ORDERS["preflight"]
+EVAL_NEEDS = {"preflight": None, "eval": ["preflight"], "merge": ["preflight", "eval"]}
+SHARD = "${{ matrix.shard }}"
 # The CLI's install, the one the Run's jobs hold word for word in RUN_JOBS_FILE: the eval job installs the CLI a live
 # Run does, at the Engine's pin and by the vendor's checksum (issue 309, amendment 1). Its version and checksum are given
 # under env:, as RUN_JOBS_FILE gives them. Bubblewrap is the one package: the CLI refuses to run with the scrub on and
@@ -718,18 +729,23 @@ CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_
                    "sudo mv /tmp/claude /usr/local/bin/claude",
                    "sudo apt-get update -q",
                    "sudo apt-get install -y --no-install-recommends bubblewrap"]
-EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "outputs", "steps"}
-# The job's one output, the sealed ledger's sha256, which the seal step alone sets, under the one id a step may take: the
-# Maintainer's ruling on issue 612 keeps it for whatever stores the ciphertext, once that is decided.
-EVAL_OUTPUTS = {"ledger_sha256": "${{ steps.seal.outputs.ledger_sha256 }}"}
-EVAL_IDS = {"seal": "seal"}
-# Its runner, the one the CLI's linux-x64 install is for, and its timeout, which the run step's budget is held inside
-# (harness/eval/run.py, BUDGET): a shorter one would end the job before the report is uploaded (issue 309, ruling 9).
+EVAL_JOB_KEYS = {"preflight": {"runs-on", "timeout-minutes", "permissions", "environment", "steps"},
+                 "eval": {"needs", "strategy", "runs-on", "timeout-minutes", "permissions", "environment", "steps"},
+                 "merge": {"needs", "if", "runs-on", "timeout-minutes", "permissions", "outputs", "steps"}}
+# The run's one output, the hash of every part's sealed ledger's, which the merge step alone sets, under the one id a
+# step may take: the Maintainer's ruling on issue 612 keeps it for whatever stores the ciphertexts, and the Factory
+# Builder's ruling (c) on issue 611 makes it the hash of their list.
+EVAL_OUTPUTS = {"ledger_sha256": "${{ steps.merge.outputs.ledger_sha256 }}"}
+EVAL_IDS = {"merge": "merge"}
+# The runner, the one the CLI's linux-x64 install is for, and each part's timeout, which the run step's budget is held
+# inside (harness/eval/run.py, BUDGET): a shorter one would end the job before what it found is uploaded (issue 309,
+# ruling 9). The merge asks nothing, and is quick.
 EVAL_RUNNER = {"runs-on": "ubuntu-24.04", "timeout-minutes": "120"}
+EVAL_RUNNERS = {"preflight": EVAL_RUNNER, "eval": EVAL_RUNNER, "merge": {"runs-on": "ubuntu-24.04", "timeout-minutes": "10"}}
 # What each step may be given, under with: or env:, exactly: a step's own keys beside these are refused.
 EVAL_GIVEN = {
     "checkout": {"with": {"persist-credentials": "false"}},
-    "plan": {"env": {"RELEASE": "${{ inputs.release }}", "EVAL_SET": "${{ inputs.set }}"}},
+    "plan": {"env": {"RELEASE": "${{ inputs.release }}", "EVAL_SET": "${{ inputs.set }}", "EVAL_PART": None}},
     # The one personal token a workflow here may name, the Maintainer's, read-only on the home alone (decision 0053),
     # and the home's coordinates, secrets and never variables: a step's log shows what it is given, and GitHub masks a
     # secret's value there, and nowhere a variable's.
@@ -741,13 +757,22 @@ EVAL_GIVEN = {
                     "CLAUDE_CLI": "/usr/local/bin/claude"}},
     # The seal holds no credential: what it seals to is in the checkout.
     "seal": {},
-    # The ciphertext alone, and nothing where a development set has no ledger to seal.
-    "ledger": {"with": {"name": "eval-ledger", "path": "eval-ledger.cms", "if-no-files-found": "ignore",
-                        "retention-days": "90"}},
-    "upload": {"with": {"name": "eval-report", "path": "eval-report.json", "if-no-files-found": "error",
-                        "retention-days": "90"}},
+    # The ciphertext alone, and nothing where a development set has no ledger to seal; each part's by its own name.
+    "ledger": {"with": {"name": None, "path": "eval-ledger.cms", "if-no-files-found": "ignore", "retention-days": "90"}},
+    "upload": {"with": {"name": None, "path": None, "if-no-files-found": "error", "retention-days": "90"}},
+    "download": {"with": {"pattern": "eval-part-*", "path": "parts"}},
+    "merge": {},
     "judge": {},
 }
+# What differs from one job to another: the part each plans as, and the names of what it uploads.
+EVAL_PARTS = {"preflight": {"plan": {"env": {"EVAL_PART": "preflight"}},
+                            "ledger": {"with": {"name": "eval-ledger-preflight"}},
+                            "upload": {"with": {"name": "eval-part-preflight", "path": "eval-part.json"}}},
+              "eval": {"plan": {"env": {"EVAL_PART": SHARD}},
+                       "ledger": {"with": {"name": "eval-ledger-" + SHARD}},
+                       "upload": {"with": {"name": "eval-part-" + SHARD, "path": "eval-part.json"}}},
+              "merge": {"plan": {"env": {"EVAL_PART": "merge"}},
+                        "upload": {"with": {"name": "eval-report", "path": "eval-report.json"}}}}
 EVAL_STEP_KEYS = {"uses", "run", "with", "env", "timeout-minutes"}
 # The release job and its workflow (issue 197's ruling 4′): dispatched by the Maintainer, with the command and its
 # version or target, or on a schedule that cuts only when the repo's FACTORY_RELEASE_AUTO is true and no Pause is set;
@@ -801,7 +826,7 @@ RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"
 # What names the release job's environment, its key or its token, in a workflow that is not release.yml.
 RELEASE_ONLY = re.compile(r"factory-release|RELEASE_APP_|RELEASE_TOKEN|release\.move", re.I)
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
-EVAL_ACTIONS = {"checkout", "upload", "ledger"}
+EVAL_ACTIONS = {"checkout", "upload", "ledger", "download"}
 # The dispatch's inputs, each by what it is given: the Release it judges, and the set, the review Intent's by default.
 EVAL_INPUTS = {"release": [("required", "true"), ("type", "string")],
                "set": [("default", "pr-review"), ("required", "false"), ("type", "string")]}
@@ -1398,14 +1423,17 @@ def _kind(step: dict, entries: list = ()) -> str:
     if uses is not None and "run" not in step:
         if (uses, step["uses"]["comment"]) == CHECKOUT:
             return "checkout"
+        if (uses, step["uses"]["comment"]) == DOWNLOAD:
+            return "download"
         named = [e["value"] for e in entries if e["step"] == step["uses"]["step"] and e["path"][-1:] == ["with"]
                  and e["key"] == "name"]
-        return None if (uses, step["uses"]["comment"]) != UPLOAD else "ledger" if named == ["eval-ledger"] else "upload"
+        return None if (uses, step["uses"]["comment"]) != UPLOAD else \
+            "ledger" if len(named) == 1 and named[0].startswith("eval-ledger") else "upload"
     command = _lines(step.get("run"))
     if "uses" not in step and step.get("run", {}).get("value") == "|" and command == CLI_INSTALL_RUN:
         return "install"
     # The install is its block alone: a module of that name is no install, and is refused as a step of no kind.
-    for name in EVAL_ORDER:
+    for name in EVAL_ORDERS["preflight"] + EVAL_ORDERS["merge"]:
         if name not in EVAL_ACTIONS | {"install"} and command == [EVAL_STEP % name] and "uses" not in step:
             return name
     return None
@@ -1413,10 +1441,11 @@ def _kind(step: dict, entries: list = ()) -> str:
 
 def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
     """What is wrong with eval.yml's shape (issue 309, ruling 10), each a sentence. It runs on `workflow_dispatch` alone,
-    with two inputs, the Release it judges and the set, and one job, `eval`, on the environment `factory-eval`, granted
-    `contents: read` alone and given no env: of its own. Its steps are EVAL_ORDER, each given exactly what EVAL_GIVEN
-    says and nothing else: the Maintainer's token for the held-out home by `fetch` alone, the model's
-    credential by `run` alone, so no step holds both, the seal given nothing, and each upload takes its one file. Every other spelling is
+    with two inputs, the Release it judges and the set, and its jobs EVAL_JOBS (issue 611), each granted `contents: read`
+    alone and given no env: of its own: the preflight's and the shards', on the environment `factory-eval`, and the
+    merge, on none. Each job's steps are EVAL_ORDERS's, each given exactly what EVAL_GIVEN and EVAL_PARTS say and nothing
+    else: the Maintainer's token for the held-out home by `fetch` alone, the model's credential by `run` alone, so no
+    step holds both, and the merge neither; the seal given nothing, and each upload takes its one file. Every other spelling is
     refused: a check reads what it names, never what it can guess. The CLI's install is CLI_INSTALL_RUN, word for word,
     given the Engine's pin in config/harness.json and its checksum in CLI_CHECKSUMS, as the Run's jobs' is."""
     entries, bad = read(text)
@@ -1440,39 +1469,89 @@ def eval_problems(text: str, root: pathlib.Path = ROOT) -> list:
                 for name, given in EVAL_INPUTS.items()):
         problems.append("runs on workflow_dispatch alone, with the inputs release, a required string, and set, an optional "
                         "string whose default is pr-review")
-    if [e["key"] for e in entries if e["path"] == ["jobs"]] != [EVAL_JOB]:
-        problems.append("it holds the job %s and no other" % EVAL_JOB)
-    inside = {e["key"]: e for e in entries if e["path"] == ["jobs", EVAL_JOB]}
-    if set(inside) != EVAL_JOB_KEYS or inside["environment"]["value"] != EVAL_ENVIRONMENT:
-        problems.append("its job has exactly %s, and runs on the environment %s"
-                        % (", ".join(sorted(EVAL_JOB_KEYS)), EVAL_ENVIRONMENT))
-    if {k: inside[k]["value"] for k in EVAL_RUNNER if k in inside} != EVAL_RUNNER:
-        problems.append("its job runs on %(runs-on)s, with a timeout of %(timeout-minutes)s minutes" % EVAL_RUNNER)
-    if {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", EVAL_JOB, "outputs"]} != EVAL_OUTPUTS:
-        problems.append("its job has one output, ledger_sha256, the seal step's")
-    granted = sorted((e["key"], e["value"]) for e in entries if e["path"] == ["jobs", EVAL_JOB, "permissions"])
+    if [e["key"] for e in entries if e["path"] == ["jobs"]] != list(EVAL_JOBS):
+        problems.append("it holds the jobs %s, in that order, and no other" % ", ".join(EVAL_JOBS))
+    shards = shards_named(root)
+    for job in EVAL_JOBS:
+        problems += _eval_job_problems(text, entries, job, given_of, shards)
+    return problems
+
+
+def shards_named(root: pathlib.Path):
+    """How many shards `config/harness.json` names, `eval_shards`, or None (issue 611)."""
+    try:
+        shards = json.loads((root / "config" / "harness.json").read_text()).get("eval_shards")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return shards if type(shards) is int and 1 <= shards <= 16 else None
+
+
+def _items(text: str, entry: dict) -> list:
+    """The items of the block list under `entry`, a key with no value, as written: none where it has a value."""
+    if entry["value"]:
+        return []
+    values = []
+    for raw in text.split("\n")[entry["line"]:]:
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        item = ITEM.match(raw.rstrip())
+        if item is None or len(item.group(1)) < entry["indent"]:
+            break
+        values.append(item.group(2).strip())
+    return values
+
+
+def _eval_job_problems(text: str, entries: list, job: str, given_of: dict, shards) -> list:
+    """What is wrong with one job of eval.yml (issues 309, 612 and 611): its keys, its environment where it holds a
+    credential, its runner, what it needs, the shards' matrix as the configuration names them, the merge's one output
+    and `if: always()`, its grant, and its steps, EVAL_ORDERS's, each given exactly what EVAL_GIVEN and EVAL_PARTS say."""
+    problems = []
+    inside = {e["key"]: e for e in entries if e["path"] == ["jobs", job]}
+    if set(inside) != EVAL_JOB_KEYS[job] or ("environment" in inside and inside["environment"]["value"] != EVAL_ENVIRONMENT):
+        problems.append("its job %s has exactly %s%s" % (job, ", ".join(sorted(EVAL_JOB_KEYS[job])),
+                        ", and runs on the environment %s" % EVAL_ENVIRONMENT if "environment" in EVAL_JOB_KEYS[job] else ""))
+    if {k: inside[k]["value"] for k in EVAL_RUNNERS[job] if k in inside} != EVAL_RUNNERS[job]:
+        problems.append("its job %s runs on %s, with a timeout of %s minutes" % (job, EVAL_RUNNERS[job]["runs-on"],
+                                                                               EVAL_RUNNERS[job]["timeout-minutes"]))
+    if EVAL_NEEDS[job] is not None and ("needs" not in inside or _listed(text, inside["needs"]) != EVAL_NEEDS[job]):
+        problems.append("its job %s needs %s" % (job, ", ".join(EVAL_NEEDS[job])))
+    if job == "merge" and inside.get("if", {}).get("value") != "always()":
+        problems.append("its job merge runs whatever became of the rest: if: always()")
+    if job == "eval":
+        strategy = {e["key"]: e for e in entries if e["path"] == ["jobs", job, "strategy"]}
+        matrix = {e["key"]: e for e in entries if e["path"] == ["jobs", job, "strategy", "matrix"]}
+        if set(strategy) != {"fail-fast", "matrix"} or strategy["fail-fast"]["value"] != "false" or set(matrix) != {"shard"} \
+                or shards is None or _items(text, matrix["shard"]) != [str(i) for i in range(shards)]:
+            problems.append("its job eval is a matrix of the shards config/harness.json names, shard 0 to the last, "
+                            "and one shard's failure cancels no other: fail-fast: false")
+    outputs = {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", job, "outputs"]}
+    if outputs != (EVAL_OUTPUTS if job == "merge" else {}):
+        problems.append("its job merge has one output, ledger_sha256, the merge step's, and no other job any")
+    granted = sorted((e["key"], e["value"]) for e in entries if e["path"] == ["jobs", job, "permissions"])
     if granted != [("contents", "read")]:
-        problems.append("its job is granted contents: read and nothing else")
-    steps = _steps(entries, EVAL_JOB)
+        problems.append("its job %s is granted contents: read and nothing else" % job)
+    steps = _steps(entries, job)
     kinds = [_kind(step, entries) for step in steps]
-    if tuple(kinds) != EVAL_ORDER:
-        problems.append("its steps are %s, in that order, and no other" % ", ".join(EVAL_ORDER))
+    if tuple(kinds) != EVAL_ORDERS[job] or _scalar_items(text, entries, job, steps_only=True):
+        problems.append("its job %s's steps are %s, in that order, and no other" % (job, ", ".join(EVAL_ORDERS[job])))
     for step, kind in zip(steps, kinds):
         if kind is None:
             continue
         number = next(iter(step.values()))["step"]
-        own = set(step) - EVAL_STEP_KEYS - ({"id"} if kind in EVAL_IDS else set())
+        ids = EVAL_IDS if job == "merge" else {}
+        own = set(step) - EVAL_STEP_KEYS - ({"id"} if kind in ids else set())
         if own:
-            problems.append("its %s step has a key it may not: %s" % (kind, ", ".join(sorted(own))))
-        if kind in EVAL_IDS and step.get("id", {}).get("value") != EVAL_IDS[kind]:
-            problems.append("its %s step has the id %s" % (kind, EVAL_IDS[kind]))
+            problems.append("its job %s's %s step has a key it may not: %s" % (job, kind, ", ".join(sorted(own))))
+        if kind in ids and step.get("id", {}).get("value") != ids[kind]:
+            problems.append("its job %s's %s step has the id %s" % (job, kind, ids[kind]))
         for under in ("with", "env"):
             given = {e["key"]: e["value"] for e in entries if e["step"] == number
-                     and e["path"] == ["jobs", EVAL_JOB, "steps", under]}
-            if given != given_of[kind].get(under, {}):
-                problems.append("its %s step is given under %s: %s, exactly" % (kind, under, given_of[kind].get(under, {})))
+                     and e["path"] == ["jobs", job, "steps", under]}
+            wanted = dict(given_of[kind].get(under, {}), **EVAL_PARTS[job].get(kind, {}).get(under, {}))
+            if given != wanted or None in wanted.values():
+                problems.append("its job %s's %s step is given under %s: %s, exactly" % (job, kind, under, wanted))
             if under in step and (step[under]["value"] or under not in given_of[kind]):
-                problems.append("its %s step has a %s: it is not given" % (kind, under))
+                problems.append("its job %s's %s step has a %s: it is not given" % (job, kind, under))
     return problems
 
 
@@ -1923,9 +2002,9 @@ def run(root: pathlib.Path = ROOT) -> list:
         if EVAL_JOB in jobs and path.name != EVAL_WORKFLOW:
             problems.append("%s: the job %s is reserved for %s, the one job that reads the held-out home"
                             % (path.relative_to(root), EVAL_JOB, EVAL_WORKFLOW))
-        if path.name == EVAL_WORKFLOW and jobs != [EVAL_JOB]:
-            problems.append("%s: holds the job %s and no other, or it is not the eval job's workflow"
-                            % (path.relative_to(root), EVAL_JOB))
+        if path.name == EVAL_WORKFLOW and jobs != list(EVAL_JOBS):
+            problems.append("%s: holds the jobs %s and no other, or it is not the eval job's workflow"
+                            % (path.relative_to(root), ", ".join(EVAL_JOBS)))
         if path.name == EVAL_WORKFLOW:
             problems += ["%s: %s" % (path.relative_to(root), p) for p in eval_problems(raw(path), root)]
         else:

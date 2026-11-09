@@ -734,7 +734,7 @@ class TheSet(unittest.TestCase):
         problems = check_workflows.run(clone({".github/workflows/other.yml": by_name}))
         self.assertTrue(caught(problems, ".github/workflows/other.yml: the job eval is reserved for eval.yml"))
         problems = check_workflows.run(clone({".github/workflows/eval.yml": GOOD}))
-        self.assertTrue(caught(problems, ".github/workflows/eval.yml: holds the job eval and no other"))
+        self.assertTrue(caught(problems, ".github/workflows/eval.yml: holds the jobs preflight, eval, merge and no other"))
 
     def test_the_eval_workflow_names_each_credential_in_one_step_alone(self):
         # Issue 309, ruling 10: dispatched alone with the Release it judges; one job on factory-eval, granted
@@ -751,26 +751,26 @@ class TheSet(unittest.TestCase):
                                 EVAL_WORKFLOW.index("      - run: python3 -m harness.eval.fetch\n")]
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         broken = {
-            "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "its fetch step is given under env"),
-            "the model beside the token": (EVAL_WORKFLOW.replace(model, model + token), "its run step is given under env"),
+            "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "\'s fetch step is given under env"),
+            "the model beside the token": (EVAL_WORKFLOW.replace(model, model + token), "\'s run step is given under env"),
             "the token handed to the plan": (EVAL_WORKFLOW.replace("          RELEASE: ${{ inputs.release }}\n",
                                                                    "          RELEASE: ${{ inputs.release }}\n" + token),
-                                             "its plan step is given under env"),
+                                             "\'s plan step is given under env"),
             "the token given to the upload": (EVAL_WORKFLOW.replace("          retention-days: 90\n",
                                                                     "          retention-days: 90\n          token: ${{ secrets.HELDOUT_TOKEN }}\n"),
-                                              "its upload step is given under with"),
+                                              "\'s upload step is given under with"),
             "the token under another name": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_TOKEN }}", "${{ secrets.HELDOUT_PAT }}"),
-                                             "its fetch step is given under env"),
+                                             "\'s fetch step is given under env"),
             "a token minted beside it": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
                                                                "      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n"
                                                                "      - run: python3 -m harness.eval.fetch\n"), "in that order"),
             "the token on the job": (EVAL_WORKFLOW.replace("    environment: factory-eval\n",
                                                            "    environment: factory-eval\n    env:\n" + token[4:]),
-                                     "its job has exactly"),
+                                     "has exactly"),
             "a shorter timeout": (EVAL_WORKFLOW.replace("timeout-minutes: 120", "timeout-minutes: 20"),
                                   "with a timeout of 120 minutes"),
             "another runner": (EVAL_WORKFLOW.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-24.04-big"),
-                               "its job runs on ubuntu-24.04"),
+                               "runs on ubuntu-24.04"),
             "another environment": (EVAL_WORKFLOW.replace("environment: factory-eval", "environment: factory-run"),
                                     "runs on the environment factory-eval"),
             "a write": (EVAL_WORKFLOW.replace("      contents: read\n", "      contents: read\n      actions: read\n"),
@@ -790,29 +790,49 @@ class TheSet(unittest.TestCase):
             "no set": (EVAL_WORKFLOW.replace("      set:\n        required: false\n        type: string\n"
                                              "        default: pr-review\n", ""), "with the inputs release"),
             "the set kept from the plan": (EVAL_WORKFLOW.replace("          EVAL_SET: ${{ inputs.set }}\n", ""),
-                                           "its plan step is given under env"),
+                                           "\'s plan step is given under env"),
             # The seal, given nothing, after the run and before the uploads; the ledger's upload, its ciphertext alone.
-            "no seal": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.seal\n        id: seal\n        timeout-minutes: 1\n", ""),
+            "no seal": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.seal\n        timeout-minutes: 1\n", ""),
                         "in that order"),
             "the seal given the model's credential": (EVAL_WORKFLOW.replace(
                 "      - run: python3 -m harness.eval.seal\n", "      - run: python3 -m harness.eval.seal\n        env:\n" + model),
-                "its seal step is given under env"),
+                "\'s seal step is given under env"),
             "the scratch uploaded as the ledger": (EVAL_WORKFLOW.replace("path: eval-ledger.cms", "path: ${{ runner.temp }}"),
-                                                   "its ledger step is given under with"),
+                                                   "\'s ledger step is given under with"),
             "a development set's run failed for no ledger": (EVAL_WORKFLOW.replace("if-no-files-found: ignore",
                                                                                    "if-no-files-found: error"),
-                                                             "its ledger step is given under with"),
+                                                             "\'s ledger step is given under with"),
             # The job's one output, the sealed ledger's hash, which the seal step alone sets, under the one id a step may take.
-            "no output": (EVAL_WORKFLOW.replace("    outputs:\n      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n", ""),
-                          "its job has exactly"),
-            "an output of the fetch": (EVAL_WORKFLOW.replace("steps.seal.outputs.ledger_sha256", "steps.home.outputs.token"),
-                                       "its job has one output"),
-            "a second output": (EVAL_WORKFLOW.replace("      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n",
-                                                      "      ledger_sha256: ${{ steps.seal.outputs.ledger_sha256 }}\n"
-                                                      "      token: ${{ secrets.HELDOUT_TOKEN }}\n"), "its job has one output"),
-            "the seal under another id": (EVAL_WORKFLOW.replace("        id: seal\n", "        id: sealing\n"),
-                                          "its seal step has the id seal"),
-            "the seal with no id": (EVAL_WORKFLOW.replace("        id: seal\n", ""), "its seal step has the id seal"),
+            "no output": (EVAL_WORKFLOW.replace("    outputs:\n      ledger_sha256: ${{ steps.merge.outputs.ledger_sha256 }}\n", ""),
+                          "has exactly"),
+            "an output of the fetch": (EVAL_WORKFLOW.replace("steps.merge.outputs.ledger_sha256", "steps.home.outputs.token"),
+                                       "has one output"),
+            "a second output": (EVAL_WORKFLOW.replace("      ledger_sha256: ${{ steps.merge.outputs.ledger_sha256 }}\n",
+                                                      "      ledger_sha256: ${{ steps.merge.outputs.ledger_sha256 }}\n"
+                                                      "      token: ${{ secrets.HELDOUT_TOKEN }}\n"), "has one output"),
+            "the merge under another id": (EVAL_WORKFLOW.replace("        id: merge\n", "        id: merging\n"),
+                                           "'s merge step has the id merge"),
+            "the merge with no id": (EVAL_WORKFLOW.replace("        id: merge\n", ""), "'s merge step has the id merge"),
+            # The parts (issue 611): the shards need the preflight, the merge needs both and runs whatever became of
+            # them, the shards are the configuration's, and the merge holds no credential.
+            "shards that need no preflight": (EVAL_WORKFLOW.replace("    needs: preflight\n", ""), "has exactly"),
+            "a merge skipped on a failure": (EVAL_WORKFLOW.replace("    if: always()\n", "    if: success()\n"), "if: always()"),
+            "a merge that needs no shard": (EVAL_WORKFLOW.replace("      - preflight\n      - eval\n", "      - preflight\n"),
+                                            "its job merge needs preflight, eval"),
+            "a shard the configuration does not name": (EVAL_WORKFLOW.replace("          - 3\n", "          - 3\n          - 4\n"),
+                                                        "a matrix of the shards"),
+            "a shard's failure that cancels the rest": (EVAL_WORKFLOW.replace("fail-fast: false", "fail-fast: true"),
+                                                        "a matrix of the shards"),
+            "the merge holding the home's token": (EVAL_WORKFLOW.replace("          EVAL_PART: merge\n", "          EVAL_PART: merge\n" + token),
+                                                   "'s plan step is given under env"),
+            "the merge on the eval environment": (EVAL_WORKFLOW.replace("    outputs:\n", "    environment: factory-eval\n    outputs:\n"),
+                                                  "its job merge has exactly"),
+            "a shard planned as the preflight": (EVAL_WORKFLOW.replace("          EVAL_PART: ${{ matrix.shard }}\n", "          EVAL_PART: preflight\n"),
+                                                 "'s plan step is given under env"),
+            "one shard's part named for all": (EVAL_WORKFLOW.replace("name: eval-part-${{ matrix.shard }}", "name: eval-part"),
+                                               "'s upload step is given under with"),
+            "a download of every artifact": (EVAL_WORKFLOW.replace("pattern: eval-part-*", "pattern: eval-*"),
+                                             "'s download step is given under with"),
             "the report under the ledger's name": (EVAL_WORKFLOW.replace("name: eval-report", "name: eval-ledger"),
                                                    "in that order"),
             "the fetch first": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.plan\n        env:\n"
@@ -827,20 +847,20 @@ class TheSet(unittest.TestCase):
                                                         "      - run: make verify\n"), "in that order"),
             "a step skipped": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n",
                                                      "      - run: python3 -m harness.eval.judge\n        if: false\n"),
-                               "its judge step has a key it may not"),
+                               "\'s judge step has a key it may not"),
             "an id on fetch": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
                                                      "      - run: python3 -m harness.eval.fetch\n        id: home\n"),
-                               "its fetch step has a key it may not"),
+                               "\'s fetch step has a key it may not"),
             "the whole workspace uploaded": (EVAL_WORKFLOW.replace("path: eval-report.json", "path: ."),
-                                             "its upload step is given under with"),
+                                             "\'s upload step is given under with"),
             "a credential left on disk": (EVAL_WORKFLOW.replace("persist-credentials: false", "persist-credentials: true"),
-                                          "its checkout step is given under with"),
+                                          "\'s checkout step is given under with"),
             "an upload of another commit": (EVAL_WORKFLOW.replace("upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
                                                                   "upload-artifact@" + "0" * 40), "in that order"),
             "an upload of its own": (EVAL_WORKFLOW.replace("uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
                                                            " # v7.0.2", "run: python3 -m harness.eval.upload"), "in that order"),
             "the home as a variable": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_OWNER }}", "${{ vars.HELDOUT_OWNER }}"),
-                                       "its fetch step is given under env"),
+                                       "\'s fetch step is given under env"),
             "a credential for every step": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions: {}\nenv:\n"
                                                                   "  KEY: ${{ secrets.HELDOUT_TOKEN }}\n"),
                                             "nothing else above its job"),
@@ -849,21 +869,21 @@ class TheSet(unittest.TestCase):
             "another name": (EVAL_WORKFLOW.replace("name: factory\n", "name: eval\n"), "nothing else above its job"),
             "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
                                       "nothing else above its job"),
-            "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
+            "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "\'s judge step has a env: it is not given"),
             # The CLI's install, before the fetch, at the Engine's pin by its checksum, word for
             # word as the Run's jobs install it (issue 309, amendment 1).
             # Bubblewrap is in the block, and the block comes before the fetch: it runs as root, before the cases are here.
             "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo apt-get install -y --no-install-recommends bubblewrap\n", ""),
-                              "its steps are"),
+                              "'s steps are"),
             "the install after the fetch": (EVAL_WORKFLOW.replace(FETCH_STEP, "").replace(
-                "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "its steps are"),
+                "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "'s steps are"),
             "the CLI at another version": (EVAL_WORKFLOW.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.305"'),
-                                           "its install step is given under env"),
+                                           "\'s install step is given under env"),
             "the CLI by another checksum": (EVAL_WORKFLOW.replace('CLI_CHECKSUM: "520bc6', 'CLI_CHECKSUM: "000000'),
-                                            "its install step is given under env"),
+                                            "\'s install step is given under env"),
             "the model's credential at the install": (EVAL_WORKFLOW.replace('          CLI_VERSION: "2.1.306"\n',
                                                                             '          CLI_VERSION: "2.1.306"\n' + model),
-                                                      "its install step is given under env"),
+                                                      "\'s install step is given under env"),
             "the CLI's install a module of its own": (EVAL_WORKFLOW.replace(
                 install[install.index("        run: |"):], "        run: python3 -m harness.eval.install\n"), "in that order"),
             "the CLI unchecked": (EVAL_WORKFLOW.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
@@ -873,10 +893,10 @@ class TheSet(unittest.TestCase):
             "the CLI after the model": (EVAL_WORKFLOW.replace(install, "").replace(
                 "      - uses: actions/upload-artifact", install + "      - uses: actions/upload-artifact"), "in that order"),
             "the CLI from another path": (EVAL_WORKFLOW.replace("CLAUDE_CLI: /usr/local/bin/claude", "CLAUDE_CLI: /tmp/claude"),
-                                          "its run step is given under env"),
+                                          "\'s run step is given under env"),
             "a second job": (EVAL_WORKFLOW + "  other:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"
                                              "    environment: factory-poller\n    steps:\n      - run: make verify\n",
-                             "it holds the job eval and no other"),
+                             "it holds the jobs preflight, eval, merge"),
         }
         for why, (text, words) in broken.items():
             self.assertNotEqual(text, EVAL_WORKFLOW, why)
@@ -904,7 +924,7 @@ class TheSet(unittest.TestCase):
         self.assertTrue(caught(problems, "names the model's credential, which only"), problems)
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW.replace(
             "      - run: python3 -m harness.eval.fetch\n", "      - run: python3 -m harness.eval.fetch\n        id: x\n")}))
-        self.assertTrue(caught(problems, "eval.yml: its fetch step"), problems)
+        self.assertTrue(caught(problems, "eval.yml: its job preflight's fetch step"), problems)
         # The Maintainer's token, in another workflow under its one name, in any case, is the eval job's alone.
         other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
                              "          T: ${{ secrets.Heldout_Token }}\n", 1)
