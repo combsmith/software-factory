@@ -164,21 +164,21 @@ def main(argv, stdin=None, rings=RINGS, environ=None, connect=None) -> int:
         environ = dict(environ if environ is not None else {})
         # Where RELEASE_EXCHANGES names a folder, each exchange is kept in it for the run's artifact (issue 531),
         # whatever stopped the step: kept as release/exchanges.py says, and never printed.
-        kept = exchanges.Recording if environ.get("RELEASE_EXCHANGES") else None
-        recordings = []
+        # One recording for the step, however many transports it makes, written even where it made none.
+        recording = exchanges.Recording(None) if environ.get("RELEASE_EXCHANGES") else None
 
         def made(token):
             transport = connect(token)
-            if kept is None:
+            if recording is None:
                 return transport
-            recordings.append(kept(transport))
-            return recordings[-1]
+            recording.inner = transport
+            return recording
         try:
             done, refused = run(environ, made, _json(rings))
         except Exception:      # one code, and no traceback, which could quote what GitHub answered
             done, refused = {"writes": [], "deployments": []}, "step_failed"
         finally:
-            for recording in recordings:
+            if recording is not None:
                 recording.write(environ["RELEASE_EXCHANGES"])
         print(json.dumps(dict(done, refused=refused) if refused else done))
         return 1 if refused else 0

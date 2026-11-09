@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -112,6 +113,37 @@ class Kept(unittest.TestCase):
         schema = json.loads((ROOT / "schemas" / "release-exchanges.schema.json").read_text())
         self.assertEqual(validate(kept, schema), [])
 
+    def test_a_value_is_kept_only_under_a_field_a_list_names(self):
+        # Muse's read of #531: a text in a list no field names, or a body that is a bare value, is no field, and so is
+        # left out; and a field's name that is not a plain identifier is never written where it was left out.
+        recording = exchanges.Recording(Answering(
+            {"status": 200, "headers": {" Content-Type ": "application/json"},
+             "body": ["a held-out sentence", {"ref": "refs/tags/x"}, [["deeper"]], 7, None]},
+            {"status": 200, "headers": {}, "body": {"held-out case synthetic-early-return": "v", "ref": "r"}}))
+        recording.send({"method": "POST", "path": "/repos/%s/x" % REPO, "headers": {}, "body": "a bare body"})
+        recording.send(github.request("GET", "/repos/%s/git/ref/heads/main" % REPO))
+        kept = recording.kept()
+        first = kept["exchanges"][0]
+        self.assertEqual(first["response"]["body"], [{"ref": "refs/tags/x"}, [[]], None])
+        self.assertIsNone(first["request"]["body"])
+        self.assertEqual(first["request"]["headers"], {})          # no Accept was given, so none is written
+        self.assertEqual(first["response"]["headers"], {"content-type": "application/json"})
+        self.assertEqual(kept["exchanges"][1]["response"]["body"], {"ref": "r"})
+        text = json.dumps(kept)
+        for left in ("held-out", "a bare body", "deeper"):
+            self.assertNotIn(left, text, left)
+        self.assertIn("exchanges[1].response.body.?", kept["dropped"])
+        self.assertIn("exchanges[0].response.body[3]", kept["dropped"])
+
+    def test_an_exchange_not_kept_leaves_no_place_named(self):
+        # Argon's read of #531: what is left out is named only once its exchange is kept.
+        recording = exchanges.Recording(Answering(
+            {"status": 200, "headers": {}, "body": {"encoding": "base64", "content": "!!! not base64 !!!"}}))
+        recording.send({"method": "POST", "path": "/repos/%s/contents/f" % REPO, "headers": {},
+                        "body": {"unlisted": 1}})
+        self.assertEqual((recording.kept()["exchanges"], recording.kept()["dropped"], recording.kept()["unkept"]),
+                         ([], [], 1))
+
     def test_a_file_at_a_commit_is_measured_as_the_file_itself(self):
         text = b'{"schema": "eval-set/1"}\n'
         recording = exchanges.Recording(Answering(
@@ -156,6 +188,15 @@ class Kept(unittest.TestCase):
         recording = exchanges.Recording(Answering())
         for wrong in ("relative", str(folder / "gone")):
             self.assertFalse(recording.write(wrong), wrong)
+        # A relative folder that stands is refused too: it is wherever the step happens to stand (Muse, #531).
+        (folder / "here").mkdir()
+        before = os.getcwd()
+        try:
+            os.chdir(str(folder))
+            self.assertFalse(recording.write("here"))
+        finally:
+            os.chdir(before)
+        self.assertEqual(list((folder / "here").iterdir()), [])
         self.assertTrue(recording.write(str(folder)))
         self.assertFalse(recording.write(str(folder)))      # never over a file that stands
         self.assertEqual(json.loads((folder / exchanges.NAME).read_text())["schema"], "release-exchanges/1")
@@ -197,6 +238,13 @@ class TheStep(unittest.TestCase):
         data = json.loads((folder / exchanges.NAME).read_text())
         self.assertEqual([e["response"] for e in data["exchanges"]], [{"raised": "RecursionError"}])
         self.assertNotIn("what GitHub answered", (folder / exchanges.NAME).read_text())
+
+    def test_a_step_that_stops_before_it_connects_still_writes_its_file(self):  # Argon's read of #531
+        folder = pathlib.Path(tempfile.mkdtemp())
+        code, _ = self.run_main({"RELEASE_COMMAND": "promote", "RELEASE_EXCHANGES": str(folder)},
+                                lambda token: Answering())
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads((folder / exchanges.NAME).read_text())["exchanges"], [])
 
     def test_with_no_file_named_nothing_is_kept(self):
         folder = pathlib.Path(tempfile.mkdtemp())

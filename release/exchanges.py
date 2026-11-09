@@ -58,23 +58,38 @@ def _measured(body) -> dict:
     return {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
-def _listed(value, dropped: list, where: str = "body"):
-    """`value` with only the fields FIELDS names, at any depth; each field left out is added to `dropped`."""
+GONE = object()      # what _listed leaves out of a list
+
+
+def _listed(value, dropped: list, where: str = "body", named: bool = False):
+    """`value` with only the fields FIELDS names, at any depth: a text, a number or a truth is kept only under such a
+    field, never alone or in a list no field names. Each place left out is added to `dropped`, by the name of the field
+    left out where that name is a plain identifier, and never by a name that could be text."""
     if isinstance(value, dict):
         kept = {}
         for key, item in value.items():
             if key in FIELDS:
-                kept[key] = _listed(item, dropped, "%s.%s" % (where, key))
+                kept[key] = _listed(item, dropped, "%s.%s" % (where, key), True)
             else:
                 dropped.append("%s.%s" % (where, key) if key.isidentifier() else where + ".?")
         return kept
     if isinstance(value, list):
-        return [_listed(item, dropped, "%s[%d]" % (where, i)) for i, item in enumerate(value)]
-    return value
+        items = [_listed(item, dropped, "%s[%d]" % (where, i), named) for i, item in enumerate(value)]
+        return [item for item in items if item is not GONE]
+    if value is None or named:
+        return value
+    dropped.append(where)
+    return GONE
+
+
+def _body(value, dropped: list, where: str):
+    """A JSON body as _listed keeps it; a bare value it leaves out is null."""
+    kept = _listed(value, dropped, where)
+    return None if kept is GONE else kept
 
 
 def _headers(given) -> dict:
-    return {name.lower(): value for name, value in (given or {}).items()
+    return {name.strip().lower(): value for name, value in (given or {}).items()
             if isinstance(name, str) and name.strip().lower() in KEPT_HEADERS and isinstance(value, str)}
 
 
@@ -99,12 +114,15 @@ class Recording:
 
     def _keep(self, req: dict, answer, raised) -> None:
         try:
-            here = "exchanges[%d]" % len(self.exchanges)
-            sent = {"as": AS, "via": "rest", "call": "%s %s" % (req["method"], req["path"]),
-                    "headers": dict(_headers(req.get("headers")), accept=req.get("accept")),
-                    "body": _listed(req.get("body"), self.dropped, here + ".request.body")}
+            here, gone = "exchanges[%d]" % len(self.exchanges), []      # what is left out, named once it is kept
+            headers = _headers(req.get("headers"))
+            if isinstance(req.get("accept"), str):
+                headers["accept"] = req["accept"]
+            sent = {"as": AS, "via": "rest", "call": "%s %s" % (req["method"], req["path"]), "headers": headers,
+                    "body": _body(req.get("body"), gone, here + ".request.body")}
             if answer is None:
                 self.exchanges.append({"request": sent, "response": {"raised": raised}})
+                self.dropped += gone
                 return
             body = answer.get("body")
             if _opaque(req) or not isinstance(body, (dict, list, type(None))):
@@ -113,8 +131,9 @@ class Recording:
                     kept["measured"] = _measured(body)
             else:
                 kept = {"status": answer.get("status"), "headers": _headers(answer.get("headers")),
-                        "body": _listed(body, self.dropped, here + ".response.body")}
+                        "body": _body(body, gone, here + ".response.body")}
             self.exchanges.append({"request": sent, "response": kept})
+            self.dropped += gone
         except Exception:      # what cannot be kept is left out, and counted; the step goes on as it would
             self.unkept += 1
 
