@@ -14,6 +14,8 @@ pull_request and merge_group, and has a job whose own `name:`, or whose id where
 with no `strategy.matrix` and no `uses:`. Its one job-level `if:` is exactly `always()`, beside a `needs:` that names
 every other job in its file, and then it judges them with `tools/needs_passed.py`, the base's: its one checkout is
 of the base, never the head. Only `jobs.<id>.name` is read: a workflow's or a step's `name:` names no check run.
+In the required check's workflow, the mutants and `make verify` each run in a matrix whose legs are told their place
+and the count by the matrix itself (_shards, _legs), so that no mutant and no test is left in no leg.
 
 The secret scan, the exempt `ci.yml`, reads its rules from the base (scan_problems): `.gitleaks.toml` and
 `.gitleaksignore` from a checkout of the base under `base/`, with the head's `.gitleaksignore` deleted first, since
@@ -685,6 +687,8 @@ COMMITS = "python3 -m tools.commits_are_the_maintainers"
 SHARDED = "python3 -m tools.mutants"
 INDEX = "${{ strategy.job-index }}"
 TOTAL = "${{ strategy.job-total }}"
+# The legs of `make verify`, dealt its tests as the mutant shards are dealt mutants, and told the same way.
+LEGGED = "make verify"
 JUDGING_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "env", "steps"}
 SHARD_KEYS = {"runs-on", "timeout-minutes", "permissions", "strategy", "env", "steps"}
 HEAD = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
@@ -1351,6 +1355,44 @@ def _shards(entries: list, jobs: list) -> list:
     return whys
 
 
+def _legs(entries: list, jobs: list) -> list:
+    """Why the workflow would not run every test once: a job that runs `LEGGED` exists, and its env: is exactly
+    CHECKS_SHARD: INDEX and CHECKS_SHARDS: TOTAL, the matrix's own index and size, so a number written in cannot leave a
+    share of the tests in no leg; its matrix is one key, shard; and its shape is closed, as the mutant shards' is: the
+    keys SHARD_KEYS and no other, contents: read, a checkout of the head with the whole history and `LEGGED` on a line
+    of its own, each step holding no other key."""
+    whys, any_leg = [], False
+    for job in jobs:
+        own = [e for e in entries if e["path"][:2] == ["jobs", job]]
+        steps = [e for e in own if e["path"] == ["jobs", job, "steps"] and e["key"] == "run"]
+        if all(LEGGED not in "\n".join([e["value"]] + (e["body"] or [])) for e in steps):
+            continue
+        any_leg = True
+        said = "has the job %s, which runs `%s`, " % (job, LEGGED)
+        keys = {e["key"] for e in own if e["path"] == ["jobs", job]}
+        told = {e["key"]: e["value"] for e in own if e["path"] == ["jobs", job, "env"]}
+        matrix = [e["key"] for e in own if e["path"] == ["jobs", job, "strategy", "matrix"]]
+        granted = {e["key"]: e["value"] for e in own if e["path"] == ["jobs", job, "permissions"]}
+        checkouts = [_with(entries, e) for e in own if e["path"] == ["jobs", job, "steps"] and _checkout(e)]
+        if keys != SHARD_KEYS:
+            whys.append(said + "with keys other than %s, or lacking one" % ", ".join(sorted(SHARD_KEYS)))
+        if told != {"CHECKS_SHARD": INDEX, "CHECKS_SHARDS": TOTAL}:
+            whys.append(said + "not told CHECKS_SHARD: %s and CHECKS_SHARDS: %s and nothing else, so a leg could run "
+                        "another's tests, or every leg one share" % (INDEX, TOTAL))
+        if matrix != ["shard"]:
+            whys.append(said + "whose strategy.matrix is not the one key shard")
+        if granted != {"contents": "read"}:
+            whys.append(said + "granted other than contents: read")
+        if not ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}, {"run", "timeout-minutes"}]
+                and [(e["value"], e["body"] or []) for e in steps] == [(LEGGED, [])]
+                and checkouts == [{"persist-credentials": "false", "fetch-depth": "0"}]):
+            whys.append(said + "whose steps are not a checkout of the head with the whole history and `%s` on a line "
+                        "of its own with its own timeout-minutes, each holding no other key" % LEGGED)
+    if not any_leg:
+        whys.append("has no job that runs `%s`, so no check and no test runs before a merge" % LEGGED)
+    return whys
+
+
 def _commits(text: str, entries: list, jobs: list) -> list:
     """Why the workflow's job `commits` would not read every commit the pull request carries from the base (decision
     0041). Its shape is closed: the keys runs-on, timeout-minutes, permissions (contents: read, pull-requests: read, and
@@ -1775,7 +1817,7 @@ def lens_job_problems(text: str, check: str) -> list:
             problems += ["has the job %s beside other jobs, and %s" % (job, why)
                          for why in _judging(text, entries, job, jobs)]
     if any("needs" in inside for _, inside in named):     # the required check's workflow, whose job judges the rest
-        problems += _commits(text, entries, jobs) + _shards(entries, jobs)
+        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)
         for key in ("env", "defaults"):
             if key in top:
                 problems.append("has a top-level %s:, which every job inherits, where each is told what it is and "

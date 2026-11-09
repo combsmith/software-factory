@@ -914,6 +914,12 @@ class Simulation(unittest.TestCase):
                 w = World(seed)
                 for _ in range(250):
                     w.step()
+                    # The Lens's own App posts from another file, never the Lens's own, which the Kernel could not
+                    # tell from the Lens's run.
+                    own = [c for c in w.impostors for lens in world.CHECKS
+                           if c["name"] == world.CHECKS[lens] and c["app_id"] == world.APPS[lens]
+                           and c["workflow"] == world.WORKFLOWS[lens]]
+                    self.assertEqual(own, [], seed)
                 causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
                 impostors += sum("another App posted" in line for line in w.trace)
                 workflows += sum("another workflow posted" in line for line in w.trace)

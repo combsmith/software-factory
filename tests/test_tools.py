@@ -2789,6 +2789,35 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make verify\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
 
+    def test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix(self):
+        # On 2026-11-09 `make verify` as one job was cut at its step's 26 minutes in a merge group, so it runs in legs. A
+        # leg told CHECKS_SHARD as a number would run another's share, leaving its own tests in no leg, and CHECKS_SHARDS
+        # as a number could differ from the matrix's size; each is the matrix's own expression, as the mutant shards'.
+        job = GOOD[GOOD.index("  checks:\n"):GOOD.index("  mutants:\n")]
+        index, total = "      CHECKS_SHARD: ${{ strategy.job-index }}\n", "      CHECKS_SHARDS: ${{ strategy.job-total }}\n"
+        run = "      - run: make verify\n"
+        self.assertEqual((job.count(index), job.count(total), job.count(run)), (1, 1, 1))
+        told, shape = "not told CHECKS_SHARD", "whose steps are not a checkout of the head"
+        cases = [(index, "      CHECKS_SHARD: 0\n", told), (total, "      CHECKS_SHARDS: 3\n", told),
+                 (total, "", told), (index, index + "      OTHER: 1\n", told),
+                 ("        shard:\n", "        leg:\n", "not the one key shard"),
+                 ("          - 2\n", "          - 2\n        exclude:\n          - shard: 2\n", "not the one key shard"),
+                 ("    env:\n      CHECKS_SHARD", "    container: ghcr.io/x/y:1\n    env:\n      CHECKS_SHARD", "keys other than"),
+                 ("      contents: read\n", "      contents: write\n", "granted other than"),
+                 (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          CHECKS_SHARD: 0\n", shape),
+                 (run, run + "      - run: make fast\n", shape),
+                 (run, "      - run: make fast\n      - run: make verify\n", shape),
+                 ("          fetch-depth: 0\n      - run: make verify\n", "      - run: make verify\n", shape)]
+        for old, new, said in cases:
+            text = GOOD.replace(job, job.replace(old, new))
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), (old, new, said))
+        # No job runs `make verify` at all: the checks and the tests are gone, not reshaped.
+        gone = "has no job that runs `make verify`"
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
+        self.assertEqual(self.lens_problems(GOOD), [])
+
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
         # the merge queue, and of nothing else, so a change cannot make its own verdict pass (decision 0023).
@@ -4135,15 +4164,13 @@ class Workflows(unittest.TestCase):
                  "factory-run": "run-jobs.yml", "APPROVER_TOKEN": "approve-job.yml", "factory-approve": "approve-job.yml",
                  "CONTROLLER_APP_KEY": "pass.yml", "factory-poller": "pass.yml"}
         for key, owner in named.items():
-            text = GOOD.replace("    permissions:\n      contents: read\n",
-                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % key, 1)
+            text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % key, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text),
                                    "it names a key or the environment that holds it, which only %s names" % owner), key)
             self.assertFalse(caught(check_workflows.shim_problems(owner, text), "which only %s names" % owner), key)
         # GitHub's names of these ignore case, and so does the rule.
         for spelt in ("Pr_Review_App_Key", "FACTORY-APPLY", "Factory-Poller"):
-            text = GOOD.replace("    permissions:\n      contents: read\n",
-                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % spelt, 1)
+            text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % spelt, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "it names a key"), spelt)
         # A comment that names one names nothing.
         self.assertFalse(check_workflows.shim_problems("other.yml", "# READER_APP_KEY\n" + GOOD))
@@ -10363,6 +10390,55 @@ class Verify(unittest.TestCase):
             self.assertFalse(verify.failed([("never", lambda: [])]))
         self.assertIn("a problem", said.getvalue())
 
+    def test_the_legs_of_make_verify_run_every_test_once(self):
+        # CI runs `make verify` in legs (docs/standards/workflows.md): each runs every check and each count-th test from
+        # its place, so that across the legs every test of the whole suite runs, the seeded simulation's included, and
+        # none twice. A leg it cannot read stops the run before any check or test.
+        whole = [test.id() for test in verify._tests(verify.suite(False))]
+        self.assertTrue({"tests.test_simulator", "tests.test_issue_simulator"} <= {i.rsplit(".", 2)[0] for i in whole})
+        for count in (1, 2, 3, 5):
+            legs = [[test.id() for test in verify._tests(verify.suite(False, (index, count)))] for index in range(count)]
+            dealt = [i for leg in legs for i in leg]
+            self.assertEqual((sorted(dealt), len(dealt)), (sorted(whole), len(whole)), count)
+            self.assertLessEqual(max(map(len, legs)) - min(map(len, legs)), 1, count)
+        self.assertIsNone(verify.leg({}))
+        self.assertEqual(verify.leg({"CHECKS_SHARD": "2", "CHECKS_SHARDS": "3"}), (2, 3))
+        for shard, count, said in (("1", None, "set both"), (None, "3", "set both"), ("", "3", "set both"),
+                                   ("one", "3", "set both"), ("-1", "3", "set both"), ("1.0", "3", "set both"),
+                                   ("3", "3", "below the count"), ("0", "0", "below the count")):
+            given = {k: v for k, v in (("CHECKS_SHARD", shard), ("CHECKS_SHARDS", count)) if v is not None}
+            with self.assertRaises(ValueError, msg=given) as raised:
+                verify.leg(given)
+            self.assertIn(said, str(raised.exception), given)
+        ran = []
+        real = (verify.failed, verify.unittest.TextTestRunner)
+
+        class Runner:
+            def __init__(self, **_):
+                pass
+
+            def run(self, suite):
+                ran.append(sorted(test.id() for test in verify._tests(suite)))
+                return unittest.TestResult()
+
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks: ran.append("checks") or False), Runner
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 0)
+                self.assertEqual(ran, ["checks", sorted(whole[1::3])])
+                self.assertIn("leg 1 of 3", said.getvalue())
+                del ran[:]
+                self.assertEqual(verify.main([], {"CHECKS_SHARD": "3", "CHECKS_SHARDS": "3"}), 1)
+                self.assertEqual(ran, [], "a leg outside the count runs nothing")
+        finally:
+            verify.failed, verify.unittest.TextTestRunner = real
+        # From the front door, as CI's matrix tells it: the leg is read from the environment.
+        env = dict(os.environ, CHECKS_SHARD="3", CHECKS_SHARDS="3")
+        done = subprocess.run([sys.executable, "-m", "tools.verify"], cwd=str(ROOT), env=env, capture_output=True,
+                              text=True, timeout=60)
+        self.assertEqual((done.returncode, done.stdout.strip()), (1, "CHECKS_SHARD is 3 and CHECKS_SHARDS is 3; the leg "
+                                                                     "is counted from 0, below the count"))
+
     def test_make_fast_is_verify_without_the_seeded_simulation(self):
         """The required check runs every test file at any depth; only `make fast` leaves the slow ones out."""
         everything = {".".join(p.relative_to(ROOT).with_suffix("").parts) for p in walk.files(ROOT, "tests")
@@ -10553,6 +10629,43 @@ class Mutants(unittest.TestCase):
                        ("plain", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_y",))):
             self.assertEqual(mutants.attempt(mutant, root, run)[0], "SURVIVED")
         self.assertEqual(calls, [{"only": ("tests.test_x.T.test_y",)}, {"first": ("tests.test_x.T.test_y",)}])
+
+    def test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite(self):
+        # On 2026-11-09 two mutants named tests that passed on them, so each leg that held one ran the whole suite after
+        # them: 10 to 21 minutes of a 27-minute step, and a wrong name nobody saw. The mutant run holds each mutant to
+        # the tests it names, alone: a pass of them is an ERROR that names them, and nothing else runs.
+        calls = []
+
+        def run(work, **given):
+            calls.append(given)
+            return (0, "OK\n") if (work / "k.py").read_text() == "rule\n" or given.get("only") == ("t.missed",) \
+                else (1, FAILS_A_TEST)
+        root = tree({"k.py": "rule\n"})
+        missed = ("missed", "k.py", "rule\n", "x\n", ("t.missed",))
+        outcome, why = mutants.guarded(missed, root, run)
+        self.assertEqual((outcome, calls), ("ERROR", [{"only": ("t.missed",)}]))
+        self.assertTrue(why.startswith("named_test_does_not_kill: t.missed passed on it") and why.endswith(AGAIN), why)
+        # One they kill is killed, and confirmed as before.
+        del calls[:]
+        self.assertEqual(mutants.guarded(("hit", "k.py", "rule\n", "x\n", ("t.hit",)), root, run), ("killed", ""))
+        self.assertEqual(calls[0], {"only": ("t.hit",)})
+        # A named test that fails once and then passes, alone or again, is flaky, not a wrong name: as before, the
+        # second pass of the named tests is SURVIVED, which fails the run too.
+        del calls[:]
+        flaky = iter([(1, FAILS_A_TEST)])
+        self.assertEqual(mutants.guarded(missed, root, lambda work, **given: (calls.append(given), next(flaky, (0, "OK\n")))[1]),
+                         ("SURVIVED", ""))
+        self.assertEqual(calls, [{"only": ("t.missed",)}, {"only": "tests.test_x.T.test_x"}, {"only": "tests.test_x.T.test_x"},
+                                 {"only": ("t.missed",)}])
+        # From the front door it fails the run.
+        with mock.patch.object(mutants, "unnamed", return_value=[]), contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(mutants.main([missed], root, run, workers=1), 1)
+        self.assertIn("ERROR     missed (named_test_does_not_kill", said.getvalue())
+        # tools/untested.py's edits, through attempt with no `alone`, still run the whole suite after their tests, which
+        # here fails on it.
+        del calls[:]
+        self.assertEqual(mutants.attempt(missed, root, run), ("killed", ""))
+        self.assertEqual(calls[0], {"first": ("t.missed",)})
 
     def test_the_summary_counts_only_the_mutants_killed(self):
         stale = [("gone", "k.py", "not there\n", "x\n")]
@@ -10879,7 +10992,12 @@ class Mutants(unittest.TestCase):
         mutants.baseline(every[1:2], root / "gone", run, 2, (every, 0, 2))
         self.assertEqual(sorted(calls), [("tests.test_x.T", "tests.test_x.T.test_g"), ("tests.test_x.T.test_b",)])
         # From the front door, a shard runs its share, and a filtered run its own names on FILTER_WORKERS. The names
-        # are this throwaway tree's, which this checkout's check of them could not find.
+        # are this throwaway tree's, which this checkout's check of them could not find. The baseline runs in the tree;
+        # each mutant, which runs its named tests alone too, in a copy of it.
+
+        def run(work, first=(), only=None):
+            calls.append(only if work == root else None)
+            return PASSES[1:]
         for environ, paths, parts in (({"MUTANTS_SHARD": "1", "MUTANTS_SHARDS": "4"}, [],
                                        [("tests.test_x.T.test_b",), ("tests.test_x.T.test_f",)]),
                                       ({}, ["k.py"], [tests[0::2], tests[1::2]])):
