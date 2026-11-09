@@ -57,15 +57,17 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
-# a shell's command after a new line, its `;`, `&`, `|`, `(`, `{` or `!`, or a `case` pattern's `)` after `in` or `;;`;
-# after a word that runs the next, `eval`, `watch`, `stdbuf`, `setsid` and their kind among them, with its options and
-# their values; after `timeout` or `flock` and the word they take first; or after a variable's assignment, ended by a
+# a shell's command after a new line, its `;`, `&`, `|`, `(`, `{` or `!`, or a `case` pattern's `)` after `in`, `;;`,
+# `;&` or `;;&`,
+# alternatives and an opening `(` too; after a word that runs the next, `eval`, `watch`, `stdbuf`, `setsid` and their
+# kind among them, with its options and their values; after `timeout`, `flock`, `taskset` or `chrt` and the word each
+# takes first; or after a variable's assignment, ended by a
 # space, the text's end or a shell's `;`, `&`, `|`, `)` or `}`; or quoted (issues 640, 655). Spelt apart, and joined only
 # when it runs, so this file holds neither.
 _NAME = r"(\S*[/\\])?(g" + r"h|gi" + r"t)(\.exe)?"
-_LEAD = (r"(^\s*|[;&|({\n!]\s*|(\bin|;;)\s+[^;&|\n()]*\)\s*|\b(env|exec|command|nohup|xargs|sudo|time|nice|if|elif|while"
-         r"|until|then|do|else|eval|watch|stdbuf|setsid|coproc|ionice|taskset|chrt|unbuffer|caffeinate|doas)(\s+-\S+(\s+[^-\s]\S*)?)*\s+"
-         r"|\b(timeout|flock)(\s+-\S+(\s+[^-\s]\S*)?)*\s+\S+\s+|\b\w+=\S*\s+)")
+_LEAD = (r"(^\s*|[;&|({\n!]\s*|(\bin|;;&?|;&)\s+\(?[^;&\n()]*\)\s*|\b(env|exec|command|nohup|xargs|sudo|time|nice|if|elif|while"
+         r"|until|then|do|else|eval|watch|stdbuf|setsid|coproc|ionice|unbuffer|caffeinate|doas)(\s+-\S+(\s+[^-\s]\S*)?)*\s+"
+         r"|\b(timeout|flock|taskset|chrt)(\s+-\S+(\s+[^-\s]\S*)?)*\s+\S+\s+|\b\w+=\S*\s+)")
 COMMANDS = re.compile(r"(?i)%s%s(\s|$|[;&|)}])|[\"']\s*%s(\s|[\"';&|)}]|$)" % (_LEAD, _NAME, _NAME))
 # What a request is, by its keys: edited after `request` built it, it is sent as edited.
 FIELDS = ("method", "path", "body")
@@ -75,7 +77,8 @@ NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
 # literal key, `getattr` or `get` argument, each is a load by name (issues 640, 655).
 LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy")
 BY_NAME = ("sys", "modules", "__builtins__", "__import__") + LOADER_MODULES
-# The calls that read a key of a mapping by its name (Muse's read of issue 655's change).
+# The calls that read a key of a mapping by its name, bound or unbound, `dict.get(d, k)` (Muse's reads of issue 655's
+# change): the key is either of the first two arguments.
 ACCESSORS = ("get", "pop", "setdefault", "__getitem__")
 # What runs code a string holds, by its own name, or as an attribute (issue 640).
 TEXT_RUNNERS = ("exec", "eval", "compile")
@@ -218,6 +221,9 @@ class Module:
                 for name in {g for n in ast.walk(node) if isinstance(n, ast.Global) for g in n.names}:
                     self.declared.setdefault(name, []).extend((inner or node, value) for value, outer, inner in _given(node, name)
                                                               if not outer)
+        # A name a def or a class binds and an assignment at the top level binds too, class P, then P = Port under an if:
+        # which one is meant cannot be told (Muse's read of issue 655's change).
+        self.conflicts |= set(self.stored_as) & {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
 
 
 def _filled_names(node) -> set:
@@ -581,8 +587,8 @@ def _loaded(mods: dict, mod: Module) -> list:
                    # issue 655: a loader or __builtins__ by a literal key, getattr or get, and __builtins__ as an attribute
                    or isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Load) and isinstance(n.slice, ast.Constant)
                    and n.slice.value in BY_NAME
-                   or isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ACCESSORS and n.args
-                   and isinstance(n.args[0], ast.Constant) and n.args[0].value in BY_NAME
+                   or isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ACCESSORS
+                   and any(isinstance(a, ast.Constant) and a.value in BY_NAME for a in n.args[:2])
                    or isinstance(n, ast.Attribute) and n.attr == "__builtins__"})
 
 
@@ -602,23 +608,20 @@ def _runs_text(mod: Module) -> list:
                    or isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant) and n.slice.value in TEXT_RUNNERS
                    or isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "getattr" and len(n.args) > 1
                    and isinstance(n.args[1], ast.Constant) and n.args[1].value in TEXT_RUNNERS
-                   or isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ACCESSORS and n.args
-                   and isinstance(n.args[0], ast.Constant) and n.args[0].value in TEXT_RUNNERS})
+                   or isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ACCESSORS
+                   and any(isinstance(a, ast.Constant) and a.value in TEXT_RUNNERS for a in n.args[:2])})
 
 
 def _before(mod: Module, use) -> bool:
-    """Whether a binding of `use`'s name at the module's top level, under no if, try or function, has run when `use`
-    runs, an import from builtins aside: one that ends on a line above it, or any for a
-    use inside a function's body, which runs when it is called, but not inside the binding's own definition, its
-    defaults, decorators or class body, which run before the name is bound (Argon's read of issue 655's change)."""
+    """Whether a binding of `use`'s name at the module's top level, under no if, try or function, an import from builtins
+    aside, ends on a line above `use`. A use in a function's body is held to it too: the function may be called before
+    the binding runs, and its own defaults, decorators or class body run before its name is bound (Argon's and Muse's
+    reads of issue 655's change)."""
     bindings = [node for node in mod.tree.body if isinstance(node, (ast.Import, ast.ImportFrom)) and
                 not (isinstance(node, ast.ImportFrom) and node.module == "builtins") and
                 any((a.asname or a.name.split(".")[0]) == use.id for a in node.names)
                 or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == use.id]
-    bodies = [node for node in mod.nodes if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))
-              and any(n is use for part in (node.body if isinstance(node.body, list) else [node.body]) for n in ast.walk(part))]
-    within = lambda b: b.lineno <= use.lineno <= b.end_lineno and any(n is use for n in ast.walk(b))
-    return any(b.end_lineno < use.lineno or bodies and not within(b) for b in bindings)
+    return any(b.end_lineno < use.lineno for b in bindings)
 
 
 def _given(fn, name: str) -> list:
@@ -740,6 +743,13 @@ def _namespaces(mods: dict, mod: Module, node, chain: list, seen: frozenset = fr
     as `_traced` reads them: a function's own, or where the name is stored, through any import of it, what its module
     stores it as and what a function there that declares it global assigns it. So `vars(m)` or `m.__dict__` held by a
     name is seen where the name is handed on (issue 655)."""
+    if isinstance(node, ast.NamedExpr):     # sink(d := vars(m)): the walrus's value, and its name
+        return [(node.value, mod, chain)]
+    if isinstance(node, ast.Attribute):     # sink(holder.d), by any name for holder: what its d is, where it is stored
+        bases = [base[1] for base in _traced(mods, mod, node.value, chain) if base[0] == "module"]
+        return [item for base in bases for where, name in _origin(mods, base, node.attr) if where in mods
+                for item in [(value, mods[where], []) for value in mods[where].stored_as.get(name, [])]
+                + [(value, mods[where], [fn]) for fn, value in mods[where].declared.get(name, ())]]
     if not isinstance(node, ast.Name):
         return []
     local = next((at for at, fn in enumerate(chain) if node.id in _scoped(fn)), None)
@@ -832,7 +842,11 @@ def _class_set(mods: dict, mod: Module) -> tuple:
                     part, direct = part.value if isinstance(part, (ast.Attribute, ast.Subscript)) else None, False
             classes = [got for got in found if got[0] == "class"] if direct and filled and isinstance(target, ast.Attribute) else []
             others = [got for got in found if got[0] in ("value", "class", "def", "module") and got[1] != mod.name]
-            if any(got[0] == "object's class" for got in found):
+            conflicted = [got for got in found if got[0] == "conflict"]
+            if conflicted:      # class P, then P = Port under an if: which one is set cannot be told (Muse's read)
+                out.append("%s:%d names %s, which the module binds more than one way, so what it reaches cannot be read; "
+                           "give each its own name" % (mod.rel, target.lineno, conflicted[0][2]))
+            elif any(got[0] == "object's class" for got in found):
                 out.append("%s:%d sets %s on an object's class, so what it reaches cannot be read; assign it in the class"
                            % (mod.rel, target.lineno, target.attr if isinstance(target, ast.Attribute) else "a key"))
             elif any(got[1] != mod.name or chain for got in classes):       # each class it may be (issue 655)

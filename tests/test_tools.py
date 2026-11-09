@@ -10195,6 +10195,23 @@ class Writes(unittest.TestCase):
             "adapters/fillmixed.py": "import os\n\nfrom adapters import effects\nfrom harness import portbox\n\nif os.environ.get('X'):\n"
                                      "    D = dict\nelse:\n    D = portbox.TABLE\nD.update({'go': effects.approve})\n",
             "harness/execbuiltins.py": "from builtins import exec\n\n\ndef go(s):\n    return exec(s)\n",
+            # Muse's second read: a case pattern's alternatives or opening (; taskset and chrt's first word; an unbound
+            # accessor's key; exec in a function called before the binding; a name a class binds and an if stores; vars held
+            # by another module's name, reached as its attribute.
+            "harness/casealt.py": "import os\n\n\ndef go():\n    return os.system('case x in a|b) git push;; esac')\n",
+            "harness/caseparen.py": "import os\n\n\ndef go():\n    return os.system('case x in (x) git push;; esac')\n",
+            "harness/tasksetgit.py": "import os\n\n\ndef go():\n    return os.system('taskset 1 git push')\n",
+            "harness/chrtgit.py": "import os\n\n\ndef go():\n    return os.system('chrt 10 git push')\n",
+            "harness/unboundget.py": "import os\n\n\ndef go():\n    return dict.get(vars(os), 'sys')\n",
+            "harness/unboundeval.py": "def go(b, s):\n    return dict.get(vars(b), 'eval')(s)\n",
+            "harness/execcalled.py": "def go(s):\n    return exec(s)\n\n\ngo('x = 1')\nfrom re import compile as exec\n",
+            "harness/defstored.py": "import os\n\nfrom harness.portc import Port\n\n\nclass P:\n    pass\n\n\nif os.environ.get('X'):\n"
+                                    "    P = Port\nP.w = len\n",
+            "harness/varsattr.py": "from harness import varsholder\n\n\ndef go(sink):\n    return sink(varsholder.d)\n",
+            "harness/casesecond.py": "import os\n\n\ndef go():\n    return os.system('case x in a) true;; b) git push;; esac')\n",
+            "harness/caseamp.py": "import os\n\n\ndef go():\n    return os.system('case x in a) true;& b) git push;; esac')\n",
+            "harness/varsattralias.py": "from harness import varsholder\n\n\ndef go(sink):\n    m = varsholder\n    return sink(m.d)\n",
+            "harness/varswalrus.py": "from harness import portinst\n\nprint(d := vars(portinst))\n",
             "harness/parenok.py": "MESSAGES = ('nothing to do (see log) git status was clean', '1) git fetch')\n",
             # Two files of one module name.
             "harness/dup.py": "X = 1\n", "harness/dup/__init__.py": "X = 2\n",
@@ -10251,7 +10268,20 @@ class Writes(unittest.TestCase):
                           ("harness/tupletop.py:4", "sets a key of harness.portinst.TABLE from another module"),
                           ("adapters/fillalias2.py:7", "sets a key of harness.portbox.TABLE from another module"),
                           ("adapters/fillmixed.py:10", "sets a key of harness.portbox.TABLE from another module"),
-                          ("harness/execbuiltins.py:5", "runs code from text")):
+                          ("harness/execbuiltins.py:5", "runs code from text"),
+                          ("harness/casealt.py:5", "names gh or git as a command"),
+                          ("harness/caseparen.py:5", "names gh or git as a command"),
+                          ("harness/tasksetgit.py:5", "names gh or git as a command"),
+                          ("harness/chrtgit.py:5", "names gh or git as a command"),
+                          ("harness/unboundget.py:5", "loads a module by its name"),
+                          ("harness/unboundeval.py:2", "runs code from text"),
+                          ("harness/execcalled.py:2", "runs code from text"),
+                          ("harness/defstored.py:12", "names P, which the module binds more than one way"),
+                          ("harness/varsattr.py:5", "hands on harness.portinst's names"),
+                          ("harness/casesecond.py:5", "names gh or git as a command"),
+                          ("harness/caseamp.py:5", "names gh or git as a command"),
+                          ("harness/varsattralias.py:6", "hands on harness.portinst's names"),
+                          ("harness/varswalrus.py:3", "hands on harness.portinst's names")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
         self.assertTrue(caught(problems, "are one module, harness.dup, so what it reaches cannot be read"), problems)
         for rel in ("harness/execok.py", "harness/ownfill.py", "harness/parenok.py"):
