@@ -351,7 +351,8 @@ class Reverts(unittest.TestCase):
                      "def open(x) -> str:\n    return x\n\n\ndel open\nMUTANTS = [\n    ('a', open('README.md')),\n]\n",
                      "import os\n\n\ndef helper(x):\n    VAL.append(os.environ['X'])\n    return x\n\n\nVAL = [1]\n"
                      "MUTANTS = [\n    ('b', VAL),\n]\n",
-                     "import os\nEMPTY = ()\nA, B = *EMPTY, *(os.getcwd(), os.getcwd())\nMUTANTS = [\n    ('a', A),\n]\n"):
+                     "import os\nEMPTY = ()\nA, B = *EMPTY, *(os.getcwd(), os.getcwd())\nMUTANTS = [\n    ('a', A),\n]\n",
+                     "TEXT = 'a'\nMUTANTS = [\n    ('a', TEXT.format(1)),\n]\n"):
             self.assertEqual(untested.data_lines(case), set(), case)
         # A helper's own name, an annotated text, and a method on a text are no change to what a name is.
         kept = ("TEXT: str = 'a'\nPAIR = ('a', 'b')\n\n\ndef helper(text: str, PAIR=()) -> str:\n    text.upper()\n"
