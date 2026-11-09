@@ -304,13 +304,13 @@ class Reverts(unittest.TestCase):
     def test_a_call_in_the_mutant_lists_is_data_only_of_the_modules_own_helpers(self):
         # Muse's read of #634: a call of a builtin or of another module's function may read the world, so the entry
         # that holds it decides, and its hunk is run. A helper the module defines, and a text's replace, are data.
-        text = ("MUTANTS = [\n    ('a', helper('x')),\n    ('b', os.getenv('X', 'old')),\n    ('c', eval('1+1')),\n"
+        text = ("MUTANTS = [\n    ('a', helper('x')),\n    ('b', os.getenv('X', 'old')),\n    ('c', abs(-1)),\n"
                 "    ('d', open('x').read()),\n    ('e', __import__('os').getenv('X')),\n"
                 "    ('f', TEXT.replace('a', 'b')),\n    ('g', helper(x=1)),\n    ('h', ROOT.replace('x')),\n"
                 "    ('i', os.environ['X']),\n    ('j', sys.platform),\n    ('k', OLD[sys.platform]),\n"
                 "    ('l', helper('x').replace('x', 'y')),\n    ('m', 'a b'.replace('a', 'c')),\n]\n")
         head = ("import os\nimport sys\nimport pathlib\nTEXT = 'a'\nROOT = pathlib.Path('.')\n\n\n"
-                "def helper(text):\n    return text\n\n\n")
+                "def helper(text: str) -> str:\n    return text\n\n\n")
         # A text's replace is data, but ROOT's, a path's, renames a file; what is read of os or sys reads the runner.
         self.assertEqual(untested.data_lines(head + text), {13, 18, 24, 25})
         # Another module's replace renames a file, as does a path's; a name bound twice may be anything, as here, where
@@ -325,6 +325,30 @@ class Reverts(unittest.TestCase):
         # A, B = x, y binds each name to its own value, as tools/mutants.py binds the issue Kernel's path and tests.
         paired = "PY, TESTS = 'kernel/issue.py', ('t',)\nMUTANTS = [\n    ('a', PY.replace('k', 'K'), TESTS),\n]\n"
         self.assertEqual(untested.data_lines(paired), {3})
+        # Muse's and the Claude review's further cases. A walrus, a global in a helper, a method that fills a list, and
+        # globals() or eval may each change a name past what its assignment says; a helper's __globals__ is the whole
+        # module; a decorator may make a helper anything; and only a helper that says it gives a text gives one.
+        for case in ("import os\nTEXT = 'a'\nA = (TEXT := os.environ['X'])\nMUTANTS = [\n    ('a', TEXT),\n]\n",
+                     "import os\nVAL = [1]\nVAL.append(os.environ['X'])\nMUTANTS = [\n    ('a', VAL),\n]\n",
+                     "import os\nTEXT = 'a'\nglobals()['TEXT'] = os.environ['X']\nMUTANTS = [\n    ('a', TEXT),\n]\n",
+                     "TEXT = 'a'\nMUTANTS = [\n    (eval('1'), TEXT),\n]\n",
+                     "import os\nTEXT = 'a'\nMUTANTS = [\n    (TEXT := os.environ['X'], TEXT),\n]\n",
+                     "import os\nTEXT = 'a'\n\n\ndef helper():\n    global TEXT\n    TEXT = os.environ['X']\n"
+                     "    return 1\n\n\nMUTANTS = [\n    ('b', TEXT),\n]\n",
+                     "import os\nVAL = [1]\n\n\ndef helper(x):\n    VAL.append(x)\n    return x\n\n\n"
+                     "MUTANTS = [\n    ('b', VAL),\n]\n",
+                     "import os\n\n\ndef helper(x):\n    return x\n\n\nMUTANTS = [\n"
+                     "    ('a', helper.__globals__['os'].environ['X']),\n]\n",
+                     "import os\n\n\n@lambda f: os.getenv\ndef helper(x):\n    return x\n\n\nMUTANTS = [\n"
+                     "    ('a', helper('X')),\n]\n",
+                     "import pathlib\nROOT = pathlib.Path('.')\n\n\ndef helper():\n    return ROOT\n\n\nMUTANTS = [\n"
+                     "    ('a', helper().replace('x')),\n]\n"):
+            self.assertEqual(untested.data_lines(case), set(), case)
+        # A helper's own name, an annotated text, and a method on a text are no change to what a name is.
+        kept = ("TEXT: str = 'a'\nPAIR = ('a', 'b')\n\n\ndef helper(text: str, PAIR=()) -> str:\n    text.upper()\n"
+                "    PAIR.index('a')\n    return text\n\n\nMUTANTS = [\n    ('a', TEXT.replace('a', 'b')),\n"
+                "    ('b', helper('x').replace('x', 'y')),\n    ('c', PAIR),\n]\n")
+        self.assertEqual(untested.data_lines(kept), {12, 13, 14})
         # An import behind an if, a try or a with binds its name as one at the top does; a star import binds names no
         # one can read, so a name nothing bound is code; and so is a name bound to what code gave, or by an unpacking.
         for fenced in ("if True:\n    import os\n", "try:\n    import os\nexcept ImportError:\n    os = None\n",

@@ -163,6 +163,7 @@ def data_lines(text: str) -> set:
     for node in tree.body:
         listed = isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
                                                       for target in node.targets)
+        _unsettle(bound, node)
         if not listed:
             _bind(bound, node)
             continue
@@ -189,7 +190,9 @@ def _bind(bound: dict, node) -> None:
     second time, which may then be anything. A name no statement binds before the list is in none, and is code."""
     named = []
     if isinstance(node, ast.FunctionDef):
-        named = [(node.name, "helper")]
+        # A decorator may make the name anything; a helper that says it gives a text is taken at its word.
+        gives = isinstance(node.returns, ast.Name) and node.returns.id == "str"
+        named = [(node.name, "code" if node.decorator_list else "text helper" if gives else "helper")]
     elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
@@ -218,6 +221,33 @@ def _bind(bound: dict, node) -> None:
         bound[name] = "code" if name in bound else kind
 
 
+REFLECTS = ("globals", "locals", "vars", "exec", "eval", "setattr", "delattr")
+
+
+def _unsettle(bound: dict, node) -> None:
+    """Make code in `bound` each name the statement `node` may bind or change other than as an assignment's target: by
+    a walrus anywhere in it, a `global` or `nonlocal` in a function it defines, or a method called on it, at the top or
+    in a function where it is not the function's own; a text alone, which no method changes, is left as it is. A call
+    of `globals`, `exec` or the like may bind any name, so after one every name is code."""
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.NamedExpr):
+            bound[inner.target.id] = "code"
+        elif isinstance(inner, (ast.Global, ast.Nonlocal)):
+            bound.update((name, "code") for name in inner.names)
+        elif isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id in REFLECTS:
+            bound["*"] = "code"
+    own = set()
+    for inner in ast.walk(node):
+        if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            own.update(arg.arg for arg in ast.walk(inner.args) if isinstance(arg, ast.arg))
+            own.update(name.id for name in ast.walk(inner) if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store))
+    for inner in ast.walk(node):
+        if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
+                and isinstance(inner.func.value, ast.Name) and inner.func.value.id not in own
+                and bound.get(inner.func.value.id) not in (None, "text")):
+            bound[inner.func.value.id] = "code"
+
+
 def _literal(node, bound: dict) -> bool:
     """Whether `node` is made of constants, names, attributes and items alone, in tuples, lists, sums, products, and
     calls given no keyword of a helper the module defines, or of `replace` on a text, each maybe unpacked: a mutant's
@@ -227,7 +257,9 @@ def _literal(node, bound: dict) -> bool:
     if isinstance(node, ast.Constant):
         return True
     if isinstance(node, ast.Name):
-        return bound.get(node.id) in ("text", "value", "helper")
+        return bound.get("*") != "code" and bound.get(node.id) in ("text", "value", "helper", "text helper")
+    if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+        return False        # a function's __globals__, a class's __dict__: the module's every name, read
     if isinstance(node, (ast.Attribute, ast.Starred)):
         return _literal(node.value, bound)
     if isinstance(node, ast.Subscript):
@@ -238,19 +270,23 @@ def _literal(node, bound: dict) -> bool:
         return _literal(node.left, bound) and _literal(node.right, bound)
     if isinstance(node, ast.Call):
         func = node.func
-        named = (isinstance(func, ast.Name) and bound.get(func.id) == "helper") or (
+        named = (isinstance(func, ast.Name) and bound.get(func.id) in ("helper", "text helper")) or (
             isinstance(func, ast.Attribute) and func.attr == "replace" and _text(func.value, bound))
         return named and not node.keywords and all(_literal(arg, bound) for arg in node.args)
     return False
 
 
 def _text(node, bound: dict) -> bool:
-    """Whether `node` is a text: a constant one, a name the module gives one, or what a call `_literal` takes gives."""
+    """Whether `node` is a text: a constant one, a name the module gives one, or what a helper that says it gives a text,
+    or a text's `replace`, gives; any other helper may give a path, whose `replace` renames a file."""
     if isinstance(node, ast.Constant):
         return isinstance(node.value, str)
     if isinstance(node, ast.Name):
-        return bound.get(node.id) == "text"
-    return isinstance(node, ast.Call) and _literal(node, bound)
+        return bound.get("*") != "code" and bound.get(node.id) == "text"
+    if not (isinstance(node, ast.Call) and _literal(node, bound)):
+        return False
+    return (isinstance(node.func, ast.Name) and bound.get(node.func.id) == "text helper") or (
+        isinstance(node.func, ast.Attribute) and node.func.attr == "replace")
 
 
 def is_data(hunk: dict, head_lines: set, base_lines: set) -> bool:
