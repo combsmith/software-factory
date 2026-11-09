@@ -10702,6 +10702,36 @@ class Mutants(unittest.TestCase):
             placed = [mutant[0] for index in range(count) for mutant in mutants.shard(mutants.MUTANTS, index, count)]
             self.assertEqual(sorted(placed), sorted(names), count)
 
+    def test_on_a_pull_request_the_mutants_decline_and_on_a_merge_group_every_shard_runs(self):
+        # On 2026-11-09 the shards were 77% of the runner minutes, about three quarters on pull requests, and in 94
+        # pull-request runs caught what the tests did not in 3. On a pull request they decline and pass, before reading a
+        # shard or a mutant; on a merge group, and at a desk, where no event is set, they run as before.
+        calls = []
+
+        def run(work, first=(), only=None):
+            calls.append(only)
+            return PASSES[1:]
+        root = tree({"k.py": "rule\n"})
+        broken = [("m", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_a",))]
+        shard = {"MUTANTS_SHARD": "0", "MUTANTS_SHARDS": "1"}
+        with mock.patch.object(mutants, "unnamed", return_value=[]), contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(mutants.front(dict(shard, GITHUB_EVENT_NAME="pull_request"), [], run, root, broken), 0)
+            self.assertEqual(calls, [], "nothing runs on a pull request")
+            self.assertIn("decline on a pull request", said.getvalue())
+            # Even a shard it cannot read: nothing is read on a pull request.
+            self.assertEqual(mutants.front({"MUTANTS_SHARD": "0", "MUTANTS_SHARDS": "0", "GITHUB_EVENT_NAME": "pull_request"},
+                                           [], run, root, broken), 0)
+            for event in ({"GITHUB_EVENT_NAME": "merge_group"}, {}):
+                del calls[:]
+                self.assertEqual(mutants.front(dict(shard, **event), [], run, root, broken), 1, event)
+                self.assertTrue(calls, "the shard runs on %s" % (event or "a desk"))
+        # From the front door, as CI runs it on a pull request.
+        env = dict(os.environ, MUTANTS_SHARD="0", MUTANTS_SHARDS="12", GITHUB_EVENT_NAME="pull_request")
+        done = subprocess.run([sys.executable, "-m", "tools.mutants"], cwd=str(ROOT), env=env, capture_output=True,
+                              text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout[-300:])
+        self.assertIn("decline on a pull request", done.stdout)
+
     def test_a_shard_is_read_from_the_matrix_or_the_run_stops(self):
         every = len(mutants.MUTANTS)
         self.assertEqual(mutants.selected({}), (mutants.MUTANTS, "", None, None))
@@ -10717,8 +10747,9 @@ class Mutants(unittest.TestCase):
             with self.assertRaises(ValueError, msg=given) as raised:
                 mutants.selected(given)
             self.assertIn(said, str(raised.exception), given)
-        # From the front door, a shard it cannot read stops the run before any test runs.
-        env = dict(os.environ, MUTANTS_SHARD="0", MUTANTS_SHARDS="0")
+        # From the front door, a shard it cannot read stops the run before any test runs. The event CI runs this test in
+        # is not the run's: on a pull request the front door would decline.
+        env = dict({k: v for k, v in os.environ.items() if k != "GITHUB_EVENT_NAME"}, MUTANTS_SHARD="0", MUTANTS_SHARDS="0")
         done = subprocess.run([sys.executable, "-m", "tools.mutants"], cwd=str(ROOT), env=env, capture_output=True,
                               text=True, timeout=60)
         self.assertEqual((done.returncode, done.stdout.strip()), (1, "MUTANTS_SHARD is 0 and MUTANTS_SHARDS is 0; the "
@@ -10834,7 +10865,7 @@ class Mutants(unittest.TestCase):
             self.assertIn(said, str(raised.exception), paths)
         self.assertEqual(mutants.FILTER_MOST, 40)
         # From the front door, too many mutants stop the run before any test runs; a shard CI set is not this run's.
-        env = {name: value for name, value in os.environ.items() if not name.startswith("MUTANTS_")}
+        env = {name: value for name, value in os.environ.items() if not name.startswith("MUTANTS_") and name != "GITHUB_EVENT_NAME"}
         done = subprocess.run([sys.executable, "-m", "tools.mutants", "kernel/derive.py"], cwd=str(ROOT), env=env,
                               capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 1, done.stdout[-300:])
