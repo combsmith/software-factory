@@ -19,7 +19,7 @@ import unittest
 from adapters import github, tags
 from harness import eval as eval_gate
 from release import current, cut, move
-from tools import check_release
+from tools import check_release, check_rulesets
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
@@ -376,6 +376,11 @@ class Fixture(unittest.TestCase):
         self.assertTrue(asked["force"] is True and asked["sha"] != commit, asked)
         self.assertEqual((forced["status"], forced["body"]["message"].split("\n")[0]),
                          (422, "Repository rule violations found"))
+        # Made by the Maintainer, whose admin role the ruleset gives no bypass, and refused as a protected ref.
+        maintainer = json.loads((ROOT / "config" / "hooks.json").read_text())["maintainer"]["login"]
+        self.assertEqual(forcing["request"]["as"], {"kind": "person", "name": maintainer})
+        self.assertIn("the admin role", forcing["request"]["call"])
+        self.assertIn("Cannot update this protected ref.", forced["body"]["message"].split("\n"))
         # The exchanges are kept in the order they were made: the reads after the PATCH were made after it.
         made_at = [email.utils.parsedate_to_datetime(e["response"]["headers"]["date"]) for e in again["exchanges"]]
         self.assertEqual(made_at, sorted(made_at))
@@ -384,7 +389,8 @@ class Fixture(unittest.TestCase):
         self.assertEqual(self.answered(again, read)["body"]["object"]["sha"], commit)
         rules = self.answered(again, "/repos/%s/rulesets/25996980" % REPO)["body"]
         self.assertEqual((rules["target"], rules["enforcement"], rules["bypass_actors"]), ("tag", "active", []))
-        self.assertLessEqual({"update", "deletion"}, {rule["type"] for rule in rules["rules"]})
+        # The rules the repo holds this ruleset to, force-pushes among them (tools/check_rulesets.py).
+        self.assertLessEqual(check_rulesets.TAG_RULESETS["factory releases are immutable"], {rule["type"] for rule in rules["rules"]})
         self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
         self.assertEqual(rules["conditions"]["ref_name"]["exclude"], [])
 
@@ -408,16 +414,21 @@ class Fixture(unittest.TestCase):
         self.assertEqual(refs, {fixture["version"]: commit, channel: commit})
         for tag in (fixture["version"], channel):
             with self.subTest(tag=tag):
-                ref = self.answered(refused, "/repos/%s/git/ref/tags/%s" % (REPO, tag))["body"]
-                self.assertEqual(ref["object"]["sha"], commit)
+                ref = self.answered(refused, "/repos/%s/git/ref/tags/%s" % (REPO, tag))
+                self.assertEqual((ref["status"], ref["body"]["object"]["sha"]), (200, commit))
         step = move.asked({"RELEASE_" + k.upper(): v for k, v in refused["asked"].items()}, channel)
         self.assertEqual(cut.plan(step, refs, {}, move.channels(rings)), ([], cut.NO_EARLIER_RELEASE))
         run = self.answered(refused, "/repos/%s/actions/runs/%d" % (REPO, refused["run"]))["body"]
         made = self.item(json.loads(self.CUT.read_text()), "cut_and_move_of_next")
-        deployed = self.answered(refused, "/repos/%s/deployments?environment=factory-next" % REPO)["body"]
+        # Each read is GitHub's answer, 200: a read it refused would show nothing of what the run left.
+        listing = self.answered(refused, "/repos/%s/deployments?environment=factory-next" % REPO)
+        self.assertEqual(listing["status"], 200)
+        deployed = listing["body"]
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
                          [(made["printed"]["deployments"][0], commit, fixture["version"])])
-        statuses = self.answered(refused, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))["body"]
+        answered = self.answered(refused, "/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))
+        self.assertEqual(answered["status"], 200)
+        statuses = answered["body"]
         self.assertEqual([s["state"] for s in statuses], ["success"])
         for made_at in [deployed[0]["created_at"]] + [s["created_at"] for s in statuses]:
             self.assertLess(made_at, run["created_at"])

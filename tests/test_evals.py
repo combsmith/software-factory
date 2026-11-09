@@ -2730,6 +2730,34 @@ class EvalJob(unittest.TestCase):
                 self.set(three, gate=True, natural=natural)
                 self.assertEqual(self.step(job.plan), code, natural)
                 self.clean()
+            # A group of exactly the least is enough (Muse's read of #628).
+            four = dict(three, **{"poc-four": three["poc-three"].replace(b"poc-three", b"poc-four")})
+            self.set(four, gate=True, natural=tuple(four)[:2])
+            self.assertEqual(self.step(job.plan), "planned 4 cases after 3 to preflight")
+            self.clean()
+
+    def test_a_preflight_case_keeps_its_marks_in_the_ledger_as_the_sets_do(self):  # Muse's read of #646
+        # A case asked first is listed in the ledger as the set's are, but for whether it is natural: passed at an
+        # alternate place alone, or drawing gating Findings away from every place, it says so (decision 0170).
+        from harness import eval as job
+        self.set(self.cases, gate=True, natural=[])
+        found = job.manifest(self.root, "pr-review-gate")[0]
+        kept = {"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": "0" * 64},
+                "preflight": job.preflight_of(self.root, found)}
+        first = [e["id"] for e in kept["preflight"]]
+        asked = {i: ("pass", []) for i in first}
+        ledger = job.ledger_of(kept, dict(found, cases=[]), {}, {}, set(), {},
+                               ahead=(asked, {}, {}, {}, {first[0]}, {first[1]: 2}))
+        marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
+        self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
+
+    def test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone(self):  # Muse's read of #628
+        # A case the reviewer failed is counted under its kind, never as a fault: only a case not read says its code,
+        # by how many (decision 0164).
+        from harness import eval as job
+        assessed = {"a": ("fail", ["finding_not_raised"]), "b": ("unreadable", ["not_found"]), "c": ("pass", []),
+                    "d": ("unreadable", ["not_found", "too_large"])}
+        self.assertEqual(job.faults_of(assessed), [{"code": "not_found", "count": 2}, {"code": "too_large", "count": 1}])
 
     def gate_run(self, natural=None):
         """A gate set of the two cases, planned, fetched and scored as passed: what `score` left in the scratch."""
@@ -3192,6 +3220,10 @@ class EvalJob(unittest.TestCase):
                          ["its record does not say %r" % job.bars_said(dict(found, kind_least=21))])
         self.assertEqual(check_examples._bars_stated(self.root, {k: v for k, v in found.items() if k != "record"}),
                          ["names no record that states its bars"])
+        # A gate set the schema lets leave out its bars or its least is a problem named, never a crash (Muse's read of #642).
+        for left in ("bars", "kind_least"):
+            self.assertEqual(check_examples._bars_stated(self.root, {k: v for k, v in found.items() if k != left}),
+                             ["gives no bars and least of a kind that can be stated"], left)
 
     def test_the_gate_pools_every_dispatch_on_the_commit_and_one_faulted_closes_it(self):  # issue 613
         from harness import eval as job

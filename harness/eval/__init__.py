@@ -740,11 +740,14 @@ def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates:
     """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
-    causes, usages, results)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
-    asked, told, spent, answers = ahead or ({}, {}, {}, {})
+    causes, usages, results, alternates, surplus)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    asked, told, spent, answers, *marked = ahead or ({}, {}, {}, {})
+    # Each case asked first with its marks, at an alternate place alone or drawing gating Findings away (Muse's read of
+    # #646), as the set's are listed.
+    beside, away = marked if marked else (set(), {})
     first = [dict(case, **({"result": answers[case["id"]]} if case["id"] in answers else {}))
              for case in report(kept, dict(found, cases=kept.get("preflight", [])), asked, causes=told,
-                                usages=spent)["cases"]]
+                                alternates=beside, surplus=away, usages=spent)["cases"]]
     natural = {e["id"]: e.get("natural") is True for e in found["cases"]}
     cases = [dict(case, natural=natural[case["id"]], **({"result": results[case["id"]]} if case["id"] in results else {}))
              for case in report(kept, found, assessed, causes=causes, alternates=alternates, surplus=surplus,
@@ -1003,19 +1006,19 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     """`(assessed, report)` of a gate set's run: each case, with its Result, written to the ledger in the scratch, and the
     report of counts alone that binds it (issue 612). The cases its preflight names are asked first, scored apart; where
     `preflight_stops`, none of the set's own is asked, and each is `unanswered` (issue 613)."""
-    results, first, spent, answers = {}, dict(found, cases=kept["preflight"]), {}, {}
+    results, first, spent, answers, beside, away = {}, dict(found, cases=kept["preflight"]), {}, {}, set(), {}
     # What a preflight case's read raised, as `score` reads the set's own, so that the ledger says why it was not read.
     try:
         told = _read(place / PREFLIGHT, "fetch-causes.json")
     except Stop:
         told = {}
     told = dict(told) if isinstance(told, dict) else {}
-    ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, usages=spent,
-                   results=answers)
+    ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, beside, away,
+                   usages=spent, results=answers)
     why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
     assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
     ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
-                                   (ahead, told, spent, answers)), indent=2, sort_keys=True) + "\n").encode("utf-8")
+                                   (ahead, told, spent, answers, beside, away)), indent=2, sort_keys=True) + "\n").encode("utf-8")
     with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(ledger)
     return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)

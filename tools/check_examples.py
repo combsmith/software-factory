@@ -274,8 +274,12 @@ def _bars_stated(root: pathlib.Path, found: dict) -> list:
     path = root / found.get("record", "")
     if "record" not in found or not path.is_file():
         return ["names no record that states its bars"]
-    if bars_said(found) not in path.read_text(encoding="utf-8"):
-        return ["its record does not say %r" % bars_said(found)]
+    try:
+        said = bars_said(found)
+    except (KeyError, TypeError, ValueError, IndexError):     # bars or a least the schema leaves out (Muse's read of #642)
+        return ["gives no bars and least of a kind that can be stated"]
+    if said not in path.read_text(encoding="utf-8"):
+        return ["its record does not say %r" % said]
     return []
 
 
