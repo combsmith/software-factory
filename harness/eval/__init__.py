@@ -955,7 +955,6 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
     criteria, floors = document["criteria"], criterion_bars_of(found)
     if (criteria is None) != (kinds is None) or criteria is not None and (
             set(criteria) != set(floors)
-            or sum(c["cases"] for c in criteria.values()) > kinds["finding"]["cases"]
             or sum(c["passed"] for c in criteria.values()) > kinds["finding"]["passed"]
             # Nor do the floors fail more than the kind: what passes beyond them is held within what lies beyond them.
             or sum(c["cases"] - c["passed"] for c in criteria.values()) > kinds["finding"]["cases"] - kinds["finding"]["passed"]
