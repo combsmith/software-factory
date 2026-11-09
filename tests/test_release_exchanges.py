@@ -59,6 +59,8 @@ class Kept(unittest.TestCase):
             # An error: its message and documentation are kept, redacted; anything else it carries is not.
             {"status": 404, "headers": {}, "body": {"message": "Not Found " + token, "documentation_url": "https://docs",
                                                     "errors": [{"value": "the text of a file at a commit"}]}},
+            # A download the storage answers as JSON is still kept by its measure alone, whatever its fields.
+            {"status": 200, "headers": {"content-type": "application/json"}, "body": {"message": "held-out JSON"}},
             # A body that is not JSON, at a path no rule names: its text is never kept.
             {"status": 502, "headers": {"content-type": "text/html"}, "body": "<html>a gateway's page, quoting a log</html>"},
         ))
@@ -66,6 +68,7 @@ class Kept(unittest.TestCase):
         recording.send(github.download("/repos/%s/actions/artifacts/9/zip" % REPO))
         recording.send(github.request("GET", "/repos/%s/contents/evals/manifest.json?ref=%s" % (REPO, D)))
         recording.send(github.request("GET", "/repos/%s/compare/%s...%s" % (REPO, D, "e" * 40)))
+        recording.send(github.download("/repos/%s/actions/artifacts/10/zip" % REPO))
         recording.send(github.request("GET", "/repos/%s/git/ref/heads/main" % REPO))
         text = written(recording)
         for left in (token, signed, STORE, "E2F1A08A3", "MDM6UmVm", "held-out", "c3ludGhldGlj", "text of a file",
@@ -80,6 +83,7 @@ class Kept(unittest.TestCase):
         self.assertEqual(set(kept[2]["response"]["measured"]), {"size", "sha256"})
         self.assertEqual(kept[3]["response"]["body"], {"documentation_url": "https://docs"})
         self.assertEqual(set(kept[4]["response"]["measured"]), {"size", "sha256"})
+        self.assertEqual(set(kept[5]["response"]["measured"]), {"size", "sha256"})
         self.assertIn("exchanges[3].response.body.message", recording.kept()["removed"])
         self.assertEqual(kept[0]["request"]["as"], {"kind": "app", "name": "release"})
         self.assertNotIn("authorization", json.dumps([e["request"]["headers"] for e in kept]).lower())

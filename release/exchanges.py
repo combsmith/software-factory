@@ -118,11 +118,11 @@ class Recording:
 
     def write(self, folder) -> bool:
         """Write `kept()` as NAME in `folder`, or nothing: True when written. It never raises, so it never changes the
-        step's outcome or what it prints. The folder is the one the workflow names: absolute, standing, and holding no
-        NAME already."""
+        step's outcome or what it prints. The folder is the one the workflow names: absolute and standing; a NAME there
+        already is never written over, as `open`'s "x" refuses it."""
         try:
             where = pathlib.Path(folder)
-            if not where.is_absolute() or not where.is_dir() or (where / NAME).exists():
+            if not where.is_absolute() or not where.is_dir():
                 return False
             text = json.dumps(self.kept(), indent=1, sort_keys=True)
             with open(where / NAME, "x", encoding="utf-8") as out:

@@ -12123,7 +12123,7 @@ MUTANTS = ISSUE + [
      '            self.unkept += 1\n', '            raise\n',
      ('tests.test_release_exchanges.Kept.test_a_fault_in_keeping_never_changes_what_the_step_is_answered',)),
     ('the release step writes over a file that stands', 'release/exchanges.py',
-     ' or (where / NAME).exists():\n', ':\n',
+     'with open(where / NAME, "x", encoding="utf-8") as out:', 'with open(where / NAME, "w", encoding="utf-8") as out:',
      ('tests.test_release_exchanges.Kept.test_it_writes_only_the_one_file_in_the_folder_the_workflow_names',)),
     ('the release step keeps nothing where a folder is named', 'release/move.py',
      '        kept = exchanges.Recording if environ.get("RELEASE_EXCHANGES") else None\n', '        kept = None\n',
