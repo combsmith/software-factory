@@ -1,7 +1,7 @@
 {
   "schema": "trial/1",
   "trial": "P-62",
-  "question": "Does the contents API, asked with the raw media type, answer a file of more than 1 MiB with its bytes whole, in one answer and no redirect, and does the git blobs API answer the same blob as base64?",
+  "question": "Does the contents API, asked with the raw media type, answer a file of more than 1 MiB with its bytes whole, in one answer and no redirect; and does the git blobs API answer the same blob as base64?",
   "pass": "pass: a GET of /repos/{owner}/{repo}/contents/{path} for a file of more than 1 MiB, asked with Accept application/vnd.github.raw+json, is answered 200 with a body that is the file's bytes exactly, by its length and its sha256, and no redirect, whether asked with the Maintainer's login or with no credential; and the same GET with application/vnd.github+json is answered 200 with the file's size and no content inline. fail otherwise. Recorded, deciding nothing, as the fallback: what GET /repos/{owner}/{repo}/git/blobs/{sha} answers for the same blob, as JSON and with the raw media type.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-11-09T00:59:21Z",
@@ -13,7 +13,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file trial-p62/blob.bin, 1577185 random bytes made for the trial, committed as fd71fb0 on the canary's main, 7737f8f, on the branch trial-p62 alone, which was deleted after; its sha256 is 691bf10a, asked as JSON",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file trial-p62/blob.bin, 1577185 random bytes made for the trial, committed as fd71fb0, a child of the canary's main 7737f8f, on the branch trial-p62 alone, which was deleted after; its sha256 is 691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f, asked as JSON",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -66,7 +66,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the same file asked with the raw media type. gh formats a body whose type names json, and wrote none; asked so again in exchange 7 it exited 1, saying only that a buffer was short. What GitHub sent is in exchanges 2 and 5",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the same file asked with the raw media type. gh formats a body whose type names json, and wrote none; asked so again in exchange 7 it exited 1, saying only that a buffer was short. The body GitHub sends for this type is seen with no credential in exchange 2, and for this login, under application/vnd.github.raw, in exchange 5",
         "headers": {
           "accept": "application/vnd.github.raw+json"
         },
@@ -93,7 +93,7 @@
           "x-ratelimit-used": "381"
         },
         "body": {
-          "summarized": "no body was written"
+          "not_recorded": "gh wrote no body; GitHub's content-length was the file's"
         }
       }
     },
@@ -131,10 +131,10 @@
           "x-github-request-id": "F952:194583:213E54E:6D3D6E1:6AF11AEA"
         },
         "body": {
-          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "summarized": "the body, split off the capture unread and hashed by a program, its headers redacted by tools.redact_trial: the trial's random bytes, recorded by their length and sha256 alone",
           "length": 1577185,
           "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
-          "the_files_bytes": true
+          "matches_the_file": true
         }
       }
     },
@@ -175,10 +175,10 @@
           "size": 1577185,
           "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5",
           "content": {
-            "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+            "summarized": "the content field, 2137965 characters of base64 wrapped at 60 in 35049 lines, decoded by a program and recorded by the length and sha256 of what it decodes to",
             "length": 1577185,
             "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
-            "the_files_bytes": true
+            "matches_the_file": true
           },
           "encoding": "base64"
         }
@@ -217,10 +217,10 @@
           "x-ratelimit-used": "383"
         },
         "body": {
-          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "summarized": "the body, split off the capture unread and hashed by a program, its headers redacted by tools.redact_trial: the trial's random bytes, recorded by their length and sha256 alone",
           "length": 1577185,
           "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
-          "the_files_bytes": true
+          "matches_the_file": true
         }
       }
     },
@@ -231,7 +231,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file asked with application/vnd.github.raw, a type that does not name json, on the same commit, its branch made again for this second pass and deleted after",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file asked with application/vnd.github.raw, a type that does not name json, on the same commit, its branch made again for this second pass and deleted after. gh follows a redirect without saying so; the answer's headers are the API's own, and exchanges 2 and 6, which follow none, show no redirect",
         "headers": {
           "accept": "application/vnd.github.raw"
         },
@@ -258,10 +258,10 @@
           "x-ratelimit-used": "389"
         },
         "body": {
-          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "summarized": "the body, split off the capture unread and hashed by a program, its headers redacted by tools.redact_trial: the trial's random bytes, recorded by their length and sha256 alone",
           "length": 1577185,
           "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
-          "the_files_bytes": true
+          "matches_the_file": true
         }
       }
     },
@@ -299,10 +299,10 @@
           "x-github-request-id": "F9EF:D0ED2:22B9C26:71FAE5C:6AF11B4D"
         },
         "body": {
-          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "summarized": "the body, split off the capture unread and hashed by a program, its headers redacted by tools.redact_trial: the trial's random bytes, recorded by their length and sha256 alone",
           "length": 1577185,
           "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
-          "the_files_bytes": true
+          "matches_the_file": true
         }
       }
     },
@@ -313,7 +313,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): exchange 1 asked again: gh wrote no body, and exited 1",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): exchange 1 asked again: gh wrote no body, and exited 1 saying \"transform: short source buffer\"; asked a third time without --include, the body alone to a file, it did the same",
         "headers": {
           "accept": "application/vnd.github.raw+json"
         },
@@ -340,7 +340,7 @@
           "x-ratelimit-used": "390"
         },
         "body": {
-          "summarized": "no body was written"
+          "not_recorded": "gh wrote no body; GitHub's content-length was the file's"
         }
       }
     }
