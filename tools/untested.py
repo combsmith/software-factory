@@ -159,6 +159,7 @@ def data_lines(text: str) -> set:
     except SyntaxError:
         return set()
     lines, found, code = source_lines(text), set(), set()
+    helpers = frozenset(node.name for node in tree.body if isinstance(node, ast.FunctionDef))
     for node in tree.body:
         if not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
                                                      for target in node.targets)):
@@ -171,29 +172,33 @@ def data_lines(text: str) -> set:
             if hasattr(inner, "lineno"):
                 code.update((inner.lineno, inner.end_lineno))
             for child in ast.iter_child_nodes(inner):
-                if isinstance(inner, (ast.List, ast.Tuple)) and child in inner.elts and _literal(child):
+                if isinstance(inner, (ast.List, ast.Tuple)) and child in inner.elts and _literal(child, helpers):
                     found.update(range(child.lineno, child.end_lineno + 1))
                 else:
                     todo.append(child)
     return found - code
 
 
-def _literal(node) -> bool:
+def _literal(node, helpers: frozenset) -> bool:
     """Whether `node` is made of constants, names, attributes and items alone, in tuples, lists, sums, products, and
-    calls of such a name or attribute given no keyword, each maybe unpacked: a mutant's entry, as its helpers build one,
-    and nothing that decides."""
+    calls given no keyword of one of `helpers`, the functions the list's own module defines, or of a text's `replace`,
+    each maybe unpacked: a mutant's entry, as its helpers build one, and nothing that decides. A call of anything else,
+    a builtin or another module's function, may read the world, so it is code (decision 0166)."""
     if isinstance(node, (ast.Constant, ast.Name)):
         return True
     if isinstance(node, (ast.Attribute, ast.Starred)):
-        return _literal(node.value)
+        return _literal(node.value, helpers)
     if isinstance(node, ast.Subscript):
-        return _literal(node.value) and _literal(node.slice)
+        return _literal(node.value, helpers) and _literal(node.slice, helpers)
     if isinstance(node, (ast.Tuple, ast.List)):
-        return all(_literal(item) for item in node.elts)
+        return all(_literal(item, helpers) for item in node.elts)
     if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mult)):
-        return _literal(node.left) and _literal(node.right)
+        return _literal(node.left, helpers) and _literal(node.right, helpers)
     if isinstance(node, ast.Call):
-        return _literal(node.func) and not node.keywords and all(_literal(arg) for arg in node.args)
+        func = node.func
+        named = (isinstance(func, ast.Name) and func.id in helpers) or (
+            isinstance(func, ast.Attribute) and func.attr == "replace" and _literal(func.value, helpers))
+        return named and not node.keywords and all(_literal(arg, helpers) for arg in node.args)
     return False
 
 
@@ -476,8 +481,7 @@ def _quiet(node) -> bool:
     return False
 
 
-COMPARE = re.compile(r" (<=|>=|<|>) ")
-SWAP = {"<": "<=", "<=": "<", ">": ">=", ">=": ">"}
+SWAP = {ast.Lt: ("<", "<="), ast.LtE: ("<=", "<"), ast.Gt: (">", ">="), ast.GtE: (">=", ">")}
 
 
 def _mutated(node, line: str):
@@ -488,9 +492,16 @@ def _mutated(node, line: str):
         raw = line.encode()     # the offsets are of UTF-8 bytes
         return (raw[:test.col_offset] + b"not (" + raw[test.col_offset:test.end_col_offset] + b")"
                 + raw[test.end_col_offset:]).decode()
-    compare = COMPARE.search(line)
-    if compare and any(isinstance(inner, ast.Compare) for inner in ast.walk(node)):
-        return line[:compare.start()] + " %s " % SWAP[compare.group(1)] + line[compare.end():]
+    for inner in ast.walk(node):
+        # The operator is found between the comparison's two sides, never where the line first shows one: in a string
+        # it would be no comparison, and a test that reads the text would kill a mutant of nothing (Muse, #634).
+        if (isinstance(inner, ast.Compare) and inner.lineno == inner.end_lineno == node.lineno
+                and type(inner.ops[0]) in SWAP):
+            raw = line.encode()
+            start, end = inner.left.end_col_offset, inner.comparators[0].col_offset
+            now, new = SWAP[type(inner.ops[0])]
+            gap = raw[start:end].decode()
+            return raw[:start].decode() + gap.replace(now, new, 1) + raw[end:].decode()
     for inner in ast.walk(node):
         if isinstance(inner, ast.Constant) and inner.lineno == node.lineno and inner.end_lineno == node.lineno:
             if isinstance(inner.value, bool) or (isinstance(inner.value, int) and not isinstance(inner.value, bool)):

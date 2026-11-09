@@ -91,6 +91,18 @@ class Reverts(unittest.TestCase):
                                                ("pkg/calc.py", 12, "SURVIVED", "revert")], repr(ending))
             self.assertEqual(found["skipped"]["same"], 1)      # the annotation
 
+    def test_the_change_is_read_from_the_merge_base_and_not_from_main_as_it_moved_on(self):
+        # Muse's read of #634: main changed pkg/calc.py after the branch left it. Read from main as it is, the change
+        # would hold main's own hunk, put back; read from the merge base, it holds the branch's alone.
+        made, root, first, main = change({"pkg/calc.py": CALC, "tests/test_calc.py": CALC_TEST},
+                                         {"pkg/calc.py": CALC.replace("if a > b:", "if b < a:")}, "main moves on")
+        with made:
+            git(root, "checkout", "-q", "-b", "branch", first)
+            tree(root, {"pkg/calc.py": CALC.replace("x * 2", "x * 3")})
+            git(root, "commit", "-q", "-am", "the branch")
+            found = untested.check(root, main, git(root, "rev-parse", "HEAD").strip(), float("inf"), workers=2)
+            self.assertEqual(outcomes(found), [("pkg/calc.py", 12, "SURVIVED", "revert")])
+
     def test_a_line_is_what_git_numbers_one_and_not_each_break_python_splits_on(self):
         label = 'LABEL = "a b\x0cc"\n\n\ndef f():\n    return %d\n'
         test = "import unittest\n\nfrom pkg import label\n\n\nclass L(unittest.TestCase):\n    def test_f(self):\n" \
@@ -148,6 +160,9 @@ class Reverts(unittest.TestCase):
         self.assertIn("    if not (x > 1):\n", made[2])
         self.assertIn("        x = x + 3\n", made[3])
         self.assertIn("    return x < 3\n", made[8])
+        # The comparison's own operator, not one a string holds before it (Muse's read of #634).
+        quoted = dict(untested.candidates("def g(x):\n    return 'a < b' + str(x < 3)\n", {"new": 2, "new_n": 1}))
+        self.assertIn("    return 'a < b' + str(x <= 3)\n", quoted[2])
         self.assertIn("    pass\n", dict(untested.candidates("def f(x):\n    g(x)\n", {"new": 2, "new_n": 1}))[2])
         annotated = "from __future__ import annotations\n\n\ndef f(x: Literal[0]) -> int:\n    return x + 1\n"
         self.assertEqual(sorted(dict(untested.candidates(annotated, {"new": 4, "new_n": 2}))), [5])
@@ -265,7 +280,7 @@ class Reverts(unittest.TestCase):
 
     def test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read(self):
         text = ("ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n    # a note\n    3 if os.environ else 2,\n] + [m for m in (\n"
-                "    (4, f(5)),\n) if m]\n\n\ndef run():\n    return 4\n")
+                "    (4, run(5)),\n) if m]\n\n\ndef run():\n    return 4\n")
         data = untested.data_lines(text)
         self.assertEqual(data, {2, 5, 6, 9})
         self.assertEqual(untested.data_lines("MUTANTS = [m for m in (1, 2) if True]\n"), set())
@@ -276,6 +291,15 @@ class Reverts(unittest.TestCase):
                      {"new": 10, "new_n": 1, "old": 10, "old_n": 1}, {"new": 14, "new_n": 1, "old": 14, "old_n": 1},
                      {"new": 5, "new_n": 1, "old": 7, "old_n": 1}):
             self.assertFalse(untested.is_data(hunk, data, data), hunk)
+
+    def test_a_call_in_the_mutant_lists_is_data_only_of_the_modules_own_helpers(self):
+        # Muse's read of #634: a call of a builtin or of another module's function may read the world, so the entry
+        # that holds it decides, and its hunk is run. A helper the module defines, and a text's replace, are data.
+        text = ("MUTANTS = [\n    ('a', helper('x')),\n    ('b', os.getenv('X', 'old')),\n    ('c', eval('1+1')),\n"
+                "    ('d', open('x').read()),\n    ('e', __import__('os').getenv('X')),\n"
+                "    ('f', TEXT.replace('a', 'b')),\n    ('g', helper(x=1)),\n]\n\n\ndef helper(text):\n"
+                "    return text\n")
+        self.assertEqual(untested.data_lines(text), {2, 7})
 
 
 CRASHED = ("=" * 70 + "\nERROR: test_x (tests.test_calc.Calc)\n" + "-" * 70 + "\nTraceback (most recent call last):\n"
@@ -331,6 +355,18 @@ class Trailers(unittest.TestCase):
         reworded = checked(base, {"pkg/calc.py": CALC.replace("The bigger", "Which is bigger")},
                            "Reworded\n\nBehaviour-preserving: pkg/calc.py:5-5\n")
         self.assertEqual((reworded["hunks"], reworded["problems"]), ([], []))
+
+    def test_a_trailer_is_read_from_the_head_commit_alone(self):
+        # Muse's read of #634: lines move each fix round, so a trailer an earlier commit of the change wrote names lines
+        # that may no longer be the ones it meant, and is never read.
+        made, root, first, earlier = change({"pkg/calc.py": CALC}, {"pkg/calc.py": CALC.replace("x * 2", "x + x")},
+                                            "Faster\n\nBehaviour-preserving: pkg/calc.py:12-12\n")
+        with made:
+            self.assertEqual(untested.trailers(root, earlier), ["pkg/calc.py:12-12"])
+            tree(root, {"pkg/notes.py": "A = 1\n"})
+            git(root, "add", "-A")
+            git(root, "commit", "-q", "-m", "A fix round\n\nIt says nothing of the lines.\n")
+            self.assertEqual(untested.trailers(root, git(root, "rev-parse", "HEAD").strip()), [])
 
 
 class FirstTests(unittest.TestCase):
