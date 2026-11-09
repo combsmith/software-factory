@@ -2818,6 +2818,30 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
 
+    def test_only_a_superseded_pull_request_run_is_cancelled(self):
+        # On 2026-11-09, 13 of a day's 47 pull request runs ran on after a newer push to the same pull request, about 870
+        # runner-minutes on the Free plan's 20 runners. A newer push cancels them; a merge group's run is never
+        # cancelled, nor cancels another, which would eject its entries from the queue.
+        block = ("concurrency:\n  group: %s\n  cancel-in-progress: %s\n"
+                 % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
+        self.assertEqual(GOOD.count(block), 1)
+        self.assertEqual((rules(GOOD), self.lens_problems(GOOD)), ([], []))
+        self.assertEqual(self.lens_problems(GOOD.replace(block, "")), [], "a workflow that cancels nothing is held too")
+        said = "has a top-level concurrency: other than"
+        group, cancel = "  group: %s\n" % check_workflows.PR_LANE, "  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL
+        for old, new in ((cancel, "  cancel-in-progress: true\n"),           # every merge group's run cancelled too
+                         (group, "  group: factory\n"),                      # one group: a merge group cancels another's
+                         (cancel, ""), (group, ""),
+                         (cancel, cancel + "  queue: max\n"),
+                         (block, "concurrency: factory\n")):
+            text = GOOD.replace(old, new, 1)
+            self.assertNotEqual(text, GOOD, new)
+            self.assertTrue(caught(self.lens_problems(text), said), new)
+        # Any other expression there is one where text from outside could stand.
+        for old, new in ((group, "  group: ${{ github.head_ref }}\n"),
+                         (cancel, "  cancel-in-progress: ${{ github.event_name != 'merge_group' }}\n")):
+            self.assertIn("expression", rules(GOOD.replace(old, new, 1)), new)
+
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
         # the merge queue, and of nothing else, so a change cannot make its own verdict pass (decision 0023).
