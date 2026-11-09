@@ -10190,6 +10190,11 @@ class Writes(unittest.TestCase):
             "harness/tupletop.py": "from harness import portinst\n\nd, e = portinst.TABLE, 1\nd['go'] = len\n",
             "harness/dupvars.py": "import os\n\nfrom harness import portinst\n\nd = vars(portinst)\nif os.environ.get('X'):\n"
                                   "    d = vars(portinst)\nprint(d)\n",
+            "adapters/fillalias2.py": "from adapters import effects\nfrom harness import portbox\n\n\ndef go():\n    D = dict\n"
+                                      "    D.update(portbox.TABLE, go=effects.approve)\n",
+            "adapters/fillmixed.py": "import os\n\nfrom adapters import effects\nfrom harness import portbox\n\nif os.environ.get('X'):\n"
+                                     "    D = dict\nelse:\n    D = portbox.TABLE\nD.update({'go': effects.approve})\n",
+            "harness/execbuiltins.py": "from builtins import exec\n\n\ndef go(s):\n    return exec(s)\n",
             "harness/parenok.py": "MESSAGES = ('nothing to do (see log) git status was clean', '1) git fetch')\n",
             # Two files of one module name.
             "harness/dup.py": "X = 1\n", "harness/dup/__init__.py": "X = 2\n",
@@ -10243,7 +10248,10 @@ class Writes(unittest.TestCase):
                           ("adapters/dictshadow.py:4", "sets a key of harness.portbox.TABLE from another module"),
                           ("harness/setsidgit.py:5", "names gh or git as a command"),
                           ("harness/flockgit.py:5", "names gh or git as a command"),
-                          ("harness/tupletop.py:4", "sets a key of harness.portinst.TABLE from another module")):
+                          ("harness/tupletop.py:4", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/fillalias2.py:7", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/fillmixed.py:10", "sets a key of harness.portbox.TABLE from another module"),
+                          ("harness/execbuiltins.py:5", "runs code from text")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
         self.assertTrue(caught(problems, "are one module, harness.dup, so what it reaches cannot be read"), problems)
         for rel in ("harness/execok.py", "harness/ownfill.py", "harness/parenok.py"):

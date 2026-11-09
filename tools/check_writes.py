@@ -592,12 +592,9 @@ def _runs_text(mod: Module) -> list:
     is not syntax this check reads. A name only assigned, or a parameter, may still be the builtin, and is refused; so is
     one bound only under an if, a try or in a function, which may never run, one bound two ways, and one deleted
     anywhere, `del exec`, after which it is the builtin again (issue 655)."""
-    bound = {alias.asname or alias.name.split(".")[0] for node in mod.tree.body if isinstance(node, (ast.Import, ast.ImportFrom))
-             and not (isinstance(node, ast.ImportFrom) and node.module == "builtins") for alias in node.names} \
-        | {node.name for node in mod.tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
     deleted = {n.id for n in mod.nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Del)} \
         | {n.name for n in mod.nodes if isinstance(n, ast.ExceptHandler) and n.name}      # except E as exec: deleted after
-    own = bound - deleted - mod.conflicts
+    own = set(TEXT_RUNNERS) - deleted - mod.conflicts
     return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Name) and n.id in TEXT_RUNNERS
                    and not (n.id in own and _before(mod, n))
                    or isinstance(n, ast.Attribute) and n.attr in TEXT_ATTRIBUTES
@@ -610,10 +607,12 @@ def _runs_text(mod: Module) -> list:
 
 
 def _before(mod: Module, use) -> bool:
-    """Whether a top-level binding of `use`'s name has run when `use` runs: one that ends on a line above it, or any for a
+    """Whether a binding of `use`'s name at the module's top level, under no if, try or function, has run when `use`
+    runs, an import from builtins aside: one that ends on a line above it, or any for a
     use inside a function's body, which runs when it is called, but not inside the binding's own definition, its
     defaults, decorators or class body, which run before the name is bound (Argon's read of issue 655's change)."""
     bindings = [node for node in mod.tree.body if isinstance(node, (ast.Import, ast.ImportFrom)) and
+                not (isinstance(node, ast.ImportFrom) and node.module == "builtins") and
                 any((a.asname or a.name.split(".")[0]) == use.id for a in node.names)
                 or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == use.id]
     bodies = [node for node in mod.nodes if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))
