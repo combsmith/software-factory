@@ -163,6 +163,11 @@ class Reverts(unittest.TestCase):
         # The comparison's own operator, not one a string holds before it (Muse's read of #634).
         quoted = dict(untested.candidates("def g(x):\n    return 'a < b' + str(x < 3)\n", {"new": 2, "new_n": 1}))
         self.assertIn("    return 'a < b' + str(x <= 3)\n", quoted[2])
+        # A comparison it cannot swap is passed over, and one on another line of the statement is never read here.
+        passed = dict(untested.candidates("def g(x, y):\n    return x == 1 or y < 2\n", {"new": 2, "new_n": 1}))
+        self.assertIn("    return x == 1 or y <= 2\n", passed[2])
+        spread = dict(untested.candidates("def h(y):\n    return g(1,\n             y < 2)\n", {"new": 2, "new_n": 2}))
+        self.assertIn("    return g(2,\n", spread[2])
         self.assertIn("    pass\n", dict(untested.candidates("def f(x):\n    g(x)\n", {"new": 2, "new_n": 1}))[2])
         annotated = "from __future__ import annotations\n\n\ndef f(x: Literal[0]) -> int:\n    return x + 1\n"
         self.assertEqual(sorted(dict(untested.candidates(annotated, {"new": 4, "new_n": 2}))), [5])
@@ -297,9 +302,13 @@ class Reverts(unittest.TestCase):
         # that holds it decides, and its hunk is run. A helper the module defines, and a text's replace, are data.
         text = ("MUTANTS = [\n    ('a', helper('x')),\n    ('b', os.getenv('X', 'old')),\n    ('c', eval('1+1')),\n"
                 "    ('d', open('x').read()),\n    ('e', __import__('os').getenv('X')),\n"
-                "    ('f', TEXT.replace('a', 'b')),\n    ('g', helper(x=1)),\n]\n\n\ndef helper(text):\n"
-                "    return text\n")
-        self.assertEqual(untested.data_lines(text), {2, 7})
+                "    ('f', TEXT.replace('a', 'b')),\n    ('g', helper(x=1)),\n    ('h', ROOT.replace('x')),\n"
+                "    ('i', os.environ['X']),\n    ('j', sys.platform),\n    ('k', OLD[sys.platform]),\n"
+                "    ('l', helper('x').replace('x', 'y')),\n    ('m', 'a b'.replace('a', 'c')),\n]\n\n\n"
+                "def helper(text):\n    return text\n")
+        head = "import os\nimport sys\nimport pathlib\nTEXT = 'a'\nROOT = pathlib.Path('.')\n"
+        # A text's replace is data, but ROOT's, a path's, renames a file; what is read of os or sys reads the runner.
+        self.assertEqual(untested.data_lines(head + text), {7, 12, 18, 19})
 
 
 CRASHED = ("=" * 70 + "\nERROR: test_x (tests.test_calc.Calc)\n" + "-" * 70 + "\nTraceback (most recent call last):\n"
