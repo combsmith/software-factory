@@ -4164,15 +4164,13 @@ class Workflows(unittest.TestCase):
                  "factory-run": "run-jobs.yml", "APPROVER_TOKEN": "approve-job.yml", "factory-approve": "approve-job.yml",
                  "CONTROLLER_APP_KEY": "pass.yml", "factory-poller": "pass.yml"}
         for key, owner in named.items():
-            text = GOOD.replace("    permissions:\n      contents: read\n",
-                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % key, 1)
+            text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % key, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text),
                                    "it names a key or the environment that holds it, which only %s names" % owner), key)
             self.assertFalse(caught(check_workflows.shim_problems(owner, text), "which only %s names" % owner), key)
         # GitHub's names of these ignore case, and so does the rule.
         for spelt in ("Pr_Review_App_Key", "FACTORY-APPLY", "Factory-Poller"):
-            text = GOOD.replace("    permissions:\n      contents: read\n",
-                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % spelt, 1)
+            text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % spelt, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "it names a key"), spelt)
         # A comment that names one names nothing.
         self.assertFalse(check_workflows.shim_problems("other.yml", "# READER_APP_KEY\n" + GOOD))
