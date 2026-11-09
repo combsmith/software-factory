@@ -184,14 +184,13 @@ def data_lines(text: str) -> set:
 
 def _bind(bound: dict, node) -> None:
     """Read into `bound` what the statement `node`, at the module's top, binds each name to, as the module runs in
-    order: "helper" for a function it defines, "text" for a text it gives, "value" for another value, and "code" for
-    what an import, a class or anything else binds, and for a name bound a second time, which may then be anything."""
+    order: "helper" for a function it defines, "text" for a text it gives, "value" for a value `_literal` takes, and
+    "code" for anything else any statement binds, an import's name wherever it stands among them, and for a name bound a
+    second time, which may then be anything. A name no statement binds before the list is in none, and is code."""
     named = []
     if isinstance(node, ast.FunctionDef):
         named = [(node.name, "helper")]
-    elif isinstance(node, (ast.Import, ast.ImportFrom)):
-        named = [(alias.asname or alias.name.split(".")[0], "code") for alias in node.names]
-    elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+    elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
             # A, B = x, y binds each name to its own value; any other unpacking may bind anything.
@@ -199,17 +198,22 @@ def _bind(bound: dict, node) -> None:
                 list(zip(target.elts, node.value.elts)) if isinstance(target, ast.Tuple)
                 and isinstance(node.value, ast.Tuple) and len(target.elts) == len(node.value.elts) else [])
             for name, value in pairs:
-                if isinstance(name, ast.Name):
-                    text = isinstance(value, ast.Constant) and isinstance(value.value, str)
-                    named.append((name.id, "text" if text else "value"))
-                else:
+                if not isinstance(name, ast.Name):
                     named += [(inner.id, "code") for inner in ast.walk(name) if isinstance(inner, ast.Name)]
+                elif isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    named.append((name.id, "text"))
+                else:
+                    named.append((name.id, "value" if _literal(value, bound) else "code"))
             if not pairs:
                 named += [(inner.id, "code") for inner in ast.walk(target) if isinstance(inner, ast.Name)]
     else:
-        named = [(inner.id, "code") for inner in ast.walk(node)
-                 if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Store)]
-        named += [(node.name, "code")] if isinstance(node, (ast.ClassDef, ast.AsyncFunctionDef)) else []
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Store):
+                named.append((inner.id, "code"))
+            elif isinstance(inner, (ast.Import, ast.ImportFrom)):
+                named += [(alias.asname or alias.name.split(".")[0], "code") for alias in inner.names]
+            elif isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                named.append((inner.name, "code"))
     for name, kind in named:
         bound[name] = "code" if name in bound else kind
 
@@ -223,7 +227,7 @@ def _literal(node, bound: dict) -> bool:
     if isinstance(node, ast.Constant):
         return True
     if isinstance(node, ast.Name):
-        return bound.get(node.id) != "code"
+        return bound.get(node.id) in ("text", "value", "helper")
     if isinstance(node, (ast.Attribute, ast.Starred)):
         return _literal(node.value, bound)
     if isinstance(node, ast.Subscript):

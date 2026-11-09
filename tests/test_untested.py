@@ -325,6 +325,17 @@ class Reverts(unittest.TestCase):
         # A, B = x, y binds each name to its own value, as tools/mutants.py binds the issue Kernel's path and tests.
         paired = "PY, TESTS = 'kernel/issue.py', ('t',)\nMUTANTS = [\n    ('a', PY.replace('k', 'K'), TESTS),\n]\n"
         self.assertEqual(untested.data_lines(paired), {3})
+        # An import behind an if, a try or a with binds its name as one at the top does; a star import binds names no
+        # one can read, so a name nothing bound is code; and so is a name bound to what code gave, or by an unpacking.
+        for fenced in ("if True:\n    import os\n", "try:\n    import os\nexcept ImportError:\n    os = None\n",
+                       "with x:\n    import os.path\n", "import os.path\n", "from os import *\n",
+                       "import os\nENV = os.environ\n", "import os\nA, B = os.environ['X'].split()\n",
+                       "import pathlib\nENV = 'a'\nfor ENV in [pathlib.Path('.')]:\n    pass\n",
+                       "class ENV:\n    pass\n", "os = 'a'\nif True:\n    import os\n", "os = 'a'\nimport os.path\n",
+                       "ENV = 'a'\nENV, B = os.environ['X'].split()\n"):
+            for read in ("os.environ['X']", "environ['X']", "ENV['X']", "A", "ENV.replace('x')"):
+                text = fenced + "MUTANTS = [\n    ('a', %s),\n]\n" % read
+                self.assertEqual(untested.data_lines(text), set(), text)
 
 
 CRASHED = ("=" * 70 + "\nERROR: test_x (tests.test_calc.Calc)\n" + "-" * 70 + "\nTraceback (most recent call last):\n"
