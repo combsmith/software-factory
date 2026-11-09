@@ -8,7 +8,9 @@ to the gate. The plaintext is removed once sealed. No key that opens a ledger is
 Maintainer's certificates, each pinned by its sha256 in a protected path under `.github/`, so that a session's edit of
 who can read the ledgers is asked about, and a merge of one is his. Nothing here is given a credential. The ciphertext
 lives only as the run's artifact, under its retention, until where ledgers are kept is decided (the Maintainer's ruling
-on issue 612); its sha256 is the job's output, `ledger_sha256`, and the report's.
+on issue 612); its sha256 is the report's. A run split into parts seals each part's ledger in that part's job, bound
+in what the part wrote, `eval-part.json`, and the merge job names the run's one output, `ledger_sha256`, from every
+part's (issue 611); a run not split names it here.
 
 A development set has no ledger, its report being its cases': the step seals nothing. A gate set with no certificate
 pinned, or one that is not the one pinned, fails the run by a code, and nothing is uploaded but what was before. A

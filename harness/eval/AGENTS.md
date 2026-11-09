@@ -11,6 +11,7 @@ A gate set gives its own bars and least of a kind. The Release's gate pools ever
 Until one is named, the gate reads the review Intent's set by its newest successful dispatch, which a re-dispatch can still make the best of several.
 A gate set's dispatch asks its preflight first, a few cases of the review Intent's set scored apart, so that a broken pipeline stops it before any held-out case is asked.
 A case's head is read from the home beside the case, its tarball and its tree each by the sha256 the case pins, and held to that tree (issue 611); nothing in the job reads with no credential.
+The run is split into the preflight's job, a matrix of shards and a merge job with no credential, which writes the one report from each part's counts; a gate set's shards are drawn by a salt the home keeps.
 
 | Rule | Held by |
 |---|---|
@@ -29,5 +30,7 @@ A case's head is read from the home beside the case, its tarball and its tree ea
 | A gate set's preflight is three to five of the review Intent's cases, none a gate set's by its id or its hash | `tests/test_evals.py::test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case` |
 | The preflight is asked first; a fault in it, or no pass, stops the dispatch before a case of the set is asked, and the gate reads it as faulted | `tests/test_evals.py::test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it` |
 | Each case's head is read from the home by its pins, unpacked and held to its tree; one not the one pinned, or not read whole, closes the gate | `tests/test_evals.py::test_each_cases_head_is_read_from_the_home_by_its_pins_and_one_not_read_closes_the_gate` |
+| A split run's merge is the report of the whole; a part missing leaves its cases unanswered; no step names a case | `tests/test_evals.py::test_a_development_sets_run_split_into_shards_is_merged_into_the_report_of_the_whole` |
+| A gate set's shards are drawn by the home's salt, never by place, and its parts write counts alone | `tests/test_evals.py::test_a_gate_sets_shards_are_drawn_by_the_homes_salt_and_merged_by_their_counts_alone` |
 | The Release's gate judges a gate set named in the configuration by every completed dispatch on the commit | `tests/test_release_step.py::test_a_gate_set_is_judged_by_every_dispatch_on_the_commit` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
