@@ -9894,8 +9894,39 @@ class Writes(unittest.TestCase):
             "harness/anymodules.py": "def go(x):\n    return x.modules\n",
             "harness/innerok.py": "from harness import portinst\n\n\ndef go(m):\n    def inner():\n        m = portinst\n"
                                   "        return m\n    m.PORT = 1\n    return inner\n",
-            "harness/rebinds.py": "from re import compile\n\nPATTERN = compile('x')\n\n\ndef go(evals):\n    for eval in evals:\n"
-                                  "        yield eval\n",
+            "harness/rebinds.py": "from re import compile\n\nPATTERN = compile('x')\n",
+            # Their reads of the first fix round: more shell spellings, __base__, exec as a default, a default that is its
+            # own parameter's name, a walrus set on, and a class a local module's constant is.
+            "harness/ifgh.py": "import os\n\n\ndef go():\n    return os.system('if gh pr merge 1; then true; fi')\n",
+            "harness/sudogh.py": "import os\n\n\ndef go():\n    return os.system('sudo -u root gh pr merge 1')\n",
+            "harness/quotedsemi.py": "import os\n\n\ndef go():\n    return os.system('sh -c \"gh;true\"')\n",
+            "harness/banggit.py": "import os\n\n\ndef go():\n    return os.system('! git push')\n",
+            "harness/baseset.py": "from adapters import effects\n\n\ndef install(x):\n    x.__base__.w = effects.approve\n",
+            "harness/execdefault.py": "def go(s, exec=exec):\n    return exec(s)\n",
+            "harness/selfdefault.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install(Port=Port):\n"
+                                      "    Port.w = effects.approve\n",
+            "harness/walrustarget.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                       "    (c := Port).w = effects.approve\n",
+            "harness/portalias.py": "from harness.portc import Port\n\nP = Port\n",
+            "harness/viaalias2.py": "from adapters import effects\nfrom harness import portalias\n\n\ndef install(m=portalias):\n"
+                                    "    m.P.w = effects.approve\n",
+            "harness/globalclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef f():\n    global C\n"
+                                      "    C = Port\n    C.w = effects.approve\n",
+            "harness/nonlocalclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef f():\n    c = None\n\n"
+                                        "    def g():\n        nonlocal c\n        c = Port\n    g()\n    c.w = effects.approve\n",
+            "harness/reloader.py": "from tools.mutants import importlib\n",
+            "harness/attrloader.py": "import tools.mutants as m\n\n\ndef go():\n    return m.importlib\n",
+            "adapters/topwalrus.py": "from adapters import effects\nfrom harness import portinst\n\nif (W := portinst):\n    pass\n\n\n"
+                                     "def install():\n    W.go = effects.approve\n",
+            "adapters/tryalias.py": "from adapters import effects\nfrom harness import portinst\n\ntry:\n    W = portinst\n"
+                                    "except ImportError:\n    W = None\n\n\ndef install():\n    W.go = effects.approve\n",
+            "harness/compwalrus.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                     "    [(c := Port) for _ in (1,)]\n    c.w = effects.approve\n",
+            "harness/setitems.py": "import operator\n\nfrom harness import portinst\n\noperator.setitem(portinst.TABLE, 'w', len)\n"
+                                   "portinst.TABLE.__setitem__('v', len)\n",
+            "harness/handsvars.py": "from harness import portinst\n\ndict.update(vars(portinst), go=len)\n",
+            "harness/timeoutgit.py": "import os\n\n\ndef go():\n    return os.system('timeout 60 git push')\n",
+            "harness/modstore.py": "class C:\n    def __init__(self):\n        self.modules = {}\n",
             "harness/execs.py": "def go(t):\n    exec('from adapters import effects')\n    return eval('effects.approve(t)')\n",
             "harness/compiles.py": "CODE = compile('1', 'x', 'eval')\n",
             # And what runs nothing, or sets a name of the function's own, passes.
@@ -9997,6 +10028,26 @@ class Writes(unittest.TestCase):
                           ("harness/runpyload.py:1", "loads a module by its name"),
                           ("harness/syskey.py:5", "loads a module by its name"),
                           ("harness/anymodules.py:2", "loads a module by its name"),
+                          ("harness/ifgh.py:5", "names gh or git as a command"),
+                          ("harness/sudogh.py:5", "names gh or git as a command"),
+                          ("harness/quotedsemi.py:5", "names gh or git as a command"),
+                          ("harness/banggit.py:5", "names gh or git as a command"),
+                          ("harness/baseset.py:5", "sets w on an object's class"),
+                          ("harness/execdefault.py:1", "runs code from text"),
+                          ("harness/selfdefault.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/walrustarget.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/viaalias2.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/globalclass.py:8", "sets w on the class Port from outside its module's top level"),
+                          ("harness/nonlocalclass.py:12", "sets w on the class Port from outside its module's top level"),
+                          ("harness/reloader.py:1", "loads a module by its name"),
+                          ("harness/attrloader.py:5", "loads a module by its name"),
+                          ("adapters/topwalrus.py:9", "sets harness.portinst.go from another module"),
+                          ("adapters/tryalias.py:11", "sets harness.portinst.go from another module"),
+                          ("harness/compwalrus.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/setitems.py:5", "sets an attribute by setattr, or may"),
+                          ("harness/setitems.py:6", "sets an attribute by setattr, or may"),
+                          ("harness/handsvars.py:3", "hands on harness.portinst's names"),
+                          ("harness/timeoutgit.py:5", "names gh or git as a command"),
                           ("harness/sysget.py:5", "loads a module by its name"),
                           ("harness/sysdict.py:5", "loads a module by its name"),
                           ("harness/sysalias.py:3", "loads a module by its name"),
@@ -10017,7 +10068,8 @@ class Writes(unittest.TestCase):
                           ("harness/execs.py:3", "runs code from text"),
                           ("harness/compiles.py:1", "runs code from text")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
-        for rel in ("harness/says.py", "harness/localok.py", "harness/ownok.py", "harness/rebinds.py", "harness/innerok.py"):
+        for rel in ("harness/says.py", "harness/localok.py", "harness/ownok.py", "harness/rebinds.py", "harness/innerok.py",
+                    "harness/modstore.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
     def test_a_namespace_package_is_read_as_one(self):  # issue 596
