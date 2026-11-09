@@ -9834,11 +9834,12 @@ class Writes(unittest.TestCase):
             "adapters/lendmod.py": "from adapters import effects\nimport harness.portinst\n\nharness.portinst.go = effects.approve\n",
             "harness/lendfn.py": "from adapters import effects\nfrom harness.portinst import go\n\ngo.w = effects.approve\n",
             "harness/sysget.py": "import sys\n\n\ndef go(t):\n    return getattr(sys, 'modules')['adapters.effects'].approve(t)\n",
-            "harness/sysdict.py": "import sys\n\n\ndef go(t):\n    return sys.__dict__['modules']['adapters.effects'].approve(t)\n",
+            "harness/sysdict.py": "import sys\n\n\ndef go(t, name):\n    return sys.__dict__[name]\n",
             "harness/sysalias.py": "import sys\n\ns = sys\n\n\ndef go(t):\n    return s.modules['adapters.effects'].approve(t)\n",
-            "harness/ossys.py": "import os\n\n\ndef go(t):\n    return os.sys.modules['adapters.effects'].approve(t)\n",
-            "harness/sysvia.py": "import harness.sysa as a\n\n\ndef go(t):\n    return a.sys.modules['adapters.effects'].approve(t)\n",
-            "harness/fromossys.py": "from os import sys as s\n\n\ndef go(t):\n    return s.modules['adapters.effects'].approve(t)\n",
+            "harness/ossys.py": "import os\n\n\ndef go(t):\n    return os.sys\n",
+            "harness/sysvia.py": "import harness.sysa as a\n\n\ndef go(t):\n    return a.sys\n",
+            "harness/fromossys.py": "from os import sys as s\n\n\ndef go(t):\n    return s\n",
+            "harness/sysc.py": "from harness.sysa import sys\n\nS = sys\n",
             "harness/envgh.py": "import os\n\n\ndef go():\n    return os.system('env gh pr merge 1')\n",
             "harness/andgh.py": "import subprocess\n\n\ndef go():\n    return subprocess.run('true && gh pr merge 1', shell=True)\n",
             "harness/vargh.py": "import os\n\n\ndef go():\n    return os.system('FOO=1 gh pr merge 1')\n",
@@ -9848,7 +9849,53 @@ class Writes(unittest.TestCase):
             "harness/winexe.py": "import subprocess\n\n\ndef go():\n    return subprocess.run(['C:\\\\tools\\\\gh.exe', 'pr', 'merge', '1'])\n",
             "harness/upper.py": "import subprocess\n\n\ndef go():\n    return subprocess.run(['GIT', 'push'])\n",
             "harness/bytesgit.py": "import subprocess\n\n\ndef go():\n    return subprocess.run([b'git', b'push'])\n",
-            "harness/getossys.py": "import os\n\n\ndef go(t):\n    return getattr(os, 'sys').modules['adapters.effects'].approve(t)\n",
+            "harness/getossys.py": "import os\n\n\ndef go(t):\n    return getattr(os, 'sys')\n",
+            # Their reads: another module's name by an alias, a default, a walrus, under a nested scope's same name or
+            # filled by a call; a class by two steps, a tuple, an outer function or a walrus; an object's class held by a
+            # name; more commands a shell runs; code run by way of __builtins__; and sys by a key or anything's modules.
+            "adapters/aliasowner.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n"
+                                      "    table = portinst.TABLE\n    table['go'] = effects.approve\n",
+            "adapters/modalias.py": "from adapters import effects\nfrom harness import portinst\n\nm = portinst\nm.go = effects.approve\n",
+            "adapters/defowner.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install(d=portinst.TABLE):\n"
+                                    "    d['k'] = effects.approve\n",
+            "adapters/nestshadow.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n"
+                                      "    _ = lambda portinst: None\n    portinst.go = effects.approve\n",
+            "adapters/localattr.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n    m = portinst\n"
+                                     "    m.PORT.w = effects.approve\n",
+            "adapters/fills.py": "from adapters import effects\nfrom harness import portinst\n\nportinst.TABLE.update(go=effects.approve)\n"
+                                 "portinst.TABLE.setdefault('w', effects.approve)\n",
+            "adapters/varsset.py": "from adapters import effects\nfrom harness import portinst\n\nvars(portinst)['go'] = effects.approve\n",
+            "adapters/walrus.py": "from adapters import effects\nfrom harness import portinst\n\n\ndef install():\n"
+                                  "    if (y := portinst.TABLE):\n        y['k'] = effects.approve\n",
+            "harness/twostep.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n    a = Port\n"
+                                  "    b = a\n    b.w = effects.approve\n",
+            "harness/outerparam.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef outer(cls=Port):\n"
+                                     "    def inner():\n        cls.w = effects.approve\n    return inner\n",
+            "harness/tupleclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                     "    cls, _ = Port, 1\n    cls.w = effects.approve\n",
+            "harness/walrusclass.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef install():\n"
+                                      "    if (P := Port):\n        P.w = effects.approve\n",
+            "harness/typealias.py": "from adapters import effects\n\n\ndef install(x):\n    c = type(x)\n    c.w = effects.approve\n"
+                                    "    d = x.__class__\n    d.v = effects.approve\n    x.__mro__[0].u = effects.approve\n"
+                                    "    x.__bases__[0].t = effects.approve\n    e = x.__mro__[0]\n    e.s = effects.approve\n",
+            "harness/nlgit.py": "import os\n\n\ndef go():\n    return os.system('cd x\\ngit push')\n",
+            "harness/execgit.py": "import os\n\n\ndef go():\n    return os.system('exec git push')\n",
+            "harness/envflag.py": "import os\n\n\ndef go():\n    return os.system('env -i gh pr merge 1')\n",
+            "harness/bracegit.py": "import os\n\n\ndef go():\n    return os.system('{ git push; }')\n",
+            "harness/semigh.py": "import os\n\n\ndef go():\n    return os.system('gh;true')\n",
+            "harness/dollargh.py": "import os\n\n\ndef go():\n    return os.system('echo $(gh)')\n",
+            "harness/shquoted.py": "import os\n\n\ndef go():\n    return os.system('sh -c \"git push\"')\n",
+            "harness/thengit.py": "import os\n\n\ndef go():\n    return os.system('if true; then git push; fi')\n",
+            "harness/builtinsname.py": "def go(s):\n    return __builtins__.exec(s)\n",
+            "harness/importattr.py": "import os\n\n\ndef go():\n    return os.__import__('adapters.effects')\n",
+            "harness/pkgload.py": "import pkgutil\n\n\ndef go():\n    return pkgutil.resolve_name('adapters.effects:approve')\n",
+            "harness/runpyload.py": "import runpy\n",
+            "harness/syskey.py": "import os\n\n\ndef go():\n    return vars(os)['sys']\n",
+            "harness/anymodules.py": "def go(x):\n    return x.modules\n",
+            "harness/innerok.py": "from harness import portinst\n\n\ndef go(m):\n    def inner():\n        m = portinst\n"
+                                  "        return m\n    m.PORT = 1\n    return inner\n",
+            "harness/rebinds.py": "from re import compile\n\nPATTERN = compile('x')\n\n\ndef go(evals):\n    for eval in evals:\n"
+                                  "        yield eval\n",
             "harness/execs.py": "def go(t):\n    exec('from adapters import effects')\n    return eval('effects.approve(t)')\n",
             "harness/compiles.py": "CODE = compile('1', 'x', 'eval')\n",
             # And what runs nothing, or sets a name of the function's own, passes.
@@ -9911,11 +9958,45 @@ class Writes(unittest.TestCase):
                           ("harness/shadowcls.py:9", "sets w on the class Port from outside its module's top level"),
                           ("harness/shadowexc.py:10", "sets w on the class Port from outside its module's top level"),
                           ("harness/ifsetter.py:7", "sets w on the class Port from outside its module's top level"),
-                          ("adapters/lendinst.py:4", "sets an attribute or a key of harness.portinst.PORT from another module"),
-                          ("adapters/lendinst.py:5", "sets an attribute or a key of harness.portinst.TABLE from another module"),
+                          ("adapters/lendinst.py:4", "sets harness.portinst.PORT.w from another module"),
+                          ("adapters/lendinst.py:5", "sets a key of harness.portinst.TABLE from another module"),
                           ("adapters/lendinst.py:6", "sets an attribute or a key of harness.portinst.TABLE from another module"),
-                          ("adapters/lendmod.py:4", "sets an attribute or a key of harness.portinst from another module"),
-                          ("harness/lendfn.py:4", "sets an attribute or a key of harness.portinst.go from another module"),
+                          ("adapters/lendmod.py:4", "sets harness.portinst.go from another module"),
+                          ("harness/lendfn.py:4", "sets harness.portinst.go.w from another module"),
+                          ("harness/sysc.py:3", "loads a module by its name"),
+                          ("adapters/aliasowner.py:7", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/modalias.py:5", "sets harness.portinst.go from another module"),
+                          ("adapters/defowner.py:6", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/nestshadow.py:7", "sets harness.portinst.go from another module"),
+                          ("adapters/localattr.py:7", "sets harness.portinst.PORT.w from another module"),
+                          ("adapters/fills.py:4", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/fills.py:5", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/varsset.py:4", "sets a key of harness.portinst from another module"),
+                          ("adapters/walrus.py:7", "sets a key of harness.portinst.TABLE from another module"),
+                          ("harness/twostep.py:8", "sets w on the class Port from outside its module's top level"),
+                          ("harness/outerparam.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/tupleclass.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/walrusclass.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("harness/typealias.py:6", "sets w on an object's class"),
+                          ("harness/typealias.py:8", "sets v on an object's class"),
+                          ("harness/typealias.py:9", "sets u on an object's class"),
+                          ("harness/typealias.py:10", "sets t on an object's class"),
+                          ("harness/typealias.py:12", "sets s on an object's class"),
+                          ("harness/nlgit.py:5", "names gh or git as a command"),
+                          ("harness/execgit.py:5", "names gh or git as a command"),
+                          ("harness/envflag.py:5", "names gh or git as a command"),
+                          ("harness/bracegit.py:5", "names gh or git as a command"),
+                          ("harness/semigh.py:5", "names gh or git as a command"),
+                          ("harness/dollargh.py:5", "names gh or git as a command"),
+                          ("harness/shquoted.py:5", "names gh or git as a command"),
+                          ("harness/thengit.py:5", "names gh or git as a command"),
+                          ("harness/builtinsname.py:2", "loads a module by its name"),
+                          ("harness/builtinsname.py:2", "runs code from text"),
+                          ("harness/importattr.py:5", "loads a module by its name"),
+                          ("harness/pkgload.py:1", "loads a module by its name"),
+                          ("harness/runpyload.py:1", "loads a module by its name"),
+                          ("harness/syskey.py:5", "loads a module by its name"),
+                          ("harness/anymodules.py:2", "loads a module by its name"),
                           ("harness/sysget.py:5", "loads a module by its name"),
                           ("harness/sysdict.py:5", "loads a module by its name"),
                           ("harness/sysalias.py:3", "loads a module by its name"),
@@ -9936,7 +10017,7 @@ class Writes(unittest.TestCase):
                           ("harness/execs.py:3", "runs code from text"),
                           ("harness/compiles.py:1", "runs code from text")):
             self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
-        for rel in ("harness/says.py", "harness/localok.py", "harness/ownok.py"):
+        for rel in ("harness/says.py", "harness/localok.py", "harness/ownok.py", "harness/rebinds.py", "harness/innerok.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
     def test_a_namespace_package_is_read_as_one(self):  # issue 596
@@ -9970,9 +10051,11 @@ class Writes(unittest.TestCase):
         # So does a RUNNERS entry that holds no command (issue 596).
         with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("harness/approve.py",)):
             self.assertTrue(caught(check_writes.run(), "RUNNERS names harness/approve.py, which holds no command"))
-        # And a PATCHERS entry that sets no name of another module's (issue 640).
-        with mock.patch.object(check_writes, "PATCHERS", check_writes.PATCHERS + ("harness/approve.py",)):
-            self.assertTrue(caught(check_writes.run(), "PATCHERS names harness/approve.py, which sets no name of another module's"))
+        # And a PATCHERS entry for a name it does not set; and a listed patcher that sets another (issue 640).
+        with mock.patch.dict(check_writes.PATCHERS, {"harness/approve.py": {"x.y"}}):
+            self.assertTrue(caught(check_writes.run(), "PATCHERS names harness/approve.py for x.y, which it does not set"))
+        corpus = (ROOT / "tools" / "make_corpus.py").read_text() + "\n\nsim.world.other = len\n"
+        self.assertTrue(caught(check_writes.run(clone({"tools/make_corpus.py": corpus})), "sets sim.world.other from another module"))
 
     def test_a_graphql_mutation_is_a_write_and_a_query_a_read(self):
         peek = "from adapters import %s\n\n\ndef peek(transport):\n    return %s.mark(transport, 'x')\n"
