@@ -10,8 +10,7 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | A Release is cut only from a verified commit of `main`, newer than every Release, of the Channel's major | `tests/test_release.py::test_each_rule_of_a_cut_refuses_with_its_own_code` |
 | `next` moves only through the eval gate, judged for that Release and read before anything is written | `tests/test_release.py::test_a_closed_eval_gate_refuses_every_cut_and_move_and_burns_no_version` |
 | A step moves only a Channel the ring file declares, to a commit one Release names alone | `tests/test_release.py::test_only_a_channel_the_ring_file_declares_is_moved`, `tests/test_release.py::test_a_channel_moves_only_to_a_commit_one_release_names_alone` |
-| No step writes a Release tag | `tests/test_release.py::test_no_step_writes_a_release_tag_and_none_names_anything_but_a_channel` |
-| No step moves `stable` until promotion is built | `tests/test_release.py::test_stable_is_never_moved_until_promotion_is_built` |
+| No step writes a Release tag, or moves `stable` until promotion is built | `tests/test_release.py::test_no_step_writes_a_release_tag_and_none_names_anything_but_a_channel`, `tests/test_release.py::test_stable_is_never_moved_until_promotion_is_built` |
 | A rollback passes no gate and moves only back | `tests/test_release.py::test_a_rollback_passes_no_gate_and_never_moves_forward` |
 | By default it moves to the greatest Release below | `tests/test_release.py::test_a_rollback_by_default_takes_the_greatest_release_below_the_one_next_is_on` |
 | A commit's Release is its one Release tag; a Channel never is one, and two are none | `tests/test_release.py::test_a_commit_with_no_release_or_two_resolves_to_none` |
@@ -38,3 +37,4 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | Only `.github/workflows/release.yml` runs the step, held to its shape: one job on `factory-release`, its token for this repo alone, no checkout an output names | `tests/test_release_workflow.py::test_each_counter_example_is_refused_for_its_one_fault` |
 | No other workflow names the release job's environment, key, token or step | `tests/test_release_workflow.py::test_only_release_yml_names_the_release_jobs_environment_key_token_or_step` |
 | A cut asked with no version, as the schedule asks one, is of the next patch of its major | `tests/test_release_workflow.py::test_a_cut_asked_with_no_version_is_of_the_next_patch_or_the_majors_first` |
+| The step keeps its exchanges held to lists and redacted, never changing what it does | `tests/test_release_exchanges.py::test_the_leak_surface_is_left_out`, `tests/test_release_exchanges.py::test_a_step_that_stops_or_fails_still_keeps_what_it_sent` |

@@ -13,6 +13,7 @@ from tools import check_workflows
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LIVE = (ROOT / ".github" / "workflows" / "release.yml").read_text()
 STEP_ENV = "          RELEASE_TOKEN: ${{ steps.mint.outputs.token }}\n"
+UPLOAD_STEP = "      - if: always()\n        uses: actions/upload-artifact@"
 
 
 def caught(problems: list, words: str) -> bool:
@@ -101,7 +102,20 @@ class Shape(unittest.TestCase):
             "a with given a text": (LIVE.replace('\n        with:\n', '\n        with: x\n', 1), "has a with: it is not given"),
             # An empty `with:` on the step that takes none, and a step of text after the steps' keys (Argon's read of
             # #379).
-            "an empty with on a step that takes none": (LIVE + "        with:\n", "its step step has exactly env, run"),
+            "an empty with on a step that takes none": (LIVE.replace(UPLOAD_STEP, "        with:\n" + UPLOAD_STEP),
+                                                        "its step step has exactly env, run"),
+            # Issue 531: the step's exchanges are uploaded whatever stopped it, as one artifact kept 90 days, and
+            # nothing prints them.
+            "the exchanges kept only when the step succeeds": (LIVE.replace(UPLOAD_STEP, UPLOAD_STEP.replace(
+                "      - if: always()\n        uses:", "      - uses:")), "its upload step has exactly"),
+            "the exchanges printed": (LIVE.replace(UPLOAD_STEP, "      - run: cat release-exchanges.json\n" + UPLOAD_STEP),
+                                      "its steps are mint, checkout, step, upload"),
+            "the exchanges under another name": (LIVE.replace("name: release-exchanges", "name: exchanges"),
+                                                 "its upload step is given under with"),
+            "the exchanges kept 30 days": (LIVE.replace("retention-days: 90", "retention-days: 30"),
+                                           "its upload step is given under with"),
+            "a file of the exchanges not named": (LIVE.replace("          RELEASE_EXCHANGES: ${{ github.workspace }}\n", ""),
+                                                  "its step step is given under env"),
             # A bare item beside the steps' mappings is not the narrow form at all (issue 371): it stands under no key
             # without a value, where a YAML reader could take it for more of the last step's command.
             "a step of text after the last step": (LIVE + "      - justastring\n", "is not in the narrow form"),

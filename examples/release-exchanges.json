@@ -1,0 +1,85 @@
+{
+  "schema": "release-exchanges/1",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "release"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/git/matching-refs/tags/factory",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"30eb71c9\""
+        },
+        "body": [
+          {
+            "ref": "refs/tags/factory/v0-next",
+            "object": {
+              "sha": "499835d5384ba81c466b17199edcde1848431630",
+              "type": "commit"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "release"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/artifacts/9/zip",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/zip"
+        },
+        "measured": {
+          "size": 1024,
+          "sha256": "14fbe23eefd818500379b102bccdce8df98bd560f317782f90a816a8da0cb2f4"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "release"
+        },
+        "via": "rest",
+        "call": "PATCH /repos/combsmith/software-factory/git/refs/tags/factory/v0-next",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "sha": "499835d5384ba81c466b17199edcde1848431630",
+          "force": true
+        }
+      },
+      "response": {
+        "raised": "Unanswered"
+      }
+    }
+  ],
+  "removed": [],
+  "dropped": [
+    "exchanges[0].response.body[0].node_id",
+    "exchanges[0].response.body[0].url"
+  ],
+  "unkept": 0
+}

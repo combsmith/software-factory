@@ -18,7 +18,8 @@ Release planned. Just before it moves `next` it reads the tags once more, and st
 no longer where the plan read it: a step run beside it, or a person, moved it, and the plan was made of another state
 (decision 0080). A hand move between that read and the write is not seen, since a ref's update compares nothing; and records a Deployment of each move of `next` once read back. A rollback reads no fact and passes
 no gate, so it works while the Factory is broken. It prints what it did, by codes alone, and exits 0, or 1 with the
-code that stopped it. Nothing here reads a file at any tag.
+code that stopped it. Nothing here reads a file at any tag. Where `RELEASE_EXCHANGES` names a folder, it keeps each
+exchange in it as `release/exchanges.py` says, whatever stopped the step, and prints none of it (issue 531).
 
 The Channels a step may move are those `release/rings.json` declares, and `next` is the one a step moves.
 """
@@ -28,7 +29,7 @@ import json
 import pathlib
 import sys
 
-from release import current, cut
+from release import current, cut, exchanges
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RINGS = ROOT / "release" / "rings.json"
@@ -160,10 +161,25 @@ def main(argv, stdin=None, rings=RINGS, environ=None, connect=None) -> int:
         if connect is None:
             from adapters.github import Live
             connect = Live
+        environ = dict(environ if environ is not None else {})
+        # Where RELEASE_EXCHANGES names a folder, each exchange is kept in it for the run's artifact (issue 531),
+        # whatever stopped the step: kept as release/exchanges.py says, and never printed.
+        # One recording for the step, however many transports it makes, written even where it made none.
+        recording = exchanges.Recording(None) if environ.get("RELEASE_EXCHANGES") else None
+
+        def made(token):
+            transport = connect(token)
+            if recording is None:
+                return transport
+            recording.inner = transport
+            return recording
         try:
-            done, refused = run(dict(environ if environ is not None else {}), connect, _json(rings))
+            done, refused = run(environ, made, _json(rings))
         except Exception:      # one code, and no traceback, which could quote what GitHub answered
             done, refused = {"writes": [], "deployments": []}, "step_failed"
+        finally:
+            if recording is not None:
+                recording.write(environ["RELEASE_EXCHANGES"])
         print(json.dumps(dict(done, refused=refused) if refused else done))
         return 1 if refused else 0
     if list(argv) != ["plan"]:
