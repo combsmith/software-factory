@@ -3213,6 +3213,7 @@ class EvalJob(unittest.TestCase):
                 (changed(["ledger"], []), "report_unreadable"),
                 # A part's ledger named twice, or a whole run's beside a part's, is no run's (issue 611).
                 (changed(["ledger"], good["ledger"] * 2), "count_differs"),
+                (changed(["ledger"], [dict(good["ledger"][0], part="0"), dict(good["ledger"][0], part="0")]), "count_differs"),
                 (changed(["ledger"], good["ledger"] + [dict(good["ledger"][0], part="0")]), "count_differs"),
                 (changed(["models"], KeyError), "report_unreadable"),
                 (changed(["cases"], [{"id": "c-0", "verdict": "pass"}]), "report_unreadable"),
