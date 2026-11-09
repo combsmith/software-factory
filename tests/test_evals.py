@@ -3146,7 +3146,10 @@ class EvalJob(unittest.TestCase):
                 # Where no kind was read, the job says nothing of the split or the blocking cases either.
                 (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
                 (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
-                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None), "eval_split_short"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, kinds_pass=None, split_ok=None, blocking_pass=None),
+                 "eval_split_short"),
+                # Where no kind was read, no criterion was either (issue 692).
+                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None), "count_differs"),
                 (dict(copy.deepcopy(good), kinds=None, split_ok=None, blocking_pass=None), "count_differs"),
                 (self.aggregate_of(finding=(19, 6), met=(21, 19), natural=(30, 18))[2], "count_differs"),
                 (changed(["bars", "finding"], [2, 10]), "bars_differ"),
@@ -3429,8 +3432,8 @@ class EvalJob(unittest.TestCase):
         # So does one under the bar alone that says so: its own verdict is the bar's, which the pool reads past.
         self.assertEqual(judged([good, good, dict(under, split_ok=False)]), "eval_split_short")
         self.assertEqual(judged([good, good, dict(under, blocking_pass=None)]), "eval_split_short")
-        self.assertEqual(judged([good, good, dict(good, kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None)]),
-                         "eval_split_short")
+        self.assertEqual(judged([good, good, dict(good, kinds=None, criteria=None, kinds_pass=None, split_ok=None,
+                                                  blocking_pass=None)]), "eval_split_short")
         # The blocking word is true only where every run's is, and closes nothing (decision 0150).
         missed = dict(good, blocking_pass=False)
         self.assertEqual((job.pooled([good, missed, good])["blocking_pass"], job.pooled([good] * 3)["blocking_pass"]),
