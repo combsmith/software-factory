@@ -2560,9 +2560,12 @@ class Workflows(unittest.TestCase):
         # least; the Engine's step calls the CLI for its tier's seconds at most, with two reads of its version.
         from harness.eval import run as eval_run
         live = ROOT / ".github" / "workflows"
-        limit = re.search(r"      - run: python3 -m harness\.eval\.run\n        timeout-minutes: (\d+)\n",
-                          (live / "eval.yml").read_text())
-        self.assertGreaterEqual(int(limit.group(1)) * 60, eval_run.BUDGET)
+        # The preflight's job and the shards' each run it (issue 611): each limit holds the budget.
+        limits = re.findall(r"      - run: python3 -m harness\.eval\.run\n        timeout-minutes: (\d+)\n",
+                            (live / "eval.yml").read_text())
+        self.assertEqual(len(limits), 2)
+        for limit in limits:
+            self.assertGreaterEqual(int(limit) * 60, eval_run.BUDGET)
         engine = re.search(r"        timeout-minutes: (\d+)\n        run: python3 -m harness\.run\n",
                            (live / "run-jobs.yml").read_text())
         tiers = json.loads((ROOT / "config" / "harness.json").read_text())
