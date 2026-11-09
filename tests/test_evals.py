@@ -831,6 +831,8 @@ class TheSet(unittest.TestCase):
                                                  "'s plan step is given under env"),
             "one shard's part named for all": (EVAL_WORKFLOW.replace("name: eval-part-${{ matrix.shard }}", "name: eval-part"),
                                                "'s upload step is given under with"),
+            "the merge's own limit": (EVAL_WORKFLOW.replace("    timeout-minutes: 10\n", "    timeout-minutes: 120\n"),
+                                      "its job merge runs on ubuntu-24.04, with a timeout of 10 minutes"),
             "a download of every artifact": (EVAL_WORKFLOW.replace("pattern: eval-part-*", "pattern: eval-*"),
                                              "'s download step is given under with"),
             "the report under the ledger's name": (EVAL_WORKFLOW.replace("name: eval-report", "name: eval-ledger"),
@@ -3210,7 +3212,7 @@ class EvalJob(unittest.TestCase):
                 # A gate set's report is of counts alone, and a development set's is per case: neither stands for the other.
                 (loaded("examples/eval-report.json"), "report_of_another_kind"),
                 (changed(["ledger", 0, "sealed_sha256"], KeyError), "report_unreadable"),
-                (changed(["ledger"], []), "report_unreadable"),
+                (changed(["ledger"], []), "count_differs"),
                 # A part's ledger named twice, or a whole run's beside a part's, is no run's (issue 611).
                 (changed(["ledger"], good["ledger"] * 2), "count_differs"),
                 (changed(["ledger"], [dict(good["ledger"][0], part="0"), dict(good["ledger"][0], part="0")]), "count_differs"),
@@ -3590,6 +3592,14 @@ class EvalJob(unittest.TestCase):
         said, written, outputs = self.merged_run(parts)
         self.assertEqual(said, "merged 3 of 3 parts, 5 passed")
         self.assertEqual(outputs, "", "a development set has no ledger to name")
+        # The merge holds the split to a blocking case at least, by the parts' words, as `split_ok` holds the whole set.
+        kept = json.loads((pathlib.Path(self.dir.name) / "job-merge" / "temp" / "heldout" / "plan.json").read_text())
+        read = {p: json.loads((w / job.PART).read_text()) for p, w in parts.items()}
+        none = {p: dict(d, blocking={"some": False, "passed": True}) for p, d in read.items()}
+        one = dict(none, **{"1": dict(none["1"], blocking={"some": True, "passed": False})})
+        with mock.patch.object(job, "BLOCKING_LEAST", 1):
+            self.assertEqual([job.merged(kept, job.manifest(self.root)[0], r, self.root)["split_ok"] for r in (none, one)], [False, True])
+            self.assertEqual(job.merged(kept, job.manifest(self.root)[0], one, self.root)["blocking_pass"], False)
         # The whole run's report, from one job.
         self.step(job.plan)
         self.step(the_fetch(), self.home(cases))
@@ -3670,6 +3680,10 @@ class EvalJob(unittest.TestCase):
         # a shard run again is no part of a run whose others were drawn before it.
         self.assertTrue(any(drawn(salt, "4242", str(a)) != drawn(salt, "4242", "1") for a in range(2, 9)))
         self.assertEqual(self.merged_run(parts, attempt="2")[0], "merged 1 of 3 parts, 0 passed")
+        again = drawn(salt, "4242", "2")
+        home = github.Replay([salted] + home_of({i: cases[i] for i in ids if i in again}))
+        said, _ = self.part_run("0", home, review, run=("4242", "2"))
+        self.assertEqual(set(json.loads((pathlib.Path(self.dir.name) / "job-0-2" / "temp" / "heldout" / "part.json").read_text())), again)
         # A gate set's part that holds no ledger but its own is no part of the run.
         kept = json.loads((parts["1"] / job.PART).read_text())
         row = {"id": "c-0", "sha256": "0" * 64, "verdict": "pass", "reasons": [], "usage": dict(job.NOT_ASKED)}

@@ -960,6 +960,9 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
         return "engine_fault"
     if set(codes) & set(RUN_FAULTS):
         return "run_fault"
+    # A report that passes is sealed: a ledger of every part it read (issues 612 and 611).
+    if not document["ledger"]:
+        return "count_differs"
     # Each count is the job's: the natural cases are the manifest's, the passes are the report's own, and no case is
     # both passed and not read. A report whose counts do not add up is not the job's.
     natural, origin, passed = len([e for e in found["cases"] if e.get("natural") is True]), document["origin"], document["passed"]
@@ -1242,7 +1245,7 @@ def merged(kept: dict, found: dict, read: dict, root: pathlib.Path) -> dict:
     as `split_ok`, `kinds_pass` and `blocking_pass` would say it of the whole set."""
     shards = [read[str(i)] for i in range(kept["shards"])]
     present = [d for d in shards if d is not None]
-    whole = len(present) == kept["shards"] and sum(d["asked"] for d in present) == found["count"]
+    whole = sum(d["asked"] for d in present) == found["count"]
     kinds = {k: _summed([None if d["kinds"] is None else d["kinds"][k] for d in present]) for k in KINDS} if whole else None
     kinds = None if kinds is None or None in kinds.values() else kinds
     blocked = None if kinds is None or any(d["blocking"] is None for d in present) else {

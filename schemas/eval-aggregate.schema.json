@@ -525,9 +525,8 @@
       ]
     },
     "ledger": {
-      "description": "Each part's ledger, the whole run's or, for a run split into parts, the preflight's and each shard's, in that order: the sha256 of the ledger under its salt, and of its ciphertext, which the seal step writes (issues 612 and 611). A report without both of each is not a sealed run's.",
+      "description": "Each part's ledger, the whole run's or, for a run split into parts, the preflight's and each shard's, in that order: the sha256 of the ledger under its salt, and of its ciphertext, which the seal step writes (issues 612 and 611). A report without both of each is not a sealed run's, and one with none passes no gate: a split run none of whose parts was read has none.",
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
