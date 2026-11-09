@@ -3172,8 +3172,9 @@ class MergesAndSettings(Asks):
         self.assertEqual(self.run_('touch x.json; cd lifecycle; echo "$(echo "$(date)")"'), "")
         self.assertEqual(self.run_('rm kernel/gate.py; echo "$(echo "$(date)"; true)"').count("protected_path"), 1)
         # A Claude Code session after a nested one is asked about, as a write is (Muse's read of #652).
-        self.asked(self.run_('echo "$(echo "$(date)"; claude --dangerously-skip-permissions -p hi)"'), "unasked_session",
-                   "a session after a nested substitution")
+        for command in ('echo "$(echo "$(date)"; claude --dangerously-skip-permissions -p hi)"',
+                        'echo $(which claude); echo "$(echo "$(date)"; claude --dangerously-skip-permissions -p hi)"'):
+            self.asked(self.run_(command), "unasked_session", command)
         # Past RESPELT_MOST characters the command is read once, as main reads it, in linear time (the security pass).
         long = 'echo %s; echo "$(echo "$(date)"; rm kernel/gate.py)"' % ("a" * protected.RESPELT_MOST)
         self.assertEqual(self.run_(long), "")

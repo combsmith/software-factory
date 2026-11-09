@@ -528,7 +528,7 @@ class Command:
             # either asks about is asked (check gives each ask once).
             self.here = start
             self.asks_of(again)
-            self.sessions(again)        # a Claude Code session the first reading missed is asked about too (Muse)
+            self.sessions(again, spelt=True)        # a Claude Code session the first reading missed is asked about too (Muse)
         return self.found
 
     def asks_of(self, commands: list):
@@ -934,7 +934,7 @@ class Command:
 
     # -- a session that asks nobody
 
-    def sessions(self, commands: list):
+    def sessions(self, commands: list, spelt: bool = False):
         """Ask about each command that runs Claude Code with no one asked (decision 0021).
 
         Claude Code runs when the program is one config/hooks.json names, by its name, its path or its package, with
@@ -955,8 +955,9 @@ class Command:
         # $(which claude) and `which claude` stand for Claude Code's path: read each as the name it looks up.
         text = shell.WHICH.sub(lambda m: m.group(1) if self._claude(m.group(1), claude) else m.group(0), self.text)
         try:
-            listed = [self._expanded(words) for words, _ in (_split(text, self.spend) if text != self.text
-                                                              else commands) if words]
+            # Rewritten, the text is read again as `commands` was read: flat, or spelt (Muse on the #652 follow-on).
+            again = (_respelt(text, self.spend) if spelt else _split(text, self.spend)) if text != self.text else commands
+            listed = [self._expanded(words) for words, _ in again if words]
             functions = shell.functions(text, self.spend)     # in each script it runs, too
         except (ValueError, RecursionError):
             self.ask("command_unreadable", "the command cannot be split into words")
