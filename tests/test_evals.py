@@ -3641,7 +3641,8 @@ class EvalJob(unittest.TestCase):
         said, written, outputs = self.merged_run(parts)
         self.assertEqual(said, "merged 3 of 3 parts, 6 passed")
         self.assertEqual([e["part"] for e in written["ledger"]], ["preflight", "0", "1"])
-        self.assertEqual(outputs, "ledger_sha256=%s\n" % job.ledger_digest(written["ledger"]))
+        self.assertEqual(outputs, "ledger_sha256=%s\n" % hashlib.sha256(
+            json.dumps([e["sealed_sha256"] for e in written["ledger"]], separators=(",", ":")).encode()).hexdigest())
         self.assertEqual(written["preflight"], {"cases": 3, "passed": 3, "faults": []})
         found, digest = job.manifest(self.root, "pr-review-gate")
         self.assertEqual(job.verdict(written, found, digest, self.env["GITHUB_SHA"], self.env["RELEASE"]), "pass")

@@ -865,6 +865,21 @@ def faults_of(assessed: dict) -> list:
     return [{"code": code, "count": codes.count(code)} for code in sorted(set(codes))]
 
 
+def preflight_counts(ahead: dict) -> dict:
+    """The cases a gate set's dispatch asked first, counted apart: how many, how many passed, and each code of one not
+    read, by how many (issue 613)."""
+    return {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
+            "faults": faults_of(ahead)}
+
+
+def kept_ledger(place: pathlib.Path, document: dict) -> bytes:
+    """`document`, a ledger, written to the scratch alone, readable by the runner's user alone, for `seal`; its bytes."""
+    data = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
+        out.write(data)
+    return data
+
+
 def preflight_stops(ahead: dict) -> bool:
     """Whether the cases a gate set's dispatch asked first stop it before any of the set's own is asked: one of them
     stopped by the Engine or the run, or none passed, as a scorer that fails every case would have it (issue 613). One
@@ -893,8 +908,7 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
             "intent": found["intent"], "set": dict(kept["set"]), "passed": len(passed), "kinds": counted,
             "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
             "faults": faults_of(assessed),
-            "preflight": {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
-                          "faults": faults_of(ahead)},
+            "preflight": preflight_counts(ahead),
             "usage": usage_of(results), "engine": engine_of(found["role"]), "models": models(usages or {}),
             "bars": {kind: list(bars_of(found)[kind]) for kind in KINDS}, "kind_least": kind_least_of(found),
             "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
@@ -1087,21 +1101,12 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     """`(assessed, report)` of a gate set's run: each case, with its Result, written to the ledger in the scratch, and the
     report of counts alone that binds it (issue 612). The cases its preflight names are asked first, scored apart; where
     `preflight_stops`, none of the set's own is asked, and each is `unanswered` (issue 613)."""
-    results, first, spent, answers = {}, dict(found, cases=kept["preflight"]), {}, {}
-    # What a preflight case's read raised, as `score` reads the set's own, so that the ledger says why it was not read.
-    try:
-        told = _read(place / PREFLIGHT, "fetch-causes.json")
-    except Stop:
-        told = {}
-    told = dict(told) if isinstance(told, dict) else {}
-    ahead = assess(first, _read(place / PREFLIGHT, "fetched.json"), place / PREFLIGHT, review, told, usages=spent,
-                   results=answers)
+    results = {}
+    ahead, told, spent, answers = preflight_asked(kept, found, place, review)
     why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
     assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
-    ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
-                                   (ahead, told, spent, answers)), indent=2, sort_keys=True) + "\n").encode("utf-8")
-    with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
-        out.write(ledger)
+    ledger = kept_ledger(place, ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
+                                          (ahead, told, spent, answers)))
     return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)
 
 
@@ -1109,6 +1114,7 @@ def preflight_asked(kept: dict, found: dict, place: pathlib.Path, review) -> tup
     """`(assessed, causes, usages, results)` of the cases a gate set's dispatch asks first, as `assess` gives them, each
     read where `fetch` put them (issue 613)."""
     spent, answers = {}, {}
+    # What a preflight case's read raised, as `score` reads the set's own, so that the ledger says why it was not read.
     try:
         told = _read(place / PREFLIGHT, "fetch-causes.json")
     except Stop:
@@ -1156,11 +1162,9 @@ def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib
         assessed = assess(mine, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages, results)
     ledger = []
     if gate:
-        data = (json.dumps(ledger_of(dict(kept, preflight=kept["preflight"] if kept["part"] == PREFLIGHT else []), mine,
-                                     assessed, causes, alternates, results, surplus, usages, (ahead, told, spent, answers)),
-                           indent=2, sort_keys=True) + "\n").encode("utf-8")
-        with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
-            out.write(data)
+        data = kept_ledger(place, ledger_of(dict(kept, preflight=kept["preflight"] if kept["part"] == PREFLIGHT else []),
+                                            mine, assessed, causes, alternates, results, surplus, usages,
+                                            (ahead, told, spent, answers)))
         ledger = [{"part": kept["part"], "salted_sha256": hashlib.sha256(data).hexdigest()}]
     kinds, blocking = counts_of(mine, place, assessed)
     passed = {case for case, said in assessed.items() if said == (PASS, [])}
@@ -1171,8 +1175,7 @@ def part_scored(kept: dict, found: dict, place: pathlib.Path, workspace: pathlib
                "passed": len(passed), "kinds": kinds, "blocking": blocking,
                "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
                "faults": faults_of(assessed),
-               "preflight": {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
-                             "faults": faults_of(ahead)},
+               "preflight": preflight_counts(ahead),
                # The preflight's cases are counted apart, and nothing of them in the set's usage (decision 0170).
                "usage": usage_of(results), "models": models(usages),
                "cases": [] if gate else report(kept, mine, assessed, causes=causes, alternates=alternates,
@@ -1191,7 +1194,7 @@ def parts_of(kept: dict, found: dict, folder: pathlib.Path) -> dict:
         try:
             with open(within(within(folder, "eval-part-%s" % part), PART), encoding="utf-8") as f:
                 document = json.load(f)
-        except (OSError, ValueError, RecursionError, Stop):
+        except (Stop, OSError, ValueError, RecursionError):
             document = None
         if document is not None and (_errors(document, "eval-part") or document["part"] != part
                                      or document["cases"] and gate_set(found) or _judged(
@@ -1230,10 +1233,10 @@ def merged(kept: dict, found: dict, read: dict, root: pathlib.Path) -> dict:
         rows = {row["id"]: row for d in present for row in d["cases"]}
         cases = [rows.get(e["id"]) or {"id": e["id"], "sha256": e["sha256"], "verdict": "unreadable",
                                        "reasons": ["unanswered"], "usage": dict(NOT_ASKED)} for e in found["cases"]]
-        ran = identity(root, found["role"])
+        named = identity(root, found["role"])
         return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
                 "intent": found["intent"], "set": dict(kept["set"]), "models": answering,
-                "prompt_sha256": ran["prompt_sha256"], "rubric_sha256": ran["rubric_sha256"], "cases": cases,
+                "prompt_sha256": named["prompt_sha256"], "rubric_sha256": named["rubric_sha256"], "cases": cases,
                 "passed": len([c for c in cases if c["verdict"] == PASS]), "split_ok": held, "kinds_pass": words,
                 "blocking_pass": clear}
     faults = {}
