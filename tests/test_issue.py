@@ -941,6 +941,8 @@ class Done(unittest.TestCase):
         # its second. The Factory's merge is done (decision 0132).
         for rival in (pr(number=12, links=[("connected", 5)]), pr(number=12), pr(number=12, links=[("connected", 6)]),
                       pr(number=12, links=[("connected", 3), ("disconnected", 4)]),
+                      # Unlinked before the merge and linked again after it: no link at it.
+                      pr(number=12, links=[("connected", 3), ("disconnected", 4), ("connected", 7)]),
                       pr(number=12, is_open=False, closed=4, links=[("connected", 3)])):
             d = derive(facts(linked=[own, rival], **closed))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), rival)
