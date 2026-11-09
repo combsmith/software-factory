@@ -1,0 +1,1104 @@
+{
+  "schema": "trial/1",
+  "trial": "P-30",
+  "question": "Which identity can cut a Release and move a channel tag under a tag ruleset, from a workflow in the Factory repo?",
+  "pass": "One identity, through one path (section 6). As the story, #189, states it, under the Factory Builder's ruling of 2026-11-09, pre-approved by the Maintainer on 2026-11-08: from release.yml on main, one identity created the immutable tag factory/v0.1.0 and moved the channel tag factory/v0-next to it, in run 42348605675, and the Deployment of factory-next that the same step recorded names that identity as its creator; a second cut of the same Release, run 42348650504, wrote nothing; the tag ruleset factory release tags (25183656), which refuses creating, updating, deleting or force-pushing any refs/tags/factory/* tag, names in its bypass list that identity and the admin role alone, the admin role being the Maintainer's own login (recovery, section 9.1); and the ruleset factory releases are immutable (25996980) lets no one move or delete a Release tag. The live read of 25183656's bypass list stands in for each other identity's refusal, the machine user's and each other Factory App's: an identity the list does not name is refused by the ruleset. Residual, stated: no other identity's refusal was exercised. The identity is the App combsmith-sf-release, 5502359 (decision 0114). The poller's job token was not taken: GitHub grants a job token no workflows permission, which a tag on a commit that touches .github/workflows/ needs (decision 0114), and a bypass for it would name GitHub Actions, through which every workflow of this repo would pass the ruleset, not one path.",
+  "repo": "combsmith/software-factory",
+  "ran_at": "2026-11-09T02:44:03Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42348605675 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:04 GMT",
+          "etag": "W/\"1245ab3fa0ceda2743df24e95e676b2d56bfbbfd8b2236b7c26971e3b5453281\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5A1:C9190:26A6F92:800442B:6AF13373",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4682",
+          "x-ratelimit-reset": "1794192257",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "318"
+        },
+        "body": {
+          "id": 42348605675,
+          "name": "sf-release",
+          "node_id": "WFR_kwLOVFBqVc8AAAAJ3Cxw6w",
+          "head_branch": "main",
+          "head_sha": "499835d5384ba81c466b17199edcde1848431630",
+          "path": ".github/workflows/release.yml",
+          "display_title": "sf-release",
+          "run_number": 15,
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "success",
+          "workflow_id": 398755186,
+          "check_suite_id": 114738805087,
+          "check_suite_node_id": "CS_kwDOVFBqVc8AAAAatvc5Xw",
+          "url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348605675",
+          "html_url": "https://github.com/combsmith/software-factory/actions/runs/42348605675",
+          "pull_requests": [],
+          "created_at": "2026-11-07T06:48:28Z",
+          "updated_at": "2026-11-07T06:48:45Z",
+          "actor": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "run_attempt": 1,
+          "referenced_workflows": [],
+          "run_started_at": "2026-11-07T06:48:28Z",
+          "triggering_actor": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "jobs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348605675/jobs",
+          "logs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348605675/logs",
+          "check_suite_url": "https://api.github.com/repos/combsmith/software-factory/check-suites/114738805087",
+          "artifacts_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348605675/artifacts",
+          "cancel_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348605675/cancel",
+          "rerun_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348605675/rerun",
+          "previous_attempt_url": null,
+          "workflow_url": "https://api.github.com/repos/combsmith/software-factory/actions/workflows/398755186",
+          "head_commit": {
+            "id": "499835d5384ba81c466b17199edcde1848431630",
+            "tree_id": "fe2a466d35ef359b8cf55e1ea322d01e982ddcf2",
+            "message": "The artifact storage is any productionresults account numbered in one to three digits (record 0151) (#598)\n\n* The artifact storage is any productionresults account numbered in one to three digits (record NNNN)\n\nThe cut of factory/v0.1.0 was refused with eval_gate_closed: the eval\nreport's download redirected to productionresultssa32, which the\ntransport's STORAGE pattern, sa0 to sa19 by decision 0045, refused, so\nthe report was read as unanswered. By the Maintainer's ruling, the\nstorage is productionresultssa and one to three digits, with no leading\nzero; the rest of 0045's row stands.\n\n- STORAGE in adapters/github.py widened, and a boundary test: sa0 to\n  sa999 accepted; sa1000, a leading zero, a letter or non-ASCII digit\n  in the number, another account name and another host refused.\n- Mutants: a fourth digit, a stop at sa99 or sa19, a leading zero, a\n  trailing letter, Unicode digits, and any account name.\n- Record NNNN replaces 0147, the one record in force of those that hold\n  0045's rows (0045, then 0138, then 0147), and overturns only the\n  accounts 0045's row names. 0147's Status says it is replaced.\n\nEvery artifact read through the redirect, a Run's outcome, a Lens's\napplied/1, the pass records and the eval report, had the same latent\nfailure whenever GitHub served it past sa19.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* Fix round 1 on record 0151: no mutant that no test can kill, and the record named\n\n- The mutant giving the storage's number any Unicode digit is dropped:\n  storage() refuses a URL that is not ASCII before STORAGE is read, so\n  no test can tell it from the code. The record's row no longer claims\n  it (the security pass, the Claude review, Astra and Argon).\n- The record says that every account from sa0 to sa999 being GitHub's\n  is assumed, not known, and what the ruling accepts in it (the\n  security pass).\n- The record says a leading zero is refused, narrower than the ruling,\n  since GitHub's names have none (the Factory Builder).\n- NNNN is 0151, the Factory Builder's number, everywhere (Argon).\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+            "timestamp": "2026-11-07T06:03:10Z",
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com"
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com"
+            }
+          },
+          "repository": {
+            "id": 1414556245,
+            "node_id": "R_kgDOVFBqVQ",
+            "name": "software-factory",
+            "full_name": "combsmith/software-factory",
+            "private": false,
+            "owner": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "html_url": "https://github.com/combsmith/software-factory",
+            "description": "The Factory's decision core: a pure, checkable Kernel over GitHub facts, with schemas, lifecycles and a simulator",
+            "fork": false,
+            "url": "https://api.github.com/repos/combsmith/software-factory",
+            "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+            "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+            "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+            "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+            "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+            "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+            "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+            "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+            "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+            "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+            "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+            "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+            "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+            "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+            "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+            "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+            "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+            "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+            "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+            "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+            "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+            "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+            "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+            "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+            "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+            "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+            "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+            "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+            "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+            "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+            "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+            "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+            "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+            "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+            "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+          },
+          "head_repository": {
+            "id": 1414556245,
+            "node_id": "R_kgDOVFBqVQ",
+            "name": "software-factory",
+            "full_name": "combsmith/software-factory",
+            "private": false,
+            "owner": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "html_url": "https://github.com/combsmith/software-factory",
+            "description": "The Factory's decision core: a pure, checkable Kernel over GitHub facts, with schemas, lifecycles and a simulator",
+            "fork": false,
+            "url": "https://api.github.com/repos/combsmith/software-factory",
+            "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+            "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+            "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+            "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+            "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+            "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+            "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+            "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+            "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+            "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+            "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+            "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+            "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+            "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+            "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+            "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+            "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+            "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+            "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+            "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+            "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+            "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+            "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+            "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+            "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+            "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+            "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+            "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+            "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+            "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+            "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+            "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+            "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+            "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+            "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42348605675/jobs (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:04 GMT",
+          "etag": "W/\"7fe32c01a0a9ca3d824aae45766d7acf8e2897743fc1510de0c8d1e29c17a6da\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5A2:148802:1D6F978:616CF1F:6AF13374",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4864",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "136"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 128331696706,
+              "run_id": 42348605675,
+              "workflow_name": "sf-release",
+              "head_branch": "main",
+              "run_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348605675",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOVFBqVc8AAAAd4SpKQg",
+              "head_sha": "499835d5384ba81c466b17199edcde1848431630",
+              "url": "https://api.github.com/repos/combsmith/software-factory/actions/jobs/128331696706",
+              "html_url": "https://github.com/combsmith/software-factory/actions/runs/42348605675/job/128331696706",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-11-07T06:48:30Z",
+              "started_at": "2026-11-07T06:48:33Z",
+              "completed_at": "2026-11-07T06:48:45Z",
+              "name": "release",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-11-07T06:48:33Z",
+                  "completed_at": "2026-11-07T06:48:34Z"
+                },
+                {
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-11-07T06:48:34Z",
+                  "completed_at": "2026-11-07T06:48:35Z"
+                },
+                {
+                  "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-11-07T06:48:35Z",
+                  "completed_at": "2026-11-07T06:48:36Z"
+                },
+                {
+                  "name": "Run python3 -m release.move",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4,
+                  "started_at": "2026-11-07T06:48:36Z",
+                  "completed_at": "2026-11-07T06:48:42Z"
+                },
+                {
+                  "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 7,
+                  "started_at": "2026-11-07T06:48:42Z",
+                  "completed_at": "2026-11-07T06:48:42Z"
+                },
+                {
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 8,
+                  "started_at": "2026-11-07T06:48:42Z",
+                  "completed_at": "2026-11-07T06:48:43Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 9,
+                  "started_at": "2026-11-07T06:48:43Z",
+                  "completed_at": "2026-11-07T06:48:43Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory/check-runs/128331696706",
+              "labels": [
+                "ubuntu-24.04"
+              ],
+              "runner_id": 1000861594,
+              "runner_name": "GitHub Actions 1000861594",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/deployments?environment=factory-next (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:05 GMT",
+          "etag": "W/\"4f1c9410d392ee0f3dbe78bd44738751f28301734bc5232941cde5921f479750\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo, repo_deployment",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5A3:1EE6F7:25877C8:7C4312F:6AF13375",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4863",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "137"
+        },
+        "body": [
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory/deployments/7617833539",
+            "id": 7617833539,
+            "node_id": "DE_kwDOVFBqVc8AAAABxg7qQw",
+            "task": "deploy",
+            "original_environment": "factory-next",
+            "environment": "factory-next",
+            "description": "factory/v0.1.0",
+            "created_at": "2026-11-07T06:48:42Z",
+            "updated_at": "2026-11-07T06:48:42Z",
+            "statuses_url": "https://api.github.com/repos/combsmith/software-factory/deployments/7617833539/statuses",
+            "repository_url": "https://api.github.com/repos/combsmith/software-factory",
+            "creator": {
+              "login": "combsmith-sf-release[bot]",
+              "id": 349046324,
+              "node_id": "BOT_kgDOFM4GNA",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-release",
+              "followers_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-release%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "sha": "499835d5384ba81c466b17199edcde1848431630",
+            "ref": "499835d5384ba81c466b17199edcde1848431630",
+            "payload": {},
+            "transient_environment": false,
+            "production_environment": false,
+            "performed_via_github_app": null
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/git/ref/tags/factory/v0.1.0 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:05 GMT",
+          "etag": "W/\"bfaa2d87e3b242338243c15de3a09ce284225ead593614579d0b02193209225c\"",
+          "last-modified": "Mon, 09 Nov 2026 01:43:23 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5A6:29A68C:27E391F:83ED8ED:6AF13375",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4862",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "138"
+        },
+        "body": {
+          "ref": "refs/tags/factory/v0.1.0",
+          "node_id": "REF_kwDOVFBqVbhyZWZzL3RhZ3MvZmFjdG9yeS92MC4xLjA",
+          "url": "https://api.github.com/repos/combsmith/software-factory/git/refs/tags/factory/v0.1.0",
+          "object": {
+            "sha": "499835d5384ba81c466b17199edcde1848431630",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory/git/commits/499835d5384ba81c466b17199edcde1848431630"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/git/ref/tags/factory/v0-next (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:06 GMT",
+          "etag": "W/\"e8d359ec6d3b4c1c18e27634199cc5ecbbc75be16199c1ac9b731394a5731a37\"",
+          "last-modified": "Mon, 09 Nov 2026 01:43:23 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5AA:9B7E2:25ED172:7D79A25:6AF13376",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4861",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "139"
+        },
+        "body": {
+          "ref": "refs/tags/factory/v0-next",
+          "node_id": "REF_kwDOVFBqVblyZWZzL3RhZ3MvZmFjdG9yeS92MC1uZXh0",
+          "url": "https://api.github.com/repos/combsmith/software-factory/git/refs/tags/factory/v0-next",
+          "object": {
+            "sha": "499835d5384ba81c466b17199edcde1848431630",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory/git/commits/499835d5384ba81c466b17199edcde1848431630"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42348650504 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:06 GMT",
+          "etag": "W/\"384b02884daa866e64cb3b9bd6a5cb4da0c4530684b45fe355ab32aab2b6b8ec\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5AC:21681:2602246:7DE4317:6AF13376",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4681",
+          "x-ratelimit-reset": "1794192257",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "319"
+        },
+        "body": {
+          "id": 42348650504,
+          "name": "sf-release",
+          "node_id": "WFR_kwLOVFBqVc8AAAAJ3C0gCA",
+          "head_branch": "main",
+          "head_sha": "499835d5384ba81c466b17199edcde1848431630",
+          "path": ".github/workflows/release.yml",
+          "display_title": "sf-release",
+          "run_number": 16,
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "failure",
+          "workflow_id": 398755186,
+          "check_suite_id": 114738919203,
+          "check_suite_node_id": "CS_kwDOVFBqVc8AAAAatvj3Iw",
+          "url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348650504",
+          "html_url": "https://github.com/combsmith/software-factory/actions/runs/42348650504",
+          "pull_requests": [],
+          "created_at": "2026-11-07T06:49:08Z",
+          "updated_at": "2026-11-07T06:49:23Z",
+          "actor": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "run_attempt": 1,
+          "referenced_workflows": [],
+          "run_started_at": "2026-11-07T06:49:08Z",
+          "triggering_actor": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "jobs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348650504/jobs",
+          "logs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348650504/logs",
+          "check_suite_url": "https://api.github.com/repos/combsmith/software-factory/check-suites/114738919203",
+          "artifacts_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348650504/artifacts",
+          "cancel_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348650504/cancel",
+          "rerun_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348650504/rerun",
+          "previous_attempt_url": null,
+          "workflow_url": "https://api.github.com/repos/combsmith/software-factory/actions/workflows/398755186",
+          "head_commit": {
+            "id": "499835d5384ba81c466b17199edcde1848431630",
+            "tree_id": "fe2a466d35ef359b8cf55e1ea322d01e982ddcf2",
+            "message": "The artifact storage is any productionresults account numbered in one to three digits (record 0151) (#598)\n\n* The artifact storage is any productionresults account numbered in one to three digits (record NNNN)\n\nThe cut of factory/v0.1.0 was refused with eval_gate_closed: the eval\nreport's download redirected to productionresultssa32, which the\ntransport's STORAGE pattern, sa0 to sa19 by decision 0045, refused, so\nthe report was read as unanswered. By the Maintainer's ruling, the\nstorage is productionresultssa and one to three digits, with no leading\nzero; the rest of 0045's row stands.\n\n- STORAGE in adapters/github.py widened, and a boundary test: sa0 to\n  sa999 accepted; sa1000, a leading zero, a letter or non-ASCII digit\n  in the number, another account name and another host refused.\n- Mutants: a fourth digit, a stop at sa99 or sa19, a leading zero, a\n  trailing letter, Unicode digits, and any account name.\n- Record NNNN replaces 0147, the one record in force of those that hold\n  0045's rows (0045, then 0138, then 0147), and overturns only the\n  accounts 0045's row names. 0147's Status says it is replaced.\n\nEvery artifact read through the redirect, a Run's outcome, a Lens's\napplied/1, the pass records and the eval report, had the same latent\nfailure whenever GitHub served it past sa19.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* Fix round 1 on record 0151: no mutant that no test can kill, and the record named\n\n- The mutant giving the storage's number any Unicode digit is dropped:\n  storage() refuses a URL that is not ASCII before STORAGE is read, so\n  no test can tell it from the code. The record's row no longer claims\n  it (the security pass, the Claude review, Astra and Argon).\n- The record says that every account from sa0 to sa999 being GitHub's\n  is assumed, not known, and what the ruling accepts in it (the\n  security pass).\n- The record says a leading zero is refused, narrower than the ruling,\n  since GitHub's names have none (the Factory Builder).\n- NNNN is 0151, the Factory Builder's number, everywhere (Argon).\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+            "timestamp": "2026-11-07T06:03:10Z",
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com"
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com"
+            }
+          },
+          "repository": {
+            "id": 1414556245,
+            "node_id": "R_kgDOVFBqVQ",
+            "name": "software-factory",
+            "full_name": "combsmith/software-factory",
+            "private": false,
+            "owner": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "html_url": "https://github.com/combsmith/software-factory",
+            "description": "The Factory's decision core: a pure, checkable Kernel over GitHub facts, with schemas, lifecycles and a simulator",
+            "fork": false,
+            "url": "https://api.github.com/repos/combsmith/software-factory",
+            "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+            "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+            "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+            "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+            "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+            "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+            "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+            "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+            "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+            "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+            "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+            "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+            "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+            "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+            "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+            "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+            "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+            "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+            "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+            "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+            "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+            "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+            "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+            "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+            "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+            "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+            "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+            "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+            "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+            "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+            "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+            "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+            "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+            "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+            "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+          },
+          "head_repository": {
+            "id": 1414556245,
+            "node_id": "R_kgDOVFBqVQ",
+            "name": "software-factory",
+            "full_name": "combsmith/software-factory",
+            "private": false,
+            "owner": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "html_url": "https://github.com/combsmith/software-factory",
+            "description": "The Factory's decision core: a pure, checkable Kernel over GitHub facts, with schemas, lifecycles and a simulator",
+            "fork": false,
+            "url": "https://api.github.com/repos/combsmith/software-factory",
+            "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+            "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+            "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+            "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+            "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+            "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+            "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+            "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+            "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+            "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+            "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+            "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+            "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+            "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+            "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+            "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+            "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+            "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+            "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+            "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+            "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+            "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+            "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+            "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+            "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+            "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+            "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+            "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+            "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+            "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+            "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+            "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+            "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+            "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+            "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42348650504/jobs (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:07 GMT",
+          "etag": "W/\"ec80e42eaf52ca953f72278be11525c19fc9eb23aca20ab21f568e1c0778523b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5AD:69339:25CA145:7D108BA:6AF13377",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4860",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "140"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 128331834219,
+              "run_id": 42348650504,
+              "workflow_name": "sf-release",
+              "head_branch": "main",
+              "run_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/42348650504",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOVFBqVc8AAAAd4Sxjaw",
+              "head_sha": "499835d5384ba81c466b17199edcde1848431630",
+              "url": "https://api.github.com/repos/combsmith/software-factory/actions/jobs/128331834219",
+              "html_url": "https://github.com/combsmith/software-factory/actions/runs/42348650504/job/128331834219",
+              "status": "completed",
+              "conclusion": "failure",
+              "created_at": "2026-11-07T06:49:10Z",
+              "started_at": "2026-11-07T06:49:13Z",
+              "completed_at": "2026-11-07T06:49:22Z",
+              "name": "release",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-11-07T06:49:13Z",
+                  "completed_at": "2026-11-07T06:49:14Z"
+                },
+                {
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-11-07T06:49:14Z",
+                  "completed_at": "2026-11-07T06:49:15Z"
+                },
+                {
+                  "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-11-07T06:49:15Z",
+                  "completed_at": "2026-11-07T06:49:16Z"
+                },
+                {
+                  "name": "Run python3 -m release.move",
+                  "status": "completed",
+                  "conclusion": "failure",
+                  "number": 4,
+                  "started_at": "2026-11-07T06:49:16Z",
+                  "completed_at": "2026-11-07T06:49:19Z"
+                },
+                {
+                  "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 7,
+                  "started_at": "2026-11-07T06:49:19Z",
+                  "completed_at": "2026-11-07T06:49:19Z"
+                },
+                {
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 8,
+                  "started_at": "2026-11-07T06:49:19Z",
+                  "completed_at": "2026-11-07T06:49:20Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 9,
+                  "started_at": "2026-11-07T06:49:20Z",
+                  "completed_at": "2026-11-07T06:49:20Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory/check-runs/128331834219",
+              "labels": [
+                "ubuntu-24.04"
+              ],
+              "runner_id": 1000861596,
+              "runner_name": "GitHub Actions 1000861596",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/rulesets/25183656 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:08 GMT",
+          "etag": "W/\"648b56872769b3d31cd03bc67d1226118a310ea183199970a1e3ea9475240d86\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5B4:74C48:28141FF:84C01EF:6AF13377",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4859",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "141"
+        },
+        "body": {
+          "id": 25183656,
+          "name": "factory release tags",
+          "target": "tag",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "refs/tags/factory/*"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "creation"
+            },
+            {
+              "type": "update"
+            },
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUGpVzgGARag",
+          "created_at": "2026-10-15T12:48:45.102-05:00",
+          "updated_at": "2026-10-27T17:20:14.827-05:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            },
+            {
+              "actor_id": 5502359,
+              "actor_type": "Integration",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory/rulesets/25183656"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory/rules/25183656"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/rulesets/25996980 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 02:44:08 GMT",
+          "etag": "W/\"9cc6ab334e24bc81a2283fb85622d7822e59473e165511d80efbd8dec6dbecbd\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E5B7:C3AC6:2621094:7ED0390:6AF13378",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4858",
+          "x-ratelimit-reset": "1794194503",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "142"
+        },
+        "body": {
+          "id": 25996980,
+          "name": "factory releases are immutable",
+          "target": "tag",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "refs/tags/factory/v*.*.*"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "update"
+            },
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUGpVzgGMrrQ",
+          "created_at": "2026-10-27T17:20:20.158-05:00",
+          "updated_at": "2026-10-27T17:20:20.208-05:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory/rulesets/25996980"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory/rules/25996980"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[*].response.headers: every header but those a trial's fixture keeps, as tools/redact_trial.py reported them",
+    "exchanges[1].response.body.jobs[0].steps[1].name",
+    "exchanges[1].response.body.jobs[0].steps[5].name",
+    "exchanges[6].response.body.jobs[0].steps[1].name",
+    "exchanges[6].response.body.jobs[0].steps[5].name"
+  ],
+  "verdict": "pass"
+}
