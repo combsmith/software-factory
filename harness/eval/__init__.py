@@ -66,7 +66,7 @@ BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}
 KIND_LEAST = 20
 KINDS = ("finding", "met")
 BLOCKING = "blocking"       # whether every case that expects a Finding of this severity passed is said, and closes nothing
-BLOCKING_LEAST = 1          # by itself (decision 0150); a set holds one, or a true word for them could mean none exist
+BLOCKING_LEAST = 1          # by itself (decision 0150); a development set holds one, or a true word could mean none exist
 # How many dispatches on one commit a gate set's gate pools, every one of them counted, so that no run is the best of
 # several (issue 613).
 POOL_LEAST = 3
@@ -678,7 +678,7 @@ def blocking_cases(found: dict, expected: dict) -> list:
 def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
     """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many, which
     the judge's line says and which closes nothing by itself (decision 0150). True of a set with none, which `split_ok`
-    closes on. None where `_expected` can say nothing."""
+    closes on for a development set and not for a gate set (issue 691). None where `_expected` can say nothing."""
     expected = _expected(found, place)
     if expected is None:
         return None

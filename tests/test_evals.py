@@ -1585,7 +1585,8 @@ class EvalJob(unittest.TestCase):
         self.assertIs(told(**{"c-blocking": ("pass", ["surplus_at_place"])}), True)
         # Any other severity, and a clean case, is the bar's to weigh.
         self.assertIs(told(**{"c-major": miss, "c-minor": miss, "c-met": ("fail", ["criterion_not_met"])}), True)
-        # A set with none has nothing for the word to hold, and a set must hold one: it is short, by a code and no count.
+        # A set with none has nothing for the word to hold, and a development set must hold one: it is short, by a code
+        # and no count. A gate set need not (issue 691).
         self.assertIs(job.blocking_pass({"cases": [{"id": "c-major"}]}, place, passed), True)
         with mock.patch.object(job, "BLOCKING_LEAST", 1):
             self.assertIs(job.split_ok(found, place), True)

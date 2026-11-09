@@ -1,6 +1,6 @@
 # NNNN. A gate set's split needs no case that expects a blocking Finding
 
-Status: accepted. The Factory Builder's story of 2026-11-09, issue 691, "A gate set's split needs no case that expects a blocking Finding", raised by the Evals v2 work as a precondition of the first gate run. It amends decision 0150's blocking word for gate sets alone: a development set still holds one such case, `BLOCKING_LEAST`, or `split_ok` is false.
+Status: accepted. The Factory Builder's story of 2026-11-09, issue 691, "A gate set's split needs no case that expects a blocking Finding", a precondition of a gate set that grades only what no check holds. It amends decision 0150's blocking word for gate sets alone: a development set still holds one such case, `BLOCKING_LEAST`, or `split_ok` is false.
 
 ## Decision
 
