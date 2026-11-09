@@ -126,7 +126,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api --include): the same ruleset, its pull_request rule asking no approving review, no code owner's and no approval of the last push, so that a pull request the Maintainer opens can be queued; restored after the trial (exchange 11)",
+        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api --include): the same ruleset, its pull_request rule asking no approving review, no code owner's and no approval of the last push, so that a pull request the Maintainer opens can be queued; restored after the trial by the same PUT of the ruleset as read in exchange 0, which exchange 11 reads back, the same in every field but updated_at",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -694,7 +694,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/commits/49e59571af12062938b9e5513a297dfa76ab23dd/check-runs (gh api --include): the head's check runs before the enqueue, once none was still going. Besides p2-queue-check, CodeQL, SonarCloud, CodeRabbit and CodeQL's Analyze job, none a Factory App's and none required. The Factory Builder's ruling of 2026-11-09 on this trial's verdict, pass: the pass condition's \"no check run or status but p2-queue-check's\" means no check or status of a Factory App's. The other checks are CodeQL's, SonarCloud's and CodeRabbit's, none a Factory App's and none required, so they do not bear on whether a pass came before the merge",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/49e59571af12062938b9e5513a297dfa76ab23dd/check-runs (gh api --include): the head's check runs before the enqueue, once none was still going",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -2030,7 +2030,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/commits/6cc643a999dcc2280b46fcdc7681f1974748070b/check-runs (gh api --include): the merge's check runs, read right after the merge. Besides p2-queue-check, CodeRabbit's and CodeQL's Analyze job, the last still not concluded when read: the queue did not wait for it. The Factory Builder's ruling of 2026-11-09 on this trial's verdict, pass: the pass condition's \"no check run or status but p2-queue-check's\" means no check or status of a Factory App's. The other checks are CodeQL's, SonarCloud's and CodeRabbit's, none a Factory App's and none required, so they do not bear on whether a pass came before the merge",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/6cc643a999dcc2280b46fcdc7681f1974748070b/check-runs (gh api --include): the merge's check runs, read right after the merge",
         "headers": {
           "accept": "application/vnd.github+json"
         },
@@ -3308,6 +3308,32 @@
               "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
             }
           }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "python3, in a scratch directory outside the repo: the answer, from the reads above and nothing else",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "enqueued_by": "don-petry",
+          "enqueued_at": "2026-11-09T13:41:54Z",
+          "merge_group_check": "p2-queue-check, success, on the merge group's commit 6cc643a, 13:44:08Z to 13:48:12Z",
+          "merged_at": "2026-11-09T13:48:46Z",
+          "merged_by": "don-petry, as GitHub names the enqueuer; github-merge-queue removed it from the queue",
+          "factory_app_check_or_status": false,
+          "words": "The queue merged the pull request once its one required check passed on the merge group, with no pass read and no check or status of a Factory App's asked of it. One clause of the pass condition did not hold as written: 'no check run or status but p2-queue-check's'. The head carried five others, CodeQL's, SonarCloud's two, from two Apps, CodeRabbit's and CodeQL's Analyze job; the merge two, CodeRabbit's and CodeQL's Analyze job, the last queued at 13:48:49Z by the merge's push to main, after the merge. None is a Factory App's and none is required.",
+          "principle": "The Factory Builder's ruling of 2026-11-09 on this trial's verdict, pass: the clause means no check or status of a Factory App's. The others are CodeQL's, SonarCloud's and CodeRabbit's, none a Factory App's and none required, so they do not bear on whether a pass came before the merge."
         }
       }
     }
