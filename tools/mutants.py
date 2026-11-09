@@ -110,6 +110,7 @@ SURPLUS_JOB = ("tests.test_evals.EvalJob.test_the_report_counts_each_cases_gatin
 SURPLUS_GATE = ("tests.test_evals.EvalJob.test_a_gate_set_fails_a_case_on_the_surplus_bound_alone",)
 SURPLUS_BAR = ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_a_fault_still_closes_it",)
 CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
+NEXT_CUT_FIXTURE = ("tests.test_release.Fixture.test_the_next_cut_moved_next_on",)
 ROLLBACK_FIXTURE = ("tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
@@ -4168,6 +4169,32 @@ MUTANTS = ISSUE + [
      '    return {word for word in words if "." in word}\n',
      '    return set()\n', ('tests.test_tools.Context',)),
     # The first cut's fixture: the ruleset that keeps a Release tag immutable, read after the cut (records 0071, 0120).
+    # The second cut's fixture: the eval it passed, `next` moved on, and the first Release left where it was.
+    ('the second cut passed an eval of another workflow', 'release/fixtures/cut.v0-1-1.json',
+     '\n              "path": ".github/workflows/eval.yml"', '\n              "path": ".github/workflows/ci.yml"',
+     NEXT_CUT_FIXTURE),
+    ('the second cut passed an eval that ended after it', 'release/fixtures/cut.v0-1-1.json',
+     '\n              "updated_at": "2026-11-09T20:52:53Z"', '\n              "updated_at": "2026-11-09T20:55:53Z"',
+     NEXT_CUT_FIXTURE),
+    ('the first Release moved with the second cut', 'release/fixtures/cut.v0-1-1.json',
+     '"ref": "refs/tags/factory/v0.1.0",\n              "object": {\n                "sha": "499835d5384ba81c466b17199edcde1848431630"',
+     '"ref": "refs/tags/factory/v0.1.0",\n              "object": {\n                "sha": "7ff090d7d59e3ef6c32b3ae957d9f2cc6fb3000a"',
+     NEXT_CUT_FIXTURE),
+    ("next's newest Deployment is not of the second Release", 'release/fixtures/cut.v0-1-1.json',
+     '"description": "factory/v0.1.1"', '"description": "factory/v0.1.0"', NEXT_CUT_FIXTURE),
+    ("the second cut's Deployment did not succeed", 'release/fixtures/cut.v0-1-1.json',
+     '"id": 21798083435,\n                "state": "success"', '"id": 21798083435,\n                "state": "failure"',
+     NEXT_CUT_FIXTURE),
+    ("the first Release's Deployment still reads its success", 'release/fixtures/cut.v0-1-1.json',
+     '"state": "inactive"', '"state": "success"', NEXT_CUT_FIXTURE),
+    ('the second cut passed another eval run', 'release/fixtures/cut.v0-1-1.json',
+     '\n              "id": 42694638100,', '\n              "id": 42694638101,', NEXT_CUT_FIXTURE),
+    ('the second cut passed an eval of another commit', 'release/fixtures/cut.v0-1-1.json',
+     '"head_sha": "7ff090d7d59e3ef6c32b3ae957d9f2cc6fb3000a",\n              "run_attempt": 1,\n              "workflow_id": 399025209',
+     '"head_sha": "499835d5384ba81c466b17199edcde1848431630",\n              "run_attempt": 1,\n              "workflow_id": 399025209',
+     NEXT_CUT_FIXTURE),
+    ('the eval workflow ran another run on the cut commit', 'release/fixtures/cut.v0-1-1.json',
+     '\n                  "id": 42694638100,', '\n                  "id": 42694638101,', NEXT_CUT_FIXTURE),
     ('a Release tag may be moved', 'release/fixtures/cut.v0-1-0.json',
      '"enforcement": "active"', '"enforcement": "evaluate"', CUT_FIXTURE),
     ('an admin may force a Release tag to another commit', 'release/fixtures/cut.v0-1-0.json',
