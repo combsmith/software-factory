@@ -259,8 +259,8 @@ def readable_type(facts: dict) -> bool:
 
 def readable_type_events(facts: dict) -> bool:
     """Whether the changes of the issue's type can be read: each the type before and after, a name or null for none,
-    with its time, in the order the timeline lists them; each from the type the last left, and the last leaving the
-    type as it is now (issue 551). Row 1 does not read them at the merge while the Consumer entry has no history."""
+    and a change, with its time, in the order the timeline lists them; each from the type the last left, and the last
+    leaving the type as it is now (issue 551). Row 1 does not read them at the merge while the Consumer entry has no history."""
     events = facts.get("type_events")
     if not isinstance(events, list):
         return False
@@ -270,6 +270,8 @@ def readable_type_events(facts: dict) -> bool:
                for ev in events):
         return False
     if any(later["at"] < ev["at"] or later["from"] != ev["to"] for ev, later in zip(events, events[1:])):
+        return False
+    if any(ev["from"] == ev["to"] for ev in events):     # each changes the type, as a link event changes the link
         return False
     return not events or events[-1]["to"] == facts["type"]
 
@@ -525,6 +527,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(None, "label_unreadable", [])
     if not (isinstance(facts.get("linked"), list) and all(readable_link(p, config) for p in facts["linked"])):
         return out(None, "linked_unreadable", [])
+    # Each pull request once: one listed twice would count as two links (issue 551).
+    if len({p["number"] for p in facts["linked"]}) != len(facts["linked"]):
+        return out(None, "linked_unreadable", [])
     if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY
             and readable_reopening(facts)):
         return out(None, "life_unreadable", [])
@@ -585,11 +590,14 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         if stopped_before(facts, first) and not placed_by_a_person(standing_labels(past), past):
             return out(t.HELD, "merged_while_held", merges)
         # Two pull requests linked by hand before the first merge's second, neither closed before it, were two links at
-        # it: the issue stood held (row 4), and the merge leaves it so (issue 551). A link in the merge's second, or one
-        # with no time, a closing keyword's, reads as before: the Factory's merge beside another in its second is done
-        # (decision 0132).
-        stood = [str(p["number"]) for p in links
-                 if linked_by_hand_before(p, first) and (p["closed_at"] is None or p["closed_at"] >= first)]
+        # it: the issue stood held (row 4), and the merge leaves it so (issue 551). Each is read as it stood at the
+        # merge: an outsider's only where a person had admitted it by then, so no admission after the merge moves a
+        # done issue. One a person has unlinked since lets the merge read on, as a Hold a person removes does. A link in
+        # the merge's second, or one with no time, a closing keyword's, reads as before: the Factory's merge beside
+        # another in its second is done (decision 0132).
+        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
+                 and linked_by_hand_before(p, first) and p["link_events"][-1]["action"] == CONNECTED
+                 and (p["closed_at"] is None or p["closed_at"] >= first)]
         if len(stood) > 1:
             return out(t.HELD, "merged_while_held", stood)
         # Done only where the Factory's merge or a person's, in the first merge's second, closed the issue; where

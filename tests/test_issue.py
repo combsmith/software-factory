@@ -346,6 +346,8 @@ class Unreadable(unittest.TestCase):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), entry)
         self.assertEqual(derive(facts(linked=None))["reason"], "linked_unreadable")
+        # One pull request listed twice, which would be two links (issue 551).
+        self.assertEqual(derive(facts(linked=[pr(), pr()]))["reason"], "linked_unreadable")
         # The other side: the first number, closed unmerged, merged, and a stranger's pull request are read.
         self.assertEqual(state(facts(linked=[pr(number=1)])), "in_review")
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
@@ -365,13 +367,13 @@ class Unreadable(unittest.TestCase):
                      {"type": "Bug", "type_events": [task, dict(bug, **{"from": "Feature"})]},
                      {"type": "Bug", "type_events": [task]}, {"type": None, "type_events": [task]},
                      {"type": "Task", "type_events": [dict(task, **{"from": 5})]},
-                     {"type": "Bug", "type_events": [dict(task, at=at(3)), dict(bug, at=at(2))]}):
+                     {"type": "Bug", "type_events": [dict(task, at=at(3)), dict(bug, at=at(2))]},
+                     {"type": "Task", "type_events": [task, dict(task, **{"from": "Task", "at": at(2)})]}):
             d = derive(facts(**over))
             self.assertEqual((d["state"], d["reason"]), (None, "type_unreadable"), over)
         # The other side: none with no type, the chain to the type now, and a removal that leaves none.
         for over in ({}, {"type": "Bug", "type_events": [task, bug]},
-                     {"type": None, "type_events": [task, {"from": "Task", "to": None, "at": at(3)}]},
-                     {"type": "Task", "type_events": [task, dict(task, **{"from": "Task", "at": at(2)})]}):
+                     {"type": None, "type_events": [task, {"from": "Task", "to": None, "at": at(3)}]}):
             self.assertEqual(derive(facts(**over))["reason"], "acceptance_due", over)
 
     def test_draft_events_in_the_opening_second_and_after_the_close_are_read(self):  # issue 554
@@ -945,6 +947,20 @@ class Done(unittest.TestCase):
         late = agents(number=11, is_open=False, merged=5, links=[("connected", 5)])
         d = derive(facts(linked=[late, pr(number=12, links=[("connected", 3)])], **closed))
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]))
+        # Each is read as it stood at the merge: an outsider's admitted by then holds it, one admitted after does not, so
+        # no admission after the merge moves a done issue.
+        admitted = strangers(number=13, events=[labelled(ADMIT, minute=4)], links=[("connected", 3)])
+        d = derive(facts(linked=[own, admitted], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "13"]))
+        later = strangers(number=13, events=[labelled(ADMIT, minute=9)], links=[("connected", 3)])
+        d = derive(facts(linked=[own, later], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]))
+        # A person who unlinks the rival after the merge, or in its second, lets the merge read on, as a Hold removed
+        # does; linked again since, it holds again.
+        for links, held in (([("connected", 3), ("disconnected", 7)], False), ([("connected", 3), ("disconnected", 5)], False),
+                            ([("connected", 3), ("disconnected", 7), ("connected", 8)], True)):
+            d = derive(facts(linked=[own, pr(number=12, links=links)], **closed))
+            self.assertEqual(d["state"], "held" if held else "done", links)
 
     def test_an_empty_merge_is_not_done(self):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=True)])), "new")
