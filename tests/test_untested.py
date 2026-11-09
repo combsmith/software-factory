@@ -342,7 +342,10 @@ class Reverts(unittest.TestCase):
                      "import os\n\n\n@lambda f: os.getenv\ndef helper(x):\n    return x\n\n\nMUTANTS = [\n"
                      "    ('a', helper('X')),\n]\n",
                      "import pathlib\nROOT = pathlib.Path('.')\n\n\ndef helper():\n    return ROOT\n\n\nMUTANTS = [\n"
-                     "    ('a', helper().replace('x')),\n]\n"):
+                     "    ('a', helper().replace('x')),\n]\n",
+                     "import os\nMUTANTS = [\n    ('a', os.environ['X'].replace('a', 'b').replace('c', 'd')),\n]\n",
+                     "import os\n\n\ndef helper(x):\n    return x\n\n\nglobals()['helper'] = os.getenv\nMUTANTS = [\n"
+                     "    ('a', helper('X')),\n]\n"):
             self.assertEqual(untested.data_lines(case), set(), case)
         # A helper's own name, an annotated text, and a method on a text are no change to what a name is.
         kept = ("TEXT: str = 'a'\nPAIR = ('a', 'b')\n\n\ndef helper(text: str, PAIR=()) -> str:\n    text.upper()\n"

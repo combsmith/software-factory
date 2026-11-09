@@ -270,7 +270,8 @@ def _literal(node, bound: dict) -> bool:
         return _literal(node.left, bound) and _literal(node.right, bound)
     if isinstance(node, ast.Call):
         func = node.func
-        named = (isinstance(func, ast.Name) and bound.get(func.id) in ("helper", "text helper")) or (
+        named = (isinstance(func, ast.Name) and bound.get("*") != "code"
+                 and bound.get(func.id) in ("helper", "text helper")) or (
             isinstance(func, ast.Attribute) and func.attr == "replace" and _text(func.value, bound))
         return named and not node.keywords and all(_literal(arg, bound) for arg in node.args)
     return False
