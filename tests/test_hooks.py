@@ -2851,6 +2851,16 @@ class ProtectedPaths(Asks):
                     "config/apps.json", "evals/pr-review/cases.json"):
             self.asked(self.edit(self.project / rel), "protected_path", rel)
 
+    def test_a_copy_or_move_that_makes_a_directory_asks_about_what_it_will_hold(self):  # issue 696
+        # A recursive copy, or a move, to a path that is no directory yet makes it one: a set's manifest among what it
+        # holds asks, as mkdir -p and git mv do. A plain copy to that path makes a file, which holds nothing.
+        for command in ("cp -r evals/pr-review evals/qa-lead", "cp -R /tmp/set evals/qa-lead", "cp -a /tmp/set evals/qa-lead",
+                        "cp -rf /tmp/set evals/qa-lead", "cp --recursive /tmp/set evals/qa-lead", "mv /tmp/set evals/qa-lead"):
+            self.asked(self.run_(command), "protected_path", command)
+        for command in ("cp -r docs/a docs/b", "mv notes.txt docs/notes-2.txt", "cp /tmp/x evals/qa-lead",
+                        "cp -r /tmp/set /tmp/elsewhere"):
+            self.assertEqual(self.run_(command), "", command)
+
     def test_an_edit_elsewhere_is_not_asked_about(self):
         for rel in ("docs/notes.md", "kernel/AGENTS.md", "kernel/__init__.py", "kernel/decide.py", "kernel/derive.py",
                     "kernel/terms.py", "config/AGENTS.md", "Makefile", ".gitleaks.toml",
