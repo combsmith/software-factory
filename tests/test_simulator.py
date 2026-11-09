@@ -562,6 +562,8 @@ class Simulation(unittest.TestCase):
                 ([run(10), run(13, intent="review-change")], 12, True),
                 ([run(10), run(13, content="sha256:00c2")], 12, True),
                 ([run(5, intent="review-change")], 10, False),
+                # A Run of the item in the approval's own second is as old as it (the Muse read of issue 608's change).
+                ([run(15, intent="review-change")], 10, False),
                 ([], 10, True),
                 ([run(16)], 10, True)):
             self.assertEqual(self.read([review(machine, 15)], edited, runs), (held, held), (runs, edited))
