@@ -15,6 +15,7 @@ the step does: a fault in the keeping drops that exchange, and is counted.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import pathlib
@@ -45,9 +46,15 @@ OPAQUE = re.compile(r"/repos/[^/]+/[^/]+/contents/")
 
 
 def _measured(body) -> dict:
-    """A body by its size and its sha256, as the transport's bytes for it: never its text."""
-    raw = body.encode("utf-8", errors="surrogateescape") if isinstance(body, str) else \
-        json.dumps(body, sort_keys=True).encode("utf-8")
+    """A body by its size and its sha256, never its text: a text body as the bytes the transport gave it; a file read at
+    a commit, which GitHub answers as JSON holding it in base64, as the file's own bytes, so that it can be held to
+    the file at that commit; any other JSON as its fields serialized in order."""
+    if isinstance(body, str):
+        raw = body.encode("utf-8", errors="surrogateescape")
+    elif isinstance(body, dict) and body.get("encoding") == "base64" and isinstance(body.get("content"), str):
+        raw = base64.b64decode(body["content"])
+    else:
+        raw = json.dumps(body, sort_keys=True).encode("utf-8")
     return {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
@@ -101,8 +108,9 @@ class Recording:
                 return
             body = answer.get("body")
             if _opaque(req) or not isinstance(body, (dict, list, type(None))):
-                body = None if body is None else _measured(body)
-                kept = {"status": answer.get("status"), "headers": _headers(answer.get("headers")), "measured": body}
+                kept = {"status": answer.get("status"), "headers": _headers(answer.get("headers"))}
+                if body is not None:        # an answer with no body has nothing to measure
+                    kept["measured"] = _measured(body)
             else:
                 kept = {"status": answer.get("status"), "headers": _headers(answer.get("headers")),
                         "body": _listed(body, self.dropped, here + ".response.body")}

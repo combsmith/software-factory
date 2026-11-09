@@ -2,7 +2,9 @@
 and what it leaves out, since anyone signed in may download an artifact of a public repo."""
 from __future__ import annotations
 
+import base64
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -87,6 +89,37 @@ class Kept(unittest.TestCase):
         self.assertIn("exchanges[3].response.body.message", recording.kept()["removed"])
         self.assertEqual(kept[0]["request"]["as"], {"kind": "app", "name": "release"})
         self.assertNotIn("authorization", json.dumps([e["request"]["headers"] for e in kept]).lower())
+
+    def test_what_is_sent_is_held_to_the_lists_too_and_each_field_left_out_is_named(self):
+        # A request's own body and headers are held as an answer's are, and every field left out, of either, is named
+        # in `dropped` by its place: the Claude review of #531.
+        recording = exchanges.Recording(Answering(
+            {"status": 201, "headers": {}, "body": {"ref": "refs/tags/x", "node_id": "MDM6", "url": "https://u"}},
+            {"status": 204, "headers": {}, "body": None}))
+        recording.send({"method": "POST", "path": "/repos/%s/git/refs" % REPO, "accept": "application/json",
+                        "headers": {"If-None-Match": "W/\"1\"", "X-Secret": "the secret"},
+                        "body": {"ref": "refs/tags/x", "sha": D, "payload": "what no list names"}})
+        recording.send(github.download("/repos/%s/actions/artifacts/9/zip" % REPO))
+        kept = recording.kept()
+        sent = kept["exchanges"][0]["request"]
+        self.assertEqual(sent["body"], {"ref": "refs/tags/x", "sha": D})
+        self.assertEqual(sent["headers"], {"if-none-match": "W/\"1\"", "accept": "application/json"})
+        self.assertEqual(sorted(kept["dropped"]), ["exchanges[0].request.body.payload",
+                                                   "exchanges[0].response.body.node_id",
+                                                   "exchanges[0].response.body.url"])
+        # An opaque read with no body has nothing to measure, and is still a release-exchanges/1.
+        self.assertEqual(kept["exchanges"][1]["response"], {"status": 204, "headers": {}})
+        schema = json.loads((ROOT / "schemas" / "release-exchanges.schema.json").read_text())
+        self.assertEqual(validate(kept, schema), [])
+
+    def test_a_file_at_a_commit_is_measured_as_the_file_itself(self):
+        text = b'{"schema": "eval-set/1"}\n'
+        recording = exchanges.Recording(Answering(
+            {"status": 200, "headers": {}, "body": {"name": "manifest.json", "encoding": "base64",
+                                                   "content": base64.b64encode(text).decode()}}))
+        recording.send(github.request("GET", "/repos/%s/contents/evals/manifest.json?ref=%s" % (REPO, D)))
+        self.assertEqual(recording.kept()["exchanges"][0]["response"]["measured"],
+                         {"size": len(text), "sha256": hashlib.sha256(text).hexdigest()})
 
     def test_every_counter_example_of_the_trials_redaction_is_left_out_here(self):
         # The Factory Builder's ruling on #531: one set of patterns, held to every case the trials' own tests use.
