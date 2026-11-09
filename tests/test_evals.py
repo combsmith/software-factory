@@ -2667,7 +2667,7 @@ class EvalJob(unittest.TestCase):
             def send(self, req):
                 asked.append((req["path"].rsplit("/", 1)[-1], req["accept"]))
                 return super().send(req)
-        self.assertEqual(self.step(job.fetch, Home(exchanges)), "fetched 2 of 7 cases")
+        self.assertEqual(self.step(getattr(job.fetch, "fetch", job.fetch), Home(exchanges)), "fetched 2 of 7 cases")
         self.assertEqual(asked[:3], [("poc-one.json", github.JSON), ("poc-one.tar.gz", heldout.RAW),
                                      ("poc-one.tree.json", heldout.RAW)])
         self.assertEqual(len(asked), len(exchanges), "each answer the home keeps is asked, once, in its order")
@@ -2780,7 +2780,8 @@ class EvalJob(unittest.TestCase):
         self.step(job.plan)
         files = [home_file("poc-one", new), home_beside("poc-one", "tar.gz", (home / "pr-review" / "poc-one.tar.gz").read_bytes()),
                  home_beside("poc-one", "tree.json", (home / "pr-review" / "poc-one.tree.json").read_bytes())]
-        self.assertEqual(self.step(job.fetch, github.Replay(files)), "fetched 1 of 1 cases")
+        fetch = getattr(job.fetch, "fetch", job.fetch)     # the step, whether or not its module was imported
+        self.assertEqual(self.step(fetch, github.Replay(files)), "fetched 1 of 1 cases")
         # A head over what the job reads is not pinned; nor is a case whose write fails, by its code alone.
         from adapters import heldout
         with mock.patch.dict(heldout.BESIDE, {"tree.json": 10}):

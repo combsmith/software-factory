@@ -16,14 +16,12 @@ then each pinned case's id and the sha256 of its new bytes, one JSON object to a
 under `evals/` takes. A case it did not pin is left as it was. It exits 0 only when every case was pinned."""
 from __future__ import annotations
 
-import collections
 import contextlib
 import hashlib
 import json
 import os
 import pathlib
 import re
-import stat
 import sys
 import tempfile
 
@@ -47,13 +45,16 @@ def put(folder: pathlib.Path, name: str, data: bytes) -> None:
 
 
 def read(path: pathlib.Path):
-    """The bytes of the case at `path`, or None for one that is a link or not a regular file."""
+    """The bytes of the case at `path`, or None for one that is a link or cannot be read as a file."""
     try:
         fd = os.open(str(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except OSError:
         return None
-    with os.fdopen(fd, "rb") as f:
-        return f.read() if stat.S_ISREG(os.fstat(f.fileno()).st_mode) else None
+    try:
+        with os.fdopen(fd, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
 
 
 def pinned(data: bytes, transport, folder: pathlib.Path, ident: str):
@@ -114,7 +115,7 @@ def main(argv: list, env=None, transport=None, out=None) -> int:
             return 2
         from harness.eval.fetch import ReadOnly
         transport = ReadOnly(github.Live(env["GH_TOKEN"]))
-    said, entries = collections.Counter(), []
+    said, entries = {"pinned": 0}, []
     for path in sorted(p for p in folder.iterdir() if p.suffix == ".json" and not p.name.endswith(".tree.json")):
         ident = path.name[:-len(".json")]
         data = read(path) if PART.fullmatch(ident) else None
@@ -124,7 +125,7 @@ def main(argv: list, env=None, transport=None, out=None) -> int:
                 put(folder, path.name, new)
         except Exception:       # by its code alone: no message, which could quote a case
             new, code = None, "not_written"
-        said[code or "pinned"] += 1
+        said[code or "pinned"] = said.get(code or "pinned", 0) + 1
         if new is not None:
             entries.append({"id": ident, "sha256": hashlib.sha256(new).hexdigest()})
     out.write("pinned %d of %d cases%s\n" % (said["pinned"], sum(said.values()), "".join(

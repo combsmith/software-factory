@@ -1,7 +1,8 @@
 # harness/eval/
 
 The eval job's steps, a module each, in the order `__init__.py` gives. Their rules are `evals/AGENTS.md`'s, beside the sets they run, but for what three issues add, which are here:
-issue 612, "The eval job reads a named set, and a gate set's report is aggregates only", issue 613, "The gate pools k dispatches on one commit and reads all of them", and issue 611, "A case's head is read from the private home, pinned by its hash, and the run is sharded".
+issue 612, "The eval job reads a named set, and a gate set's report is aggregates only", issue 613, "The gate pools k dispatches on one commit and reads all of them",
+and issue 611, "A case's head is read from the private home, pinned by its hash, and the run is sharded".
 A dispatch names its set. A set whose manifest says it is a gate set is reported by counts alone, `eval-aggregate/1`, and each case's outcome with its Result goes to a ledger, `eval-ledger/1`, kept in the scratch.
 `seal.py` encrypts the ledger with `openssl cms` to each of the Maintainer's certificates that its pins, in a protected path under `.github/`, name by sha256 (`seal.RECIPIENTS`). The ciphertext alone is uploaded, as `eval-ledger`.
 No key that opens a ledger is in the job or the repo, and nothing automated reads one. Until the Maintainer commits his certificates, a gate set's run fails at the seal, `no_recipient`.

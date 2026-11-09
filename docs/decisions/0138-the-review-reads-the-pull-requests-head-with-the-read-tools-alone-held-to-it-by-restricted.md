@@ -41,7 +41,7 @@ What is owed: what codeload's address holds for a private repo read with an App'
 | Each archive it refuses, it refuses whole | `tests/test_harness.py::test_each_archive_the_unpacker_refuses_it_refuses_whole` |
 | It holds its caps, writes into a new folder, and nothing outside it | `tests/test_harness.py::test_the_unpacker_holds_its_caps_and_writes_nothing_outside_its_folder` |
 | An eval case requires its head, as 40 lowercase hex characters | `tools/check_examples.py`, `examples/invalid/eval-case.no-head.json`, `examples/invalid/eval-case.a-head-as-an-object.json`, `examples/invalid/eval-case.a-short-head.json` |
-| Each case's head is read with no credential and removed once asked; one not read closes the gate | `tests/test_evals.py::test_each_cases_head_is_read_from_the_home_by_its_pins_and_one_not_read_closes_the_gate` |
+| Each case's head is read with no credential and removed once asked; one not read closes the gate | `tests/test_evals.py::test_each_cases_head_is_read_from_the_home_by_its_pins_and_one_not_read_closes_the_gate`, mutant: "the eval fetch reads no case's head" |
 | A case is reviewed with the read tools in its head, as a live Run is | `tests/test_evals.py::test_a_case_is_reviewed_by_the_task_and_the_engine_a_live_run_is` |
 | The read tools are held to the folder at the pin, and by which flag | `trials/P-59.json`, `tests/test_tools.py::test_the_read_tools_on_a_linux_runner_are_held_to_their_folder_only_with_both_flags` |
 | The tarball is one redirect to codeload, which redirects no further over HTTPS | `trials/P-60.json`, `tests/test_tools.py::test_a_commits_tarball_is_one_redirect_to_codeload_which_never_redirects_over_https` |
