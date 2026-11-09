@@ -3320,6 +3320,7 @@ class EvalJob(unittest.TestCase):
         folder: `(found, place)`. It floors PR-3 at a half unless `floors` says other (issue 692)."""
         import tempfile
         place = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, place, True)
         (place / "cases").mkdir()
         cases = []
         for name, kind, many in groups:
@@ -3383,6 +3384,12 @@ class EvalJob(unittest.TestCase):
         self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 9), ("PR-3", "met", 10)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-3", "met", 9)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 9)], floors={})))
+        # And the cases that expect a Finding on no floored criterion, which the kind's count less the floors' tells, are
+        # none or ten at least: one beside the floor would be told by subtraction (the security read of #692).
+        self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-1", "met", 20)])))
+        self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 9), ("PR-1", "met", 20)])))
+        self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 10), ("PR-1", "met", 20)])))
+        self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-1", "met", 20)])))
         # The report's counts are the job's: of the floored criteria and no other, each of FLOOR_LEAST cases, within the
         # kind's cases and passes, each interval its counts'; none where no kind was read; the floors the set's.
         def changed(**criteria):
@@ -3392,6 +3399,8 @@ class EvalJob(unittest.TestCase):
                        changed(**{"PR-3": count(9, 5)}), changed(**{"PR-3": count(21, 5)}),
                        changed(**{"PR-3": count(10, 11, {"low": 0.0, "high": 1.0})}),
                        changed(**{"PR-3": count(10, 5, job.wilson(4, 10))}),
+                       # Fifteen of the kind's twenty leaves five beyond the floors, told by subtraction.
+                       changed(**{"PR-3": count(15, 5)}),
                        dict(half, criteria=None), dict(half, kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None)):
             with self.subTest(criteria=report["criteria"], kinds=report["kinds"] is not None):
                 self.assertEqual(judged(report, found), "count_differs")
@@ -3402,7 +3411,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(judged(dict(half, criterion_bars={}), found), "bars_differ")
         self.assertEqual(judged(dict(half, criterion_bars={"PR-3": [1, 3]}), found), "bars_differ")
         # Every run of one set counts the same cases of each floored criterion.
-        moved = dict(half, criteria={"PR-3": count(11, 5)})
+        moved = dict(half, criteria={"PR-3": count(20, 5)})
         self.assertEqual(judged(moved, found), "pass")
         self.assertEqual(pooled([half, half, moved], found), "count_differs")
         # A floor is a gate set's alone, on a criterion its Role's rubric names, a whole fraction of a case-run at least.
@@ -3430,6 +3439,7 @@ class EvalJob(unittest.TestCase):
                     if e["verdict"] == "finding" and e["criterion"] == first])
         for least, said in ((many + 1, "eval_floor_short"), (many, "fetched 2 of 2 cases, 3 of 3 to preflight")):
             with self.subTest(least=least), mock.patch.object(job, "FLOOR_LEAST", least):
+                self.tearDown()
                 self.setUp()
                 self.set(self.cases, gate=True, natural=list(self.cases)[:1], floors={first: [1, 2]})
                 self.step(job.plan)

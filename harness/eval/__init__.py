@@ -641,11 +641,15 @@ def criteria_of(found: dict, place: pathlib.Path):
 
 
 def floor_short(found: dict, place: pathlib.Path) -> bool:
-    """Whether a criterion the set floors has fewer than FLOOR_LEAST cases that expect a Finding on it: its counts would
-    tell a case's verdict, so the dispatch stops before anything is asked (issue 692). False where the cases cannot be
-    read: that run fails by them."""
-    floored = criteria_of(found, place)
-    return floored is not None and any(len(cases) < FLOOR_LEAST for cases in floored.values())
+    """Whether a criterion the set floors has fewer than FLOOR_LEAST cases that expect a Finding on it, or the cases that
+    expect a Finding on no floored criterion, which the kind's count less the floors' tells, are some but fewer: either
+    count would tell a case's verdict, so the dispatch stops before anything is asked (issue 692; the security read).
+    False where the cases cannot be read, as that run fails by them, and for a set that floors nothing."""
+    floored, expected = criteria_of(found, place), _expected(found, place)
+    if not floored:
+        return False
+    rest = len([s for s in expected.values() if s["verdict"] == "finding"]) - sum(len(c) for c in floored.values())
+    return any(len(cases) < FLOOR_LEAST for cases in floored.values()) or 0 < rest < FLOOR_LEAST
 
 
 def split_ok(found: dict, place: pathlib.Path):
@@ -954,7 +958,9 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or sum(c["cases"] for c in criteria.values()) > kinds["finding"]["cases"]
             or sum(c["passed"] for c in criteria.values()) > kinds["finding"]["passed"]
             or any(c["cases"] < FLOOR_LEAST or c["passed"] > c["cases"] or c["interval"] != wilson(c["passed"], c["cases"])
-                   for c in criteria.values())):
+                   for c in criteria.values())
+            # What the kind holds beyond the floors is published too, by subtraction: none, or FLOOR_LEAST at least.
+            or criteria and 0 < kinds["finding"]["cases"] - sum(c["cases"] for c in criteria.values()) < FLOOR_LEAST):
         return "count_differs"
     if document["bars"] != {kind: list(bars[kind]) for kind in KINDS} or document["kind_least"] != least \
             or document["criterion_bars"] != {name: list(bar) for name, bar in floors.items()}:
