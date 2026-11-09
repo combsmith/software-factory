@@ -4195,13 +4195,16 @@ MUTANTS = ISSUE + [
     ("the tests a mutant names run before the whole suite though it runs alone", 'tools/mutants.py',
      "            if alone and first:\n                named = {\"only\": first[0]}\n", "", NOT_KILLED_TESTS),
     ("a mutant its named tests miss survives", 'tools/mutants.py',
-     '                if outcome == "SURVIVED" and alone and first:\n', "                if False:\n", NOT_KILLED_TESTS),
+     '                if outcome == "SURVIVED" and alone and first and not again:\n', "                if False:\n", NOT_KILLED_TESTS),
+    ("a flaky named test is told as a wrong name", 'tools/mutants.py',
+     '                if outcome == "SURVIVED" and alone and first and not again:\n',
+     '                if outcome == "SURVIVED" and alone and first:\n', NOT_KILLED_TESTS),
     ("an edit untested.py tries is held to its named tests alone", 'tools/mutants.py',
      "            if alone and first:\n", "            if first:\n", NOT_KILLED_TESTS),
     ('a mutant a row names is killed by any test', 'tools/mutants.py',
      '({"only": first[0]} if name in _held_by_rows(root) ' 'else {"first": first[0]})', '{"first": first[0]}', RUN_ALONE),
     ("the impostor workflow posts from the Lens's own file", "sim/world.py",
-     '"workflow": IMPOSTOR_WORKFLOW,', '"workflow": WORKFLOWS[lens],', ("tests.test_simulator.Simulation.test_the_seeds_serve_items_with_an_acceptance_contract_and_without",)),
+     '"workflow": IMPOSTOR_WORKFLOW,', '"workflow": WORKFLOWS[lens],', ("tests.test_simulator.Simulation.test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause",)),
     ("a neutral check is read as passing", "config/defaults.json",
      '"neutral": "unreadable"', '"neutral": "passing"', ("tests.test_decide.Classes",)),
     ("a neutral check is read as failing", "config/defaults.json",
@@ -15907,10 +15910,11 @@ def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None, alone: 
             # hid the wrong name (2026-11-09): run alone, it is told as an ERROR instead.
             if alone and first:
                 named = {"only": first[0]}
-            for _ in range(2):
+            for again in range(2):
                 status, output = run(work, **named)
                 outcome, why = verdict(status, output)
-                if outcome == "SURVIVED" and alone and first:
+                # A pass after a failure not shown to be the mutant's is a flaky test, not a wrong name.
+                if outcome == "SURVIVED" and alone and first and not again:
                     return "ERROR", NOT_KILLED % ", ".join(first[0])
                 if outcome != "killed":
                     return outcome, why

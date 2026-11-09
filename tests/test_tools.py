@@ -10407,6 +10407,14 @@ class Mutants(unittest.TestCase):
         del calls[:]
         self.assertEqual(mutants.guarded(("hit", "k.py", "rule\n", "x\n", ("t.hit",)), root, run), ("killed", ""))
         self.assertEqual(calls[0], {"only": ("t.hit",)})
+        # A named test that fails once and then passes, alone or again, is flaky, not a wrong name: as before, the
+        # second pass of the named tests is SURVIVED, which fails the run too.
+        del calls[:]
+        flaky = iter([(1, FAILS_A_TEST)])
+        self.assertEqual(mutants.guarded(missed, root, lambda work, **given: (calls.append(given), next(flaky, (0, "OK\n")))[1]),
+                         ("SURVIVED", ""))
+        self.assertEqual(calls, [{"only": ("t.missed",)}, {"only": "tests.test_x.T.test_x"}, {"only": "tests.test_x.T.test_x"},
+                                 {"only": ("t.missed",)}])
         # From the front door it fails the run.
         with mock.patch.object(mutants, "unnamed", return_value=[]), contextlib.redirect_stdout(io.StringIO()) as said:
             self.assertEqual(mutants.main([missed], root, run, workers=1), 1)
