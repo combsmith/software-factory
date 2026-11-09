@@ -283,8 +283,8 @@ class Transport(unittest.TestCase):
             self.assertNotIn("secret", held(refused.exception))
 
     def test_a_transport_with_no_token_sends_a_commits_tarball_alone(self):
-        # Decision 0138: the eval job and the canary read the public cases' repo's heads with no credential at all, and
-        # a transport made for that sends nothing else, so no other read is ever made with no token by mistake.
+        # Decision 0138: the canary reads its example's head from this public repo with no credential at all (the eval
+        # job reads a case's head from the home, issue 611), and a transport made for that sends nothing else, so no other read is ever made with no token by mistake.
         anonymous = github.Live.anonymous()
         sent = []
 
@@ -3586,15 +3586,18 @@ class Heldout(unittest.TestCase):
         del untyped["response"]["headers"]["content-type"]
         failed = home_beside("c-1", "tar.gz", tar)
         failed["response"]["status"] = 500
-        large = home_beside("c-1", "tar.gz", b"\0" * (heldout.BESIDE["tar.gz"] + 1))
+        large = home_beside("c-1", "tar.gz", tar)
+        bounded = mock.patch.dict(heldout.BESIDE, {"tar.gz": len(tar) - 1, "tree.json": len(tree) - 1})
         for found, code in (([home_beside("c-1", "tar.gz", tar[1:])], "hash_differs"),
                             ([home_beside("c-1", "tar.gz", tar, status=404)], "not_found"),
                             ([failed], "unanswered"), ([], "unanswered"), ([json_typed], "unanswered"),
                             ([raw_json], "unanswered"), ([untyped], "unanswered"),
-                            ([large], "too_large"), ([home_beside("c-1", "tree.json", tree)], "unanswered")):
+                            ([home_beside("c-1", "tree.json", tree)], "unanswered")):
             self.assertEqual(read(found), (None, code), code)
-        self.assertEqual(read([home_beside("c-1", "tree.json", b"\0" * (heldout.BESIDE["tree.json"] + 1))],
-                              kind="tree.json", pin=pins["tree.json"]), (None, "too_large"))
+        with bounded:
+            self.assertEqual(read([large]), (None, "too_large"))
+            self.assertEqual(read([home_beside("c-1", "tree.json", tree)], kind="tree.json", pin=pins["tree.json"]),
+                             (None, "too_large"))
         self.assertEqual(read([home_beside("c-1", "tree.json", tree)], kind="tree.json", pin=pins["tar.gz"]),
                          (None, "hash_differs"))
         # A name, a kind or a pin that could name another file, or a home that could name another repo, is refused

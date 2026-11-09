@@ -69,7 +69,8 @@ def head_of(data: bytes, folder: pathlib.Path, ident: str, transport):
 def review(env: dict, call=live.cli_call, clock=time.time, heads=None) -> int:
     """One review by the eval job's path: 0 if the CLI answered in a status the Engine may write, its answer read and
     scored, and 1 otherwise, a `failed` Result among them. A scorer that raises fails the step. The example's head is
-    read through `heads`, by default with no credential, as the eval job's fetch reads a case's (decision 0138)."""
+    read through `heads`, by default with no credential, from this public repo (decision 0138); the eval job reads a case's
+    from the held-out home instead (issue 611)."""
     case = json.loads((job.ROOT / "examples" / "eval-case.json").read_text())
     content = "sha256:" + hashlib.sha256(case["diff"].encode("utf-8")).hexdigest()
     case["facts"]["content_id"] = content

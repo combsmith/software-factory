@@ -372,7 +372,8 @@ def head_of(env: dict, data: bytes, folder: pathlib.Path, role: str, ident: str,
         sha, pins = case["head"], (case["head_sha256"], case["tree_sha256"])
     except (ValueError, TypeError, KeyError, RecursionError):
         return None
-    if not (isinstance(sha, str) and COMMIT.fullmatch(sha)):
+    # A case whose head or pins are not whole is no case of this set, which its schema says after: nothing is read.
+    if not (isinstance(sha, str) and COMMIT.fullmatch(sha) and all(isinstance(p, str) and SHA256.fullmatch(p) for p in pins)):
         return None
     read = {}
     for kind, pin in zip(("tar.gz", "tree.json"), pins):

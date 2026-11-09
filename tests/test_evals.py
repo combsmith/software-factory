@@ -2656,6 +2656,9 @@ class EvalJob(unittest.TestCase):
             exchanges.append(home_beside(ident, "tar.gz", b"", status=404) if has is None else home_beside(ident, "tar.gz", has))
             if has is not None and has == tar:
                 exchanges.append(home_beside(ident, "tree.json", holds))
+        # A pin that is no sha256 is no case of the set, as a pin left out is: nothing is read beside it.
+        cases["poc-seven"] = (json.dumps(dict(case, id="poc-seven", head_sha256="x"), indent=2) + "\n").encode()
+        exchanges.append(home_file("poc-seven", cases["poc-seven"]))
         self.set(cases)
         self.step(job.plan)
         asked = []
@@ -2664,14 +2667,15 @@ class EvalJob(unittest.TestCase):
             def send(self, req):
                 asked.append((req["path"].rsplit("/", 1)[-1], req["accept"]))
                 return super().send(req)
-        self.assertEqual(self.step(job.fetch, Home(exchanges)), "fetched 1 of 6 cases")
+        self.assertEqual(self.step(job.fetch, Home(exchanges)), "fetched 2 of 7 cases")
         self.assertEqual(asked[:3], [("poc-one.json", github.JSON), ("poc-one.tar.gz", heldout.RAW),
                                      ("poc-one.tree.json", heldout.RAW)])
         self.assertEqual(len(asked), len(exchanges), "each answer the home keeps is asked, once, in its order")
         place = self.temp / "heldout"
         self.assertEqual(json.loads((place / "fetched.json").read_text()),
                          {"poc-one": None, "poc-two": "head_unreadable", "poc-three": "hash_differs",
-                          "poc-four": "head_unreadable", "poc-five": "head_unreadable", "poc-six": "head_unreadable"})
+                          "poc-four": "head_unreadable", "poc-five": "head_unreadable", "poc-six": "head_unreadable",
+                          "poc-seven": None})
         self.assertEqual(sorted(p.name for p in (self.temp / "heads").iterdir()), ["poc-one"])
         self.assertEqual((self.temp / "heads" / "poc-one" / "README.md").read_bytes(), b"# a repo\n")
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
@@ -2684,6 +2688,7 @@ class EvalJob(unittest.TestCase):
         report = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in report["cases"]}["poc-three"], ["hash_differs"])
         self.assertEqual({c["id"]: c["reasons"] for c in report["cases"]}["poc-two"], ["head_unreadable"])
+        self.assertEqual({c["id"]: c["reasons"] for c in report["cases"]}["poc-seven"], ["not_this_set"])
         self.assertIn("head_unreadable", job.ENGINE_FAULTS)
         self.assertEqual(self.step(job.judge.step if hasattr(job.judge, "step") else job.judge), "engine_fault")
         # The fetch step's one transport is the home's, read-only, with its token: no transport with no credential.
@@ -2714,15 +2719,22 @@ class EvalJob(unittest.TestCase):
         (home / "pr-review").mkdir(parents=True)
         written = {"poc-one": (json.dumps(dict(plain, id="poc-one"), indent=2) + "\n").encode(),
                    "poc-two": (json.dumps(dict(plain, id="poc-two", head="2" * 40), indent=2) + "\n").encode(),
-                   "poc-three": b"no case\n", "poc-four": (json.dumps(dict(plain, id="poc-other"), indent=2) + "\n").encode()}
+                   "poc-three": b"no case\n", "poc-four": (json.dumps(dict(plain, id="poc-other"), indent=2) + "\n").encode(),
+                   "poc-five": (json.dumps(dict(plain, id="poc-five", head="5" * 40), indent=2) + "\n").encode()}
         for ident, data in written.items():
             (home / "pr-review" / ("%s.json" % ident)).write_bytes(data)
         (home / "pr-review" / "poc-old.tree.json").write_bytes(b"{}\n")      # a tree an earlier run wrote: no case
+        # A case that is a link is read as none, and a link where a head is written is replaced, never written through.
+        outside = self.temp / "outside"
+        outside.write_bytes(b"kept\n")
+        (self.temp / "linked.json").write_bytes((json.dumps(dict(plain, id="poc-six"), indent=2) + "\n").encode())
+        os.symlink(str(self.temp / "linked.json"), str(home / "pr-review" / "poc-six.json"))
+        os.symlink(str(outside), str(home / "pr-review" / "poc-one.tar.gz"))
         asked = []
 
         class GitHub:
             """The repo the cases are of: each commit's tarball as codeload serves one, and its tree as the API answers;
-            but commit 2..2's tree lists a file its tarball does not hold."""
+            but commit 2..2's tree lists a file its tarball does not hold, and 5..5's is answered 404."""
             def send(self, req):
                 asked.append(req["path"])
                 tarred, listed = github.TARBALL.fullmatch(req["path"]), github.TREE.fullmatch(req["path"])
@@ -2731,31 +2743,34 @@ class EvalJob(unittest.TestCase):
                 body = json.loads(stand_in_head(listed.group(3))[1])
                 if listed.group(3) == "2" * 40:
                     body["tree"].append(dict(body["tree"][0], path="MISSING.md"))
-                return {"status": 200, "headers": {}, "body": body}
+                return {"status": 404 if listed.group(3) == "5" * 40 else 200, "headers": {}, "body": body}
         out = io.StringIO()
         self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 1)
         new = (home / "pr-review" / "poc-one.json").read_bytes()
-        self.assertEqual(out.getvalue(), "pinned 1 of 4 cases; head_unreadable 1; not_a_case 2\n%s\n"
+        self.assertEqual(out.getvalue(), "pinned 1 of 6 cases; head_unreadable 2; not_a_case 3\n%s\n"
                          % json.dumps({"id": "poc-one", "sha256": hashlib.sha256(new).hexdigest()}))
         for word in (case["diff"][:40], case["facts"]["item"]["repo"], case["head"]):
             self.assertNotIn(word, out.getvalue())
         # The case pins what was written beside it, after its head, and is otherwise as it was.
         self.assertEqual((home / "pr-review" / "poc-one.tar.gz").read_bytes(), tar)
+        self.assertFalse((home / "pr-review" / "poc-one.tar.gz").is_symlink())
+        self.assertEqual(outside.read_bytes(), b"kept\n")
+        self.assertEqual([p.name for p in (home / "pr-review").iterdir() if p.name.startswith(".")], [], "nothing half written")
         self.assertEqual(json.loads((home / "pr-review" / "poc-one.tree.json").read_bytes()), json.loads(tree))
         self.assertEqual(json.loads(new), dict(plain, id="poc-one", head_sha256=hashlib.sha256(tar).hexdigest(),
                                                tree_sha256=hashlib.sha256((home / "pr-review" / "poc-one.tree.json").read_bytes()).hexdigest()))
         keys = list(json.loads(new))
         self.assertEqual(keys[keys.index("head"):keys.index("head") + 3], ["head", "head_sha256", "tree_sha256"])
-        for ident in ("poc-two", "poc-three", "poc-four"):
+        for ident in ("poc-two", "poc-three", "poc-four", "poc-five"):
             self.assertEqual((home / "pr-review" / ("%s.json" % ident)).read_bytes(), written[ident], ident)
             self.assertFalse((home / "pr-review" / ("%s.tar.gz" % ident)).exists(), ident)
         repo = case["facts"]["item"]["repo"]
-        self.assertEqual(asked, [head.path_of(repo, case["head"]), head.tree_path(repo, case["head"]),
+        self.assertEqual(asked, [head.path_of(repo, "5" * 40), head.tree_path(repo, "5" * 40),
+                                 head.path_of(repo, case["head"]), head.tree_path(repo, case["head"]),
                                  head.path_of(repo, "2" * 40), head.tree_path(repo, "2" * 40)])
         # Run again, it pins the case anew, to the same bytes.
-        (home / "pr-review" / "poc-two.json").unlink()
-        (home / "pr-review" / "poc-three.json").unlink()
-        (home / "pr-review" / "poc-four.json").unlink()
+        for ident in ("poc-two", "poc-three", "poc-four", "poc-five", "poc-six"):
+            (home / "pr-review" / ("%s.json" % ident)).unlink()
         out = io.StringIO()
         self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 0)
         self.assertEqual((home / "pr-review" / "poc-one.json").read_bytes(), new)
@@ -2766,8 +2781,23 @@ class EvalJob(unittest.TestCase):
         files = [home_file("poc-one", new), home_beside("poc-one", "tar.gz", (home / "pr-review" / "poc-one.tar.gz").read_bytes()),
                  home_beside("poc-one", "tree.json", (home / "pr-review" / "poc-one.tree.json").read_bytes())]
         self.assertEqual(self.step(job.fetch, github.Replay(files)), "fetched 1 of 1 cases")
-        # Asked wrongly, or with no token, it reads nothing.
-        for argv in ([str(home)], [str(home), "pr-review/.."], [str(home), "absent"]):
+        # A head over what the job reads is not pinned; nor is a case whose write fails, by its code alone.
+        from adapters import heldout
+        with mock.patch.dict(heldout.BESIDE, {"tree.json": 10}):
+            out = io.StringIO()
+            self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 1)
+            self.assertEqual(out.getvalue(), "pinned 0 of 1 cases; head_unreadable 1\n")
+        with mock.patch.object(tool, "put", mock.Mock(side_effect=OSError("a path"))):
+            out = io.StringIO()
+            self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), out), 1)
+            self.assertEqual(out.getvalue(), "pinned 0 of 1 cases; not_written 1\n")
+        with mock.patch.object(tool.os, "replace", mock.Mock(side_effect=OSError("a path"))):
+            self.assertEqual(tool.main([str(home), "pr-review"], {}, GitHub(), io.StringIO()), 1)
+        self.assertEqual([p.name for p in (home / "pr-review").iterdir() if p.name.startswith(".")], [], "nothing half written")
+        self.assertEqual((home / "pr-review" / "poc-one.json").read_bytes(), new)
+        # Asked wrongly, of a folder that is a link, or with no token, it reads nothing.
+        os.symlink(str(home / "pr-review"), str(home / "linked"))
+        for argv in ([str(home)], [str(home), "pr-review/.."], [str(home), "absent"], [str(home), "linked"]):
             self.assertEqual(tool.main(argv, {}, GitHub(), io.StringIO()), 2, argv)
         self.assertEqual(tool.main([str(home), "pr-review"], {}, None, io.StringIO()), 2)
 
