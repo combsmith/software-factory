@@ -2953,7 +2953,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual([(c["id"], c["natural"], c["verdict"], c["result"], c["usage"]) for c in ledger["cases"]],
                          [(list(self.cases)[0], True, "pass", result, job.used(result["usage"])),
                           ("poc-two", False, "pass", result, job.used(result["usage"]))])
-        self.assertEqual(written["ledger"]["salted_sha256"], hashlib.sha256(kept.read_bytes()).hexdigest())
+        self.assertEqual(written["ledger"], [{"part": "whole", "salted_sha256": hashlib.sha256(kept.read_bytes()).hexdigest()}])
         found = job.manifest(self.root, "pr-review-gate")[0]
         salts = {job.ledger_of(dict(ledger, preflight=[]), found, {c["id"]: ("pass", []) for c in found["cases"]}, {}, set(), {})["salt"]
                  for _ in range(2)} | {ledger["salt"]}
@@ -3013,9 +3013,11 @@ class EvalJob(unittest.TestCase):
         # The plaintext is gone, and the report binds the ciphertext, whole, for the gate.
         self.assertEqual([p.name for p in (self.temp / "heldout").iterdir() if "ledger" in p.name], [])
         written = json.loads((self.work / job.REPORT).read_text())
-        self.assertEqual(written["ledger"]["sealed_sha256"], hashlib.sha256(sealed.read_bytes()).hexdigest())
+        self.assertEqual(written["ledger"][0]["sealed_sha256"], hashlib.sha256(sealed.read_bytes()).hexdigest())
         # The job's output is the same hash, after what the runner's file held.
-        self.assertEqual(outputs.read_text(), "earlier=1\nledger_sha256=%s\n" % written["ledger"]["sealed_sha256"])
+        self.assertEqual(outputs.read_text(), "earlier=1\nledger_sha256=%s\n" % job.ledger_digest(written["ledger"]))
+        self.assertEqual(job.ledger_digest(written["ledger"]),
+                         hashlib.sha256(('["%s"]' % written["ledger"][0]["sealed_sha256"]).encode()).hexdigest())
         self.assertEqual(validate(written, load("schemas/eval-aggregate.schema.json"), schemas=eval_result.schemas()), [])
         self.assertEqual(self.step(job.judge), "2 of 2 passed; no code; preflight 3 of 3 passed")
         # A development set has no ledger, and the step seals nothing; the gate set of its cases is gone, as none may share one.
@@ -3095,7 +3097,7 @@ class EvalJob(unittest.TestCase):
         self.assertTrue((place / job.LEDGER).exists())
         # The ledger sealed is the one the report hashed, of a gate set's report.
         written = json.loads((self.work / job.REPORT).read_text())
-        for report in (dict(written, ledger={"salted_sha256": "0" * 64}), dict(written, schema="eval-report/1"), []):
+        for report in (dict(written, ledger=[{"part": "whole", "salted_sha256": "0" * 64}]), dict(written, schema="eval-report/1"), []):
             (self.work / job.REPORT).write_text(json.dumps(report))
             self.assertEqual(sealed_with(), "ledger_not_the_reports")
         (self.work / job.REPORT).write_text(json.dumps(written))
@@ -3142,7 +3144,7 @@ class EvalJob(unittest.TestCase):
                   "engine": job.engine_of("pr-review"), "models": ["claude-opus"], "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
                   "split_ok": True, "kinds_pass": {"finding": job._clears(finding[1], finding[0], (3, 10)),
                                                    "met": job._clears(met[1], met[0], (9, 10))},
-                  "blocking_pass": True, "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}
+                  "blocking_pass": True, "ledger": [{"part": "whole", "salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}]}
         return found, "d" * 64, report
 
     def test_the_gate_passes_a_good_aggregate_report_and_refuses_a_bad_one(self):  # issue 612
@@ -3529,7 +3531,7 @@ class EvalJob(unittest.TestCase):
                 self.assertEqual(written["preflight"], preflight)
                 self.assertFalse(set(asked) & set(self.cases))
                 self.assertEqual((written["passed"], written["faults"]), (0, [{"code": "unanswered", "count": 2}]))
-                sealed = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
+                sealed = dict(written, ledger=[dict(written["ledger"][0], sealed_sha256="f" * 64)])
                 self.assertEqual(job.verdict(sealed, found, digest, "a" * 40, "factory/v0.1.0"), "preflight_failed")
                 ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
                 self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])

@@ -143,6 +143,12 @@
         "pattern": "^[a-z0-9][a-z0-9-]*$"
       }
     },
+    "eval_shards": {
+      "description": "How many shards the eval job's run is split into, each a job of its own with its own time limit, behind one preflight job (issue 611).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
     "gate_set": {
       "description": "The gate set the Release's eval gate reads, by its name under evals/: every dispatch of the eval job on the commit is pooled (issue 613). Absent, the gate reads the review Intent's set, evals/pr-review, by its newest successful dispatch.",
       "type": "string",

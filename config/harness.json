@@ -26,5 +26,6 @@
   },
   "advisory": [
     "coderabbit"
-  ]
+  ],
+  "eval_shards": 4
 }

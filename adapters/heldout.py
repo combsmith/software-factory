@@ -99,3 +99,24 @@ def beside(transport, owner: str, name: str, role: str, ident: str, kind: str, s
         return None, "hash_differs"
     return data, None
 
+
+
+def salt(transport, owner: str, name: str, role: str, set_name: str):
+    """The salt a gate set's shards are drawn by, `{role}/{set_name}.salt` in the home, read raw with the home's token,
+    16 to 256 bytes; or None where there is none to read whole (issue 611). It is no case and pins nothing: it keeps a
+    shard's cases from being told by their place in the public manifest, so a shard's counts say nothing of which
+    case is which kind."""
+    if not (isinstance(role, str) and PART.fullmatch(role) and isinstance(set_name, str) and PART.fullmatch(set_name)
+            and home(owner, name)):
+        return None
+    try:
+        answer = transport.send(request("GET", "/repos/%s/%s/contents/%s/%s.salt" % (owner, name, role, set_name),
+                                        accept=RAW))
+    except Unanswered:
+        return None
+    body = answer["body"]
+    if answer["status"] != 200 or not isinstance(body, str) \
+            or not str(answer["headers"].get("content-type", "")).startswith(RAW + ";"):
+        return None
+    data = raw(body)
+    return data if 16 <= len(data) <= 256 else None

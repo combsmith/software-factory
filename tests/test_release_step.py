@@ -325,7 +325,7 @@ class Candidate(unittest.TestCase):
                         "engine": eval_gate.engine_of("pr-review"), "models": ["claude-opus"],
                         "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20, "split_ok": True,
                         "kinds_pass": {"finding": finding * 10 >= 60, "met": met * 10 >= 180}, "blocking_pass": True,
-                        "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}
+                        "ledger": [{"part": "whole", "salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}]}
             document.update(change)
             return document
 

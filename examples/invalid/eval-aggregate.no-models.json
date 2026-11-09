@@ -77,8 +77,11 @@
     "met": true
   },
   "blocking_pass": false,
-  "ledger": {
-    "salted_sha256": "3f1d0c1e2a7b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5",
-    "sealed_sha256": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
-  }
+  "ledger": [
+    {
+      "part": "whole",
+      "salted_sha256": "3f1d0c1e2a7b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5",
+      "sealed_sha256": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
+    }
+  ]
 }

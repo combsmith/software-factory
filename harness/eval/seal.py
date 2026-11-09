@@ -23,7 +23,8 @@ import pathlib
 import re
 import subprocess
 
-from harness.eval import AGGREGATE, LEDGER, REPORT, Stop, _planned, _write, exit_with, gate_set, within
+from harness.eval import AGGREGATE, LEDGER, PART, PART_SCHEMA, REPORT, Stop, _planned, _write, exit_with, gate_set, \
+    ledger_digest, within
 
 # Each certificate the ledger is sealed to, a line of its sha256, two spaces and its path, as `sha256sum` writes one.
 RECIPIENTS = pathlib.Path(".github") / "ledger-recipients"
@@ -101,7 +102,7 @@ def seal(plain: str, certs: list, out: str, call=subprocess.run) -> bytes:
 
 
 def step(env, root, workspace, call=subprocess.run):
-    _, found, place = _planned(env, root, workspace)
+    kept, found, place = _planned(env, root, workspace)
     # Nothing but what this step seals is uploaded as the ledger: a file or a link already there, from the checkout or
     # a step before, is refused, whatever the set.
     target = os.path.join(os.path.realpath(str(workspace)), SEALED)
@@ -109,8 +110,10 @@ def step(env, root, workspace, call=subprocess.run):
         raise Stop("ledger_in_workspace")
     if not gate_set(found):
         return "sealed nothing: a development set has no ledger"
+    # A part of a split run binds its ledger in what it wrote, `PART`, as a whole run does in its report (issue 611).
+    named, schema = (REPORT, AGGREGATE) if kept.get("part") is None else (PART, PART_SCHEMA)
     try:
-        with open(within(workspace, REPORT), encoding="utf-8") as f:
+        with open(within(workspace, named), encoding="utf-8") as f:
             written = json.load(f)
     except (OSError, ValueError, RecursionError):
         raise Stop("report_unreadable") from None
@@ -120,8 +123,9 @@ def step(env, root, workspace, call=subprocess.run):
     except OSError:
         raise Stop("ledger_unreadable") from None
     # The ledger sealed is the one the report hashed: the report binds it, and the ciphertext's hash binds the seal.
-    if not isinstance(written, dict) or written.get("schema") != AGGREGATE or not isinstance(written.get("ledger"), dict) \
-            or written["ledger"].get("salted_sha256") != hashlib.sha256(data).hexdigest():
+    entries = written.get("ledger") if isinstance(written, dict) and written.get("schema") == schema else None
+    if not (isinstance(entries, list) and len(entries) == 1 and isinstance(entries[0], dict)
+            and entries[0].get("salted_sha256") == hashlib.sha256(data).hexdigest()):
         raise Stop("ledger_not_the_reports")
     certs = recipients(root, place)
     # openssl reads a copy of the bytes the report hashed and writes into the scratch; only what reads back sealed whole
@@ -132,13 +136,14 @@ def step(env, root, workspace, call=subprocess.run):
     sealed = seal(checked, certs, sealing, call)
     with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as out:
         out.write(sealed)
-    written["ledger"]["sealed_sha256"] = hashlib.sha256(sealed).hexdigest()
-    _write(workspace, REPORT, written)
-    # And as the job's output, `ledger_sha256`, where the runner names its file of outputs: a hash, which says nothing.
+    entries[0]["sealed_sha256"] = hashlib.sha256(sealed).hexdigest()
+    _write(workspace, named, written)
+    # And, for a whole run, as the job's output, `ledger_sha256`, where the runner names its file of outputs: a hash,
+    # which says nothing. A split run's is the merge job's, of every part (issue 611).
     output = env.get("GITHUB_OUTPUT")
-    if isinstance(output, str) and os.path.isabs(output):
+    if kept.get("part") is None and isinstance(output, str) and os.path.isabs(output):
         with open(output, "a", encoding="utf-8") as out:
-            out.write("ledger_sha256=%s\n" % written["ledger"]["sealed_sha256"])
+            out.write("ledger_sha256=%s\n" % ledger_digest(entries))
     for done in (within(place, LEDGER), checked, sealing):
         os.remove(done)
     return "sealed the ledger to %d recipients" % len(certs)
