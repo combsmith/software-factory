@@ -1,0 +1,357 @@
+{
+  "schema": "trial/1",
+  "trial": "P-62",
+  "question": "Does the contents API, asked with the raw media type, answer a file of more than 1 MiB with its bytes whole, in one answer and no redirect, and does the git blobs API answer the same blob as base64?",
+  "pass": "pass: a GET of /repos/{owner}/{repo}/contents/{path} for a file of more than 1 MiB, asked with Accept application/vnd.github.raw+json, is answered 200 with a body that is the file's bytes exactly, by its length and its sha256, and no redirect, whether asked with the Maintainer's login or with no credential; and the same GET with application/vnd.github+json is answered 200 with the file's size and no content inline. fail otherwise. Recorded, deciding nothing, as the fallback: what GET /repos/{owner}/{repo}/git/blobs/{sha} answers for the same blob, as JSON and with the raw media type.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-09T00:59:21Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file trial-p62/blob.bin, 1577185 random bytes made for the trial, committed as fd71fb0 on the canary's main, 7737f8f, on the branch trial-p62 alone, which was deleted after; its sha256 is 691bf10a, asked as JSON",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "952",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 00:59:22 GMT",
+          "etag": "\"f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5\"",
+          "last-modified": "Mon, 09 Nov 2026 00:59:21 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F94E:1F6B:1898F4E:51296A5:6AF11AEA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4620",
+          "x-ratelimit-reset": "1794187179",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "380"
+        },
+        "body": {
+          "name": "blob.bin",
+          "path": "trial-p62/blob.bin",
+          "sha": "f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5",
+          "size": 1577185,
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62",
+          "html_url": "https://github.com/combsmith/software-factory-canary/blob/trial-p62/trial-p62/blob.bin",
+          "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5",
+          "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/trial-p62/trial-p62/blob.bin",
+          "type": "file",
+          "content": "",
+          "encoding": "none",
+          "_links": {
+            "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62",
+            "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5",
+            "html": "https://github.com/combsmith/software-factory-canary/blob/trial-p62/trial-p62/blob.bin"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the same file asked with the raw media type. gh formats a body whose type names json, and wrote none; asked so again in exchange 7 it exited 1, saying only that a buffer was short. What GitHub sent is in exchanges 2 and 5",
+        "headers": {
+          "accept": "application/vnd.github.raw+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "1577185",
+          "content-type": "application/vnd.github.raw+json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 00:59:22 GMT",
+          "etag": "\"f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5\"",
+          "last-modified": "Mon, 09 Nov 2026 00:59:21 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; param=raw; format=json",
+          "x-github-request-id": "F951:1ED98F:24351B9:76DEE7B:6AF11AEA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4619",
+          "x-ratelimit-reset": "1794187179",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "381"
+        },
+        "body": {
+          "summarized": "no body was written"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (curl --include --max-redirs 0, no credential): the same file asked with the raw media type, no redirect followed",
+        "headers": {
+          "accept": "application/vnd.github.raw+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "content-length": "1577185",
+          "content-type": "application/vnd.github.raw+json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 00:59:22 GMT",
+          "etag": "\"f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5\"",
+          "last-modified": "Mon, 09 Nov 2026 00:59:21 GMT",
+          "vary": "Accept, Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v3; param=raw; format=json",
+          "server": "github.com",
+          "x-ratelimit-limit": "60",
+          "x-ratelimit-remaining": "59",
+          "x-ratelimit-used": "1",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-reset": "1794189562",
+          "x-github-request-id": "F952:194583:213E54E:6D3D6E1:6AF11AEA"
+        },
+        "body": {
+          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "length": 1577185,
+          "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
+          "the_files_bytes": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/blobs/f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5 (gh api --include): the file's blob, by the sha exchange 0 names, asked as JSON; its content, base64, is recorded by the length and sha256 of what it decodes to",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=86400, s-maxage=86400",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 00:59:23 GMT",
+          "etag": "W/\"3d1e04d647e13d45fd2c394df4d5bc0a29fb2a3278aad94b005d05c47aebd571\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F954:1BFA81:2470517:77743DF:6AF11AEB",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4618",
+          "x-ratelimit-reset": "1794187179",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "382"
+        },
+        "body": {
+          "sha": "f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5",
+          "node_id": "B_kwDOVFD679oAKGYxY2ZiNzViOTA2MjVkY2YzZjdiM2M4MTFjZDVmZWU5ZjE3NWY1YTU",
+          "size": 1577185,
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5",
+          "content": {
+            "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+            "length": 1577185,
+            "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
+            "the_files_bytes": true
+          },
+          "encoding": "base64"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/blobs/f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5 (gh api --include): the same blob asked with the raw media type",
+        "headers": {
+          "accept": "application/vnd.github.raw+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=86400, s-maxage=86400",
+          "content-length": "1577185",
+          "content-type": "application/octet-stream",
+          "date": "Mon, 09 Nov 2026 00:59:24 GMT",
+          "etag": "\"1ea8e32093a4644e2eeda239b4e6697ad81b2610b5cfe448f0ceddb474496ed7\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; param=raw; format=json",
+          "x-github-request-id": "F955:2B31E6:2375BFF:74693F5:6AF11AEC",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4617",
+          "x-ratelimit-reset": "1794187179",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "383"
+        },
+        "body": {
+          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "length": 1577185,
+          "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
+          "the_files_bytes": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): the file asked with application/vnd.github.raw, a type that does not name json, on the same commit, its branch made again for this second pass and deleted after",
+        "headers": {
+          "accept": "application/vnd.github.raw"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "1577185",
+          "content-type": "application/vnd.github.raw; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 01:01:00 GMT",
+          "etag": "\"f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5\"",
+          "last-modified": "Mon, 09 Nov 2026 00:59:21 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; param=raw",
+          "x-github-request-id": "F9EE:231DA5:2392CE8:74CD050:6AF11B4C",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4611",
+          "x-ratelimit-reset": "1794187179",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "389"
+        },
+        "body": {
+          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "length": 1577185,
+          "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
+          "the_files_bytes": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (curl --include --max-redirs 0, no credential): the same, with no credential and no redirect followed",
+        "headers": {
+          "accept": "application/vnd.github.raw",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "content-length": "1577185",
+          "content-type": "application/vnd.github.raw; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 01:01:01 GMT",
+          "etag": "\"f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5\"",
+          "last-modified": "Mon, 09 Nov 2026 00:59:21 GMT",
+          "vary": "Accept, Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v3; param=raw",
+          "server": "github.com",
+          "x-ratelimit-limit": "60",
+          "x-ratelimit-remaining": "58",
+          "x-ratelimit-used": "2",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-reset": "1794189562",
+          "x-github-request-id": "F9EF:D0ED2:22B9C26:71FAE5C:6AF11B4D"
+        },
+        "body": {
+          "summarized": "the body, the trial's random bytes, recorded by its length and sha256 alone",
+          "length": 1577185,
+          "sha256": "691bf10a3701a407ad9e231fbfbb0ef84161590d4a142673e1ec695552b11f6f",
+          "the_files_bytes": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/trial-p62/blob.bin?ref=trial-p62 (gh api --include): exchange 1 asked again: gh wrote no body, and exited 1",
+        "headers": {
+          "accept": "application/vnd.github.raw+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "1577185",
+          "content-type": "application/vnd.github.raw+json; charset=utf-8",
+          "date": "Mon, 09 Nov 2026 01:01:01 GMT",
+          "etag": "\"f1cfb75b90625dcf3f7b3c811cd5fee9f175f5a5\"",
+          "last-modified": "Mon, 09 Nov 2026 00:59:21 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; param=raw; format=json",
+          "x-github-request-id": "F9F0:10630A:EEFC8E:30FC488:6AF11B4D",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4610",
+          "x-ratelimit-reset": "1794187179",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "390"
+        },
+        "body": {
+          "summarized": "no body was written"
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[7].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
