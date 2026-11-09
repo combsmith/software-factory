@@ -365,7 +365,9 @@ class Simulation(unittest.TestCase):
 
     def test_what_happens_while_queued_takes_the_item_out_before_it_merges(self):  # L-19
         # The Maintainer asks for changes, opens a thread, dismisses the approval or adds a Hold after the item
-        # entered the queue. The queue waits for a pass, and the pass takes it out.
+        # entered the queue. The queue does not wait for a pass (trials/P-2.no-pass.json, issue 677): what comes while
+        # queued is merged over, noted and never asserted, unless a pass reads it first and takes it out. A required
+        # check that fails keeps the queue from merging at all.
         # Each is made here by hand, so each says who made it. A check that passed fails on this content only on a run a
         # person started again, so its verdict is that person's (the ruling on #38).
         acts = {"changes": lambda w: w.review("changes_requested") or "human",
@@ -377,21 +379,34 @@ class Simulation(unittest.TestCase):
             w = queued()
             w.caused(act(w))
             w.platform()
-            self.assertEqual((w.pr_state, w.queue), ("open", True), name)
+            if name == "check":
+                self.assertEqual((w.pr_state, w.queue), ("open", True), name)
+            else:
+                self.assertEqual(w.pr_state, "merged", name)
+                self.assertIn("merged before a pass read", "\n".join(w.trace), name)
+            # A pass that reads it first takes it out.
+            w = queued()
+            w.caused(act(w))
             w.poll()
             self.assertEqual((w.pr_state, w.queue), ("open", False), name)
             # Had the queue merged over it once a pass had read it, the invariant breaks.
             w = queued()
             act(w)
             w.read = w.unstamped(w.facts())
-            self.assertRaises(world.Broken, w.platform)
-        # The other side: with nothing in the way, the queue merges once a pass has read the item.
-        w = queued()
-        w.platform()
-        self.assertEqual(w.pr_state, "open")
-        w.poll()
-        w.platform()
-        self.assertEqual(w.pr_state, "merged")
+            if name == "check":
+                w.platform()
+                self.assertEqual(w.pr_state, "open", name)
+            else:
+                self.assertRaises(world.Broken, w.platform)
+        # The other side: with nothing in the way, the queue merges on its checks, with or without a pass read, and says
+        # nothing was merged over.
+        for read in (False, True):
+            w = queued()
+            if read:
+                w.poll()
+            w.platform()
+            self.assertEqual(w.pr_state, "merged", read)
+            self.assertNotIn("merged before a pass read", "\n".join(w.trace), read)
 
     def test_a_run_listed_unnamed_admits_nothing(self):  # I-46, decision 0036
         # On a seed that lists a new Run unnamed, the pass after its admission reads it among the unidentified Runs and
@@ -1069,11 +1084,17 @@ class Simulation(unittest.TestCase):
                               "dismissed_from": None})
             w.approve_contract(world.COLLEAGUE, "c0")
 
+        # The queue does not wait for a pass (issue 677): with no pass between, it merges over the evidence gone, and says
+        # so; a pass that reads it first takes it out.
         w = queued()
         gone(w)
         w.caused("platform")
         w.platform()
-        self.assertEqual((w.pr_state, w.queue), ("open", True))
+        self.assertEqual(w.pr_state, "merged")
+        self.assertIn("merged before a pass read", "\n".join(w.trace))
+        w = queued()
+        gone(w)
+        w.caused("platform")
         w.poll()
         self.assertEqual((w.pr_state, w.queue), ("open", False))
         self.assertIn("apply: dequeued (acceptance_evidence_missing)", w.trace[-1])

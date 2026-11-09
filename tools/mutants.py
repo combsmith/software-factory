@@ -84,6 +84,8 @@ ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 SIM_CREATED = ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)
 SIM_CREATES = ("tests.test_simulator.Simulation.test_a_created_check_stands_beside_the_lens_run_and_replaces_only_one_created_before",)
+SIM_QUEUED = ("tests.test_simulator.Simulation.test_what_happens_while_queued_takes_the_item_out_before_it_merges",
+              "tests.test_simulator.Simulation.test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges")
 JOB_PORT = ("tests.test_adapters.Contract.test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids",
             "tests.test_adapters.Contract.test_a_created_check_under_a_lens_name_does_not_pass")
 RESULT_PORT = ("tests.test_adapters.Contract.test_a_results_check_is_read_as_any_check_and_a_created_one_is_foreign_to_its_reporter",)
@@ -6180,6 +6182,15 @@ MUTANTS = ISSUE + [
     ("a created check replaces another workflow's", "sim/world.py", 'c["app_id"] == APPS[lens] and c["workflow"] is None)]', 'c["app_id"] == APPS[lens])]', SIM_CREATES),
     ("a created check replaces another name's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"]', 'if not (c["app_id"]', SIM_CREATES),
     ("a created check replaces another App's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and', 'if not (c["name"] == CHECKS[lens] and', SIM_CREATES),
+    # The fake's queue merges on its required checks alone, as GitHub's does (trials/P-2.no-pass.json).
+    ("the fake's queue waits for a pass", "sim/world.py", 'if self.queue and self.rng.random() < 0.6 and all(v == "success" for v in self.checks.values()):',
+     'if self.queue and self.rng.random() < 0.6 and all(v == "success" for v in self.checks.values()) and self.read == self.unstamped(self.facts()):', SIM_QUEUED),
+    ("a merge over what no pass read is held to the pass's guarantee", "sim/world.py",
+     'self.read_at_merge = self.read == self.unstamped(self.facts())', 'self.read_at_merge = True', SIM_QUEUED),
+    ("a merge over what a pass read is not held to its guarantee", "sim/world.py",
+     'self.read_at_merge = self.read == self.unstamped(self.facts())', 'self.read_at_merge = False', SIM_QUEUED),
+    ("a merge over what no pass read goes unsaid", "sim/world.py",
+     '                self.note("merged before a pass read %s" % ", ".join(objections))\n', '                pass\n', SIM_QUEUED),
     ("the read asks for no details", "adapters/checks.py", 'startedAt completedAt detailsUrl\n', 'startedAt completedAt\n', JOB_PORT),
     ("the read asks for no run id", "adapters/checks.py", 'workflowRun { databaseId file { path } }', 'workflowRun { file { path } }', JOB_PORT),
     ("the read asks for no check id", "adapters/checks.py", 'id databaseId name conclusion', 'id name conclusion', JOB_PORT),

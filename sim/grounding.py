@@ -112,10 +112,8 @@ RULES = (
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
-    # Contradicted by P-2 (trials/P-2.no-pass.json, issue 659): GitHub's queue merges a queued pull request on its required
-    # checks alone, with no pass read between. Left unverified, as it is, until the fake changes: issue 677's story.
-    ("a_pass_comes_before_the_merge", "The merge queue merges a pull request only after a pass has read it whole and "
-     "current, and found the same facts GitHub holds at the merge", ("P-2",), None, None),
+    ("the_queue_merges_on_its_required_checks", "The merge queue merges a queued pull request once its required checks "
+     "pass, whoever enqueued it, with no read of the Factory's between", ("P-2",), "trials/P-2.no-pass.json", None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
      "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
@@ -359,7 +357,7 @@ ASKS = {
     "a_push_leaves_the_queue": {"P-2": "Does a push take a queued pull request out"},
     "an_app_enters_the_queue": {"P-2": "Can an App enable auto-merge and enter the merge queue"},
     "the_queue_merges": {"P-2": "take a pull request out of it before the queue merges it?"},
-    "a_pass_comes_before_the_merge": {"P-2": "does the poller read a change before the queue merges it?"},
+    "the_queue_merges_on_its_required_checks": {"P-2": "does the poller read a change before the queue merges it?"},
     "an_app_leaves_the_queue": {"P-2": "take a pull request out of it before the queue merges it?"},
     "a_writer_can_dismiss_an_approval": {
         "P-41": "a person with write access the machine user's approval, the timeline naming who dismissed and the "
