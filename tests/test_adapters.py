@@ -3381,6 +3381,23 @@ class Snapshot(unittest.TestCase):
         with self.assertRaises(facts.Moved):
             self.read(6)
 
+    def test_a_pull_request_whose_updated_at_cannot_be_read_has_not_moved(self):  # issue 658
+        # Either read without a time is a read GitHub did not answer, not a move: it earns no pass's grace.
+        first = body("P-29.base", 1)
+
+        class Answers:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def send(self, request):
+                return {"status": 200, "headers": {}, "body": copy.deepcopy(self.answer)}
+        for was, again in ((dict(first, updated_at=None), first), (first, dict(first, updated_at=None))):
+            with self.assertRaises(github.Unanswered) as raised:
+                pull.unchanged(Answers(again), was)
+            self.assertNotIsInstance(raised.exception, facts.Moved)
+        self.assertTrue(pull.unchanged(Answers(first), first))
+        self.assertFalse(pull.unchanged(Answers(dict(first, updated_at="2026-10-11T13:00:00Z")), first))
+
     def test_a_push_that_names_its_pusher_and_no_time_is_refused(self):
         seq = self.sequence(1)
         entry = seq[2]["response"]["body"][0]

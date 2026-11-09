@@ -262,6 +262,20 @@ def status_head(entry: dict, kernel: dict) -> dict:
     return {} if pull_request.left_alone(facts, kernel) else {"head": entry["head"]}
 
 
+def moved_once(left_out: list, why: list, before) -> set:
+    """The pages of the items left out because they moved while read that the last pass record read and did not leave
+    out as moved: each is deferred with no alert, once, and its writes are owed to the next pass (#658). It is derived
+    from that record, never kept: a last record that cannot be read, or holds no `left_out`, cannot say, so each move
+    counts as a second."""
+    last = before[-1] if isinstance(before, list) and before else None
+    held = last.get("left_out") if isinstance(last, dict) else None
+    if not isinstance(held, list):
+        return set()
+    again = {key(e["item"]) for e in held if e["code"] == reads_.MOVED and e["item"] is not None}
+    return {key(i) for i, code in zip(left_out, why) if code == reads_.MOVED and reads_.item(i) is not None
+            and i["type"] == "pull_request" and key(i) not in again}
+
+
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     """One pass: the record, the Runs to dispatch, the acts, the view, the alerts and whether a successor starts."""
     rules = reads_.configured(config["controller"])
@@ -270,9 +284,13 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     previous, before = (None, []) if before is None else (before, before)
     # Facts that are not facts, and an item listed twice, never reach the Kernel and no record could hold them: the
     # item is left out of this pass, as one alert, and every other item is decided as it would be without it.
-    pulls, left_out = reads_.items(copy.deepcopy(reads.get("pull_requests")), "facts")
-    issues, also = reads_.items(copy.deepcopy(reads.get("issues")), "issue-facts")
-    left_out += also
+    pulls, left_out, why = reads_.items(copy.deepcopy(reads.get("pull_requests")), "facts")
+    issues, also, why_also = reads_.items(copy.deepcopy(reads.get("issues")), "issue-facts")
+    left_out, why = left_out + also, why + why_also
+    # A pull request that moved while it was read, and had not in the last pass, is deferred with no alert: the pass its
+    # change starts reads it again. Any other left out, or one that moved twice in a row, is the alert (#658).
+    graced = moved_once(left_out, why, before)
+    alarmed = [i for i in left_out if reads_.item(i) is None or key(i) not in graced]
     repos = {e["facts"]["item"]["repo"] for e in pulls + issues}
 
     records = reads.get("records")
@@ -304,6 +322,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
               "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
               "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
+              "left_out": [{"item": reads_.item(i), "code": code} for i, code in zip(left_out, why)],
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or ())}
     checked(record, "pass")
@@ -343,7 +362,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     due, names_due = credentials_.due(config.get("credentials"), now)
     causes = automatic_causes(runs, now, rules["automatic_pause"]) if automatic is not None else []
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, causes,
-                            bool(left_out), raised, unnamed, reconcile_.alerts(found), due,
+                            bool(alarmed), raised, unnamed, reconcile_.alerts(found), due,
                             whole and never_started(runs, now, rules["automatic_pause"]))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
