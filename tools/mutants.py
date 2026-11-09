@@ -9335,7 +9335,7 @@ MUTANTS = ISSUE + [
     ('a shard prints a case id', 'harness/eval/__init__.py',
      'of = "" if part in (None, PREFLIGHT) else " of shard %s" % part',
      'of = "" if part in (None, PREFLIGHT) else " of shard %s" % ",".join(e["id"] for e in mine)', ('tests.test_evals.EvalJob.test_a_development_sets_run_split_into_shards_is_merged_into_the_report_of_the_whole',)),
-    ("a gate set's part lists its cases", 'harness/eval/__init__.py',
+    ("a gate set's shard artifact names a case", 'harness/eval/__init__.py',
      '"cases": [] if gate else report(',
      '"cases": report(', ('tests.test_evals.EvalJob.test_a_gate_sets_shards_are_drawn_by_the_homes_salt_and_merged_by_their_counts_alone',)),
     ('a gate set with no salt is sharded by its place', 'harness/eval/__init__.py',
