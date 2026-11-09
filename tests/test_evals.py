@@ -2839,6 +2839,11 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((written["passed"], written["faults"], written["kinds_pass"]["finding"], written["preflight"]["passed"]),
                          (0, [], False, 3))
+        # Each criterion counts its cases and its passes apart: none passed here, whatever the cases expect (issue 692).
+        self.assertEqual({name: (c["cases"], c["passed"]) for name, c in written["criteria"].items()},
+                         {name: (n, 0) for name, n in ((c, [json.loads(d)["expected"]["criterion"] for d in self.cases.values()]
+                                                        .count(c)) for c in {json.loads(d)["expected"]["criterion"]
+                                                                             for d in self.cases.values()})})
         # Its preflight, of the development set's cases, asked under the gate set, fails them on it too, and stops it.
         (self.temp / "heldout" / job.LEDGER).unlink()
         self.assertEqual(self.step(job.score, lambda case: surplus), "scored 2 of 2 cases, 0 passed")
@@ -3355,6 +3360,10 @@ class EvalJob(unittest.TestCase):
                        broken(**{"PR-1": {"cases": 20, "passed": 17, "interval": job.wilson(17, 20)}}),
                        broken(**{"PR-1": {"cases": 20, "passed": 18, "interval": job.wilson(17, 20)}}),
                        broken(**{"PR-9": {"cases": 0, "passed": 0, "interval": job.wilson(0, 0)}}),
+                       # Its totals still add up, but PR-3 passes more than it holds: the security read of #692.
+                       dict(run(5, 1), criteria={"PR-1": {"cases": 20, "passed": 13, "interval": job.wilson(13, 20)},
+                                                 "PR-3": {"cases": 10, "passed": 11, "interval": {"low": 0.0, "high": 1.0}},
+                                                 "PR-4": {"cases": 10, "passed": 0, "interval": job.wilson(0, 10)}}),
                        dict(run(5, 1), criteria={"pr-1": run(5, 1)["criteria"]["PR-1"], "PR-3": run(5, 1)["criteria"]["PR-3"],
                                                  "PR-4": run(5, 1)["criteria"]["PR-4"]}),
                        dict(run(5, 1), criteria={"PR-1": {"cases": 30, "passed": 23, "interval": job.wilson(23, 30)},
@@ -3385,6 +3394,20 @@ class EvalJob(unittest.TestCase):
             with self.subTest(manifest={k: v for k, v in manifest.items() if k != "cases"}):
                 with self.assertRaises(job.Stop):
                     job.held(data(manifest))
+        # A fetched case that names no criterion, or one not shaped as one, leaves the criteria unread, as a case of no
+        # kind leaves the kinds: the report then says none, and the gate reads that with its kinds (the Claude review).
+        import tempfile
+        place = pathlib.Path(tempfile.mkdtemp())
+        (place / "cases").mkdir()
+        two = {"schema": "eval-set/1", "cases": [{"id": "x-0"}, {"id": "x-1"}]}
+        for ident, expected in (("x-0", {"verdict": "met", "criterion": "PR-1", "finding": None}),
+                                ("x-1", {"verdict": "met", "finding": None})):
+            (place / "cases" / ("%s.json" % ident)).write_text(json.dumps({"expected": expected}))
+        self.assertIsNone(job.criteria_of(two, place))
+        (place / "cases" / "x-1.json").write_text(json.dumps({"expected": {"verdict": "met", "criterion": "pr-2"}}))
+        self.assertIsNone(job.criteria_of(two, place))
+        (place / "cases" / "x-1.json").write_text(json.dumps({"expected": {"verdict": "met", "criterion": "PR-2"}}))
+        self.assertEqual(job.criteria_of(two, place), {"x-0": "PR-1", "x-1": "PR-2"})
         self.assertEqual((job.criterion_bars_of(floored), job.criterion_bars_of(found), job.criterion_bars_of(development)),
                          ({"PR-3": (1, 2)}, {}, {}))
         self.assertTrue(job.bars_said(floored).endswith("at least 20 cases of each kind; its floors: PR-3 1 of 2."))
