@@ -174,6 +174,29 @@
         "pattern": "^[A-Z][A-Z0-9_]*$"
       }
     },
+    "left_out": {
+      "description": "Each item the pass left out, in the order read, with why: a read that moved while it was read (`pull_moved`), one GitHub did not answer (`facts_unanswered`), facts that are not facts, or an item listed twice. The item is null where none can be named. The next pass reads it to tell a second move from a first (#658). Absent in a record written before it",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "code"],
+        "properties": {
+          "item": {
+            "description": "The item as `facts/1` spells one, or null",
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["repo", "type", "number"],
+            "properties": {
+              "repo": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+              "type": {"enum": ["pull_request", "issue"]},
+              "number": {"type": "integer", "minimum": 1}
+            }
+          },
+          "code": {"enum": ["pull_moved", "facts_unanswered", "not_facts", "listed_twice"]}
+        }
+      }
+    },
     "reconciliation": {
       "description": "What reconciliation found, as the view says it, each once: each write a Factory identity made that no Effect recorded, and each merge read as an Override, ids and codes alone (decision 0061). Absent in a record written before reconciliation",
       "type": "array",
