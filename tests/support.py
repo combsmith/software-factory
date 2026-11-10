@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import pathlib
+import sys
 import time
 import unittest
 
@@ -168,6 +169,47 @@ def linear(test, run, size: int, budget: float, what: str = ""):
     within(test, spent[-1], budget, what)
     grows_linearly(test, *spent, what)
     return result
+
+
+HOOKS = str(ROOT / "tools" / "hooks") + os.sep
+
+
+def steps(run) -> tuple:
+    """(how many lines of tools/hooks/ `run()` executes, its result): a count, which no runner's load changes as it
+    changes the CPU a reading spends ("#693's and #706's CI"). Python's own lines are counted, not what a regex or a
+    string method does in C, so a reading that searches the whole text once for each of many commands is held by
+    counting its searches, as test_whether_a_command_defines_a_printers_name_is_searched_once_a_name does."""
+    count, before = [0], sys.gettrace()
+
+    def line(frame, event, arg):
+        count[0] += event == "line"
+        return line
+    sys.settrace(lambda frame, event, arg: line if frame.f_code.co_filename.startswith(HOOKS) else None)
+    try:
+        result = run()
+    finally:
+        sys.settrace(before)
+    return count[0], result
+
+
+def faster_than_linear_in_steps(quarter: int, half: int, whole: int) -> str:
+    """Why a reading's `steps` grew faster than linearly over its `sizes`, or "": past the quarter, the whole may add
+    three and a half times what the half adds. Linear growth adds three exactly, n log n a little more, quadratic five,
+    and n to the 1.6, as escaped backticks in double quotes were read (issue 260), four; what does not grow falls away.
+    A count that falls at the half, as a reading cut short at its limit does, is no growth."""
+    if half >= quarter and whole - quarter > 3.5 * (half - quarter):
+        return "executed %d lines at its size, against %d at half and %d at a quarter" % (whole, half, quarter)
+    return ""
+
+
+def linear_in_steps(test, run, size: int, what: str = ""):
+    """`run(size)`'s result, failing `test` unless the `steps` it takes grew linearly from `run(size // 4)` and
+    `run(size // 2)`, as `faster_than_linear_in_steps` reads them. A count needs no second measure; the quarter is run
+    once first, uncounted, so that what the first run warms is not counted to it."""
+    run(sizes(size)[0])
+    counted = [steps(lambda: run(n)) for n in sizes(size)]
+    test.assertEqual(faster_than_linear_in_steps(*[n for n, _ in counted]), "", what)
+    return counted[-1][1]
 
 
 def wall_clock(test):
