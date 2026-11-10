@@ -40,6 +40,7 @@ from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import approve, head as head_, shared, steps, task
 from harness.steps import Stop
+from kernel import terms as t
 from release import current, cut
 
 APP = "reader"
@@ -108,7 +109,7 @@ def decided(record, parts: dict, owner_role: str) -> dict:
     dispatched by hand with another Run's id finds none. A record that is no `pass/1` is `record_unreadable`."""
     if shared.errors(record, "pass"):
         raise Stop("record_unreadable")
-    if parts["intent"] == approve.APPROVAL:
+    if parts["intent"] == t.ISSUE_APPROVAL:    # the run-name's Intent; `approve.APPROVAL` is the Decision's action
         act = approve.decision_of(record, parts["run"])
         if act is None or act["item"] != parts["item"] or act["content_id"] != parts["content_id"] \
                 or parts["role"] != owner_role:

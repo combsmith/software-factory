@@ -810,6 +810,9 @@ def _comment(transport, item: dict, req: dict, login: str) -> dict:
 # of this pull request, and write one review, the approval of the commit the act read, with nothing else in it.
 UNAVAILABLE = 429      # with no answer and any 5xx, GitHub's own trouble: the environment's
 GONE = 404             # with 401 and 403, a token GitHub will not take for this item: the environment's
+# A compare of two commits, the one read of the item's repo whose path holds two dots together: the facts port's diff
+# and files, and a review's content (`adapters/pull.py`, `adapters/timeline.py`).
+COMPARED = r"compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}"
 
 
 class Approving:
@@ -817,16 +820,20 @@ class Approving:
     no item, it may ask only who the token is; with an item, also read that item's repo, the org's Pause among it as the
     repo's list of the org's variables (issue 362), and the facts
     port's own GraphQL reads of that pull request; with the head the act just read as well, also write one review, the
-    approval of that commit and nothing else in it. No path may climb out of the item's repo."""
+    approval of that commit and nothing else in it. No path may climb out of the item's repo: two dots together are
+    read in a compare of two commits alone."""
 
     def __init__(self, transport, item: dict = None, head: str = None):
         self._transport, self._item, self._head = transport, dict(item) if item else None, head
         if item:
             self._repo = "/repos/%s/" % item["repo"]
             self._reviews = "/repos/%s/pulls/%d/reviews" % (item["repo"], item["number"])
+            self._compare = re.compile(re.escape(self._repo) + COMPARED)
 
     def _read(self, path) -> bool:
-        if not isinstance(path, str) or ".." in path or "%2e" in path.lower() or "//" in path:
+        if not isinstance(path, str) or "%2e" in path.lower() or "//" in path:
+            return False
+        if ".." in path and not (self._item is not None and self._compare.fullmatch(path)):
             return False
         return path == "/user" or (self._item is not None and path.startswith(self._repo))
 

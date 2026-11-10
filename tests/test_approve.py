@@ -145,6 +145,17 @@ class TheAct(unittest.TestCase):
                    ("GET", "/orgs/combsmith/members", None),
                    # The org's own variable, which the Pause is no longer read from (issue 362).
                    ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
+        # Two dots together are read in a compare of two commits of the item's repo, and in nothing that is not one
+        # whole: a branch's name, a commit's short or capital form, two dots or four, a path or a query after it, or
+        # another repo's compare (pull request 688, the fourth dry run).
+        base = "a" * 40
+        compare = "/repos/%s/compare/%s...%s" % (repo, base, HEAD)
+        refused += [("GET", path, None) for path in (
+            "/repos/%s/compare/main...%s" % (repo, HEAD), "/repos/%s/compare/%s...main" % (repo, base),
+            "/repos/%s/compare/%s...%s" % (repo, base[:39], HEAD), "/repos/%s/compare/%s...%s" % (repo, base.upper(), HEAD),
+            "/repos/%s/compare/%s..%s" % (repo, base, HEAD), "/repos/%s/compare/%s....%s" % (repo, base, HEAD),
+            compare + "/../../pulls/43", compare + "?per_page=1", compare + "0", "/repos/%s/x/../compare/%s...%s" % (
+                repo, base, HEAD), "/repos/combsmith/other/compare/%s...%s" % (base, HEAD), "/user/../" + compare[1:])]
         for method, path, body in refused:
             with self.assertRaises(Unanswered, msg=(method, path, body)):
                 token.send({"method": method, "path": path, "body": body})
@@ -152,7 +163,7 @@ class TheAct(unittest.TestCase):
         # The reads the act makes go through: the item's repo, who the token is, the org's Pause as the repo's list of
         # the org's variables (issue 362), and the facts port's own GraphQL reads of this pull request.
         owner, name = repo.split("/")
-        allowed = [("GET", "/user", None), ("GET", PULL + "/reviews?per_page=100", None),
+        allowed = [("GET", "/user", None), ("GET", PULL + "/reviews?per_page=100", None), ("GET", compare, None),
                    ("GET", "/repos/%s/actions/organization-variables?per_page=100" % repo, None),
                    ("POST", PULL + "/reviews", {"commit_id": HEAD, "event": "APPROVE"})]
         for query in (threads.QUERY, checks.QUERY, acceptance.QUERY):
@@ -188,6 +199,7 @@ class TheAct(unittest.TestCase):
         bare, reading = effects.Approving(github), effects.Approving(github, ITEM)
         bare.send({"method": "GET", "path": "/user", "body": None})
         for req in ({"method": "GET", "path": PULL + "/reviews?per_page=100", "body": None},
+                    {"method": "GET", "path": compare, "body": None}, {"method": "GET", "path": "/user/..", "body": None},
                     {"method": "POST", "path": "/graphql", "body": {"query": threads.QUERY, "variables": {
                         "owner": owner, "name": name, "number": 42}}}):
             with self.assertRaises(Unanswered):
