@@ -360,6 +360,8 @@ class Unreadable(unittest.TestCase):
                dict(good, opened_at=at(2), close_events=[{"action": "closed", "by": dict(WRITER), "at": at(1)}, {"action": "reopened", "by": dict(WRITER), "at": at(3)}]),
                dict(good, close_events=[{"action": "closed", "by": dict(WRITER), "at": at(3)}]),
                pr(is_open=False, closed=5, closes=[]), pr(is_open=False, closed=5, closes=[("closed", 4)]),
+               # Its last close more than max_close_lag_seconds after closed_at (300 here).
+               pr(is_open=False, closed=5, closes=[("closed", 11)]),
                pr(is_open=False, merged=5, closes=[("closed", 3), ("reopened", 4)]),
                # Each by whom, read whole as a label event's actor is (issue 552): none, or one that cannot be read.
                dict(good, close_events=[{"action": "closed", "at": at(3)}, {"action": "reopened", "by": dict(WRITER), "at": at(4)}]),
@@ -373,6 +375,20 @@ class Unreadable(unittest.TestCase):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), entry)
         self.assertEqual(derive(facts(linked=None))["reason"], "linked_unreadable")
+        # The other side: a close GitHub dates a second after closed_at, as it dated an issue's in trials/P-48.json, is
+        # read (the Claude review of issue 672).
+        trailing = dict(pr(is_open=False, closed=5), close_events=[{"action": "closed", "by": dict(WRITER),
+                                                                    "at": "2026-10-11T12:05:01Z"}])
+        self.assertNotEqual(derive(facts(linked=[trailing]))["reason"], "linked_unreadable")
+        # With no limit that can be read, only a close in closed_at's own second is read.
+        for bad in (None, 0, "300"):
+            cfg = config()
+            if bad is None:
+                del cfg["limits"]["max_close_lag_seconds"]
+            else:
+                cfg["limits"]["max_close_lag_seconds"] = bad
+            self.assertEqual(derive(facts(linked=[trailing]), cfg=cfg)["reason"], "linked_unreadable", bad)
+            self.assertNotEqual(derive(facts(linked=[pr(is_open=False, closed=5)]), cfg=cfg)["reason"], "linked_unreadable", bad)
         # One pull request listed twice, which would be two links (issue 551).
         self.assertEqual(derive(facts(linked=[pr(), pr()]))["reason"], "linked_unreadable")
         # The other side: the first number, closed unmerged, merged, and a stranger's pull request are read.
@@ -977,6 +993,9 @@ class Done(unittest.TestCase):
                       # Closed before the merge and reopened after it, which clears its closed_at: it stood closed at
                       # the merge, so the reopening moves no done issue (issue 672).
                       pr(number=12, links=[("connected", 3)], closes=[("closed", 4), ("reopened", 7)]),
+                      # Reopened in the merge's second: no order can be told in it, so it stands as before that second,
+                      # closed, as a link made in it does (decision 0132).
+                      pr(number=12, links=[("connected", 3)], closes=[("closed", 4), ("reopened", 5)]),
                       pr(number=12, is_open=False, closed=9, links=[("connected", 3)],
                          closes=[("closed", 4), ("reopened", 7), ("closed", 9)])):
             d = derive(facts(linked=[own, rival], **closed))

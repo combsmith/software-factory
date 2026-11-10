@@ -181,9 +181,10 @@ def readable_link(entry, config: dict) -> bool:
     # The opening, the merge and the close, each that is there, in that order: a merge closes it, so it comes no later
     # than the close, and in the same second as it as a rule. Out of order is no chronology: its opening, read as the
     # newest movement, would hold off staleness, and its merge would make the issue done. A merge is there only with a
-    # close, as read above. A close before the opening is refused with its close events, whose last is the close and
-    # none of which comes before the opening (issue 672).
+    # close, as read above.
     opened_on, merged_on, closed_on = entry["opened_at"], entry["merged_at"], entry["closed_at"]
+    if closed_on is not None and closed_on < opened_on:
+        return False
     if merged_on is not None and not (opened_on <= merged_on and merged_on <= closed_on):
         return False
     # The close of the issue the timeline names it the closer of: a pull request closes an issue only by merging, so
@@ -229,7 +230,14 @@ def readable_close_events(entry: dict, config: dict) -> bool:
     last = events[-1] if events else None
     if entry["closed_at"] is None:
         return last is None or last["action"] != CLOSED
-    return last is not None and last["action"] == CLOSED and last["at"] == entry["closed_at"]
+    # Its last close no earlier than closed_at, and within max_close_lag_seconds of it: GitHub dates the event a second
+    # after closedAt at times, as it did an issue's in trials/P-48.json (the Claude review).
+    # With no limit that can be read, only a close in closed_at's own second is read; the limit itself defers where the
+    # wait is asked (row 1).
+    lag = config.get("limits", {}).get("max_close_lag_seconds") if isinstance(config.get("limits"), dict) else None
+    bound = lag if type(lag) is int and 1 <= lag else 1
+    return (last is not None and last["action"] == CLOSED
+            and 0 <= seconds(last["at"]) - seconds(entry["closed_at"]) < bound)
 
 
 def closed_before(entry: dict, when: str) -> bool:
