@@ -876,6 +876,10 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(check_authority.run(config=dict(config, author_role="dev-lead")), "no dev-lead.json"))
         self.assertTrue(caught(check_authority.run(config=dict(config, owner_role="reviewer")), "no reviewer.json"))
         self.assertTrue(caught(check_authority.run(config=dict(config, author_role="pr-review")), "author Role differs"))
+        # The other side: an author Role the table and the configuration both name, with its manifest, is accepted on
+        # both counts (Astra). pr-review stands in for it, as the one manifest under roles/.
+        named = check_authority.run(dict(self.table, author_role="pr-review"), dict(config, author_role="pr-review"))
+        self.assertFalse(caught(named, "author Role differs") or caught(named, "roles/ holds no"), named)
         # A name that is no Role's, one that would reach outside roles/ among them, and an owner Role named none (Muse).
         for field in ("author_role", "owner_role"):
             for name in ("../config/defaults", "pr-review/../../config/defaults"):     # the second begins as a Role's (Astra)
