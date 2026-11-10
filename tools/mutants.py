@@ -489,6 +489,10 @@ ISSUE = [
     ('a link by hand undone is still linked now', ISSUE_PY,
      'entry["keyword"] or bool(entry["link_events"]) and entry["link_events"][-1]["action"] == CONNECTED', 'entry["keyword"] or bool(entry["link_events"])',
      ('tests.test_issue.Done.test_a_keyword_link_a_pass_saw_before_the_merge_is_a_link_at_it',)),
+    ('an unlinking since the merge releases a keyword link too', ISSUE_PY,
+     '                 and (linked_by_hand_before(p, first)\n                      and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])\n                      or keyword_seen_before(p, first))\n',
+     '                 and (linked_by_hand_before(p, first) or keyword_seen_before(p, first))\n                 and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])\n',
+     ('tests.test_issue.Done.test_a_keyword_link_a_pass_saw_before_the_merge_is_a_link_at_it',)),
     # Issue 554: a draft event before its pull request opened is no chronology.
     ("a draft event before the pull request opened is read", ISSUE_PY,
      '    if events and events[0]["at"] < entry["opened_at"]:\n        return False\n', '',
