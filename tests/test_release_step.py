@@ -317,13 +317,15 @@ class Candidate(unittest.TestCase):
                         "passed": finding + met,
                         "kinds": {kind: {"cases": 20, "passed": p, "interval": eval_gate.wilson(p, 20)}
                                   for kind, p in (("finding", finding), ("met", met))},
+                        "criteria": {},
                         "origin": {"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": finding + met}},
                         "faults": [], "preflight": {"cases": 3, "passed": 3, "faults": []},
                         "usage": {"answered": 40, "input_tokens": 1, "cache_creation_input_tokens": 0,
                                                 "cache_read_input_tokens": 0, "output_tokens": 1, "turns": 40,
                                                 "cost_usd": 1.5, "seconds": 60.0},
                         "engine": eval_gate.engine_of("pr-review"), "models": ["claude-opus"],
-                        "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20, "split_ok": True,
+                        "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20, "criterion_bars": {},
+                        "split_ok": True,
                         "kinds_pass": {"finding": finding * 10 >= 60, "met": met * 10 >= 180}, "blocking_pass": True,
                         "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}
             document.update(change)

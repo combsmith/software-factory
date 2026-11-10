@@ -52,6 +52,9 @@ Z = 1.959964                # a Wilson interval's, at 95%
 # The fewest cases a gate set may mark natural, or not, where it marks any: a group of one would tell its case's verdict
 # by its count, under the case's public id (issue 612, the security read).
 ORIGIN_LEAST = 10
+# The fewest cases expecting a Finding on a criterion a gate set floors: as many as a group of natural cases or others
+# needs, so that no published count is one case's verdict (the Factory Builder's ruling on issue 692).
+FLOOR_LEAST = ORIGIN_LEAST
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -66,7 +69,7 @@ BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}
 KIND_LEAST = 20
 KINDS = ("finding", "met")
 BLOCKING = "blocking"       # whether every case that expects a Finding of this severity passed is said, and closes nothing
-BLOCKING_LEAST = 1          # by itself (decision 0150); a set holds one, or a true word for them could mean none exist
+BLOCKING_LEAST = 1          # by itself (decision 0150); a development set holds one, or a true word could mean none exist
 # How many dispatches on one commit a gate set's gate pools, every one of them counted, so that no run is the best of
 # several (issue 613).
 POOL_LEAST = 3
@@ -132,6 +135,13 @@ def held(data: bytes) -> tuple:
     # no person need approve, cannot lower the gate (the security read).
     if [key for key in OWN if key in found] != (list(OWN) if gate_set(found) else []):
         raise Stop("eval_set_unreadable")
+    # A floor per criterion is a gate set's alone, each a whole fraction of the case-runs that expect it, of one case-run
+    # at least, of a criterion its Role's rubric names, so that no floor stands on one no case can cite or asks nothing
+    # (issue 692; lane d's build of it; Argon's read).
+    floors, named = found.get("criterion_bars", {}), eval_result._criteria(found["role"]) or set()
+    if ("criterion_bars" in found and not gate_set(found)) or any(
+            name not in named or not 1 <= bar[0] <= bar[1] for name, bar in floors.items()):
+        raise Stop("eval_set_unreadable")
     if gate_set(found) and (found["kind_least"] < KIND_LEAST or any(
             not found["bars"][kind][0] <= found["bars"][kind][1] or found["bars"][kind][1] < 1
             or found["bars"][kind][0] * BAR_OF_A_KIND[kind][1] < BAR_OF_A_KIND[kind][0] * found["bars"][kind][1]
@@ -158,6 +168,13 @@ def bars_of(found: dict) -> dict:
     return {kind: tuple(found["bars"][kind]) for kind in KINDS} if gate_set(found) else dict(BAR_OF_A_KIND)
 
 
+def criterion_bars_of(found: dict) -> dict:
+    """The floor each criterion a gate set's manifest names is held to, `{criterion: (n, d)}`: of the case-runs of its
+    cases that expect that criterion, at least n/d pass (issue 692). A criterion it does not name has none, and no
+    other set gives any."""
+    return {name: tuple(bar) for name, bar in found.get("criterion_bars", {}).items()} if gate_set(found) else {}
+
+
 def kind_least_of(found: dict) -> int:
     """How many cases of each kind the set must hold: a gate set's own, as its manifest gives it (issue 613); KIND_LEAST
     for every other set."""
@@ -167,9 +184,12 @@ def kind_least_of(found: dict) -> int:
 def bars_said(found: dict) -> str:
     """The sentence a gate set's record holds of its bars and its least of a kind, word for word, so that a check can hold
     the record to the manifest and nothing reads a record at run time (issue 613)."""
-    bars = bars_of(found)
-    return "Its bars: %s; at least %d cases of each kind." % (
+    bars, floors = bars_of(found), criterion_bars_of(found)
+    said = "Its bars: %s; at least %d cases of each kind" % (
         ", ".join("%s %d of %d" % (kind, bars[kind][0], bars[kind][1]) for kind in KINDS), kind_least_of(found))
+    if floors:
+        said += "; its floors: %s" % ", ".join("%s %d of %d" % (name, n, d) for name, (n, d) in sorted(floors.items()))
+    return said + "."
 
 
 def preflight_of(root: pathlib.Path, found: dict) -> list:
@@ -391,7 +411,10 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
     if kept["preflight"]:
         ahead = _fetched(env, workspace, transport, heads, dict(found, cases=kept["preflight"]), place / PREFLIGHT)
         said = ", %d of %d to preflight" % (ahead, len(kept["preflight"]))
-    return "fetched %d of %d cases" % (_fetched(env, workspace, transport, heads, found, place), found["count"]) + said
+    fetched = _fetched(env, workspace, transport, heads, found, place)
+    if floor_short(found, place):
+        raise Stop("eval_floor_short")
+    return "fetched %d of %d cases" % (fetched, found["count"]) + said
 
 
 def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, place: pathlib.Path) -> int:
@@ -606,14 +629,41 @@ def kinds_of(found: dict, place: pathlib.Path):
     return None if expected is None else {case: said["verdict"] for case, said in expected.items()}
 
 
+def criteria_of(found: dict, place: pathlib.Path):
+    """`{criterion: [id, ...]}` of each criterion the gate set floors, `criterion_bars_of`, with the cases that expect a
+    Finding on it, read from each fetched case as `kinds_of` reads each kind (issue 692): its recall, so that a reviewer
+    blind to it cannot clear it by raising nothing on the cases that expect none. No criterion the set does not floor is
+    counted, and no case's text names one. None where `_expected` can say nothing."""
+    expected = _expected(found, place)
+    if expected is None:
+        return None
+    return {name: [case for case, said in expected.items() if said["verdict"] == "finding" and said.get("criterion") == name]
+            for name in sorted(criterion_bars_of(found))}
+
+
+def floor_short(found: dict, place: pathlib.Path) -> bool:
+    """Whether a criterion the set floors has fewer than FLOOR_LEAST cases that expect a Finding on it, or the cases that
+    expect a Finding on no floored criterion, which the kind's count less the floors' tells, are some but fewer: either
+    count would tell a case's verdict, so the dispatch stops before anything is asked (issue 692; the security read).
+    False where the cases cannot be read, as that run fails by them, and for a set that floors nothing."""
+    floored, expected = criteria_of(found, place), _expected(found, place)
+    if not floored:
+        return False
+    rest = len([s for s in expected.values() if s["verdict"] == "finding"]) - sum(len(c) for c in floored.values())
+    return any(len(cases) < FLOOR_LEAST for cases in floored.values()) or 0 < rest < FLOOR_LEAST
+
+
 def split_ok(found: dict, place: pathlib.Path):
-    """Whether the set's cases hold `kind_least_of` of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
-    the whole set, never how many of any: the gate needs no more (decision 0120). None where `kinds_of` can say nothing."""
+    """Whether the set's cases hold `kind_least_of` of each kind and, but for a gate set, BLOCKING_LEAST that expect a
+    blocking Finding: one word of the whole set, never how many of any: the gate needs no more (decision 0120). None where
+    `kinds_of` can say nothing."""
     kinds = kinds_of(found, place)
     if kinds is None:
         return None
+    # A gate set brings its own least of each kind, and the blocking word closes nothing (decision 0150): one grading only
+    # what no check holds may hold no blocking case, and would otherwise be short on every run (issue 691).
     return min(list(kinds.values()).count(kind) for kind in KINDS) >= kind_least_of(found) \
-        and len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST
+        and (gate_set(found) or len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST)
 
 
 def _clears(passed: int, of: int, bar: tuple) -> bool:
@@ -675,7 +725,7 @@ def blocking_cases(found: dict, expected: dict) -> list:
 def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
     """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many, which
     the judge's line says and which closes nothing by itself (decision 0150). True of a set with none, which `split_ok`
-    closes on. None where `_expected` can say nothing."""
+    closes on for a development set and not for a gate set (issue 691). None where `_expected` can say nothing."""
     expected = _expected(found, place)
     if expected is None:
         return None
@@ -824,16 +874,22 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
     counted = None if kinds is None else {
         kind: {"cases": n, "passed": p, "interval": wilson(p, n)}
         for kind, n, p in ((k, list(kinds.values()).count(k), len([c for c in passed if kinds[c] == k])) for k in KINDS)}
+    floored = None if counted is None else criteria_of(found, place)
+    by_criterion = None if floored is None else {
+        name: {"cases": len(cases), "passed": len(set(cases) & passed), "interval": wilson(len(set(cases) & passed), len(cases))}
+        for name, cases in floored.items()}
     natural = {e["id"] for e in found["cases"] if e.get("natural") is True}
     origin = {"natural": natural, "constructed": {e["id"] for e in found["cases"]} - natural}
     return {"schema": AGGREGATE, "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "passed": len(passed), "kinds": counted,
+            "criteria": by_criterion,
             "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
             "faults": faults_of(assessed),
             "preflight": {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
                           "faults": faults_of(ahead)},
             "usage": usage_of(results), "engine": engine_of(found["role"]), "models": models(usages or {}),
             "bars": {kind: list(bars_of(found)[kind]) for kind in KINDS}, "kind_least": kind_least_of(found),
+            "criterion_bars": {name: list(bar) for name, bar in criterion_bars_of(found).items()},
             "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
             "blocking_pass": blocking_pass(found, place, assessed),
             "ledger": {"salted_sha256": hashlib.sha256(ledger).hexdigest()}}
@@ -897,7 +953,22 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or words != {k: _clears(kinds[k]["passed"], kinds[k]["cases"], bars[k]) for k in KINDS}
             or (document["split_ok"] is True and min(kinds[k]["cases"] for k in KINDS) < least)):
         return "count_differs"
-    if document["bars"] != {kind: list(bars[kind]) for kind in KINDS} or document["kind_least"] != least:
+    # The criteria counted are the ones the set floors, each of FLOOR_LEAST cases that expect a Finding at least, within
+    # the cases, passes and failures of that kind, as each case expects one criterion; where no kind could be read, none could be
+    # counted (issue 692).
+    criteria, floors = document["criteria"], criterion_bars_of(found)
+    if (criteria is None) != (kinds is None) or criteria is not None and (
+            set(criteria) != set(floors)
+            or sum(c["passed"] for c in criteria.values()) > kinds["finding"]["passed"]
+            # Nor do the floors fail more than the kind: what passes beyond them is held within what lies beyond them.
+            or sum(c["cases"] - c["passed"] for c in criteria.values()) > kinds["finding"]["cases"] - kinds["finding"]["passed"]
+            or any(c["cases"] < FLOOR_LEAST or c["passed"] > c["cases"] or c["interval"] != wilson(c["passed"], c["cases"])
+                   for c in criteria.values())
+            # What the kind holds beyond the floors is published too, by subtraction: none, or FLOOR_LEAST at least.
+            or criteria and 0 < kinds["finding"]["cases"] - sum(c["cases"] for c in criteria.values()) < FLOOR_LEAST):
+        return "count_differs"
+    if document["bars"] != {kind: list(bars[kind]) for kind in KINDS} or document["kind_least"] != least \
+            or document["criterion_bars"] != {name: list(bar) for name, bar in floors.items()}:
         return "bars_differ"
     if passed < least_passed(found["count"], least if document["split_ok"] is True else 0, bars) \
             or (words is not None and not all(words.values())):
@@ -914,6 +985,8 @@ def pooled(documents: list) -> dict:
     return {"kinds": {kind: {field: sum(d["kinds"][kind][field] for d in documents) for field in ("cases", "passed")}
                       for kind in KINDS},
             "passed": sum(d["passed"] for d in documents),
+            "criteria": {name: {field: sum(d["criteria"][name][field] for d in documents) for field in ("cases", "passed")}
+                         for name in documents[0]["criteria"]} if documents else {},
             "blocking_pass": all(d["blocking_pass"] is True for d in documents)}
 
 
@@ -935,9 +1008,17 @@ def pooled_verdict(documents: list, found: dict, digest: str, commit: str, relea
     # The split held in each, and so each kind was read (`aggregate_verdict` holds that), or the pool has no kinds to sum.
     if any(d["split_ok"] is not True or d["blocking_pass"] is None for d in documents):
         return "eval_split_short"
+    # Every report is of one set, so each counts the same criteria, each with the same cases (issue 692).
+    if any({n: c["cases"] for n, c in d["criteria"].items()} != {n: c["cases"] for n, c in documents[0]["criteria"].items()}
+           for d in documents):
+        return "count_differs"
     together, bars = pooled(documents), bars_of(found)
     if not all(_clears(together["kinds"][k]["passed"], together["kinds"][k]["cases"], bars[k]) for k in KINDS):
         return "case_failed"
+    # Each criterion the set has a floor for clears it, summed over the pool, whatever the kinds' bars say.
+    if not all(_clears(together["criteria"][name]["passed"], together["criteria"][name]["cases"], bar)
+               for name, bar in criterion_bars_of(found).items()):
+        return "criterion_failed"
     return PASS
 
 

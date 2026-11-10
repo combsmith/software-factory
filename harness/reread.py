@@ -6,12 +6,14 @@ the Pause is `FACTORY_PAUSED` on the org and on the item's repo; the facts are t
 request, with the accounts `controller/1` holds, the App that opens pull requests (issue 295), whether the run
 records were read whole and what the item's Lenses recorded in them (`adapters/applied.py`). The context is built from
 them by `controller/pass_.context_of`, as one pass builds it, with no pass records before, so `passes_since` is
-unreadable, which defers nothing. What cannot be read raises, and the job that asked records whose fault it was."""
+unreadable, which defers nothing. What cannot be read raises, named by its stage (`harness/shared.unread`), and the
+job that asked records whose fault it was."""
 from __future__ import annotations
 
 from adapters import applied, facts as facts_, pause as pause_, records, timeline
 from adapters.github import Unanswered
 from controller import pass_, reads as reads_
+from harness import shared
 
 
 def item(transport, config: dict, number: int, now: str, clock) -> tuple:
@@ -19,19 +21,24 @@ def item(transport, config: dict, number: int, now: str, clock) -> tuple:
     `controller/configuration.load`'s; `clock` gives the facts' `read_at`, `now` the time the context is built at."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
+    with shared.staged("run_records"):
+        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
-    found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
-                             config["authority"])
-    facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
-                                     with_head=True, opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
-                                     recorded=found[number],
-                                     opened=applied.opened(transport, home, listed,
-                                                           facts_.opener_role(config["kernel"])))
-    paused = pause_.read(transport, home.split("/")[0], [home])
+    with shared.staged("lens_records"):
+        found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
+                                 config["authority"])
+    with shared.staged("opened_records"):
+        opened = applied.opened(transport, home, listed, facts_.opener_role(config["kernel"]))
+    with shared.staged("snapshot"):
+        facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
+                                         with_head=True, opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
+                                         recorded=found[number], opened=opened)
+    with shared.staged("pause"):
+        paused = pause_.read(transport, home.split("/")[0], [home])
     rules = reads_.configured(controller)
     listed_, _, runs, _, _, _, context = pass_.context_of(listed, paused, [home], rules, now)
     if not listed_:
-        raise Unanswered("the run records cannot be read")
+        with shared.staged("run_records"):
+            raise Unanswered("the run records cannot be read")
     return facts, head, runs, context
