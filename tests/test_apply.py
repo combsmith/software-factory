@@ -1211,9 +1211,12 @@ class Bundle(unittest.TestCase):
         self.assertEqual(bundle.names(a_bundle(spaced, quoted)), (["docs/a b.md", "docs/caf\u00e9.md"], []))
         # A rename whose names hold spaces cannot be told apart in its header: its rename lines name both.
         self.assertEqual(bundle.names(a_bundle(moved("kernel/a b.py", "docs/c d.py"))), (["docs/c d.py"], ["kernel/a b.py"]))
-        # A header whose names cannot be told apart is read from its sides.
-        sides = "diff --git a/p q b/r s\n--- a/p q\n+++ b/r s\n@@ -1 +1 @@\n-a\n+b\n"
-        self.assertEqual(bundle.names(a_bundle(sides)), (["r s"], ["p q"]))
+        # A mode changed on a name with a space: its header alone names it, read as git reads it (Muse's read).
+        spaced_mode = "diff --git a/docs/a b.md b/docs/a b.md\nold mode 100644\nnew mode 100755\n"
+        self.assertEqual(bundle.names(a_bundle(spaced_mode)), (["docs/a b.md"], []))
+        # A quoted name's bytes are unquoted as git unquotes them, and read as UTF-8 once (Argon's read).
+        raw = b'diff --git "a/\xc3\x83\xc2\xa9" "b/\xc3\x83\xc2\xa9"\nold mode 100644\nnew mode 100755\n'
+        self.assertEqual(bundle.names(raw), (["\u00c3\u00a9"], []))
         # A line with no newline at the end of a file.
         last = "diff --git a/z.md b/z.md\nindex 1..2 100644\n--- a/z.md\n+++ b/z.md\n@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n\\ No newline at end of file\n"
         self.assertEqual(bundle.names(a_bundle(last)), (["z.md"], []))
@@ -1269,6 +1272,16 @@ class Bundle(unittest.TestCase):
                      # /dev/null with no mode line that makes or removes a file is a path git writes: dev/null.
                      b"diff --git a/docs/x b/docs/x\nindex 1..2 100644\n--- a/docs/x\n+++ /dev/null\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n",
                      b"diff --git a/docs/x b/docs/x\nnew file mode 100644\n--- a/docs/x\n+++ b/docs/x\n@@ -0,0 +1 @@\n+x\n",
+                     # A side that names what the header does not, or a header that cannot be read and no rename's
+                     # lines, so that a side would name the file alone, as git reads it otherwise (Argon's read).
+                     b"diff --git a/README.md b/README.md\n--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -1 +1 @@\n-o\n+n\n",
+                     b"diff --git a/one two b/three four\n--- a/kernel/gate.py x\n+++ b/kernel/gate.py x\n@@ -1 +1 @@\n-o\n+n\n",
+                     b"diff --git a/p q b/r s\n--- a/p q\n+++ b/r s\n@@ -1 +1 @@\n-a\n+b\n",
+                     b"diff --git a/README.md b/README.md\n--- a/kernel/gate.py\t2026-01-01\n+++ b/kernel/gate.py\t2026-01-01\n@@ -1 +1 @@\n-o\n+n\n",
+                     b"diff --git a/one two b/three four\nrename from README.md\nrename to kernel/gate.py\t\n",
+                     # An escape git does not write, and a quote unescaped inside a quoted name.
+                     b'diff --git "a/\\x" "b/\\x"\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git "a/x" "b/x"\nold mode 100644\nnew mode 100755\nrename from "a"b"\nrename to y\n',
                      b'diff --git "a/x\\377.md" "b/x\\377.md"\nold mode 100644\nnew mode 100755\n',
                      b"diff --git a/x b/y z\nold mode 100644\nnew mode 100755\n",
                      b"diff --git a/\nold mode 100644\nnew mode 100755\n",

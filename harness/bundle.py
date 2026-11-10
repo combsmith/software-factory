@@ -29,8 +29,9 @@ NAMING = (b"copy from ", b"copy to ", b"rename from ", b"rename to ", b"rename o
 HUNK = re.compile(rb"@@ -[0-9]{1,9}(?:,([0-9]{1,9}))? \+[0-9]{1,9}(?:,([0-9]{1,9}))? @@.*", re.S)
 # A name git quoted: between double quotes, a character it escapes as C does, and a byte past ASCII as three octal digits.
 QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
-ESCAPED = re.compile(r"\\([0-7]{3}|[abtnvfr\"\\])")
-ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+ESCAPES = {ord(k): v for k, v in (("a", 7), ("b", 8), ("t", 9), ("n", 10), ("v", 11), ("f", 12), ("r", 13), ('"', 34),
+                                  ("\\", 92))}
+OCTAL = re.compile(rb"[0-3][0-7]{2}")
 # What git never writes in a name it leaves unquoted: a double quote, a backslash or a control character, a tab among
 # them. A name that holds one unquoted is read otherwise by git than here, so it is no name this reads.
 UNQUOTED_NOT = re.compile(r'["\\\x00-\x1f\x7f]')
@@ -51,21 +52,34 @@ def fetch_bundle(artifact: str, digest: str) -> bytes:
 
 
 def _name(said: bytes):
-    """A path from a name as git writes it, quoted or not, or None where it cannot be read."""
+    """A path from a name as git writes it, quoted or not, or None where it cannot be read. A quoted name is unquoted
+    byte by byte, as git unquotes it, and then read as UTF-8 once: an escape git does not write, or a quote inside it
+    unescaped, is no name."""
+    if said.startswith(b'"'):
+        if len(said) < 2 or not said.endswith(b'"'):
+            return None
+        body, out, i = said[1:-1], bytearray(), 0
+        while i < len(body):
+            if body[i] == 0x22:
+                return None
+            if body[i] == 0x5C:
+                if OCTAL.fullmatch(body[i + 1:i + 4]):
+                    out.append(int(body[i + 1:i + 4], 8))
+                    i += 4
+                    continue
+                if body[i + 1:i + 2] and body[i + 1] in ESCAPES:
+                    out.append(ESCAPES[body[i + 1]])
+                    i += 2
+                    continue
+                return None
+            out.append(body[i])
+            i += 1
+        said = bytes(out)
+    elif UNQUOTED_NOT.search(said.decode("latin-1")):
+        return None
     try:
         text = said.decode("utf-8")
     except UnicodeDecodeError:
-        return None
-    if text.startswith('"'):
-        quoted = QUOTED.fullmatch(text)
-        if not quoted:
-            return None
-        try:
-            text = ESCAPED.sub(lambda m: chr(int(m.group(1), 8) if len(m.group(1)) == 3 else ESCAPES[m.group(1)]),
-                               quoted.group(1)).encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            return None
-    elif UNQUOTED_NOT.search(text):
         return None
     return text if text else None
 
@@ -127,6 +141,7 @@ def names(patch) -> tuple:
         if not read_whole:
             return None
         olds, news = ([header[0]], [header[1]]) if header else ([], [])
+        sources, targets = [], []
         made = gone = False
         i += 1
         while i < len(lines) and lines[i].startswith(EXTENDED + NAMING):
@@ -137,8 +152,13 @@ def names(patch) -> tuple:
                     name = _name(line[len(word):])
                     if name is None:
                         return None
-                    (olds if word in (b"copy from ", b"rename from ", b"rename old ") else news).append(name)
+                    (sources if word in (b"copy from ", b"rename from ", b"rename old ") else targets).append(name)
             i += 1
+        olds, news = olds + sources, news + targets
+        # What each side names is the header's, or the rename's or copy's, never a name of its own: git reads a side
+        # otherwise than this where no other line names the file, so a side that differs makes the bundle unreadable.
+        before = sources[0] if sources else header[0] if header else None
+        after = targets[0] if targets else header[1] if header else None
         if i < len(lines) and lines[i].startswith(b"--- "):
             if i + 1 >= len(lines) or not lines[i + 1].startswith(b"+++ "):
                 return None
@@ -146,8 +166,8 @@ def names(patch) -> tuple:
             # git reads /dev/null as no file only beside the mode line that makes or removes one.
             if not got_old or not got_new or (old is None) != made or (new is None) != gone:
                 return None
-            olds += [old] if old else []
-            news += [new] if new else []
+            if (old is not None and old != before) or (new is not None and new != after):
+                return None
             i += 2
             if i >= len(lines) or not lines[i].startswith(b"@@ "):
                 return None
