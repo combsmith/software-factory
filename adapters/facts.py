@@ -43,9 +43,10 @@ def _utc() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _named(err: Unanswered, part: str) -> Unanswered:
-    """`err`, told which part of the snapshot GitHub did not answer, as `part`: a name of the snapshot's own, never what
-    GitHub said, which the reader's step prints (`harness/read.py`; pull request 688, the dry run). A Moved is no part."""
+def _named(err: Exception, part: str) -> Exception:
+    """`err`, told which part of the snapshot failed, as `part`: a name of the snapshot's own, never what GitHub or the
+    fault said, which the reader's step prints (`harness/read.py`; pull request 688, the dry run). A read GitHub did not
+    answer and a fault of the part's own code are named alike (decision 0187). A Moved is no part."""
     if not isinstance(err, Moved):
         err.part = part
     return err
@@ -65,7 +66,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     try:
         return _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, kept, with_head, opener,
                          recorded, opened, part)
-    except Unanswered as err:
+    except Exception as err:
         raise _named(err, part[0])
 
 
@@ -106,6 +107,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
     part[0] = "unchanged"
     if not pull.unchanged(transport, first):
         raise Moved("the pull request changed while it was read; it is read again at the next pass")
+    part[0] = "assembly"     # no read: the facts put together from what the reads gave, whose fault is none of theirs
     now = clock()
     facts = dict(own)
     facts.update({

@@ -24,7 +24,7 @@ import unittest.mock
 from unittest import mock
 
 from tests import support
-from tests.support import Spent, cores, faster_than_linear, linear, over, sizes, slack, wall_clock, within
+from tests.support import Spent, cores, faster_than_linear, linear_in_steps, over, sizes, slack, wall_clock, within
 from tools.hooks import after_edit, before_stop, identity, make, protected, rules_changed, shell
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -236,6 +236,71 @@ class Budgets(unittest.TestCase):
         # The sizes a reading is run at: a quarter, half and whole, so the three spends are of three sizes on one path.
         self.assertEqual(sizes(16000), (4000, 8000, 16000))
         self.assertEqual(sizes(901), (225, 450, 901))
+
+    def test_a_reading_whose_steps_grow_faster_than_its_size_fails(self):
+        # Lines executed at a quarter, half and whole of a size, which no load changes (#706's CI). Past the quarter,
+        # linear growth adds three times the half's and passes; n to the 1.6 adds four and quadratic five, and fail.
+        self.assertEqual(support.faster_than_linear_in_steps(100, 200, 400), "")
+        self.assertEqual(support.faster_than_linear_in_steps(1000, 1010, 1020), "")      # what does not grow
+        self.assertIn("at half", support.faster_than_linear_in_steps(100, 400, 1600))    # quadratic
+        self.assertIn("at half", support.faster_than_linear_in_steps(1000, 3031, 9190))    # n to the 1.6
+        # At the edge: three and a half times passes, and one line more fails.
+        self.assertEqual(support.faster_than_linear_in_steps(100, 200, 450), "")
+        self.assertIn("at half", support.faster_than_linear_in_steps(100, 200, 451))
+        # A count that falls or holds at the half, as a reading cut short at its limit gives, is no growth while the
+        # whole stays at the quarter's or below (Muse); one that rises past it at the whole is growth (Astra).
+        self.assertEqual(support.faster_than_linear_in_steps(300, 100, 150), "")
+        self.assertEqual(support.faster_than_linear_in_steps(300, 100, 300), "")
+        self.assertEqual(support.faster_than_linear_in_steps(100, 100, 100), "")
+        self.assertIn("at half", support.faster_than_linear_in_steps(100, 100, 101))
+        self.assertIn("at half", support.faster_than_linear_in_steps(100, 100, 1000000))
+        self.assertIn("at half", support.faster_than_linear_in_steps(300, 100, 301))
+        # A quarter that counted nothing missed tools/hooks/ and holds nothing, so it fails (Muse).
+        self.assertIn("counted no line", support.faster_than_linear_in_steps(0, 0, 0))
+        self.assertIn("counted no line", support.faster_than_linear_in_steps(0, 100, 300))
+        # Only the lines of tools/hooks/ are counted, and a tracer already in place is put back.
+        self.assertEqual(support.steps(lambda: sorted(range(50), key=str))[0], 0)
+        counted, read = support.steps(lambda: shell.commands("a; b"))
+        self.assertGreater(counted, 0)
+        self.assertEqual(read, [(["a"], []), (["b"], [])])
+        # Each line is counted, not only whether one ran: four times the commands execute well past twice the lines,
+        # and a quadratic reading of tools/hooks/ fails linear_in_steps on the real count (Astra).
+        self.assertGreater(support.steps(lambda: shell.commands("a; " * 40))[0],
+                           2 * support.steps(lambda: shell.commands("a; " * 10))[0])
+        # A loop inside one call is counted at each pass, not once as the call returns (Astra): _tick_end reads one
+        # character a pass.
+        once = [support.steps(lambda: shell._tick_end("x" * n, 0))[0] for n in (100, 400)]
+        self.assertGreaterEqual(once[0], 100)
+        self.assertGreater(once[1], 3 * once[0])
+        with self.assertRaises(AssertionError):
+            support.linear_in_steps(self, lambda n: [shell.unmarked("x" * k) for k in range(n)] and
+                                    [shell.unmarked("x") for _ in range(n * n)], 64)
+
+        # linear_in_steps fails a test on what faster_than_linear_in_steps finds, and gives the whole size's result
+        # (Astra): counts and results scripted in place of steps.
+        def scripted(*counts):
+            left = iter(counts)
+            return lambda run: (next(left), run())
+        for counts, fails in (((100, 200, 400), False), ((100, 200, 450), False), ((100, 200, 451), True),
+                              ((100, 400, 1600), True)):
+            ran = []
+            with mock.patch.object(support, "steps", scripted(*counts)):
+                if fails:
+                    with self.assertRaises(AssertionError):
+                        support.linear_in_steps(self, lambda n: ran.append(n) or n, 400)
+                else:
+                    self.assertEqual(support.linear_in_steps(self, lambda n: ran.append(n) or n, 400), 400)
+            self.assertEqual(ran, [100, 100, 200, 400])     # the quarter once uncounted, then each size
+
+        def tracer(frame, event, arg):
+            return None
+        before = sys.gettrace()
+        sys.settrace(tracer)
+        try:
+            support.steps(lambda: None)
+            self.assertIs(sys.gettrace(), tracer)
+        finally:
+            sys.settrace(before)
 
     def test_the_cpu_a_child_spends_is_counted(self):
         # The hook runs git; what git spends is the hook's too. CPU time, so a busy machine does not change it.
@@ -1184,11 +1249,9 @@ class Identity(unittest.TestCase):
         self.assertLessEqual(bracket.call_count, 4)
 
     @wall_clock
-    def test_the_spellings_that_ran_long_are_read_in_linear_time(self):
-        # Decision 0032: an alias read again and again, an unclosed [ again and again, and cd - again and again.
-        # Issue 253: each reading that grows is run at half its size and at its size, in this run; the second keeps to the
-        # hook's reading budget, READ_SECONDS of CPU, and costs at most three times the first. The two that do not grow
-        # keep to the budget.
+    def test_the_spellings_that_ran_long_and_do_not_grow_keep_to_the_budget(self):
+        # Decision 0032: an alias read again and again, and directories pushed and popped again and again, each keep to
+        # the hook's reading budget, READ_SECONDS of CPU (issue 253).
         bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 23)) + "a22; git push"
         for command, code in ((bomb, "command_unreadable"),
                               ("pushd a; " + "".join("popd; pushd d%d; " % n for n in range(40)) + "git push",
@@ -1197,10 +1260,23 @@ class Identity(unittest.TestCase):
                 said = self.codes(command)
             within(self, spent, identity.READ_SECONDS, command[:40])
             self.assertIn(code, said)
-        for make, size, code in ((lambda n: "cp /tmp/x ." + "[a" * n + "; git push", 8000, ""),
-                                 (lambda n: "mytool -" + "a" * n + "; git push", 20000, ""),
-                                 (lambda n: "cd .git; " + "cd -;" * n + " cd %s; git push" % self.here, 16000, "")):
-            said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
+
+    def counted(self, make):
+        """A run of the whole check on `make(n)` whose reading no budget cuts short, so that what it executes is a count
+        of the command alone and no clock is read to decide it (#706's CI)."""
+        def run(n):
+            with mock.patch.object(identity, "READ_SECONDS", 10 ** 6):
+                return self.codes(make(n), seconds=10 ** 6)
+        return run
+
+    def test_the_spellings_that_ran_long_are_read_in_linear_time(self):
+        # Decision 0032: an unclosed [ again and again, a long bundle of options, and cd - again and again. Each is run at
+        # a quarter, half and whole of its size, and the lines of the hook it executes grow linearly: a count, which a
+        # shared runner's load cannot change as it changed the CPU these were timed by (#693's and #706's CI).
+        for make, size, code in ((lambda n: "cp /tmp/x ." + "[a" * n + "; git push", 800, ""),
+                                 (lambda n: "mytool -" + "a" * n + "; git push", 2000, ""),
+                                 (lambda n: "cd .git; " + "cd -;" * n + " cd %s; git push" % self.here, 400, "")):
+            said = linear_in_steps(self, self.counted(make), size, make(2)[:40])
             self.assertIn(code, said)
 
     def test_a_substitution_a_quote_holds_and_a_comment_are_data(self):
@@ -1817,24 +1893,23 @@ class Identity(unittest.TestCase):
         commands = shell.commands(identity._quoted(shell.without_heredocs(command, raw=True)), spend, scopes=True, marked=True)
         self.assertIn("command_unreadable", [code for code, _ in identity._calls(commands, "/tmp", command, dict(os.environ), spend)[1]])
 
-    @wall_clock
     def test_the_readings_issue_174_adds_run_in_linear_time(self):
         # Each new reading is one pass: a comment, a $'...' refused at its backslash, escaped backticks, ( and ${...}.
-        # Issue 253: each at half its size and at its size, in this run, as test_the_spellings_that_ran_long_... is.
+        # Each at a quarter, half and whole of its size, counted as test_the_spellings_that_ran_long_... is (#706's CI).
         for make, size, code in ((lambda n: "# " + "x" * n + "\ngit commit -m x", 200000, ""),
                                  (lambda n: "git commit -m $'" + "\\x41\\'" * n + "'", 20000, "command_unreadable"),
-                                 (lambda n: 'git commit -m "' + "\\`x\\` " * n + '"', 20000, ""),
-                                 (lambda n: "arr=(" + "a " * n + "); f() { :; }; echo $((1)); git push", 20000, ""),
-                                 (lambda n: "for f in a; do cp /tmp/x " + "${f%}" * n + "; done; git push", 5000,
+                                 (lambda n: 'git commit -m "' + "\\`x\\` " * n + '"', 1000, ""),
+                                 (lambda n: "arr=(" + "a " * n + "); f() { :; }; echo $((1)); git push", 800, ""),
+                                 (lambda n: "for f in a; do cp /tmp/x " + "${f%}" * n + "; done; git push", 400,
                                   "git_directory_written"),
                                  (lambda n: "alias x='cd .git;'\n" + "x ls\n" * n + "git push", 200, ""),
                                  # A word dense with substitutions: each ) gave back the word before it (Muse on PR 262).
-                                 (lambda n: "echo " + "a$(x)" * n + "; git push", 2000, ""),
+                                 (lambda n: "echo " + "a$(x)" * n + "; git push", 200, ""),
                                  # A run of stars, or of expansions read as one, before a tail that does not match.
                                  (lambda n: "x=a; cp /tmp/x " + "${x%}" * n + "Q/y; git push", 320, ""),
                                  (lambda n: "cp /tmp/x " + "*" * n + "Q/y; git push", 320, ""),
                                  (lambda n: "cp /tmp/x {1..100000}/" + "*" * n + "Q/y; git push", 320, ""),
-                                 (lambda n: 'echo "' + "$(( " * n + "1" + " ))" * n + '"; git push', 900,
+                                 (lambda n: 'echo "' + "$(( " * n + "1" + " ))" * n + '"; git push', 400,
                                   "command_unreadable"),
                                  # A ${...} in a ${...} in a body's substitution, each read as a script is, is charged (Muse on #497).
                                  (lambda n: "cat <<EOF\n$(echo " + "${x:-" * n + "y" + "}" * n + ")\nEOF\ngit push", 400,
@@ -1842,19 +1917,19 @@ class Identity(unittest.TestCase):
                                  # Substitutions in double quotes, each escaping a ", each level read once (Astra on #520).
                                  (lambda n: 'echo "$(' * n + "printf '\\\"'" + ')"' * n + "; git push", 120, ""),
                                  # Quoted words in a backtick, each read up to its close alone (Codex on #604).
-                                 (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 8000, ""),
-                                 (lambda n: 'echo "$(echo ' + "${x:-'y'} " * n + ')"; git push', 8000, ""),
-                                 (lambda n: 'echo "' + ("${x:-" + "a " * 20) * n + "}" * n + '"; git push', 800, ""),
+                                 (lambda n: "echo `echo " + '"x" ' * n + "`; git push", 400, ""),
+                                 (lambda n: 'echo "$(echo ' + "${x:-'y'} " * n + ')"; git push', 100, ""),
+                                 (lambda n: 'echo "' + ("${x:-" + "a " * 20) * n + "}" * n + '"; git push', 64, ""),
                                  (lambda n: 'echo "$(echo ' + ("${x:-" + "a " * 20) * n + "'y'" + "}" * n + ')"; git push',
-                                  800, "")):
-            said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
+                                  16, "")):
+            said = linear_in_steps(self, self.counted(make), size, make(2)[:40])
             self.assertIn(code, said)
         # Codex on PR 604: a ${...} after each of many closed substitutions, by the reader. The whole check searched the
         # whole text once for each command that prints until it kept each name's answer (#605): that is held by counting
-        # the searches, in test_whether_a_command_defines_a_printers_name_is_searched_once_a_name, not by a CPU ratio
-        # over a check that runs git, which a shared runner's load could not tell from growth (#693's CI).
+        # the searches, in test_whether_a_command_defines_a_printers_name_is_searched_once_a_name, not by the lines
+        # the reader executes, which do not count what a search does in C.
         make = lambda n: 'echo "$(date)" ${x:-\'a\'}; ' * n
-        linear(self, lambda n: shell.commands(make(n)), 8000, identity.READ_SECONDS, make(2)[:40])
+        linear_in_steps(self, lambda n: shell.commands(make(n)), 800, make(2)[:40])
 
     @wall_clock
     def test_the_readings_sonarcloud_flagged_are_read_in_linear_time(self):
@@ -2994,7 +3069,7 @@ class ProtectedPaths(Asks):
                 "cat > /tmp/notes.md <<'EOF'\nlifecycle/ and gh pr merge\nEOF", "mkdir -p /tmp/x && cp docs/notes.md /tmp/x/",
                 "rm -rf /tmp/scratch", "python3 tools/check_context.py", "echo $HOME", "export PATH=$PATH:/x",
                 'echo "$x" > /tmp/y', "git commit -F - <<'EOF'\nChange lifecycle/issue.json\nEOF",
-                'for f in docs/*.md; do wc -l "$f"; done', "tar -czf /tmp/x.tgz docs", "cd docs && echo x > notes.md",
+                'for f in docs/*.md; do wc -l "$f"; done', "tar -czf /tmp/x.tgz notes", "cd docs && echo x > notes.md",
                 "cat lifecycle/issue.json | python3 -c 'import json, sys; json.load(sys.stdin)'",
                 "ls | xargs -n1 wc -l", 'cd "$TMPDIR" && echo x > y', "git push -u origin HEAD",
                 "ls | xargs -n 1 wc -l", "python3 tools/hooks/protected.py < /tmp/payload.json",
@@ -3565,12 +3640,14 @@ class MergesAndSettings(Asks):
 
     def test_a_relative_place_git_writes_is_read_from_its_directory_behind_a_wrapper(self):
         p = a_tree()
-        (p / "docs" / "l").symlink_to(p / "lifecycle")     # a way into a protected path that names none
-        for command in ("GIT_INDEX_FILE=l/x nice git -C docs status",
-                        "GIT_OBJECT_DIRECTORY=l setsid git -C docs commit-graph write",
-                        "GIT_INDEX_FILE=l/x nice -n 5 git -c color.ui=never -C docs status"):
+        # A directory that holds no protected path: docs/ holds docs/CODEOWNERS (issue 139).
+        (p / "notes").mkdir()
+        (p / "notes" / "l").symlink_to(p / "lifecycle")     # a way into a protected path that names none
+        for command in ("GIT_INDEX_FILE=l/x nice git -C notes status",
+                        "GIT_OBJECT_DIRECTORY=l setsid git -C notes commit-graph write",
+                        "GIT_INDEX_FILE=l/x nice -n 5 git -c color.ui=never -C notes status"):
             self.asked(self.run_(command, p, project=p), "protected_path", command)
-        for command in ("GIT_INDEX_FILE=x nice git -C docs status", "GIT_INDEX_FILE=l/x nice git status"):
+        for command in ("GIT_INDEX_FILE=x nice git -C notes status", "GIT_INDEX_FILE=l/x nice git status"):
             self.assertEqual(self.run_(command, p, project=p), "", command)
 
     def test_a_place_git_writes_given_to_a_wrapper_is_read(self):
