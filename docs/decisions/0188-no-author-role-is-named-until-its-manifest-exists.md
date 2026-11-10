@@ -1,4 +1,4 @@
-# NNNN. No author Role is named until its manifest exists
+# 0188. No author Role is named until its manifest exists
 
 Status: accepted. The Factory Builder's ruling on "author_role is null until roles/dev-lead.json exists, so a fix Run is never dispatched to a missing role" (issue 675), under the slice-1 epic. The edits to `config/defaults.json` and `sim/world.py` are pre-approved by the Maintainer 2026-11-08, ruled by the Factory Builder. It changes back when waiting on `roles/dev-lead.json` lands.
 
