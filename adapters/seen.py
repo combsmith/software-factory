@@ -238,10 +238,10 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         whole &= _key(t.get("id")) is not None
         add(by, "resolution", _key(t.get("id")), None)
     for r in map(_object, parts["check_runs"]):
-        # A check run whose App GitHub did not show this token could be any App's, a Factory one's among them: what was
-        # seen is short, never silent (decision 0180).
-        whole &= _object(r.get("checkSuite")).get("app", False) is not None
         app = _object(_object(r.get("checkSuite")).get("app")).get("databaseId")
+        # A check run whose App GitHub did not show this token, or gave no id that can be read, could be any App's, a
+        # Factory one's among them: what was seen is short, never silent (decision 0180).
+        whole &= _positive(app)
         by = apps.get(app) if isinstance(app, int) and not isinstance(app, bool) else None
         at = _at(r.get("startedAt"), since) if by is not None else None
         if by is None or at is None:

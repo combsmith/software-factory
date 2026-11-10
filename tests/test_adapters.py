@@ -1952,6 +1952,7 @@ class Checks(unittest.TestCase):
         node = p32_pull()
         nodes = node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
         at = next(i for i, n in enumerate(nodes) if n["__typename"] == "CheckRun")
+        self.assertEqual(at, 0)     # so a false check-run index below is that place, read as Python reads false
         nodes[at]["checkSuite"]["app"] = None
         place = ["repository", "pullRequest", "commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes",
                  at, "checkSuite", "app"]
@@ -1968,7 +1969,8 @@ class Checks(unittest.TestCase):
             self.assertIs(got["complete"], True)
         for errors in ([dict(refused, type="NOT_FOUND")], [dict(refused, path=place[:-1] + ["workflowRun"])],
                        [dict(refused, path=place[:4] + [1] + place[5:])], [dict(refused, path=place[:4] + [False] + place[5:])],
-                       [dict(refused, path=place[:4] + [0.0] + place[5:])], [refused, {"type": "INTERNAL"}],
+                       [dict(refused, path=place[:4] + [0.0] + place[5:])], [dict(refused, path=place[:9] + [False] + place[10:])],
+                       [refused, {"type": "INTERNAL"}],
                        [dict(refused, path=place[:9] + [len(nodes)] + place[10:])], "FORBIDDEN"):
             with self.assertRaises(github.Unanswered, msg=errors):
                 checks.read(github.Replay([answered(errors)]), as_pull(node))

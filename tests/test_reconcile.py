@@ -446,6 +446,8 @@ class SeenPort(unittest.TestCase):
                            "total_count": 1, "check_runs": [{"node_id": "CR_h", "started_at": AT, "app": None}]}},
                        {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
                            "total_count": 1, "check_runs": [{"node_id": "CR_h", "started_at": AT}]}},
+                       {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
+                           "total_count": 1, "check_runs": [{"node_id": "CR_h", "started_at": AT, "app": {"id": False}}]}},
                        {("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
                            "totalCount": 1, "pageInfo": {"hasNextPage": True},
                            "nodes": [{"id": "PRRT_l", "isResolved": False}]}}}}}},
@@ -468,7 +470,8 @@ class SeenPort(unittest.TestCase):
                       dict(kept(), threads=([], False)),
                       kept(threads=[{"id": "PRRT_u", "isResolved": True, "resolvedBy": {"login": "x"}}]),
                       # A check run whose App GitHub did not show the reading token (decision 0180).
-                      kept(check_runs=[dict(check_run(5364144, "CR_h"), checkSuite={"app": None})])] \
+                      kept(check_runs=[dict(check_run(5364144, "CR_h"), checkSuite={"app": None})]),
+                      kept(check_runs=[check_run(False, "CR_h")]), kept(check_runs=[check_run(None, "CR_h")])] \
                 + [kept(**{name: value}) for name, value in bad.items()] \
                 + [kept(**{name: value}) for name, value in keyless.items()]:
             self.assertIs(port(parts)[2], False, parts)
