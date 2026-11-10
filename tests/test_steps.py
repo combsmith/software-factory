@@ -465,7 +465,11 @@ class Reader(unittest.TestCase):
                                             ((read.pull, "change", no), "change_unreadable"),
                                             ((read.texts, "issues", no), "issue_texts_unreadable"),
                                             # A read no stage names, should one be added, still stops by a code.
-                                            ((read.facts_, "accounts_of", no), "facts_unreadable")):
+                                            ((read.facts_, "accounts_of", no), "facts_unreadable"),
+                                            # A fault of a read's own code is told its stage (decision 0187), and the
+                                            # reader still fails on it as it did, by no read's code.
+                                            ((read.facts_, "snapshot", lambda: TypeError("x")), "step_failed"),
+                                            ((read.records, "runs", lambda: KeyError("x")), "step_failed")):
             code, printed, files, _, calls = self.go(raising=(module, name, error()))
             self.assertEqual((code, printed, files, calls["revoked"]), (1, want + "\n", [], 1), want)
 
@@ -632,6 +636,14 @@ class Apply(unittest.TestCase):
             with unittest.mock.patch.object(reread, "item", reading):
                 code, _, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
             self.assertEqual((ended["outcome"], ended["reason"]), want, raised)
+        # A fault of the read's own code is told its stage (decision 0187), and apply still fails on it as it did: by
+        # no read's code, and with no outcome of its own.
+        def faulty(*a):
+            with shared.staged("context"):
+                raise TypeError("an answer no adapter expected")
+        with unittest.mock.patch.object(reread, "item", faulty):
+            code, printed, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
+        self.assertEqual((code, printed, ended), (1, "step_failed\n", None))
         # A record that cannot be read is the environment's; a Decision of another item, no Decision of this Run's.
         code, _, ended, calls = self.go(record=github.Unanswered)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "record_unreadable", []))
