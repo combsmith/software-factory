@@ -20,8 +20,9 @@ import unittest
 import unittest.mock
 import zlib
 
-from harness import engine, head, run, shared, task
+from harness import engine, head, passes, run, shared, task
 from tests import support
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RECORD = json.loads((ROOT / "examples" / "pass.json").read_text())
@@ -945,6 +946,266 @@ class Engine(unittest.TestCase):
         cli = CLI()
         r = engine.run(full, "/opt/claude", JOB, HARNESS, cli, Clock(), SESSION, run.instructions(ROOT, full))
         self.assertEqual((r["status"], len(cli.asked())), ("completed", 1))
+
+
+def switched(**review) -> dict:
+    """The committed configuration, with a private replay's `review` block set as given (issue 581)."""
+    config = copy.deepcopy(run.configuration())
+    config["harness"]["review"] = review
+    return config
+
+
+def raised(ref, path, first, last, criterion="PR-3", severity="major", category="functional") -> dict:
+    return {"ref": ref, "location": {"path": path, "start_line": first, "end_line": last}, "category": category,
+            "severity": severity, "criterion": criterion}
+
+
+def said(findings, coverage=(), posted="create_check_run", status="completed", reason=None, cost=0.1) -> dict:
+    """A Result as the Engine hands it back: each Finding posted once, by `posted`, and its usage counted."""
+    field = "annotations" if posted == "create_check_run" else "comments"
+    effect = {"id": "e1", field: [{"finding": f["ref"], "body": "On %s." % f["ref"]} for f in findings]}
+    if posted == "submit_review":
+        effect["body"] = None
+    usage = dict(engine.usage_of(built(), HARNESS, SESSION), input_tokens=1, cache_creation_input_tokens=0,
+                 cache_read_input_tokens=0, output_tokens=1, turns=2, cost_usd=cost, seconds=1.0)
+    return {"schema": "result/1", "run": RUN, "release": "factory/v0.3.1", "status": status, "reason": reason,
+            "dispositions": [], "findings": list(findings), "effects": {posted: [effect]} if findings else {},
+            "coverage": [dict({"reason": None}, **c) for c in coverage], "usage": usage}
+
+
+class Passes(unittest.TestCase):
+    """What a private replay may switch on to measure the review Role's recall, and how its answers are joined (issue
+    581). The committed configuration switches nothing on."""
+
+    def asked(self, config, the_task=None, said_=None):
+        the_task = the_task or built()
+        with tempfile.TemporaryDirectory() as d:
+            cli = CLI(said=said_)
+            r = run.answer(the_task, JOB, dict(config, release=the_task["release"]), cli, Clock(*[0.0] * 20), SESSION, d)
+        return r, cli.asked()
+
+    def test_the_committed_configuration_asks_a_review_once_as_it_always_was(self):
+        # The golden call: the committed configuration gives no `review` block, and the review is asked once, with the
+        # Role's instructions and its rubric alone after the fixed instruction and the head's note, byte for byte.
+        config = run.configuration()
+        self.assertNotIn("review", config["harness"])
+        self.assertEqual(passes.settings(config["harness"]), passes.DEFAULTS)
+        the_task = built()
+        r, asked = self.asked(config, the_task)
+        told = (engine.ROLE + (ROOT / "roles" / "pr-review" / "prompt.md").read_text(encoding="utf-8") + engine.RUBRIC
+                + json.dumps(json.loads((ROOT / "config" / "rubric-pr-review.json").read_text()), sort_keys=True))
+        self.assertEqual(r["status"], "completed")
+        self.assertEqual([c["args"] for c in asked],
+                         [engine.argv("/opt/claude", the_task, MODEL, SESSION, told, read=True)])
+        self.assertFalse(any(text in arg for arg in asked[0]["args"] for text in (engine.READ_FIRST, engine.CHECKLIST)))
+
+    def test_each_switch_asks_as_its_approach_says(self):
+        listed = json.loads((ROOT / "roles" / "pr-review" / "checklist.json").read_text())
+        # The checklist, told after the rubric; reading the head first, told after the head's note: each once, alone.
+        _, asked = self.asked(switched(checklist=True))
+        told = asked[0]["args"][asked[0]["args"].index("-p") + 1] if "-p" in asked[0]["args"] else " ".join(asked[0]["args"])
+        self.assertEqual(len(asked), 1)
+        self.assertIn(engine.CHECKLIST + json.dumps(listed["criteria"], sort_keys=True), told)
+        self.assertNotIn(engine.READ_FIRST, told)
+        _, asked = self.asked(switched(read_head=True))
+        told = " ".join(asked[0]["args"])
+        self.assertEqual(len(asked), 1)
+        self.assertIn(engine.HEAD, told)
+        self.assertLess(told.index(engine.HEAD), told.index(engine.READ_FIRST))
+        self.assertNotIn(engine.CHECKLIST, told)
+        # The whole Task asked twice, each call a session of its own, the first the Run's; the same Finding twice is one.
+        r, asked = self.asked(switched(runs=2))
+        sessions = [c["args"][c["args"].index("--session-id") + 1] for c in asked]
+        self.assertEqual((len(asked), sessions[0], len(set(sessions))), (2, SESSION, 2))
+        self.assertEqual((r["status"], [f["ref"] for f in r["findings"]]), ("completed", ["n1"]))
+        self.assertEqual(r["usage"]["turns"], 4)
+        # A pass per changed file: this Task's two files, each asked with its own part of the diff alone.
+        _, asked = self.asked(switched(passes="per_file"))
+        told = [" ".join(c["args"]) for c in asked]
+        self.assertEqual(len(asked), 2)
+        self.assertTrue("kernel/decide.py" in told[0].replace(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), "")
+                        and "docs/glossary.md" not in told[0].replace(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), ""))
+        # Each pass is given its own file's part of the diff, the second the second file's.
+        sent = [[t["body"] for t in json.loads(c["args"][c["args"].index("-p") + 1].split(engine.TASK, 1)[1])["texts"]
+                 if t["id"].startswith("diff:")][0] for c in asked]
+        self.assertEqual([s.split("\n", 1)[0] for s in sent], ["diff --git a/kernel/decide.py b/kernel/decide.py",
+                                                                 "diff --git a/docs/glossary.md b/docs/glossary.md"])
+        self.assertTrue("docs/glossary.md" in told[1].replace(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), "")
+                        and "kernel/decide.py" not in told[1].replace(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), ""))
+        # Each pass is told it judges its own file alone, and which others are judged in passes of their own.
+        self.assertIn(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), told[0])
+        self.assertIn(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), told[1])
+        _, asked = self.asked(switched(runs=2))
+        self.assertFalse(any("This pass judges one changed file" in " ".join(c["args"]) for c in asked))
+        # An Intent that reviews nothing is asked as it always was, whatever the block switches on.
+        other = dict(built(), intent="adjudicate-findings")
+        for review in ({"runs": 2}, {"passes": "per_file"}, {"checklist": True}, {"read_head": True}):
+            with self.subTest(review=review):
+                cli = CLI()
+                run.answer(other, JOB, dict(switched(**review), release=other["release"]), cli, Clock(*[0.0] * 20), SESSION)
+                self.assertEqual(len(cli.asked()), 1)
+                told = " ".join(cli.asked()[0]["args"])
+                self.assertFalse(any(text in told for text in (engine.READ_FIRST, engine.CHECKLIST, "This pass judges one changed file")))
+        # A block harness/1 does not allow is refused, never read as something else.
+        for given in (None, [], {"runs": 4}, {"runs": "2"}, {"runs": True}, {"passes": "per_hunk"}, {"checklist": 1}, {"union": 2},
+                      {"runs": 2, "checklist": True}, {"passes": "per_file", "read_head": True}):
+            with self.subTest(given=given), self.assertRaises(ValueError):
+                passes.settings({"review": given})
+        # Three runs are allowed, and asked.
+        self.assertEqual(passes.settings({"review": {"runs": 3}})["runs"], 3)
+        _, asked = self.asked(switched(runs=3))
+        self.assertEqual(len(asked), 3)
+        # One approach at a time, beside the others at their defaults.
+        self.assertEqual(passes.settings({"review": {"passes": "whole", "runs": 2, "checklist": False}}), dict(passes.DEFAULTS, runs=2))
+        # A checklist missing, of another Role or Intent, or not checklist/1, is the Factory's fault, read before the CLI.
+        for spoil in (None, dict(listed, role="pr-other"), dict(listed, intent="fix-findings"), dict(listed, criteria={"PR-3": []}),
+                      dict(listed, criteria=dict(listed["criteria"], **{"PR-9": ["a fault no rubric names"]}))):
+            with self.subTest(spoil=spoil), unittest.mock.patch.object(run, "ROOT", pathlib.Path(tempfile.mkdtemp())):
+                for path in walk.files(ROOT, "roles/pr-review") + walk.files(ROOT, "config"):
+                    (run.ROOT / path.relative_to(ROOT)).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(str(path), str(run.ROOT / path.relative_to(ROOT)))
+                given = run.ROOT / "roles" / "pr-review" / "checklist.json"
+                given.unlink() if spoil is None else given.write_text(json.dumps(spoil))
+                r, asked = self.asked(switched(checklist=True))
+                shutil.rmtree(str(run.ROOT))
+                self.assertEqual((r["status"], r["reason"], asked), ("failed", "rubric_unreadable", []))
+
+    def test_a_task_is_split_at_each_changed_files_header_within_a_bound(self):
+        the_task = built()
+        parts = passes.split(the_task)
+        diff = [t for t in the_task["texts"] if t["id"].startswith("diff:")][0]["body"]
+        bodies = [[t for t in p["texts"] if t["id"].startswith("diff:")][0]["body"] for p in parts]
+        self.assertEqual((len(parts), "".join(bodies)), (2, diff))
+        self.assertTrue(all(b.startswith("diff --git ") and b.count("diff --git ") == 1 for b in bodies))
+        self.assertEqual(the_task, built(), "the Task itself is unchanged")
+        def of(diff):
+            content = "sha256:" + hashlib.sha256(diff).hexdigest()
+            return built(diff=diff, facts=facts(content), record=record(dict(REVIEW, content_id=content)))
+        one = of(DIFF.split(b"diff --git a/docs")[0])
+        self.assertEqual(passes.split(one), [one])
+        many = b"".join(b"diff --git a/f%d b/f%d\n--- a/f%d\n+++ b/f%d\n@@ -1,1 +1,1 @@\n-a\n+b\n" % ((i,) * 4)
+                        for i in range(passes.MOST_FILES + 1))
+        wide = of(many)
+        self.assertEqual(passes.split(wide), [wide])
+        self.assertEqual(len(passes.split(of(many[:many.index(b"diff --git a/f%d" % passes.MOST_FILES)]))), passes.MOST_FILES)
+        # The bound is eight, whatever the constant says: eight files are eight passes, nine are one.
+        files = lambda n: b"".join(b"diff --git a/g%d b/g%d\n--- a/g%d\n+++ b/g%d\n@@ -1,1 +1,1 @@\n-a\n+b\n" % ((i,) * 4) for i in range(n))
+        self.assertEqual((len(passes.split(of(files(8)))), len(passes.split(of(files(9))))), (8, 1))
+        # A path git quotes, as one with a tab in it, leaves the Task whole.
+        quoted = (b'diff --git "a/a\\tb.py" "b/a\\tb.py"\n--- "a/a\\tb.py"\n+++ "b/a\\tb.py"\n@@ -1,1 +1,1 @@\n-a\n+b\n'
+                  b"diff --git a/c.py b/c.py\n--- a/c.py\n+++ b/c.py\n@@ -1,1 +1,1 @@\n-a\n+b\n")
+        self.assertEqual(len(passes.split(of(quoted))), 1)
+        # So does a header whose path holds a space git leaves unquoted, as a rename to one: its path cannot be read whole.
+        spaced = (b"diff --git a/old.py b/new name.py\nsimilarity index 90%\nrename from old.py\nrename to new name.py\n"
+                  b"diff --git a/c.py b/c.py\n--- a/c.py\n+++ b/c.py\n@@ -1,1 +1,1 @@\n-a\n+b\n")
+        self.assertEqual(len(passes.split(of(spaced))), 1)
+        self.assertEqual(len(passes.asked(of(quoted), dict(passes.DEFAULTS, passes="per_file"))), 1)
+
+    def test_results_are_joined_by_the_merge_rule(self):
+        the_task = built()
+        here, there = raised("n1", "kernel/decide.py", 88, 94), raised("n2", "docs/glossary.md", 1, 1, "PR-1", "minor", "requirements")
+        # At one place, the same path with lines that overlap, two Findings are one, whatever each cites; the one most
+        # agree on is kept, the earliest on a tie; one elsewhere is kept whole. Each is posted once, numbered afresh.
+        other = raised("n1", "kernel/decide.py", 90, 91, "PR-2", "blocking", "security")
+        joined = passes.union([said([other]), said([here, there]), said([dict(here, ref="n4")])])
+        self.assertEqual([(f["ref"], f["criterion"], f["location"]["path"]) for f in joined["findings"]],
+                         [("n1", "PR-3", "kernel/decide.py"), ("n2", "PR-1", "docs/glossary.md")])
+        self.assertEqual(joined["effects"], {"create_check_run": [{"id": "e1", "annotations": [
+            {"finding": "n1", "body": "On n1."}, {"finding": "n2", "body": "On n2."}]}]})
+        self.assertTrue(engine.held(joined, the_task))
+        self.assertEqual(passes.union([said([other]), said([here])])["findings"][0]["criterion"], "PR-2", "the earliest on a tie")
+        # The vote is of criterion, severity and category each: under one criterion, two answers' major outvotes a first
+        # minor, and two answers' security outvotes a first functional.
+        minor, major = raised("n1", "kernel/decide.py", 90, 91, severity="minor"), raised("n1", "kernel/decide.py", 90, 91)
+        self.assertEqual(passes.union([said([minor]), said([major]), said([major])])["findings"][0]["severity"], "major")
+        security = raised("n1", "kernel/decide.py", 90, 91, category="security")
+        self.assertEqual(passes.union([said([major]), said([security]), said([security])])["findings"][0]["category"], "security")
+        # One answer naming a criterion twice is one answer: it never stands for another that left it out.
+        twice = said([], [{"criterion": "PR-3", "verdict": "met"}, {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}])
+        self.assertEqual(passes.union([twice, said([], [{"criterion": "PR-1", "verdict": "met"}])])["coverage"], [])
+        # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
+        minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]
+        voted = passes.union([said([other]), said([dict(other)]), said(minors)])
+        self.assertEqual([(f["criterion"], f["severity"]) for f in voted["findings"]], [("PR-2", "blocking")])
+        # Lines that do not overlap, another path, or no lines at all, are two.
+        apart = raised("n1", "kernel/decide.py", 95, 99)
+        self.assertEqual(len(passes.union([said([here]), said([apart])])["findings"]), 2)
+        self.assertEqual(len(passes.union([said([here]), said([dict(here, location={"path": "kernel/decide.py"})])])["findings"]), 2)
+        self.assertEqual(len(passes.union([said([here]), said([dict(here, location={"path": "kernel/gate.py", "start_line": 88, "end_line": 94})])])["findings"]), 2)
+        # Coverage: a finding where a kept Finding cites it; met where one judged it met and each other met or not
+        # applicable; otherwise the first's word.
+        joined = passes.union([said([], [{"criterion": "PR-1", "verdict": "not_applicable", "reason": "no_rule_added"},
+                                         {"criterion": "PR-3", "verdict": "met"},
+                                         {"criterion": "PR-5", "verdict": "not_applicable", "reason": "no_rule_added"}]),
+                               said([here], [{"criterion": "PR-1", "verdict": "met"}, {"criterion": "PR-3", "verdict": "finding"},
+                                         {"criterion": "PR-5", "verdict": "not_applicable", "reason": "no_rule_added"}])])
+        self.assertEqual([(c["criterion"], c["verdict"], c["reason"]) for c in joined["coverage"]],
+                         [("PR-1", "met", None), ("PR-3", "finding", None), ("PR-5", "not_applicable", "no_rule_added")])
+        # A criterion is a finding only where a kept Finding cites it: two answers raising one fault at one place under two
+        # criteria join covered, as `apply` reads it, the criterion merged away met, each answer covered on its own.
+        from kernel import coverage as covering
+        rubric = json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())
+        changed = [support.changed("kernel/decide.py")]
+        rows = lambda found: [{"criterion": c["id"], "verdict": found.get(c["id"], "met")} for c in rubric["criteria"]]
+        first = said([raised("n1", "kernel/decide.py", 90, 91, "PR-2", "blocking", "security")], rows({"PR-2": "finding"}))
+        second = said([raised("n1", "kernel/decide.py", 88, 94)], rows({"PR-3": "finding"}))
+        for one in (first, second):
+            self.assertEqual(covering.covered(rubric, one["coverage"], one["findings"], changed), ("covered", []))
+        joined = passes.union([first, second])
+        self.assertEqual(covering.covered(rubric, joined["coverage"], joined["findings"], changed), ("covered", []))
+        self.assertEqual({c["criterion"]: c["verdict"] for c in joined["coverage"]}["PR-3"], "met")
+        # Muse's case, as ruled: PR-3 at 88-94 first, PR-2 at 90-91 merged into it. One Finding, PR-3's; PR-2 met, not
+        # uncovered, so `apply` accepts the joined Result.
+        joined = passes.union([second, first])
+        self.assertEqual([(f["criterion"], f["location"]["start_line"]) for f in joined["findings"]], [("PR-3", 88)])
+        self.assertEqual({c["criterion"]: c["verdict"] for c in joined["coverage"]}["PR-2"], "met")
+        self.assertEqual(covering.covered(rubric, joined["coverage"], joined["findings"], changed), ("covered", []))
+        # Where every answer called it a finding and each Finding citing it was merged away, it is met: no other word is left.
+        both = [{"coverage": [{"criterion": "PR-3", "verdict": "finding", "reason": None}]}] * 2
+        self.assertEqual(passes._covered(both, {"PR-2"}), [{"criterion": "PR-3", "verdict": "met", "reason": None}])
+        # A clean case read a pass per file: one pass calls a criterion not applicable and the rest met, so it is met; every
+        # pass calls it not applicable, so it stays so, with the first's reason.
+        na = {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}
+        met = {"criterion": "PR-3", "verdict": "met"}
+        self.assertEqual([(c["verdict"], c["reason"]) for c in passes.union([said([], [na]), said([], [met]), said([], [met])])["coverage"]],
+                         [("met", None)])
+        self.assertEqual([(c["verdict"], c["reason"]) for c in passes.union([said([], [na]), said([], [na]), said([], [na])])["coverage"]],
+                         [("not_applicable", "no_rule_added")])
+        # A criterion one pass left out stays out: another file's word does not cover it, and the joined Result is uncovered.
+        partial = passes.union([said([], rows({})[:2] + rows({})[3:]), said([], rows({}))])
+        self.assertEqual([c["criterion"] for c in partial["coverage"]], [c["id"] for c in rubric["criteria"] if c["id"] != "PR-3"])
+        self.assertEqual(covering.covered(rubric, partial["coverage"], partial["findings"], changed)[0], "uncovered")
+        # Usage is summed, each count of it, and none where any call counted none; one that did not complete is the
+        # answer, by its reason.
+        self.assertEqual({name: joined["usage"][name] for name in passes.SUMMED},
+                         {"input_tokens": 2, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 2,
+                          "turns": 4, "cost_usd": 0.2, "seconds": 2.0})
+        for name in passes.SUMMED:
+            unknown = said([])
+            unknown["usage"] = dict(unknown["usage"], **{name: None})
+            self.assertIsNone(passes.union([said([]), unknown])["usage"][name], name)
+        stopped = said([], status="failed", reason="engine_timeout")
+        # The first that did not complete is the answer: a later failure does not hide it.
+        refused = said([], status="failed", reason="result_invalid")
+        self.assertEqual(passes.union([said([]), refused, stopped])["reason"], "result_invalid")
+        self.assertEqual([(r["status"], r["reason"], r["usage"]["turns"]) for r in (passes.union([said([here]), stopped]),)],
+                         [("failed", "engine_timeout", 4)])
+        # A kind is posted only by a kept Finding: a review whose one Finding was merged away is not submitted empty.
+        blocking = raised("n1", "kernel/decide.py", 89, 90, "PR-2", "blocking", "security")
+        self.assertEqual(list(passes.union([said([blocking], posted="submit_review"), said([here]), said([here])])["effects"]),
+                         ["create_check_run"])
+        # Where no Finding is kept at all, a review submitted with a body alone is kept as the first answer gave it.
+        alone = said([], posted="submit_review")
+        alone["effects"] = {"submit_review": [{"id": "e1", "comments": [], "body": "Nothing found."}]}
+        self.assertEqual(passes.union([alone, said([])])["effects"], {"submit_review": [{"id": "e1", "comments": [], "body": "Nothing found."}]})
+        # A review posted in a submitted review is joined into one, its body kept.
+        self.assertEqual(passes.union([said([here], posted="submit_review"), said([there], posted="submit_review")])["effects"],
+                         {"submit_review": [{"id": "e1", "body": None, "comments": [{"finding": "n1", "body": "On n1."},
+                                                                                   {"finding": "n2", "body": "On n2."}]}]})
+        # A joined Result that does not hold is a failed one.
+        with unittest.mock.patch.object(passes, "union", lambda results: dict(said([here]), findings=[dict(here, ref="bad")])):
+            r, _ = self.asked(switched(runs=2))
+        self.assertEqual((r["status"], r["reason"]), ("failed", "result_invalid"))
 
 
 class Job(unittest.TestCase):

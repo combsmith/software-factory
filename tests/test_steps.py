@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import copy
+import datetime
 import hashlib
 import io
 import json
@@ -17,10 +18,11 @@ import tempfile
 import unittest
 import unittest.mock
 
-from adapters import effects, github, identity, passes
+from adapters import effects, github, identity, passes, records
 from controller import writes as writes_
 from harness import apply_step, approve_step, outcome, read, reread, run, shared, steps, verify
 from tests import support
+from tests import test_approve as ta
 from tests import test_controller as tc
 from tests.test_adapters import Recording, a_pass, a_record, pass_stored, pass_zip, passes_listed
 
@@ -423,6 +425,12 @@ class Reader(unittest.TestCase):
             self.assertEqual((code, printed, files), (1, want + "\n", []), change)
             # A key read is always revoked, whatever stopped the reads.
             self.assertEqual(calls["revoked"], 0 if change == {"environ": {}} else 1, change)
+        # An approving run-name finds its act, and the reader builds no Task on it: the approval is the approving act's.
+        out = tc.passed(tc.reads(pulls=[tc.pr(1), tc.pr(42)], runs=[tc.run(number=42)]))
+        approving, = [d for d in out["dispatch"] if " issue-approval " in d["name"]]
+        code, printed, files, _, calls = self.go(record=out["record"],
+                                                 argv=[approving["name"], ITEM, out["record"]["pass"], "task"])
+        self.assertEqual((code, printed, files, calls["revoked"]), (1, "not_the_decision\n", [], 1))
         # The reader's token is its App's reads alone, whatever else the App were granted.
         apps = json.loads((ROOT / "config" / "apps.json").read_text())
         app = copy.deepcopy(apps["apps"]["reader"])
@@ -813,6 +821,54 @@ class Approve(unittest.TestCase):
                                     {"RELEASE": RELEASE, approve_step.TOKEN: "t"}, d, lambda: 0, lambda token: "live")
                 ended = json.loads(pathlib.Path(d, "o", "outcome.json").read_text())
             self.assertEqual((code, printed, ended["reason"], asked), (1, want + "\n", want, []), want)
+
+    def test_an_approving_run_finds_its_act_by_its_run_name_and_approves(self):  # pull request 688, the fourth dry run
+        # The pass names the approving Run by its Intent, `issue-approval`, and records its act by the Kernel's action,
+        # `issue_approval`. The step finds the one by the other, in a record that holds an admission too, and the job,
+        # run whole on it, sends the approval of the head read again and nothing else.
+        out = tc.passed(tc.reads(pulls=[tc.pr(1), tc.pr(42)], runs=[tc.run(number=42)]))
+        record, (reviewing, approving) = out["record"], out["dispatch"]
+        named = records.named(approving["name"])
+        self.assertEqual((named["intent"], named["item"], named["role"]), ("issue-approval", ta.ITEM, "pr-review"))
+        entry, = [e for e in record["pull_requests"] if e["run"] == approving["run"]]
+        self.assertEqual((entry["decision"]["outcome"], entry["decision"]["action"]), ("act", "issue_approval"))
+        now = datetime.datetime.strptime(record["now"], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc).timestamp()
+
+        def read_again(*a):
+            return (copy.deepcopy(entry["facts"]), ta.HEAD, copy.deepcopy(record["runs"]),
+                    copy.deepcopy(record["context"]))
+
+        def go(name, item=ITEM, found=record):
+            sent = ta.GitHub()
+            with tempfile.TemporaryDirectory() as d, \
+                    unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(found)), \
+                    unittest.mock.patch.object(reread, "item", read_again):
+                code, printed = ran(approve_step.step, [name, item, record["pass"], "approved"],
+                                    {"RELEASE": RELEASE, approve_step.TOKEN: "t", "GITHUB_RUN_ID": "9"}, d,
+                                    lambda: now, lambda token: sent)
+                ended = json.loads(pathlib.Path(d, "approved", "outcome.json").read_text())
+                done = json.loads(pathlib.Path(d, "approved", "applied.json").read_text())
+            return code, printed, ended["outcome"], done["effects"][0]["state"], sent.writes()
+        approval = ("POST", ta.PULL + "/reviews", {"commit_id": ta.HEAD, "event": "APPROVE"})
+        self.assertEqual(go(approving["name"]), (0, "approval applied\n", None, "applied", [approval]))
+        # A run-name that is not the act's own, part by part, finds no Decision, and nothing is written: the Run id of
+        # the record's admission, another content, another Role than the owner, another item, and another Intent.
+        mine = approving["name"]
+        for name, item in ((mine.replace(approving["run"], reviewing["run"]), ITEM),
+                           (mine.replace("sha256:aaaa", "sha256:bbbb"), ITEM),
+                           (mine.replace(" pr-review ", " security-review "), ITEM),
+                           (mine.replace("#42 ", "#1 "), "%s#1" % HOME),
+                           (mine.replace(" issue-approval ", " review-change "), ITEM)):
+            self.assertNotEqual(name, mine)
+            self.assertEqual(go(name, item), (1, "not_the_decision\n", "superseded", "refused", []), name)
+        # An act that names no content is no run-name's: the record is read, and nothing is written.
+        bare = copy.deepcopy(record)
+        for e in bare["pull_requests"]:
+            if e["run"] == approving["run"]:
+                del e["decision"]["content_id"]
+        self.assertEqual(shared.errors(bare, "pass"), [])
+        self.assertEqual(go(mine, found=bare), (1, "not_the_decision\n", "superseded", "refused", []))
 
 
 class Diff(unittest.TestCase):

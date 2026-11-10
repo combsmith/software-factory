@@ -993,11 +993,11 @@ class RoleWrites(unittest.TestCase):
         self.assertEqual(hub.sent[1]["body"]["output"]["annotations"][0]["annotation_level"], "notice")
 
     def test_the_role_app_is_granted_what_apply_reads_again(self):  # the Maintainer, 2026-10-22
-        # Granted, and read again by trial P-39 on 2026-10-27: apply reads the item and the run records again with
-        # the Role App's own token, read-only.
+        # Granted, and read again by trial P-39 on 2026-10-27: apply reads the item, the run records and the Pause
+        # again with the Role App's own token, read-only (decision 0184: slice 1's third dry run stopped without the Pause).
         self.assertEqual(identity.granted(APPS["apps"]["pr-review"], APPS["needs"], apply.READS, "read"),
-                         {"actions": "read", "checks": "read", "contents": "read", "issues": "read",
-                          "metadata": "read", "pull_requests": "read"})
+                         {"actions": "read", "actions_variables": "read", "checks": "read", "contents": "read",
+                          "issues": "read", "metadata": "read", "pull_requests": "read"})
 
     def test_what_apply_reads_again_is_read_only_and_within_the_apps_grant(self):  # the Maintainer, 2026-10-22
         # As the App will be granted it: each read need served by its permission, and a read token is never a writer's.

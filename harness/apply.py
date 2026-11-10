@@ -50,12 +50,13 @@ ORDER = ("push_commits", "submit_review", "create_check_run", "comment")
 PROPOSES = "author"
 DECIDES = "owner"
 # What `apply` reads again with the Role App's own token (the Maintainer, 2026-10-22): every fact the Kernel is asked
-# on, and the run records with each failed Run's outcome. Its grants for them wait on the App's registration.
+# on, the run records with each failed Run's outcome, and the Pause (slice 1's third dry run stopped without it).
+# tests/test_token_needs.py holds it to every read `harness/reread.py` makes.
 READS = ("read:facts.item", "read:facts.state", "read:facts.is_draft", "read:facts.class", "read:facts.author",
          "read:facts.mergeable", "read:facts.targets_protected", "read:facts.actor.can_write", "read:facts.content_id",
          "read:facts.diff", "read:facts.last_pusher", "read:facts.label_events", "read:facts.last_push_at",
          "read:facts.last_writer_action_at", "read:facts.reviews", "read:facts.threads", "read:facts.checks",
-         "read:facts.acceptance", "read:records.runs", "read:records.artifacts")
+         "read:facts.acceptance", "read:records.runs", "read:records.artifacts", "read:pass.pause")
 THREAD = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 # A character no path from the top of the repo holds: a control character, which a layer below could cut it at, and a
 # backslash, which another reading takes for `/` (issue 139).
