@@ -1107,6 +1107,12 @@ class Passes(unittest.TestCase):
         joined = passes.union([first, second])
         self.assertEqual(covering.covered(rubric, joined["coverage"], joined["findings"], changed), ("covered", []))
         self.assertEqual({c["criterion"]: c["verdict"] for c in joined["coverage"]}["PR-3"], "met")
+        # Muse's case, as ruled: PR-3 at 88-94 first, PR-2 at 90-91 merged into it. One Finding, PR-3's; PR-2 met, not
+        # uncovered, so `apply` accepts the joined Result.
+        joined = passes.union([second, first])
+        self.assertEqual([(f["criterion"], f["location"]["start_line"]) for f in joined["findings"]], [("PR-3", 88)])
+        self.assertEqual({c["criterion"]: c["verdict"] for c in joined["coverage"]}["PR-2"], "met")
+        self.assertEqual(covering.covered(rubric, joined["coverage"], joined["findings"], changed), ("covered", []))
         # Where every answer called it a finding and each Finding citing it was merged away, it is met: no other word is left.
         both = [{"coverage": [{"criterion": "PR-3", "verdict": "finding", "reason": None}]}] * 2
         self.assertEqual(passes._covered(both, {"PR-2"}), [{"criterion": "PR-3", "verdict": "met", "reason": None}])

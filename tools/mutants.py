@@ -15168,7 +15168,7 @@ MUTANTS = ISSUE + [
      ("tests.test_harness.Passes.test_each_switch_asks_as_its_approach_says",)),
     ('a review of a body alone is dropped where no Finding is kept', 'harness/passes.py',
      '(findings or kind not in results[0]["effects"])', 'True', ("tests.test_harness.Passes.test_results_are_joined_by_the_merge_rule",)),
-    ('a criterion no kept Finding cites is a finding', 'harness/passes.py', '        if criterion in cited:\n', '        if criterion in cited or len(rest) < len(said[criterion]):\n',
+    ('a merged-away criterion stays a finding', 'harness/passes.py', '        if criterion in cited:\n', '        if criterion in cited or len(rest) < len(said[criterion]):\n',
      ("tests.test_harness.Passes.test_results_are_joined_by_the_merge_rule",)),
     ('a criterion merged away keeps a finding word', 'harness/passes.py', 'elif not rest or (', 'elif (',
      ("tests.test_harness.Passes.test_results_are_joined_by_the_merge_rule",)),
