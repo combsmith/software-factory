@@ -10,7 +10,7 @@ except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standard
 
 ```
 make checks; python3 -m tools.mutants PATH...  # the desk's, before a change is finished: the checks, then the mutants of the files it touches, or all of them for a file of more than 40
-make verify                                    # CI's, never the desk's: three legs on every pull request and merge group; mutant shards on the merge group alone (record 0181)
+make verify                                    # CI's, never the desk's: three legs on every pull request and merge group; mutant shards on the merge group alone (record 0182)
 ```
 
 Python 3.9 or later; nothing to install. Hooks run the checks alone after an edit and before a stop, refuse a commit not the Maintainer's, and ask before a protected edit or a merge, not in bypass mode.

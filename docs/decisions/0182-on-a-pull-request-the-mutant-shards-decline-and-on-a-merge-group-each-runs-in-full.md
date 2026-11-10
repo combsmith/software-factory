@@ -1,4 +1,4 @@
-# 0181. On a pull request the mutant shards decline, and on a merge group each runs in full
+# 0182. On a pull request the mutant shards decline, and on a merge group each runs in full
 
 Status: accepted. The Factory Builder's ruling of 2026-11-09, pre-approved by the Maintainer 2026-11-08, on the measurement of the runners' throughput that followed the move to GitHub Team. It changes where `tools/mutants.py` runs in CI, as decision 0166 declines `tools/untested.py` on a merge group, and it amends decision 0008's "two commands, `make verify` and then `python3 -m tools.mutants`, run locally exactly what the required check runs": the desk runs `make checks` and the mutants of the files a change touches, or all of them, and `make verify` and every shard are CI's.
 
