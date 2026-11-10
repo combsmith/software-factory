@@ -1,4 +1,4 @@
-# NNNN. A Role's push is refused where it touches a protected path or a model Lens's input, read from its bundle before any token is minted
+# 0188. A Role's push is refused where it touches a protected path or a model Lens's input, read from its bundle before any token is minted
 
 Status: accepted. Replaces `docs/decisions/0070-a-roles-push-that-touches-the-bases-list-is-refused.md`. Taken on the Factory Builder's rulings of 2026-11-10 for "Harness: apply refuses a Role's push to a protected path or a Lens's input that no model Lens has reviewed" (issue 139), which the Maintainer may overturn in review. It keeps 0070's reading of the list and its refusal, narrows what the refusal holds, and gives it its caller.
 

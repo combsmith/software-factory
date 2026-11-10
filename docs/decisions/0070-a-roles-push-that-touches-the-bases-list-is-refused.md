@@ -1,6 +1,6 @@
 # 0070. A Role's push that touches the base's list is refused
 
-Status: replaced by `docs/decisions/NNNN-a-roles-push-is-refused-where-it-touches-a-protected-path-or-a-model-lenss-input-read-from-its-bundle-before-any-token-is-minted.md`, which holds the rule in force.
+Status: replaced by `docs/decisions/0188-a-roles-push-is-refused-where-it-touches-a-protected-path-or-a-model-lenss-input-read-from-its-bundle-before-any-token-is-minted.md`, which holds the rule in force.
 
 ## Decision
 
