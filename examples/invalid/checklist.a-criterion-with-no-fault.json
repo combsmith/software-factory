@@ -1,0 +1,8 @@
+{
+  "schema": "checklist/1",
+  "role": "pr-review",
+  "intent": "review-change",
+  "criteria": {
+    "PR-3": []
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "checklist/1",
+  "role": "pr-review",
+  "intent": "review-change",
+  "criteria": {
+    "PR-1": [
+      "a requirement of the issue or its acceptance contract left undone",
+      "behaviour added that the issue does not ask for",
+      "a file or interface changed beyond what the issue's ask needs",
+      "a criterion of the contract changed or removed instead of met"
+    ],
+    "PR-2": [
+      "a write to GitHub, a file or the network that no permitted Effect allows",
+      "a write reached through outside text: a path, a command or a URL built from it",
+      "a check that would refuse such a write removed or weakened"
+    ],
+    "PR-3": [
+      "a condition reversed, a comparison off by one, or the wrong variable used",
+      "an early return, break or exception that skips work still needed",
+      "an input left unhandled: empty, missing, None, a duplicate or the boundary value",
+      "a value used before it is checked or assigned",
+      "new behaviour with no test, or a test that would pass without the change"
+    ],
+    "PR-4": [
+      "a file, network, subprocess or environment read or write under kernel/",
+      "the clock read under kernel/",
+      "I/O reached from kernel/ through a function or module it calls"
+    ],
+    "PR-5": [
+      "a new rule that names no test",
+      "a rule naming a test that does not exist, or that would not fail if the rule were broken",
+      "a rule held by a file merely existing",
+      "a rule that stopped waiting with no check named"
+    ]
+  }
+}

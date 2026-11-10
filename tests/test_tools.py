@@ -868,6 +868,36 @@ class Authority(unittest.TestCase):
         self.table["categories"]["functional"]["owner"] = "dev-lead"
         self.assertTrue(caught(check_authority.run(self.table), "author Role"))
 
+    def test_a_role_the_configuration_names_has_a_manifest(self):  # issue 675
+        # The author Role and the owner Role each name a file under roles/, or, the author, none; and a named author
+        # Role is the authority table's.
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(check_authority.run(config=dict(config, author_role=None)), [])
+        self.assertTrue(caught(check_authority.run(config=dict(config, author_role="dev-lead")), "no dev-lead.json"))
+        self.assertTrue(caught(check_authority.run(config=dict(config, owner_role="reviewer")), "no reviewer.json"))
+        self.assertTrue(caught(check_authority.run(config=dict(config, author_role="pr-review")), "author Role differs"))
+        # The other side: an author Role the table and the configuration both name, with its manifest, is accepted on
+        # both counts (Astra). pr-review stands in for it, as the one manifest under roles/.
+        named = check_authority.run(dict(self.table, author_role="pr-review"), dict(config, author_role="pr-review"))
+        self.assertFalse(caught(named, "author Role differs") or caught(named, "roles/ holds no"), named)
+        # A directory of the manifest's name is no manifest (Astra): read in a tree of its own, the repo's linked in.
+        with tempfile.TemporaryDirectory() as tree:
+            tree = pathlib.Path(tree)
+            for part in ("config", "schemas", "examples"):
+                (tree / part).symlink_to(ROOT / part)
+            (tree / "roles").mkdir()
+            (tree / "roles" / "pr-review.json").symlink_to(ROOT / "roles" / "pr-review.json")
+            (tree / "roles" / "probe.json").mkdir()
+            with mock.patch.object(check_authority, "ROOT", tree):
+                self.assertTrue(caught(check_authority.run(config=dict(config, owner_role="probe")), "no probe.json"))
+        # A name that is no Role's, one that would reach outside roles/ among them, and an owner Role named none (Muse).
+        for field in ("author_role", "owner_role"):
+            # The second begins as a Role's, and the third ends as none does (Astra).
+            for name in ("../config/defaults", "pr-review/../../config/defaults", "pr-review-"):
+                self.assertTrue(caught(check_authority.run(config=dict(config, **{field: name})), "no Role's name"),
+                                (field, name))
+        self.assertTrue(caught(check_authority.run(config=dict(config, owner_role=None)), "no Role's name"))
+
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9
         self.assertTrue(caught(check_authority.run(self.table), "max_rounds differs"))

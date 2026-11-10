@@ -322,6 +322,8 @@ class Fixture(unittest.TestCase):
     NEXT_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-1.json"
     THIRD_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-2.json"
     FOURTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-3.json"
+    FIFTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-4.json"
+    SIXTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-5.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
 
     def item(self, fixture, name):
@@ -441,10 +443,18 @@ class Fixture(unittest.TestCase):
         # Each cut after the first. Run 42697380276 cut factory/v0.1.1 on 2026-11-09 at the commit eval run 42694638100
         # had passed; run 42741714653 cut factory/v0.1.2 on 2026-11-10 at the commit eval run 42739717534 had passed,
         # #694's merge, after slice 1's first dry run stopped in the reader; run 42755427902 cut factory/v0.1.3 on
-        # 2026-11-10 at the commit eval run 42753588971 had passed, #708's merge, after the second.
+        # 2026-11-10 at the commit eval run 42753588971 had passed, #708's merge, after the second; run 42868490093 cut
+        # factory/v0.1.4 on 2026-11-10 at the commit eval run 42865325326 had passed, #714's merge, after the third;
+        # run 42885151917 cut factory/v0.1.5 on 2026-11-10 at the commit eval run 42882105104 had passed, #720's
+        # merge, after the fourth.
         for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
                                         (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
-                                        (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
+                                        (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
+                                        (self.FIFTH_CUT, 42865325326,
+                                         [self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
+                                        (self.SIXTH_CUT, 42882105104,
+                                         [self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT,
+                                          self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
 

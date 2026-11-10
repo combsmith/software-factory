@@ -306,6 +306,8 @@
             "closed_issue_at": null,
             "draft_events": [],
             "link_events": [],
+            "keyword": true,
+            "keyword_spans": [],
             "close_events": []
           },
           {
@@ -337,6 +339,8 @@
             "closed_issue_at": null,
             "draft_events": [],
             "link_events": [],
+            "keyword": true,
+            "keyword_spans": [],
             "close_events": [
               {
                 "action": "closed",

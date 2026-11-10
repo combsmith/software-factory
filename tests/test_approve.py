@@ -10,7 +10,7 @@ import unittest
 from adapters import acceptance, checks, edits, effects, threads
 from adapters.facts import Moved
 from adapters.github import Unanswered
-from harness import approve
+from harness import approve, shared
 from kernel.decide import decide
 from tests.support import CONFIG, NOW, ROOT, context, facts, labelled, review, run
 from tools.jsonschema_lite import validate
@@ -76,9 +76,12 @@ def reads(f=None, runs=REVIEWED, ctx=None, head=HEAD):
     return read
 
 
-def failing(err):
+def failing(err, stage=None):
     def read():
-        raise err
+        if stage is None:
+            raise err
+        with shared.staged(stage):
+            raise err
     return read
 
 
@@ -145,6 +148,22 @@ class TheAct(unittest.TestCase):
                    ("GET", "/orgs/combsmith/members", None),
                    # The org's own variable, which the Pause is no longer read from (issue 362).
                    ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
+        # Two dots together are read in a compare of two commits of the item's repo, and in nothing that is not one
+        # whole: a branch's name, either commit's short or capital form or a name of its length that is no commit's,
+        # two dots or four, two dots and another character, a line's end, a path or a query after it, or another
+        # repo's compare (pull request 688, the fourth dry run).
+        base = "a" * 40
+        compare = "/repos/%s/compare/%s...%s" % (repo, base, HEAD)
+        refused += [("GET", path, None) for path in (
+            "/repos/%s/compare/main...%s" % (repo, HEAD), "/repos/%s/compare/%s...main" % (repo, base),
+            "/repos/%s/compare/%s...%s" % (repo, base[:39], HEAD), "/repos/%s/compare/%s...%s" % (repo, base.upper(), HEAD),
+            "/repos/%s/compare/%s...%s" % (repo, base, HEAD[:39]), "/repos/%s/compare/%s...%s" % (repo, base, HEAD.upper()),
+            "/repos/%s/compare/%s..%s" % (repo, base, HEAD), "/repos/%s/compare/%s....%s" % (repo, base, HEAD),
+            "/repos/%s/compare/%s..?%s" % (repo, base, HEAD), "/repos/%s/compare/%s..x%s" % (repo, base, HEAD),
+            compare + "\n", "/repos/%s/compare/%s...%s" % (repo, "g" * 40, HEAD),
+            "/repos/%s/compare/%s...%s" % (repo, base, "g" * 40),
+            compare + "/../../pulls/43", compare + "?per_page=1", compare + "0", "/repos/%s/x/../compare/%s...%s" % (
+                repo, base, HEAD), "/repos/combsmith/other/compare/%s...%s" % (base, HEAD), "/user/../" + compare[1:])]
         for method, path, body in refused:
             with self.assertRaises(Unanswered, msg=(method, path, body)):
                 token.send({"method": method, "path": path, "body": body})
@@ -152,7 +171,7 @@ class TheAct(unittest.TestCase):
         # The reads the act makes go through: the item's repo, who the token is, the org's Pause as the repo's list of
         # the org's variables (issue 362), and the facts port's own GraphQL reads of this pull request.
         owner, name = repo.split("/")
-        allowed = [("GET", "/user", None), ("GET", PULL + "/reviews?per_page=100", None),
+        allowed = [("GET", "/user", None), ("GET", PULL + "/reviews?per_page=100", None), ("GET", compare, None),
                    ("GET", "/repos/%s/actions/organization-variables?per_page=100" % repo, None),
                    ("POST", PULL + "/reviews", {"commit_id": HEAD, "event": "APPROVE"})]
         for query in (threads.QUERY, checks.QUERY, acceptance.QUERY):
@@ -188,6 +207,7 @@ class TheAct(unittest.TestCase):
         bare, reading = effects.Approving(github), effects.Approving(github, ITEM)
         bare.send({"method": "GET", "path": "/user", "body": None})
         for req in ({"method": "GET", "path": PULL + "/reviews?per_page=100", "body": None},
+                    {"method": "GET", "path": compare, "body": None}, {"method": "GET", "path": "/user/..", "body": None},
                     {"method": "POST", "path": "/graphql", "body": {"query": threads.QUERY, "variables": {
                         "owner": owner, "name": name, "number": 42}}}):
             with self.assertRaises(Unanswered):
@@ -424,25 +444,47 @@ class TheAct(unittest.TestCase):
         closed = {"status": 200, "body": {"state": "closed", "head": {"sha": HEAD}}}
         paused_unread = Unanswered("no")
         paused_unread.stage = "pause"     # a read the read again named, by its stage (pull request 688, the dry run)
+        parted = IndexError("x")
+        parted.part = "timeline"
         cases = [
             (GitHub(), failing(Moved("moved")), ("superseded", "head_moved"), "refused"),
             (GitHub(), failing(Unanswered("no")), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), failing(paused_unread), ("environment", "pause_unreadable"), "refused"),
             (GitHub(), failing(KeyError("x")), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(head="not a commit"), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(head=None), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), failing(IndexError("x")), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (None, HEAD, REVIEWED, context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (facts(), HEAD, None, context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: ({}, HEAD, REVIEWED, context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (dict(facts(), state="?"), HEAD, REVIEWED, context()), ("environment", "facts_unreadable"),
+            # A fault of the read's own code is named by its stage as a read GitHub refused is, and by a snapshot's
+            # part: the act records every fault, so one it left unnamed is one no log can find (decision 0187).
+            (GitHub(), failing(KeyError("x"), "snapshot"), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), failing(TypeError("x"), "context"), ("environment", "context_unreadable"), "refused"),
+            (GitHub(), failing(parted, "snapshot"), ("environment", "snapshot_timeline_unreadable"), "refused"),
+            # A part read that is not as its schema holds it is named by the read that gave it, as a read GitHub did
+            # not answer is (pull request 688's fifth dry run stopped at one code for all of them): the snapshot's,
+            (GitHub(), reads(head="not a commit"), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), reads(head=None), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), lambda: (None, HEAD, REVIEWED, context()), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), lambda: ({}, HEAD, REVIEWED, context()), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), lambda: (dict(facts(), state="?"), HEAD, REVIEWED, context()),
+             ("environment", "snapshot_unreadable"), "refused"),
+            # the run records',
+            (GitHub(), lambda: (facts(), HEAD, None, context()), ("environment", "run_records_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, [None], context()), ("environment", "run_records_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, [dict(run(), status="?")], context()),
+             ("environment", "run_records_unreadable"), "refused"),
+            # and the Pause's, which the Pause's port hands back unread and never raises. A context that is none is
+            # the context's own.
+            (GitHub(), reads(ctx=context(paused=None)), ("environment", "pause_unreadable"), "refused"),
+            (GitHub(), reads(ctx=context(paused="true")), ("environment", "pause_unreadable"), "refused"),
+            # A number is no Pause read, though Python holds 0 and 1 equal to the two a Pause may be (Carbon's read).
+            (GitHub(), reads(ctx=context(paused=0)), ("environment", "pause_unreadable"), "refused"),
+            (GitHub(), reads(ctx=context(paused=1)), ("environment", "pause_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, REVIEWED, None), ("environment", "context_unreadable"), "refused"),
+            # Where more than one is unreadable, the first as the item is read again names it: the run records, the
+            # snapshot, then the Pause.
+            (GitHub(), lambda: ({}, None, [None], context(paused=None)), ("environment", "run_records_unreadable"),
              "refused"),
-            (GitHub(), lambda: (facts(), HEAD, [None], context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (facts(), HEAD, [dict(run(), status="?")], context()), ("environment", "facts_unreadable"),
+            (GitHub(), lambda: ({}, HEAD, REVIEWED, context(paused=None)), ("environment", "snapshot_unreadable"),
              "refused"),
-            (GitHub(), lambda: (facts(), HEAD, REVIEWED, None), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(ctx=context(paused=None)), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(ctx=context(paused="true")), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), None, REVIEWED, None), ("environment", "snapshot_unreadable"), "refused"),
             (posting({"status": 201, "body": LANDED}), None, ("environment", "not_read_back"), "failed"),
             (posting({"status": 200, "body": [LANDED]}), None, ("environment", "not_read_back"), "failed"),
             (posting({"status": 401, "body": {}}), None, ("environment", "token_refused"), "refused"),
