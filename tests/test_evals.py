@@ -2382,6 +2382,15 @@ class EvalJob(unittest.TestCase):
         with self.assertRaises(job.Stop) as stopped:
             review(case)
         self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
+        # A private replay that asks each case twice (issue 581) starts it only with time left for both calls.
+        twice = running.configuration()
+        twice["harness"]["review"] = {"runs": 2}
+        cli = live.CLI()
+        with mock.patch.object(step.live, "configuration", lambda: twice):
+            review = reviewed(live.JOB, "factory/v0.1.0", 0, cli, live.Clock(step.BUDGET - late - step.VERSION_READS))
+        with self.assertRaises(job.Stop) as stopped:
+            review(case)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("unanswered", []))
         # The job's time is held inside its timeout, which tools/check_workflows.py holds, counted from when the plan
         # was made, less eleven minutes for the checkout before it and the seal, the uploads and judge after the step.
         from tools import check_workflows

@@ -147,6 +147,30 @@
       "description": "The gate set the Release's eval gate reads, by its name under evals/: every dispatch of the eval job on the commit is pooled (issue 613). Absent, the gate reads the review Intent's set, evals/pr-review, by its newest successful dispatch.",
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "review": {
+      "description": "What a private replay may switch on, one approach at a time, in its own copy of this file, to measure the review Role's recall (issue 581): a pass per changed file, the whole Task asked more than once and joined, a fault checklist per criterion, or reading the head before a criterion is met. The committed file never gives it, so a review is asked once, whole, as it always was.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "passes": {
+          "enum": [
+            "whole",
+            "per_file"
+          ]
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "checklist": {
+          "type": "boolean"
+        },
+        "read_head": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }
