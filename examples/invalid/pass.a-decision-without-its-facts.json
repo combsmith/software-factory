@@ -161,6 +161,11 @@
             "close_events": [
               {
                 "action": "closed",
+                "by": {
+                  "kind": "human",
+                  "name": "stranger",
+                  "can_write": false
+                },
                 "at": "2026-10-11T10:00:00Z"
               }
             ]

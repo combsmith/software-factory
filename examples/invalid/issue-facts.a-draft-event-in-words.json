@@ -88,7 +88,7 @@
       "closed_issue_at": null,
       "draft_events": [],
       "link_events": [],
-      "close_events": [{"action": "closed", "at": "2026-10-11T10:00:00Z"}]
+      "close_events": [{"action": "closed", "by": {"kind": "human", "name": "don-petry", "can_write": true}, "at": "2026-10-11T10:00:00Z"}]
     }
   ],
   "role_comments": [

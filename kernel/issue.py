@@ -191,7 +191,7 @@ def readable_link(entry, config: dict) -> bool:
     closer = entry.get("closed_issue_at", "")
     if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
-    return (readable_draft_events(entry) and readable_link_events(entry) and readable_close_events(entry)
+    return (readable_draft_events(entry) and readable_link_events(entry) and readable_close_events(entry, config)
             and readable_events(entry.get("label_events"), config))
 
 
@@ -210,15 +210,17 @@ def readable_link_events(entry: dict) -> bool:
     return not any(later["at"] < ev["at"] or later["action"] == ev["action"] for ev, later in zip(events, events[1:]))
 
 
-def readable_close_events(entry: dict) -> bool:
-    """Whether a pull request's closes and reopenings can be read: each one or the other, with its time, in the order its
+def readable_close_events(entry: dict, config: dict) -> bool:
+    """Whether a pull request's closes and reopenings can be read: each one or the other, by whom, read whole as a label
+    event's actor is, which a hold a person's close releases needs (issue 552), and with its time, in the order its
     timeline lists them, two in one second among them; each a change, so the two alternate and the first is a close; none
     before it opened; and the last its close now, closed at its closed_at, or none and open (issue 672). A merge closes
     it too, at the merge (trials/P-48.json)."""
     events = entry.get("close_events")
     if not isinstance(events, list):
         return False
-    if not all(isinstance(ev, dict) and ev.get("action") in CLOSE_ACTIONS and is_time(ev.get("at")) for ev in events):
+    if not all(isinstance(ev, dict) and ev.get("action") in CLOSE_ACTIONS and is_time(ev.get("at"))
+               and whole_actor(ev.get("by"), config) for ev in events):
         return False
     if events and (events[0]["action"] != CLOSED or not entry["opened_at"] <= events[0]["at"]):
         return False

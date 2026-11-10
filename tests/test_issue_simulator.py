@@ -266,7 +266,8 @@ class IssueSimulation(unittest.TestCase):
         w.linked.append(dict(agents_draft(w), draft=False))
         w.starts()
         self.assertEqual(w.true_state, "in_review")
-        w.linked[0].update(open=False, merged_at=w.now(), closed_at=w.now(), closed_issue_at=w.closes_the_issue())
+        w.linked[0].update(open=False, merged_at=w.now(), closed_at=w.now(), closed_issue_at=w.closes_the_issue(),
+                           close_events=issues.closed(w.linked[0], w.now(), issues.QUEUE))
         w.caused("platform")
         self.assertEqual(w.made, {("in_review", "done", "platform")})
         # The brakes hold a new issue whose linked pull requests closed unmerged past the bound (I-43, seed 137).
@@ -274,7 +275,7 @@ class IssueSimulation(unittest.TestCase):
         for number in range(issues.LIMITS["max_unmerged_closes"] + 1):
             w.minute += 1
             w.linked.append(dict(agents_draft(w), number=300 + number, **{"class": "maintainer"}, open=False,
-                                 closed_at=w.now()))
+                                 closed_at=w.now(), close_events=issues.closed(agents_draft(w), w.now(), world.MAINTAINER)))
         w.minute += 1
         w.poll()
         self.assertEqual((w.labels, w.made), ({"factory:hold"}, {("new", "held", "factory")}))

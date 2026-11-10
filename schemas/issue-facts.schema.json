@@ -274,13 +274,14 @@
             }
           },
           "close_events": {
-            "description": "Each close of it and each reopening on its own timeline, ClosedEvent and ReopenedEvent, with its time, in the order the timeline lists them; a merge raises a ClosedEvent too, at the merge (trials/P-48.json). Each changes whether it is closed, so the two alternate and the first is a close, none before it opened, and the last is its close now: its closed_at, or none. Row 1 reads a rival as it stood at the first merge from them, since GitHub clears closed_at on a reopening (issue 672)",
+            "description": "Each close of it and each reopening on its own timeline, ClosedEvent and ReopenedEvent, with who made it and its time, in the order the timeline lists them; a merge raises a ClosedEvent too, at the merge (trials/P-48.json). Each changes whether it is closed, so the two alternate and the first is a close, none before it opened, and the last is its close now: its closed_at, or none. Row 1 reads a rival as it stood at the first merge from them, since GitHub clears closed_at on a reopening (issue 672)",
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
               "required": [
                 "action",
+                "by",
                 "at"
               ],
               "properties": {
@@ -289,6 +290,9 @@
                     "closed",
                     "reopened"
                   ]
+                },
+                "by": {
+                  "$ref": "#/$defs/actor"
                 },
                 "at": {
                   "$ref": "#/$defs/time"
