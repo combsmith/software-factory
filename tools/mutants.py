@@ -7157,6 +7157,8 @@ MUTANTS = ISSUE + [
      "    if quarter <= 0:\n", "    if False:\n", STEPS_TESTS),
     ("every line a reading runs is counted, the test's own among them", "tests/support.py",
      "line if frame.f_code.co_filename.startswith(HOOKS) else None", "line", STEPS_TESTS),
+    ("a count says only whether a line of tools/hooks/ ran", "tests/support.py",
+     '        count[0] += event == "line"\n', '        count[0] |= event == "line"\n', STEPS_TESTS),
     ("a tracer in place is lost to a count", "tests/support.py",
      "        sys.settrace(before)\n", "        sys.settrace(None)\n", STEPS_TESTS),
     ("the machine's cores stand for the process's", "tests/support.py",

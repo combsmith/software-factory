@@ -263,6 +263,13 @@ class Budgets(unittest.TestCase):
         counted, read = support.steps(lambda: shell.commands("a; b"))
         self.assertGreater(counted, 0)
         self.assertEqual(read, [(["a"], []), (["b"], [])])
+        # Each line is counted, not only whether one ran: four times the commands execute well past twice the lines,
+        # and a quadratic reading of tools/hooks/ fails linear_in_steps on the real count (Astra).
+        self.assertGreater(support.steps(lambda: shell.commands("a; " * 40))[0],
+                           2 * support.steps(lambda: shell.commands("a; " * 10))[0])
+        with self.assertRaises(AssertionError):
+            support.linear_in_steps(self, lambda n: [shell.unmarked("x" * k) for k in range(n)] and
+                                    [shell.unmarked("x") for _ in range(n * n)], 64)
 
         # linear_in_steps fails a test on what faster_than_linear_in_steps finds, and gives the whole size's result
         # (Astra): counts and results scripted in place of steps.
