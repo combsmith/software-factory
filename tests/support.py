@@ -171,7 +171,8 @@ def linear(test, run, size: int, budget: float, what: str = ""):
     return result
 
 
-HOOKS = str(ROOT / "tools" / "hooks") + os.sep
+# tools/hooks/ as its modules were imported, which is how their code names its file however the tree is reached (Muse).
+HOOKS = os.path.dirname(protected.__file__) + os.sep
 
 
 def steps(run) -> tuple:
@@ -196,8 +197,11 @@ def faster_than_linear_in_steps(quarter: int, half: int, whole: int) -> str:
     """Why a reading's `steps` grew faster than linearly over its `sizes`, or "": past the quarter, the whole may add
     three and a half times what the half adds. Linear growth adds three exactly, n log n a little more, quadratic five,
     and n to the 1.6, as escaped backticks in double quotes were read (issue 260), four; what does not grow falls away.
-    A count that falls at the half, as a reading cut short at its limit does, is no growth."""
-    if half >= quarter and whole - quarter > 3.5 * (half - quarter):
+    A count that falls or holds at the half, as a reading cut short at its limit gives, is no growth. A quarter that
+    counted no line is a problem: the count missed tools/hooks/, and would hold nothing (Muse)."""
+    if quarter <= 0:
+        return "counted no line of tools/hooks/ at a quarter of its size"
+    if half > quarter and whole - quarter > 3.5 * (half - quarter):
         return "executed %d lines at its size, against %d at half and %d at a quarter" % (whole, half, quarter)
     return ""
 

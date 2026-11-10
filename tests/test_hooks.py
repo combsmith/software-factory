@@ -245,10 +245,15 @@ class Budgets(unittest.TestCase):
         self.assertIn("at half", support.faster_than_linear_in_steps(100, 400, 1600))    # quadratic
         self.assertIn("at half", support.faster_than_linear_in_steps(1000, 3031, 9190))    # n to the 1.6
         # At the edge: three and a half times passes, and one line more fails.
-        self.assertEqual(support.faster_than_linear_in_steps(0, 100, 350), "")
-        self.assertIn("at half", support.faster_than_linear_in_steps(0, 100, 351))
-        # A count that falls at the half, as a reading cut short at its limit gives, is no growth.
+        self.assertEqual(support.faster_than_linear_in_steps(100, 200, 450), "")
+        self.assertIn("at half", support.faster_than_linear_in_steps(100, 200, 451))
+        # A count that falls or holds at the half, as a reading cut short at its limit gives, is no growth (Muse).
         self.assertEqual(support.faster_than_linear_in_steps(300, 100, 150), "")
+        self.assertEqual(support.faster_than_linear_in_steps(100, 100, 100), "")
+        self.assertEqual(support.faster_than_linear_in_steps(100, 100, 101), "")
+        # A quarter that counted nothing missed tools/hooks/ and holds nothing, so it fails (Muse).
+        self.assertIn("counted no line", support.faster_than_linear_in_steps(0, 0, 0))
+        self.assertIn("counted no line", support.faster_than_linear_in_steps(0, 100, 300))
         # Only the lines of tools/hooks/ are counted, and a tracer already in place is put back.
         self.assertEqual(support.steps(lambda: sorted(range(50), key=str))[0], 0)
         counted, read = support.steps(lambda: shell.commands("a; b"))
