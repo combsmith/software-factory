@@ -1,27 +1,32 @@
 #!/bin/sh
 # Trial P-61 (issue 551): whether an issue's timeline gives each change of its type, and each link of a pull request by
 # hand and its unlinking, as an event of its own with its time to the second and who made it; and whether the merge of
-# a pull request linked by hand closes the issue, naming it the closer.
+# a pull request linked by hand closes the issue, naming it the closer; and whether the pull request's own timeline gives
+# each close and reopening of it, and its merge, as an event of its own with its time and who made it (issue 672).
 #
 #   tools/trial_p61_timeline.sh OUT REPO ISSUE PULL_REQUEST
 #
 # The Maintainer runs it at his own terminal, through his own gh login; it mints nothing. OUT is a directory that does
 # not exist yet, outside this repo. REPO is the canary, owner/name. ISSUE is an open issue in it with no type;
 # PULL_REQUEST is an open pull request in it, to the default branch, ready, whose description names no issue. The
-# script reads the issue's timeline, then asks the Maintainer to make one change by hand in GitHub's page, waits for
-# Enter, and reads it again, step by step:
+# script reads the issue's timeline and the pull request's, then asks the Maintainer to make one change by hand in
+# GitHub's page, waits for Enter, and reads them again, step by step:
 #   1. as it is;            2. a type set;          3. the type changed;     4. the type removed;
 #   5. the pull request linked by hand, in the issue's Development box;      6. unlinked;
-#   7. linked again;        8. the pull request merged;   9. a minute later, closed or not.
+#   7. linked again;        8. the pull request closed, unmerged;            9. reopened;
+#   10. the pull request merged;   11. a minute later, closed or not.
 # Needs gh, logged in as the Maintainer, and python3.
 #
 # The pass condition, written before the run:
 #   pass: each change of steps 2 to 7 appears on the issue's timeline, at the read after it, as one event of its own:
 #   IssueTypeAddedEvent, IssueTypeChangedEvent, IssueTypeRemovedEvent, ConnectedEvent, DisconnectedEvent and
 #   ConnectedEvent, each with a createdAt to the second, no earlier than the read before it and no later than the read
-#   after, its actor's login and type, and the type or the pull request it names; the timeline is read whole at each
-#   step; and by step 9 the issue is closed, its ClosedEvent's closer the pull request.
-#   fail otherwise, and row 1 does not read a type or a link by hand at the merge until a trial shows what does.
+#   after, its actor's login and type, and the type or the pull request it names; each of steps 8 to 10 appears on the
+#   pull request's own timeline, at the read after it, as ClosedEvent, ReopenedEvent, and MergedEvent beside its
+#   ClosedEvent, each with a createdAt to the second, between the reads, and its actor's login and type; both timelines
+#   are read whole at each step; and by step 11 the issue is closed, its ClosedEvent's closer the pull request.
+#   fail otherwise, and row 1 does not read a type, a link by hand or a rival's close at the merge until a trial shows
+#   what does.
 #
 # Each answer is captured in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted;
 # OUT receives only the redacted answers (clean-N), where the redaction removed something (redacted-N), what was asked
@@ -100,7 +105,7 @@ mkdir "$out"
 owner=${2%%/*}
 name=${2#*/}
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
-QUERY='query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state issueType{name} timelineItems(first:100,itemTypes:[ISSUE_TYPE_ADDED_EVENT,ISSUE_TYPE_CHANGED_EVENT,ISSUE_TYPE_REMOVED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage endCursor} nodes{__typename ... on IssueTypeAddedEvent{createdAt actor{__typename login} issueType{name}} ... on IssueTypeChangedEvent{createdAt actor{__typename login} issueType{name} prevIssueType{name}} ... on IssueTypeRemovedEvent{createdAt actor{__typename login} issueType{name}} ... on ConnectedEvent{createdAt actor{__typename login} source{__typename ... on Issue{number} ... on PullRequest{number}} subject{__typename ... on Issue{number} ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} source{__typename ... on Issue{number} ... on PullRequest{number}} subject{__typename ... on Issue{number} ... on PullRequest{number}}} ... on ClosedEvent{createdAt actor{__typename login} closer{__typename ... on PullRequest{number}}}}}} pullRequest(number:$pr){state mergedAt closingIssuesReferences(first:10){totalCount nodes{number}}}}}'
+QUERY='query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state issueType{name} timelineItems(first:100,itemTypes:[ISSUE_TYPE_ADDED_EVENT,ISSUE_TYPE_CHANGED_EVENT,ISSUE_TYPE_REMOVED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage endCursor} nodes{__typename ... on IssueTypeAddedEvent{createdAt actor{__typename login} issueType{name}} ... on IssueTypeChangedEvent{createdAt actor{__typename login} issueType{name} prevIssueType{name}} ... on IssueTypeRemovedEvent{createdAt actor{__typename login} issueType{name}} ... on ConnectedEvent{createdAt actor{__typename login} source{__typename ... on Issue{number} ... on PullRequest{number}} subject{__typename ... on Issue{number} ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} source{__typename ... on Issue{number} ... on PullRequest{number}} subject{__typename ... on Issue{number} ... on PullRequest{number}}} ... on ClosedEvent{createdAt actor{__typename login} closer{__typename ... on PullRequest{number}}}}}} pullRequest(number:$pr){state mergedAt closedAt closingIssuesReferences(first:10){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT,MERGED_EVENT]){totalCount pageInfo{hasNextPage endCursor} nodes{__typename ... on ClosedEvent{createdAt actor{__typename login}} ... on ReopenedEvent{createdAt actor{__typename login}} ... on MergedEvent{createdAt actor{__typename login}}}}}}}'
 # What is asked, word for word, with its variables, as the fixture's request keeps it.
 python3 -I -c 'import json, sys; print(json.dumps({"query": sys.argv[1], "variables": {"owner": sys.argv[2], "name": sys.argv[3], "issue": int(sys.argv[4]), "pr": int(sys.argv[5])}}))' \
     "$QUERY" "$owner" "$name" "$3" "$4" > "$out/query.json"
@@ -123,8 +128,10 @@ text = open(sys.argv[1]).read().replace("\r\n", "\n")
 parts = text.split("\n\n")
 head, body = parts[-2], parts[-1]
 answer = json.loads(body)
-issue = ((answer.get("data") or {}).get("repository") or {}).get("issue") or {}
-whole = ((issue.get("timelineItems") or {}).get("pageInfo") or {}).get("hasNextPage") is False
+repository = (answer.get("data") or {}).get("repository") or {}
+# Each timeline, of the issue and of the pull request, on its one page.
+whole = all((((repository.get(kind) or {}).get("timelineItems") or {}).get("pageInfo") or {}).get("hasNextPage") is False
+            for kind in ("issue", "pullRequest"))
 # Every head before the last is an interim one, a 1xx, so no refusal hides behind a later head.
 interim = all(h.split("\n", 1)[0].split()[1:2][0:1] and h.split("\n", 1)[0].split()[1].startswith("1") for h in parts[:-2])
 sys.exit(0 if interim and head.split("\n", 1)[0].split()[1:2] == ["200"] and not answer.get("errors") and whole else 1)
@@ -146,6 +153,8 @@ for asked in "as it is" \
              "link the pull request to the issue by hand, in the issue's Development box" \
              "unlink it there" \
              "link it there again" \
+             "close the pull request without merging it" \
+             "reopen the pull request" \
              "merge the pull request" \
              "wait a minute, changing nothing, whether or not the issue shows closed"; do
     step=$((step + 1))

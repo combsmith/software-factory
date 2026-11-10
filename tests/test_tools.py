@@ -13610,7 +13610,7 @@ class Copies(unittest.TestCase):
 
 class TimelineTrial(unittest.TestCase):
     """`tools/trial_p61_timeline.sh`, run against a stand-in gh and never GitHub (issue 551): it reads the issue's timeline
-    at each of nine steps, through the Maintainer's own login, keeps each answer only redacted and outside the repo, says
+    at each of eleven steps, through the Maintainer's own login, keeps each answer only redacted and outside the repo, says
     and offers again a read that is not GitHub's 200 with data, and mints nothing."""
 
     SCRIPT = ROOT / "tools" / "trial_p61_timeline.sh"
@@ -13627,8 +13627,10 @@ class TimelineTrial(unittest.TestCase):
              '. on Issue{number} ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} s'
              'ource{__typename ... on Issue{number} ... on PullRequest{number}} subject{__typename ... on Issue{number} ..'
              '. on PullRequest{number}}} ... on ClosedEvent{createdAt actor{__typename login} closer{__typename ... on Pul'
-             'lRequest{number}}}}}} pullRequest(number:$pr){state mergedAt closingIssuesReferences(first:10){totalCount no'
-             'des{number}}}}}')
+             'lRequest{number}}}}}} pullRequest(number:$pr){state mergedAt closedAt closingIssuesReferences(first:10){totalCount no'
+             'des{number}} timelineItems(first:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT,MERGED_EVENT]){totalCount pageInfo{h'
+             'asNextPage endCursor} nodes{__typename ... on ClosedEvent{createdAt actor{__typename login}} ... on ReopenedE'
+             'vent{createdAt actor{__typename login}} ... on MergedEvent{createdAt actor{__typename login}}}}}}}')
     # The stand-in answers each read with a token in a header and in the body; where a file beside it says so, it
     # refuses the first reads with GraphQL's errors and a complaint naming a token on stderr.
     STAND_IN = """#!/usr/bin/env python3
@@ -13652,7 +13654,8 @@ if mode == "all":
     sys.exit(1)
 body = {"data": {"repository": {"issue": {"state": "OPEN", "issueType": None, "timelineItems": {
     "totalCount": 0, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}},
-    "pullRequest": {"state": "OPEN", "mergedAt": None, "closingIssuesReferences": {"totalCount": 0, "nodes": []}}}},
+    "pullRequest": {"state": "OPEN", "mergedAt": None, "closedAt": None, "closingIssuesReferences": {"totalCount": 0, "nodes": []},
+                    "timelineItems": {"totalCount": 0, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}}}},
     "leak": token}
 if mode == "errors":
     # Data beside errors, as GitHub answers a query it read in part, and gh says nothing wrong.
@@ -13675,6 +13678,9 @@ if mode == "unpaged":
 if mode == "paged":
     # More events than one page holds: the timeline is not read whole.
     body["data"]["repository"]["issue"]["timelineItems"]["pageInfo"] = {"hasNextPage": True, "endCursor": "Y3Vy"}
+if mode == "prpaged":
+    # The pull request's own timeline on more than one page: it is not read whole either (issue 672).
+    body["data"]["repository"]["pullRequest"]["timelineItems"]["pageInfo"] = {"hasNextPage": True, "endCursor": "Y3Vy"}
 sys.stdout.write("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\nAuthorization: token %s\\r\\n\\r\\n" % token)
 sys.stdout.write(json.dumps(body))
 if mode == "exit":
@@ -13686,7 +13692,7 @@ if mode == "cut":
     sys.exit(1)
 """
 
-    def run_script(self, args, answers="\n" * 8, refuse=0, tmpdir=None):
+    def run_script(self, args, answers="\n" * 10, refuse=0, tmpdir=None):
         bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
         (bin_ / "gh").write_text(self.STAND_IN)
         (bin_ / "gh").chmod(0o755)
@@ -13707,7 +13713,7 @@ if mode == "cut":
         done, calls, scratch = self.run_script([str(out), "x/canary", "7", "8"])
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(sorted(p.name for p in out.iterdir()), sorted(
-            ["ran_at", "query.json", "steps"] + ["clean-%d" % n for n in range(1, 10)] + ["redacted-%d" % n for n in range(1, 10)]))
+            ["ran_at", "query.json", "steps"] + ["clean-%d" % n for n in range(1, 12)] + ["redacted-%d" % n for n in range(1, 12)]))
         asked = json.loads((out / "query.json").read_text())
         self.assertEqual(asked["variables"], {"owner": "x", "name": "canary", "issue": 7, "pr": 8})
         query = asked["query"]
@@ -13718,13 +13724,13 @@ if mode == "cut":
                          "PullRequest{number}} subject{", "ClosedEvent{createdAt actor{__typename login} closer{",
                          "closingIssuesReferences(first:10)"):
             self.assertIn(fragment, query)
-        for n in range(1, 10):
+        for n in range(1, 12):
             self.assertNotIn("ghs_", (out / ("clean-%d" % n)).read_text())
             self.assertIn('"timelineItems"', (out / ("clean-%d" % n)).read_text())
-        self.assertEqual(len((out / "steps").read_text().splitlines()), 9)
+        self.assertEqual(len((out / "steps").read_text().splitlines()), 11)
         # Every call is the same GraphQL read through gh, of that repo's issue and pull request, and nothing else.
         self.assertEqual(calls, [["api", "graphql", "--include", "-f", "query=" + query, "-f", "owner=x", "-f", "name=canary",
-                                  "-F", "issue=7", "-F", "pr=8"]] * 9)
+                                  "-F", "issue=7", "-F", "pr=8"]] * 11)
         self.assertEqual(list(scratch.glob("trial-p61.*")), [])
         self.assertNotIn("ghs_", done.stdout + done.stderr)
         self.assertEqual(out.stat().st_mode & 0o077, 0)     # OUT is the Maintainer's alone
@@ -13740,13 +13746,13 @@ if mode == "cut":
         self.assertNotIn("ghs_", done.stdout + done.stderr)
         self.assertEqual((len(calls), sorted(p.name for p in out.glob("clean-*"))), (1, ["clean-1"]))
         out = self.out()
-        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 8, refuse=(1, "all"))
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 10, refuse=(1, "all"))
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual((len(calls), (out / "steps").read_text().count("\n")), (10, 9))
+        self.assertEqual((len(calls), (out / "steps").read_text().count("\n")), (12, 11))
         # An interim head before a good answer is a good read.
         out = self.out()
         done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], refuse=(9, "interim"))
-        self.assertEqual((done.returncode, len(calls)), (0, 9), done.stderr)
+        self.assertEqual((done.returncode, len(calls)), (0, 11), done.stderr)
         # No one left to answer the offer to read again: the run stops, and does not read again on its own.
         out = self.out()
         done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="", refuse=(5, "all"))
@@ -13754,11 +13760,11 @@ if mode == "cut":
         self.assertIn("stopped at step 1", done.stderr)
         # A read the redaction refuses keeps nothing and is offered again: after the merge, a lost read cannot be redone.
         out = self.out()
-        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 8, refuse=(1, "cut"))
-        self.assertEqual((done.returncode, len(calls)), (0, 10), done.stderr)
+        done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="\n" + "\n" * 10, refuse=(1, "cut"))
+        self.assertEqual((done.returncode, len(calls)), (0, 12), done.stderr)
         self.assertIn("the redaction of step 1 failed", done.stderr)
         # Data beside errors is no whole read, nor is a good answer from a gh that failed: each is said and stopped.
-        for mode in ("errors", "exit", "cut", "paged", "status", "hidden", "unpaged"):
+        for mode in ("errors", "exit", "cut", "paged", "prpaged", "status", "hidden", "unpaged"):
             out = self.out()
             done, calls, _ = self.run_script([str(out), "x/canary", "7", "8"], answers="q\n", refuse=(5, mode))
             self.assertEqual((done.returncode, len(calls)), (1, 1), mode)
