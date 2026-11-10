@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 from adapters import artifacts
 from adapters.github import PASSED, Unanswered, request
@@ -36,6 +37,7 @@ WRITTEN = "written"           # the artifact the pass job's last step uploads
 WRITTEN_MEMBER = "written.json"
 WINDOW_PAGE, WINDOW_PAGES = 100, 10  # the runs read for reconciliation's window, newest first; more is read short
 READS = 50                    # the records one pass reads of them, inside its step's limit; the next reads on
+WAIT = 5                      # seconds before the one second look at passes that did not succeed and list none (decision 0184)
 EVENTS = {"schedule", "workflow_dispatch", "workflow_run"}
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 
@@ -112,13 +114,33 @@ def records(transport, repo: str, branch: str, poller: str, own: int):
     return list(reversed(found))
 
 
-def written(transport, repo: str, branch: str, poller: str, own: int, since: str, known, most: int = READS) -> dict:
+def _recorded(transport, repo: str, row: dict) -> tuple:
+    """One look at what a pass recorded of its writes: `(its written/1 or None, whether the look read it, whether the
+    record is past its retention)`. One that succeeded and lists none, a list or a record that cannot be read, and a
+    record that is not `written/1`, are not read."""
+    told = []
+    try:
+        held, whole = artifacts.read(transport, repo, row["id"], name=WRITTEN, member=WRITTEN_MEMBER,
+                                     held_most=artifacts.APPLIED_MOST, required=row.get("conclusion") == "success",
+                                     expired=told)
+        done = json.loads(held.decode("utf-8")) if held is not None else None
+    except (Unanswered, ValueError, RecursionError):
+        whole, done = False, None
+    if not whole or (done is not None and validate(done, artifacts.SCHEMAS["written"], schemas=artifacts.SCHEMAS)):
+        return None, False, False
+    return done, True, bool(told)
+
+
+def written(transport, repo: str, branch: str, poller: str, own: int, since: str, known, most: int = READS,
+            sleep=time.sleep) -> dict:
     """What each completed pass since `since` recorded of its writes and has not been read: `{"written": [written/1],
     "read": [{"id", "attempt"}], "at": {pass: when it was made}, "whole": bool}`, for reconciliation (decisions 0061, 0112).
     An attempt is read once: `known` holds the `(id, attempt)` a record before this one read. One that succeeded and lists
     no record, one whose record cannot be read or is not `written/1`, and any past the `most` a pass reads, are not read, so
-    a later pass reads them, and what this one read is not whole. One that failed and lists none may be yet to, so it too
-    is read again, without being short. The list is held as the records port holds its own: each run once, one count."""
+    a later pass reads them, and what this one read is not whole. One that did not succeed and lists none is looked at once
+    more, after one wait for them all: a completed run uploads nothing more, so one that lists none again recorded nothing,
+    and is read (decision 0184). A write it made is then matched to no record, which is reconciliation's to alarm on. The
+    list is held as the records port holds its own: each run once, one count."""
     out, page, rows, counts = {"written": [], "read": [], "at": {}, "whole": True}, 1, [], set()
     while True:
         try:
@@ -139,7 +161,13 @@ def written(transport, repo: str, branch: str, poller: str, own: int, since: str
     ids = [row.get("id") if isinstance(row, dict) else None for row in rows]
     if len(counts) != 1 or len(rows) != next(iter(counts)) or len(set(map(str, ids))) != len(ids):
         out["whole"] = False
-    tried, done_ids = 0, set()
+    tried, done_ids, again = 0, set(), []
+
+    def read(row, attempt, made, done):
+        out["read"].append({"id": row["id"], "attempt": attempt})
+        if done is not None:
+            out["written"].append(done)
+            out["at"][done["pass"]] = made
     for row in rows:
         if not isinstance(row, dict) or not _id(row.get("id")):
             out["whole"] = False
@@ -161,23 +189,23 @@ def written(transport, repo: str, branch: str, poller: str, own: int, since: str
             out["whole"] = False
             break
         tried += 1
-        told = []
-        try:
-            held, whole = artifacts.read(transport, repo, row["id"], name=WRITTEN, member=WRITTEN_MEMBER,
-                                         held_most=artifacts.APPLIED_MOST, required=row.get("conclusion") == "success",
-                                         expired=told)
-            done = json.loads(held.decode("utf-8")) if held is not None else None
-        except (Unanswered, ValueError, RecursionError):
-            whole, done = False, None
-        if not whole or (done is not None and validate(done, artifacts.SCHEMAS["written"], schemas=artifacts.SCHEMAS)):
+        done, whole, gone = _recorded(transport, repo, row)
+        if not whole:
+            out["whole"] = False
+        elif done is None and not gone:
+            again.append((row, attempt, made))
+        else:
+            read(row, attempt, made, done)
+    # The second look, at each that listed none and may only be lagging in GitHub's list: at most as many looks again as
+    # the first.
+    if again:
+        sleep(WAIT)
+    for row, attempt, made in again:
+        done, whole, _ = _recorded(transport, repo, row)
+        if not whole:
             out["whole"] = False
             continue
-        if done is None and not told:
-            continue
-        out["read"].append({"id": row["id"], "attempt": attempt})
-        if done is not None:
-            out["written"].append(done)
-            out["at"][done["pass"]] = made
+        read(row, attempt, made, done)
     return out
 
 

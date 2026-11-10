@@ -92,6 +92,10 @@ JOB_PORT = ("tests.test_adapters.Contract.test_a_checks_details_are_its_own_jobs
 RESULT_PORT = ("tests.test_adapters.Contract.test_a_results_check_is_read_as_any_check_and_a_created_one_is_foreign_to_its_reporter",)
 WIRE_RUNS = ("tests.test_adapters.EffectsRecorded.test_each_run_in_the_window_is_read_once_and_only_a_listed_one",)
 WIRE_PASSES = ("tests.test_adapters.EffectsRecorded.test_each_pass_in_the_window_is_read_once_and_what_cannot_be_read_is_read_again",)
+WIRE_AGAIN = ("tests.test_adapters.EffectsRecorded.test_a_pass_that_did_not_succeed_and_lists_none_is_read_after_a_second_look",)
+WIRE_MANY = ("tests.test_adapters.EffectsRecorded.test_more_passes_that_list_none_than_a_pass_reads_are_read_whole_by_the_next",)
+WIRE_RUNNING = ("tests.test_adapters.EffectsRecorded.test_a_pass_still_running_is_not_looked_at_and_may_yet_record",)
+WIRE_UNMATCHED = ("tests.test_adapters.EffectsRecorded.test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short",)
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
 WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
@@ -6581,13 +6585,24 @@ MUTANTS = ISSUE + [
     ('a count that moves between pages is whole', 'adapters/passes.py', 'if len(counts) != 1 or len(rows)', 'if len(rows)', WIRE_PASSES),
     ('a list naming a pass twice is whole', 'adapters/passes.py', ' or len(set(map(str, ids))) != len(ids):', ':', WIRE_PASSES),
     ('a pass row that is none is passed over', 'adapters/passes.py', '        if not isinstance(row, dict) or not _id(row.get("id")):\n            out["whole"] = False\n            continue\n        if row["id"] in done_ids', '        if not isinstance(row, dict) or not _id(row.get("id")):\n            continue\n        if row["id"] in done_ids', WIRE_PASSES),
-    ("a pass's record that is no JSON is whole", 'adapters/passes.py', 'except (Unanswered, ValueError, RecursionError):\n            whole, done = False, None', 'except (Unanswered, RecursionError):\n            whole, done = False, None', WIRE_PASSES),
-    ("a pass's record too deep ends the pass", 'adapters/passes.py', 'except (Unanswered, ValueError, RecursionError):\n            whole, done = False, None', 'except (Unanswered, ValueError):\n            whole, done = False, None', WIRE_PASSES),
+    ("a pass's record that is no JSON is whole", 'adapters/passes.py', 'except (Unanswered, ValueError, RecursionError):\n        whole, done = False, None', 'except (Unanswered, RecursionError):\n        whole, done = False, None', WIRE_PASSES),
+    ("a pass's record too deep ends the pass", 'adapters/passes.py', 'except (Unanswered, ValueError, RecursionError):\n        whole, done = False, None', 'except (Unanswered, ValueError):\n        whole, done = False, None', WIRE_PASSES),
     ("a pass's record that is no written/1 is read", 'adapters/passes.py', 'if not whole or (done is not None and validate(done, artifacts.SCHEMAS["written"], schemas=artifacts.SCHEMAS)):', 'if not whole:', WIRE_PASSES),
-    ('a pass whose record cannot be read counts as read', 'adapters/passes.py', 'artifacts.SCHEMAS)):\n            out["whole"] = False\n            continue\n', 'artifacts.SCHEMAS)):\n            out["whole"] = False\n', WIRE_PASSES),
+    ('a pass whose record cannot be read counts as read', 'adapters/passes.py', '        if not whole:\n            out["whole"] = False\n        elif', '        if not whole:\n            out["whole"] = False\n            read(row, attempt, made, None)\n        elif', WIRE_PASSES),
+    ('a pass whose record cannot be read is whole', 'adapters/passes.py', '        if not whole:\n            out["whole"] = False\n        elif', '        if not whole:\n            pass\n        elif', WIRE_PASSES),
     ('a pass that succeeded and lists none wrote nothing', 'adapters/passes.py', 'required=row.get("conclusion") == "success",', 'required=False,', WIRE_PASSES),
-    ('a pass that lists none counts as read', 'adapters/passes.py', '        if done is None and not told:\n            continue\n', '', WIRE_PASSES),
-    ('a pass past its retention is read again', 'adapters/passes.py', 'if done is None and not told:', 'if done is None:', WIRE_PASSES),
+    ('a pass that lists none is read at its first look', 'adapters/passes.py', '        elif done is None and not gone:\n            again.append((row, attempt, made))\n', '', WIRE_AGAIN),
+    ('a pass that did not succeed and lists none is never read', 'adapters/passes.py', '            again.append((row, attempt, made))\n', '            pass\n', WIRE_MANY),
+    ('a pass past its retention is looked at again', 'adapters/passes.py', 'elif done is None and not gone:', 'elif done is None:', WIRE_PASSES),
+    ('the second look does not wait', 'adapters/passes.py', '    if again:\n        sleep(WAIT)\n', '', WIRE_AGAIN),
+    ('the second look waits no time', 'adapters/passes.py', 'WAIT = 5 ', 'WAIT = 0 ', WIRE_AGAIN),
+    ('a pass waits with none to look at again', 'adapters/passes.py', '    if again:\n        sleep(WAIT)\n', '    sleep(WAIT)\n', WIRE_AGAIN),
+    ('each second look waits', 'adapters/passes.py', '        done, whole, _ = _recorded(transport, repo, row)\n', '        sleep(WAIT)\n        done, whole, _ = _recorded(transport, repo, row)\n', WIRE_AGAIN),
+    ('a second look that cannot be read counts as read', 'adapters/passes.py', '        if not whole:\n            out["whole"] = False\n            continue\n        read(', '        if not whole:\n            out["whole"] = False\n        read(', WIRE_AGAIN),
+    ('a second look that cannot be read is whole', 'adapters/passes.py', '        if not whole:\n            out["whole"] = False\n            continue\n        read(', '        if not whole:\n            continue\n        read(', WIRE_AGAIN),
+    ('a record the second look lists is not read', 'adapters/passes.py', '            continue\n        read(row, attempt, made, done)\n', '            continue\n        read(row, attempt, made, None)\n', WIRE_AGAIN),
+    ('a pass that lists none at its second look is short', 'adapters/passes.py', '        if not whole:\n            out["whole"] = False\n            continue\n        read(', '        if not whole or done is None:\n            out["whole"] = False\n            continue\n        read(', WIRE_UNMATCHED),
+    ('a pass still running is looked at', 'adapters/passes.py', ' and row.get("status") == "completed" and row.get("id")', ' and row.get("status") in ("completed", "in_progress") and row.get("id")', WIRE_RUNNING),
     ("a written record is held to a pass record's bound", 'adapters/passes.py', 'held_most=artifacts.APPLIED_MOST, required', 'zipped_most=PASSED, held_most=HELD, required', WIRE_PASSES),
     ('a pass reads every pass in the window', 'adapters/passes.py', '        if tried == most:\n            out["whole"] = False\n            break\n', '', WIRE_PASSES),
     ('a pass past the most it reads is whole', 'adapters/passes.py', '        if tried == most:\n            out["whole"] = False\n            break\n', '        if tried == most:\n            break\n', WIRE_PASSES),
