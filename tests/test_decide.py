@@ -3067,6 +3067,18 @@ class Ceilings(unittest.TestCase):
         d = go(facts(threads=[thread()]), REVIEWED, cfg=config(author_role=None))
         self.assertEqual((d["outcome"], d["attention"]), ("nothing", "failed"))
 
+    def test_the_configuration_names_no_author_role_until_its_manifest_exists(self):  # issue 675
+        # config/defaults.json names no author Role while roles/ holds no manifest for one, so an item that needs a fix,
+        # an open blocking Finding or a failed check, waits for a person, with no Run dispatched to a Role that would
+        # fail at its read on every pass.
+        named = json.loads((ROOT / "config" / "defaults.json").read_text())["author_role"]
+        self.assertIsNone(named)        # until roles/dev-lead.json lands, when this test changes with the configuration
+        failed = dict(GREEN[0], conclusion="failure")
+        for f in (facts(threads=[thread()]), facts(checks=[failed] + list(GREEN[1:]))):
+            d = go(f, REVIEWED, cfg=config(author_role=named))
+            self.assertEqual((d["state"], d["outcome"]), ("addressing", "nothing"), d["reason"])
+            self.assertNotIn("admit", d)
+
 
 class Queue(unittest.TestCase):
     """What takes a pull request out of the merge queue: GitHub reads its reviews only on the way in (L-19).

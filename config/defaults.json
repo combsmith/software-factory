@@ -1,7 +1,7 @@
 {
   "schema": "config/1",
   "approver": "donpetry-bot",
-  "author_role": "dev-lead",
+  "author_role": null,
   "owner_role": "pr-review",
   "required_lenses": {
     "deterministic": [
