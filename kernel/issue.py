@@ -192,8 +192,43 @@ def readable_link(entry, config: dict) -> bool:
     closer = entry.get("closed_issue_at", "")
     if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
-    return (readable_draft_events(entry) and readable_link_events(entry) and readable_close_events(entry, config)
-            and readable_events(entry.get("label_events"), config))
+    return (readable_draft_events(entry) and readable_link_events(entry) and readable_keyword(entry)
+            and readable_close_events(entry, config) and readable_events(entry.get("label_events"), config))
+
+
+def readable_keyword(entry: dict) -> bool:
+    """Whether a pull request's closing keyword can be read: whether its references name the issue by one now, and each
+    time it stood as the passes saw it, a span from when it was first seen to when it was first seen gone, or open while
+    it stands: in order, none before the pull request opened, each ending no earlier than it began and before the next
+    began, and only the last open: a keyword standing now with every span ended was put back since the last pass that saw
+    it, and one taken out with its last span open was taken out since. And that it is
+    listed for something, a keyword now or once seen, a link by hand or a close it made, so that none linked by nothing
+    is read (issue 552)."""
+    spans = entry.get("keyword_spans")
+    if not (type(entry.get("keyword")) is bool and isinstance(spans, list)):
+        return False
+    if not all(isinstance(span, dict) and is_time(span.get("seen_at")) and "gone_at" in span
+               and (span["gone_at"] is None or is_time(span["gone_at"]) and span["gone_at"] >= span["seen_at"]) for span in spans):
+        return False
+    if spans and entry["opened_at"] > spans[0]["seen_at"]:
+        return False
+    if any(span["gone_at"] is None or later["seen_at"] <= span["gone_at"] for span, later in zip(spans, spans[1:])):
+        return False
+    # Listed for something: a keyword now or once seen, a link by hand, or the close of the issue it made.
+    return entry["keyword"] or bool(spans) or bool(entry["link_events"]) or entry["closed_issue_at"] is not None
+
+
+def linked_now(entry: dict) -> bool:
+    """Whether a pull request is linked to the issue now: by a closing keyword its references hold, or by hand."""
+    return entry["keyword"] or bool(entry["link_events"]) and entry["link_events"][-1]["action"] == CONNECTED
+
+
+def keyword_stood(entry: dict, when: str) -> bool:
+    """Whether a pull request's closing keyword stood at `when`'s second, as the passes saw it: one span of it began
+    before that second and had not been seen gone before it (issue 552). A keyword first seen in that second carries no
+    order against it; one seen gone in that second or after still stood. A keyword taken out before the merge and put
+    back after it began a span after it, which reaches back to nothing."""
+    return any(span["seen_at"] < when and (span["gone_at"] is None or span["gone_at"] >= when) for span in entry["keyword_spans"])
 
 
 def readable_link_events(entry: dict) -> bool:
@@ -522,8 +557,7 @@ def stopped_before(facts: dict, when: str) -> list:
     Hold, whoever placed it, and hands-off anyone but a person placed. Placed later, a label does not touch what the
     merge did; placed in the merge's second, the reading that stops work wins; released by a person since, it was
     answered, and placed again after that it is a Hold of its own; an App's removal releases nothing. A linked draft's
-    labels are not read here: when a pull request became linked carries no time, so none can be placed at the merge
-    (decision 0141)."""
+    labels are not read here (decision 0141)."""
     past = as_of(facts, when)
     return [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF)
             if name in standing_labels(past) and not released_since(facts, name, when)]
@@ -538,9 +572,8 @@ def a_persons_hands_off(labels: dict, facts: dict, drafts: list) -> bool:
 
 def hands_off_stood(facts: dict, when: str) -> bool:
     """Whether a person's hands-off stood on the issue itself at `when`, by its label events' times, and no person has
-    removed it since: only a person ends it, and an App's removal ends nothing. A linked draft's is not read here: when
-    a pull request became linked carries no time ("Facts: a closing keyword's link timed by the first pass that saw it,
-    and the Consumer entry at the merge (after the first cut)", issue 552)."""
+    removed it since: only a person ends it, and an App's removal ends nothing. A linked draft's is not read here
+    (decision 0141)."""
     past = as_of(facts, when)
     return placed_by_a_person(standing_labels(past), past) and not released_since(facts, t.LABEL_HANDS_OFF, when)
 
@@ -587,7 +620,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(None, "issues_unreadable", [])
 
     links = [p for p in facts["linked"] if is_linked(p)]
-    open_links = [p for p in links if p["open"]]
+    # Rows 4 to 7 read the links as they stand: a pull request whose keyword an edit took out, which the port keeps
+    # listing for row 1, and which no link by hand holds, opens nothing (issue 552).
+    open_links = [p for p in links if p["open"] and linked_now(p)]
     drafts = [p for p in open_links if p["draft"]]
     labels = standing_labels(facts)
     # Row 1. A merge at the start of a life is in it: the reading that stops work wins. A merge that landed after a
@@ -639,11 +674,16 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # merge: an outsider's only where a person had admitted it by then, so no admission after the merge moves a
         # done issue; and open or closed by its closes and reopenings, so no reopening after the merge does (issue
         # 672). One unlinked at or after the merge lets the merge read on for good, as a Hold's removal does: a
-        # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A link
-        # in the merge's second, or one with no time, a closing keyword's, reads as before: the Factory's merge beside
-        # another in its second is done (decision 0132).
-        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first)) and linked_by_hand_before(p, first)
-                 and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
+        # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A closing
+        # keyword's link stood where one span of it, as the passes saw it, began before the merge's second and was not
+        # seen gone before it (issue 552): the port keeps listing a pull request once a pass saw its keyword, so no edit
+        # after the merge moves the issue, and a keyword first seen after it, or taken out before it and put back after,
+        # reaches back to nothing. A link in the merge's second, or one no pass timed, reads as before: the Factory's merge
+        # beside another in its second is done (decision 0132).
+        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
+                 and (linked_by_hand_before(p, first)
+                      and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
+                      or keyword_stood(p, first))
                  and not closed_before(p, first)]
         # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
         # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.
