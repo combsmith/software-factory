@@ -22,18 +22,18 @@
 #   IssueTypeAddedEvent, IssueTypeChangedEvent, IssueTypeRemovedEvent, ConnectedEvent, DisconnectedEvent and
 #   ConnectedEvent, each with a createdAt to the second, no earlier than the read before it and no later than the read
 #   after, its actor's login and type, and the type or the pull request it names; each of steps 8 to 10 appears on the
-#   pull request's own timeline, at the read after it, as ClosedEvent, ReopenedEvent, and MergedEvent beside its
-#   ClosedEvent, each with a createdAt to the second, between the reads, and its actor's login and type; both timelines
-#   are read whole at each step; and by step 11 the issue is closed, its ClosedEvent's closer the pull request.
+#   pull request's own timeline, at the read after it, as ClosedEvent, ReopenedEvent and MergedEvent, each with a
+#   createdAt to the second, between the reads, and its actor's login and type, and whether a ClosedEvent stands beside
+#   the MergedEvent is recorded; both timelines are read whole at each step; and by step 11 the issue is closed, its ClosedEvent's closer the pull request.
 #   fail otherwise, and row 1 does not read a type, a link by hand or a rival's close at the merge until a trial shows
 #   what does.
 #
 # Each answer is captured in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted;
 # OUT receives only the redacted answers (clean-N), where the redaction removed something (redacted-N), what was asked
 # (query.json, with its variables, and steps), and when the run started (ran_at). A read that is not GitHub's 200 with
-# data and no errors, and the issue's timeline whole on its one page, is said, with gh's complaint redacted, and offered
-# again before anything changes, until the Maintainer types q: a bad query is found at step 1, and so is an issue with
-# more than a hundred of these events, which is no new issue. A session builds trials/P-61.json from OUT alone.
+# data and no errors, with both timelines, the issue's and the pull request's, whole on their one page, is said, with
+# gh's complaint redacted, and offered again before anything changes, until the Maintainer types q: a bad query is found
+# at step 1, and so is an issue or a pull request with more than a hundred of these events, which is neither new one. A session builds trials/P-61.json from OUT alone.
 set -euf
 set +x
 
