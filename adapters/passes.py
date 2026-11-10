@@ -37,7 +37,7 @@ WRITTEN = "written"           # the artifact the pass job's last step uploads
 WRITTEN_MEMBER = "written.json"
 WINDOW_PAGE, WINDOW_PAGES = 100, 10  # the runs read for reconciliation's window, newest first; more is read short
 READS = 50                    # the records one pass reads of them, inside its step's limit; the next reads on
-WAIT = 5                      # seconds before the one second look at passes that did not succeed and list none (decision 0184)
+WAIT = 5                      # seconds before the one second look at passes that did not succeed and list none (decision 0190)
 EVENTS = {"schedule", "workflow_dispatch", "workflow_run"}
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 
@@ -139,7 +139,7 @@ def written(transport, repo: str, branch: str, poller: str, own: int, since: str
     no record, one whose record cannot be read or is not `written/1`, and any past the `most` a pass reads, are not read, so
     a later pass reads them, and what this one read is not whole. One whose conclusion says it did not succeed and that lists
     none is looked at once more, after one wait for them all: a completed run uploads nothing more, so one that lists none
-    again recorded nothing, and is read (decision 0184). A write it made is then matched to no record, which is
+    again recorded nothing, and is read (decision 0190). A write it made is then matched to no record, which is
     reconciliation's to alarm on. The list is held as the records port holds its own: each run once, one count."""
     out, page, rows, counts = {"written": [], "read": [], "at": {}, "whole": True}, 1, [], set()
     while True:

@@ -1,4 +1,4 @@
-# 0184. A pass that did not succeed and lists no record is read, after a second look
+# 0190. A pass that did not succeed and lists no record is read, after a second look
 
 Status: accepted. The Factory Builder's ruling of 2026-11-10 on the `reconciliation_unreadable` alert of "Factory alerts" (issue 709). It amends one row of `docs/decisions/0112-a-pass-gathers-what-reconciliation-reads-and-carries-what-it-has-read.md`: "One that failed and lists none may be yet to, so it too is read again, without being short" held for a Run and for a pass alike; for a pass it no longer does. What 0112 says of a Run's `applied/1` is unchanged.
 

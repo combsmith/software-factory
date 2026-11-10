@@ -4372,7 +4372,7 @@ class EffectsRecorded(unittest.TestCase):
         # What is no pass of the poller from the default branch is passed over.
         others = [a_pass(40, path=".github/workflows/run.yml"), a_pass(41, head_branch="other"), a_pass(43, event="push")]
         self.assertEqual(self.passes_(self.page(others)), none)
-        # One that failed and lists none is looked at once more, and then read: it recorded nothing (decision 0184).
+        # One that failed and lists none is looked at once more, and then read: it recorded nothing (decision 0190).
         self.assertEqual(self.passes_(self.page([a_pass(30, conclusion="failure", run_attempt=1)]), written_stored(30, None), written_stored(30, None)),
                          dict(none, read=[{"id": 30, "attempt": 1}]))
         # One that succeeded and lists none is lag or a deletion, and short; and is read again.
@@ -4440,7 +4440,7 @@ class EffectsRecorded(unittest.TestCase):
         got = passes.written(github.Replay([two] + written_stored(30, self.DONE)), HOME, "main", POLLER, self.OWN, self.SINCE, {(20, 1)}, most=1)
         self.assertEqual(got["whole"], True)
 
-    def test_a_pass_that_did_not_succeed_and_lists_none_is_read_after_a_second_look(self):  # issue 709, decision 0184
+    def test_a_pass_that_did_not_succeed_and_lists_none_is_read_after_a_second_look(self):  # issue 709, decision 0190
         none = {"written": [], "read": [], "at": {}, "whole": True}
         made = "2026-10-11T12:00:00Z"
         for conclusion in ("failure", "cancelled", "timed_out", "skipped"):
@@ -4501,7 +4501,7 @@ class EffectsRecorded(unittest.TestCase):
         # Read, it is known, and the next pass asks nothing of it.
         self.assertEqual(self.passes_(failed, known=[(30, 1)]), none)
 
-    def test_more_passes_that_list_none_than_a_pass_reads_are_read_whole_by_the_next(self):  # issue 709, decision 0184
+    def test_more_passes_that_list_none_than_a_pass_reads_are_read_whole_by_the_next(self):  # issue 709, decision 0190
         # The poller cancels the run that waits when another is queued, and a cancelled run records nothing. With more of
         # them in the window than a pass reads, each is read by the pass that looks at it, so the next reads the rest whole.
         rows = [a_pass(200, run_attempt=1)] + [a_pass(100 + i, conclusion="cancelled", run_attempt=1) for i in range(passes.READS + 1)]
@@ -4518,7 +4518,7 @@ class EffectsRecorded(unittest.TestCase):
         got = self.passes_(self.page(rows[1:passes.READS + 1]), nothing(rows[1:passes.READS + 1]), nothing(rows[1:passes.READS + 1]))
         self.assertEqual((len(got["read"]), got["whole"]), (passes.READS, True))
 
-    def test_a_pass_still_running_is_not_looked_at_and_may_yet_record(self):  # issue 709, decision 0184
+    def test_a_pass_still_running_is_not_looked_at_and_may_yet_record(self):  # issue 709, decision 0190
         none = {"written": [], "read": [], "at": {}, "whole": True}
         # A run not completed is no pass yet: nothing is asked of it, it is not read, and what was read is whole.
         for status in ("in_progress", "queued", "waiting", None):
@@ -4530,7 +4530,7 @@ class EffectsRecorded(unittest.TestCase):
         self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1, created_at=made)]), written_stored(30, self.DONE)),
                          {"written": [self.DONE], "read": [{"id": 30, "attempt": 1}], "at": {"p_01JA7Q": made}, "whole": True})
 
-    def test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short(self):  # issue 709, decision 0184
+    def test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short(self):  # issue 709, decision 0190
         from controller import reconcile
         from tests.test_reconcile import ITEM, check, kinds, recorded, seen, wrote, written
         failed = self.page([a_pass(30, conclusion="failure", run_attempt=1)])
