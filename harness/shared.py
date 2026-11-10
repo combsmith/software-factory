@@ -1,12 +1,11 @@
 """What the Harness's modules share: the Release's schemas, read once as the module loads, and the codes that name a
-read GitHub did not answer."""
+read that failed."""
 from __future__ import annotations
 
 import contextlib
 import json
 import pathlib
 
-from adapters.github import Unanswered
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -22,20 +21,21 @@ def errors(value, kind: str) -> list:
 
 @contextlib.contextmanager
 def staged(stage: str):
-    """A read of a step's, named `stage`: an `Unanswered` it raises is told the stage and raised on (`unread` names it).
-    Each caller reads a Moved, the pull request changed, before any code."""
+    """A read of a step's, named `stage`: any fault it raises is told the stage and raised on (`unread` names it), a
+    read GitHub did not answer and a fault of the read's own code alike, since a step that records every fault would
+    hide which read it was (decision 0187). Each caller reads a Moved, the pull request changed, before any code."""
     try:
         yield
-    except Unanswered as err:
+    except Exception as err:
         err.stage = stage
         raise
 
 
 def unread(err) -> str:
-    """The code of a read GitHub did not answer: `<stage>_unreadable`, and a snapshot's `snapshot_<part>_unreadable`
-    (`adapters/facts.py`), or `facts_unreadable` for a read no stage named. Codes of the Harness's own, never what
-    GitHub said, so a Run that stops says which read it was (pull request 688, the dry run, stopped twice at one code
-    for every read)."""
+    """The code of a read that failed, GitHub's refusal or a fault of its own code: `<stage>_unreadable`, and a
+    snapshot's `snapshot_<part>_unreadable` (`adapters/facts.py`), or `facts_unreadable` for a fault no stage named.
+    Codes of the Harness's own, never what GitHub or the fault said, so a Run that stops says which read it was (pull
+    request 688, the dry run, stopped twice at one code for every read)."""
     stage, part = getattr(err, "stage", None), getattr(err, "part", None)
     if stage is None:
         return "facts_unreadable"

@@ -9,8 +9,8 @@ issue 195's rulings 4 to 7, decision 0055).
    own included (`environment`, `approver_unreadable`).
 3. The item is read again: its facts, the head commit its first read gave, the run records and the context, as the pass
    reads them. A pull request that changed while it was read is a change under the act (`superseded`, `head_moved`);
-   one that cannot be read is the environment's, by the code of the read GitHub did not answer (`shared.unread`), or
-   of the read that gave a part not as its schema holds it (`_unread`).
+   one that cannot be read is the environment's, by the code of the read that failed (`shared.unread`), or of the
+   read that gave a part not as its schema holds it (`_unread`).
 4. The approver's approval of that commit, if it stands, is recovered by its node id and nothing is written: a re-run
    after an approval landed does not fail (section 3.6).
 5. The Kernel is asked again on what was just read, with this Run left out (I-38), and the approval goes ahead only if
@@ -90,15 +90,15 @@ def _records(run: str, release: str, state: str, key, why) -> tuple:
 
 def _unread(facts, head, runs, context):
     """The code of the first part of the item read again that is not as its schema holds it, or None: named by the read
-    that gave it, in the order `harness/reread.py` reads them, as `shared.unread` names a read GitHub did not answer.
-    The run records; the snapshot, its facts and the head it was held to; then the Pause, which its port hands back
-    unread and never raises (`adapters/pause.py`). A context that is none is no read's, `facts_unreadable`."""
+    that gave it, in the order `harness/reread.py` reads them, as `shared.unread` names a read that failed. The run
+    records; the snapshot, its facts and the head it was held to; then the context, and in it the Pause, which its port
+    hands back unread and never raises (`adapters/pause.py`)."""
     if not isinstance(runs, list) or any(shared.errors(r, "run-record") for r in runs):
         return "run_records_unreadable"
     if shared.errors(facts, "facts") or not isinstance(head, str) or SHA.fullmatch(head) is None:
         return "snapshot_unreadable"
     if not isinstance(context, dict):
-        return "facts_unreadable"
+        return "context_unreadable"
     if not isinstance(context.get("paused"), bool):     # 0 and 1 equal the two, and are no Pause read
         return "pause_unreadable"
     return None

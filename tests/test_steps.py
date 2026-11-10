@@ -973,6 +973,20 @@ class Reread(unittest.TestCase):
                     unittest.mock.patch.object(target, name, standin), self.assertRaises(github.Unanswered) as raised:
                 reread.item("t", config, 42, support.NOW, lambda: support.NOW)
             self.assertEqual((getattr(raised.exception, "stage", None), getattr(raised.exception, "part", None)), want)
+        # A fault of the read's own code is told its stage too, and so is the context's building, which reads nothing:
+        # the approving act records every fault of the read again, and one left unnamed no log can find (decision 0187).
+        def odd(*a, **k):
+            raise TypeError("an answer no adapter expected")
+        for target, name, want in ((reread.records, "runs", "run_records"), (reread.applied, "recorded", "lens_records"),
+                                   (reread.applied, "opened", "opened_records"), (reread.facts_, "snapshot", "snapshot"),
+                                   (reread.pause_, "read", "pause"), (reread.reads_, "configured", "context"),
+                                   (reread.pass_, "context_of", "context")):
+            with unittest.mock.patch.object(reread.records, "runs", fine["runs"]), \
+                    unittest.mock.patch.object(reread.facts_, "snapshot", fine["snapshot"]), \
+                    unittest.mock.patch.object(reread.pause_, "read", fine["pause"]), \
+                    unittest.mock.patch.object(target, name, odd), self.assertRaises(TypeError) as raised:
+                reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+            self.assertEqual(getattr(raised.exception, "stage", None), want, name)
         # A list read short holds the threads to nothing recorded, and they are not whole (issue 338).
         self.assertEqual(whole, [(False, ({}, False, [])), (False, ({}, False, []))])
         asked_ = []
