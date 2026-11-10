@@ -185,8 +185,7 @@
           "draft_events",
           "link_events",
           "keyword",
-          "keyword_seen_at",
-          "keyword_gone_at"
+          "keyword_spans"
         ],
         "properties": {
           "number": {
@@ -302,21 +301,30 @@
             "description": "Whether the pull request's references now name the issue by a closing keyword. Once a pass has seen it, the port keeps listing the pull request, with this false after an edit takes the keyword out, so no edit after the merge moves the issue (the Factory Builder's ruling (1) on issue 552)",
             "type": "boolean"
           },
-          "keyword_seen_at": {
-            "description": "When the issue's facts were read in the first pass whose record listed this pull request with its keyword, those facts' read_at, which the port takes no earlier than it reads the pull request's closing references, not the pass's start, which comes before GitHub is read: a keyword link's time, which GitHub does not record (trials/P-48.json). Null where no pass has seen one. The port reads it only from pass records the Factory itself wrote. Row 1 reads a keyword link that a pass saw before the first merge's second as a link at it (issue 552); the issue port that reads it from the pass records is not built yet",
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
-          },
-          "keyword_gone_at": {
-            "description": "When the issue's facts were read in the first pass after the keyword's last sighting whose record listed this pull request with its keyword gone, those facts' read_at; null while the keyword stands, or where none was seen. Row 1 reads a keyword taken out before the first merge's second as no link at it, as rows 4 to 7 read it as none; one taken out in that second or after moves nothing (issue 552)",
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          "keyword_spans": {
+            "description": "Each time the pull request's keyword stood, as the Factory's pass records saw it: when it was first seen, the read_at of the issue's facts in the first pass record that listed it with its keyword, which the port takes no earlier than it reads the closing references, and when it was first seen gone after that, likewise, or null while it stands or until a pass sees it gone. A keyword link's time is GitHub's to give no more (trials/P-48.json), so this is its only one. In order, none before the pull request opened, each ending no earlier than it began and before the next began; only the last may be open, and it is while the keyword stands. Row 1 reads a keyword link one span of which covers the first merge's second as a link at it, so a keyword taken out before the merge and put back after reaches back to nothing (issue 552). The port reads only pass records the Factory wrote; the issue port that reads them is not built yet",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "seen_at",
+                "gone_at"
+              ],
+              "properties": {
+                "seen_at": {
+                  "type": "string",
+                  "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+                },
+                "gone_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+                }
+              }
+            }
           }
         }
       }

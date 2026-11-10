@@ -58,8 +58,7 @@
       "draft_events": [{"action": "drafted", "at": "2026-10-11T12:01:00Z"}],
       "link_events": [],
       "keyword": true,
-      "keyword_seen_at": null,
-      "keyword_gone_at": null
+      "keyword_spans": []
     },
     {
       "number": 140,
@@ -91,8 +90,7 @@
       "draft_events": [],
       "link_events": [],
       "keyword": true,
-      "keyword_seen_at": null,
-      "keyword_gone_at": null
+      "keyword_spans": []
     }
   ],
   "role_comments": [

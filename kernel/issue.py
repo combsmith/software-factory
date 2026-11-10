@@ -194,19 +194,26 @@ def readable_link(entry, config: dict) -> bool:
 
 
 def readable_keyword(entry: dict) -> bool:
-    """Whether a pull request's closing keyword can be read: whether its references name the issue by one now, and when a
-    pass first saw one there, null where none has, no earlier than it opened, and when a pass first saw it taken out,
-    null while it stands; and that it is listed for something, a
-    keyword, a link by hand or a close it made, so that none linked by nothing is read (issue 552)."""
-    seen = entry.get("keyword_seen_at", "")
-    if not (type(entry.get("keyword")) is bool and (seen is None or is_time(seen) and seen >= entry["opened_at"])):
+    """Whether a pull request's closing keyword can be read: whether its references name the issue by one now, and each
+    time it stood as the passes saw it, a span from when it was first seen to when it was first seen gone, or open while
+    it stands: in order, none before the pull request opened, each ending no earlier than it began and before the next
+    began, only the last open, and that one only while the keyword stands or until a pass sees it gone. And that it is
+    listed for something, a keyword now or once seen, a link by hand or a close it made, so that none linked by nothing
+    is read (issue 552)."""
+    spans = entry.get("keyword_spans")
+    if not (type(entry.get("keyword")) is bool and isinstance(spans, list)):
         return False
-    # When a pass first saw it taken out: only while it is out, after it was seen.
-    gone = entry.get("keyword_gone_at", "")
-    if not (gone is None or is_time(gone) and not entry["keyword"] and seen is not None and gone >= seen):
+    if not all(isinstance(span, dict) and is_time(span.get("seen_at")) and "gone_at" in span
+               and (span["gone_at"] is None or is_time(span["gone_at"]) and span["gone_at"] >= span["seen_at"]) for span in spans):
+        return False
+    if spans and entry["opened_at"] > spans[0]["seen_at"]:
+        return False
+    if any(span["gone_at"] is None or later["seen_at"] < span["gone_at"] for span, later in zip(spans, spans[1:])):
+        return False
+    if entry["keyword"] and spans and spans[-1]["gone_at"] is not None:
         return False
     # Listed for something: a keyword now or once seen, a link by hand, or the close of the issue it made.
-    return entry["keyword"] or seen is not None or bool(entry["link_events"]) or entry["closed_issue_at"] is not None
+    return entry["keyword"] or bool(spans) or bool(entry["link_events"]) or entry["closed_issue_at"] is not None
 
 
 def linked_now(entry: dict) -> bool:
@@ -214,12 +221,12 @@ def linked_now(entry: dict) -> bool:
     return entry["keyword"] or bool(entry["link_events"]) and entry["link_events"][-1]["action"] == CONNECTED
 
 
-def keyword_seen_before(entry: dict, when: str) -> bool:
-    """Whether a pass saw a pull request's closing keyword before `when`'s second, and none saw it taken out before that
-    second: a keyword link's time is the first pass that saw it, which no edit after can move back (issue 552). One first
-    seen in that second carries no order against it; one taken out in that second or after still stood."""
-    gone = entry["keyword_gone_at"]
-    return entry["keyword_seen_at"] is not None and entry["keyword_seen_at"] < when and not (gone is not None and gone < when)
+def keyword_stood(entry: dict, when: str) -> bool:
+    """Whether a pull request's closing keyword stood at `when`'s second, as the passes saw it: one span of it began
+    before that second and had not been seen gone before it (issue 552). A keyword first seen in that second carries no
+    order against it; one seen gone in that second or after still stood. A keyword taken out before the merge and put
+    back after it began a span after it, which reaches back to nothing."""
+    return any(span["seen_at"] < when and (span["gone_at"] is None or span["gone_at"] >= when) for span in entry["keyword_spans"])
 
 
 def readable_link_events(entry: dict) -> bool:
@@ -631,7 +638,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
                  and (linked_by_hand_before(p, first)
                       and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
-                      or keyword_seen_before(p, first))
+                      or keyword_stood(p, first))
                  and (p["closed_at"] is None or p["closed_at"] >= first)]
         # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
         # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.
