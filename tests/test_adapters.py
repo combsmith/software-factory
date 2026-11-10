@@ -3352,6 +3352,16 @@ class Snapshot(unittest.TestCase):
                 facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
             self.assertEqual(getattr(raised.exception, "part", None), part, name)
+        # A fault of the snapshot's own code is named by its part as a read GitHub refused is, and one in putting the
+        # facts together, after the last read, by a part of its own (decision 0187).
+        odd = lambda *a, **k: (_ for _ in ()).throw(TypeError("an answer no adapter expected"))
+        for target, name, part in ((timeline, "events", "timeline"), (timeline, "since_writer", "writer"),
+                                   (timeline, "reopened_at", "assembly")):
+            router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+            with unittest.mock.patch.object(target, name, odd), self.assertRaises(TypeError) as raised:
+                facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                               lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+            self.assertEqual(getattr(raised.exception, "part", None), part, name)
         # A pull request that moved while it was read is still a Moved, which the pass reads again.
         router = Router(github.Replay(self.sequence(12)), {"don-petry": "admin"})
         with self.assertRaises(facts.Moved) as raised:
