@@ -1024,6 +1024,13 @@ class Passes(unittest.TestCase):
         self.assertEqual(len(asked), 2)
         self.assertTrue("kernel/decide.py" in told[0].replace(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), "")
                         and "docs/glossary.md" not in told[0].replace(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), ""))
+        # Each pass is given its own file's part of the diff, the second the second file's.
+        sent = [[t["body"] for t in json.loads(c["args"][c["args"].index("-p") + 1].split(engine.TASK, 1)[1])["texts"]
+                 if t["id"].startswith("diff:")][0] for c in asked]
+        self.assertEqual([s.split("\n", 1)[0] for s in sent], ["diff --git a/kernel/decide.py b/kernel/decide.py",
+                                                                 "diff --git a/docs/glossary.md b/docs/glossary.md"])
+        self.assertTrue("docs/glossary.md" in told[1].replace(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), "")
+                        and "kernel/decide.py" not in told[1].replace(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), ""))
         # Each pass is told it judges its own file alone, and which others are judged in passes of their own.
         self.assertIn(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), told[0])
         self.assertIn(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), told[1])
@@ -1105,6 +1112,15 @@ class Passes(unittest.TestCase):
             {"finding": "n1", "body": "On n1."}, {"finding": "n2", "body": "On n2."}]}]})
         self.assertTrue(engine.held(joined, the_task))
         self.assertEqual(passes.union([said([other]), said([here])])["findings"][0]["criterion"], "PR-2", "the earliest on a tie")
+        # The vote is of criterion, severity and category each: under one criterion, two answers' major outvotes a first
+        # minor, and two answers' security outvotes a first functional.
+        minor, major = raised("n1", "kernel/decide.py", 90, 91, severity="minor"), raised("n1", "kernel/decide.py", 90, 91)
+        self.assertEqual(passes.union([said([minor]), said([major]), said([major])])["findings"][0]["severity"], "major")
+        security = raised("n1", "kernel/decide.py", 90, 91, category="security")
+        self.assertEqual(passes.union([said([major]), said([security]), said([security])])["findings"][0]["category"], "security")
+        # One answer naming a criterion twice is one answer: it never stands for another that left it out.
+        twice = said([], [{"criterion": "PR-3", "verdict": "met"}, {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}])
+        self.assertEqual(passes.union([twice, said([], [{"criterion": "PR-1", "verdict": "met"}])])["coverage"], [])
         # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
         minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]
         voted = passes.union([said([other]), said([dict(other)]), said(minors)])

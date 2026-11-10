@@ -111,25 +111,27 @@ def _usage(results: list) -> dict:
 
 
 def _covered(results: list, cited: set) -> list:
-    """Each criterion every Result covers, in the order first given, one any leaves out left out: `finding` where a kept Finding cites it, `cited`, so
-    that the joined Result is covered as `apply` reads it (`kernel.coverage.covered`); otherwise, of the words that are not
+    """Each criterion every Result covers, counted by answer, in the order first given, one any leaves out left out:
+    `finding` where a kept Finding cites it, `cited`, so that the joined Result is covered as `apply` reads it
+    (`kernel.coverage.covered`); otherwise, of the words that are not
     `finding`, `met` where at least one judged it met and each other met or not applicable, `met` too where none is left,
     every Finding that cited it merged into one kept at its place under another criterion; otherwise as the first that
     covers it with such a word says."""
+    # Each criterion's words by answer, the first an answer gives: one answer naming it twice is still one answer.
     order, said = [], {}
-    for result in results:
+    for n, result in enumerate(results):
         for entry in result["coverage"]:
             if entry["criterion"] not in said:
                 order.append(entry["criterion"])
-                said[entry["criterion"]] = []
-            said[entry["criterion"]].append(entry)
+                said[entry["criterion"]] = {}
+            said[entry["criterion"]].setdefault(n, entry)
     out = []
     for criterion in order:
         # A criterion any answer left out stays out, so the joined Result is as uncovered as that answer: another file's
         # word never stands for a pass that gave none (Astra's read of issue 581).
         if len(said[criterion]) < len(results):
             continue
-        rest = [e for e in said[criterion] if e["verdict"] != "finding"]
+        rest = [e for e in said[criterion].values() if e["verdict"] != "finding"]
         verdicts = [e["verdict"] for e in rest]
         if criterion in cited:
             out.append({"criterion": criterion, "verdict": "finding", "reason": None})
