@@ -892,7 +892,8 @@ class Authority(unittest.TestCase):
                 self.assertTrue(caught(check_authority.run(config=dict(config, owner_role="probe")), "no probe.json"))
         # A name that is no Role's, one that would reach outside roles/ among them, and an owner Role named none (Muse).
         for field in ("author_role", "owner_role"):
-            for name in ("../config/defaults", "pr-review/../../config/defaults"):     # the second begins as a Role's (Astra)
+            # The second begins as a Role's, and the third ends as none does (Astra).
+            for name in ("../config/defaults", "pr-review/../../config/defaults", "pr-review-"):
                 self.assertTrue(caught(check_authority.run(config=dict(config, **{field: name})), "no Role's name"),
                                 (field, name))
         self.assertTrue(caught(check_authority.run(config=dict(config, owner_role=None)), "no Role's name"))
