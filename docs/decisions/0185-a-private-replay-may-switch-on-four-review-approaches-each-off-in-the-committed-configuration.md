@@ -1,4 +1,4 @@
-# NNNN. A private replay may switch on four review approaches, each off in the committed configuration
+# 0185. A private replay may switch on four review approaches, each off in the committed configuration
 
 Status: accepted. The Factory Builder's rulings of 2026-11-10 on issue 581, "The review Role's recall on planted faults": the design of lane d, its merge rule with coverage refined for a pass per file and held to what a kept Finding cites, one replay of each approach first, and one pull request of switches, all off. Each approach the issue names is to be measured by a private replay at the Maintainer's terminal against the same commit without it. This record makes each one switchable in a replay's own copy of the configuration, and changes nothing a live Run or the gate is asked.
 
