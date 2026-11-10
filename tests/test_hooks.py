@@ -247,10 +247,14 @@ class Budgets(unittest.TestCase):
         # At the edge: three and a half times passes, and one line more fails.
         self.assertEqual(support.faster_than_linear_in_steps(100, 200, 450), "")
         self.assertIn("at half", support.faster_than_linear_in_steps(100, 200, 451))
-        # A count that falls or holds at the half, as a reading cut short at its limit gives, is no growth (Muse).
+        # A count that falls or holds at the half, as a reading cut short at its limit gives, is no growth while the
+        # whole stays at the quarter's or below (Muse); one that rises past it at the whole is growth (Astra).
         self.assertEqual(support.faster_than_linear_in_steps(300, 100, 150), "")
+        self.assertEqual(support.faster_than_linear_in_steps(300, 100, 300), "")
         self.assertEqual(support.faster_than_linear_in_steps(100, 100, 100), "")
-        self.assertEqual(support.faster_than_linear_in_steps(100, 100, 101), "")
+        self.assertIn("at half", support.faster_than_linear_in_steps(100, 100, 101))
+        self.assertIn("at half", support.faster_than_linear_in_steps(100, 100, 1000000))
+        self.assertIn("at half", support.faster_than_linear_in_steps(300, 100, 301))
         # A quarter that counted nothing missed tools/hooks/ and holds nothing, so it fails (Muse).
         self.assertIn("counted no line", support.faster_than_linear_in_steps(0, 0, 0))
         self.assertIn("counted no line", support.faster_than_linear_in_steps(0, 100, 300))
@@ -259,6 +263,22 @@ class Budgets(unittest.TestCase):
         counted, read = support.steps(lambda: shell.commands("a; b"))
         self.assertGreater(counted, 0)
         self.assertEqual(read, [(["a"], []), (["b"], [])])
+
+        # linear_in_steps fails a test on what faster_than_linear_in_steps finds, and gives the whole size's result
+        # (Astra): counts and results scripted in place of steps.
+        def scripted(*counts):
+            left = iter(counts)
+            return lambda run: (next(left), run())
+        for counts, fails in (((100, 200, 400), False), ((100, 200, 450), False), ((100, 200, 451), True),
+                              ((100, 400, 1600), True)):
+            ran = []
+            with mock.patch.object(support, "steps", scripted(*counts)):
+                if fails:
+                    with self.assertRaises(AssertionError):
+                        support.linear_in_steps(self, lambda n: ran.append(n) or n, 400)
+                else:
+                    self.assertEqual(support.linear_in_steps(self, lambda n: ran.append(n) or n, 400), 400)
+            self.assertEqual(ran, [100, 100, 200, 400])     # the quarter once uncounted, then each size
 
         def tracer(frame, event, arg):
             return None
