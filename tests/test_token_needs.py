@@ -208,7 +208,7 @@ def reached(dotted: str, function: str) -> set:
     `dotted` can reach, through every function and class it calls of the packages walked."""
     leaves, seen = set(), set()
 
-    def walk(dotted, name):
+    def follow(dotted, name):
         if (dotted, name) in seen:
             return
         seen.add((dotted, name))
@@ -241,8 +241,8 @@ def reached(dotted: str, function: str) -> set:
                 if function_ in REQUESTS:
                     leaves.add("%s.%s" % (dotted, name))
                 continue
-            walk(module, function_.split(".")[0])      # a function, or the class whose method is called
-    walk(dotted, function)
+            follow(module, function_.split(".")[0])      # a function, or the class whose method is called
+    follow(dotted, function)
     return leaves
 
 
