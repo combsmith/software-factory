@@ -1029,6 +1029,15 @@ class Passes(unittest.TestCase):
         self.assertIn(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), told[1])
         _, asked = self.asked(switched(runs=2))
         self.assertFalse(any("This pass judges one changed file" in " ".join(c["args"]) for c in asked))
+        # An Intent that reviews nothing is asked as it always was, whatever the block switches on.
+        other = dict(built(), intent="adjudicate-findings")
+        for review in ({"runs": 2}, {"passes": "per_file"}, {"checklist": True}, {"read_head": True}):
+            with self.subTest(review=review):
+                cli = CLI()
+                run.answer(other, JOB, dict(switched(**review), release=other["release"]), cli, Clock(*[0.0] * 20), SESSION)
+                self.assertEqual(len(cli.asked()), 1)
+                told = " ".join(cli.asked()[0]["args"])
+                self.assertFalse(any(text in told for text in (engine.READ_FIRST, engine.CHECKLIST, "This pass judges one changed file")))
         # A block harness/1 does not allow is refused, never read as something else.
         for given in (None, [], {"runs": 4}, {"runs": "2"}, {"runs": True}, {"passes": "per_hunk"}, {"checklist": 1}, {"union": 2},
                       {"runs": 2, "checklist": True}, {"passes": "per_file", "read_head": True}):
@@ -1144,11 +1153,19 @@ class Passes(unittest.TestCase):
                          [("met", None)])
         self.assertEqual([(c["verdict"], c["reason"]) for c in passes.union([said([], [na]), said([], [na]), said([], [na])])["coverage"]],
                          [("not_applicable", "no_rule_added")])
-        # Usage is summed, and none where any call counted none; one that did not complete is the answer, by its reason.
-        self.assertEqual((joined["usage"]["turns"], joined["usage"]["cost_usd"]), (4, 0.2))
-        unknown = said([])
-        unknown["usage"] = dict(unknown["usage"], cost_usd=None)
-        self.assertIsNone(passes.union([said([]), unknown])["usage"]["cost_usd"])
+        # A criterion one pass left out stays out: another file's word does not cover it, and the joined Result is uncovered.
+        partial = passes.union([said([], rows({})[:2] + rows({})[3:]), said([], rows({}))])
+        self.assertEqual([c["criterion"] for c in partial["coverage"]], [c["id"] for c in rubric["criteria"] if c["id"] != "PR-3"])
+        self.assertEqual(covering.covered(rubric, partial["coverage"], partial["findings"], changed)[0], "uncovered")
+        # Usage is summed, each count of it, and none where any call counted none; one that did not complete is the
+        # answer, by its reason.
+        self.assertEqual({name: joined["usage"][name] for name in passes.SUMMED},
+                         {"input_tokens": 2, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 2,
+                          "turns": 4, "cost_usd": 0.2, "seconds": 2.0})
+        for name in passes.SUMMED:
+            unknown = said([])
+            unknown["usage"] = dict(unknown["usage"], **{name: None})
+            self.assertIsNone(passes.union([said([]), unknown])["usage"][name], name)
         stopped = said([], status="failed", reason="engine_timeout")
         # The first that did not complete is the answer: a later failure does not hide it.
         refused = said([], status="failed", reason="result_invalid")
