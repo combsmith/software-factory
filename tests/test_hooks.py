@@ -1657,9 +1657,13 @@ class Identity(unittest.TestCase):
             if isinstance(pattern, str) and "\\bfunction" in pattern:
                 searched.append(pattern)
             return search(pattern, string, *rest, **given)
-        with mock.patch.object(identity.re, "search", counted):
-            self.assertEqual(self.codes('echo "$(date)" a; ' * 50 + "git push"), "")
-        self.assertEqual(len(searched), 1)
+        # Once a name however many commands print: at 50 and at 400, as with any number, so the check grows linearly
+        # in what it searches, which no runner's load can change.
+        for n in (50, 400):
+            del searched[:]
+            with mock.patch.object(identity.re, "search", counted):
+                self.assertEqual(self.codes('echo "$(date)" ${x:-\'a\'}; ' * n + "git push"), "", n)
+            self.assertEqual(len(searched), 1, n)
 
     def test_a_substitution_in_double_quotes_has_quotes_of_its_own_at_every_level(self):  # issue 410
         # Codex on #395: a "$(...)" in a substitution's double quotes, whose own quotes hold a ( or a ), in a body, in a
@@ -1845,11 +1849,12 @@ class Identity(unittest.TestCase):
                                   800, "")):
             said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
-        # Codex on PR 604: a ${...} after each of many closed substitutions, by the reader and by the whole check, which
-        # searched the whole text once for each command that prints until it kept each name's answer (#605).
+        # Codex on PR 604: a ${...} after each of many closed substitutions, by the reader. The whole check searched the
+        # whole text once for each command that prints until it kept each name's answer (#605): that is held by counting
+        # the searches, in test_whether_a_command_defines_a_printers_name_is_searched_once_a_name, not by a CPU ratio
+        # over a check that runs git, which a shared runner's load could not tell from growth (#693's CI).
         make = lambda n: 'echo "$(date)" ${x:-\'a\'}; ' * n
         linear(self, lambda n: shell.commands(make(n)), 8000, identity.READ_SECONDS, make(2)[:40])
-        linear(self, lambda n: self.codes(make(n) + "git push"), 2000, identity.READ_SECONDS, make(2)[:40])
 
     @wall_clock
     def test_the_readings_sonarcloud_flagged_are_read_in_linear_time(self):
