@@ -1,4 +1,4 @@
-# NNNN. A linked pull request's closes and reopenings are read whole, and a rival is read as it stood at the merge
+# 0182. A linked pull request's closes and reopenings are read whole, and a rival is read as it stood at the merge
 
 Status: accepted. The Factory Builder's ruling of 2026-11-09 on "Facts: a linked pull request's close and reopening, so that row 1 reads a rival as it stood at the merge" (issue 672). It adds to `docs/decisions/0174-two-pull-requests-linked-by-hand-before-an-issues-merge-leave-it-held-and-its-type-changes-are-read-whole.md`, and closes the point that record left open: a rival's close read as it stands now. It amends nothing else.
 
