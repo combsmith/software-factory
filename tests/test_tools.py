@@ -878,8 +878,9 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(check_authority.run(config=dict(config, author_role="pr-review")), "author Role differs"))
         # A name that is no Role's, one that would reach outside roles/ among them, and an owner Role named none (Muse).
         for field in ("author_role", "owner_role"):
-            self.assertTrue(caught(check_authority.run(config=dict(config, **{field: "../config/defaults"})), "no Role's name"),
-                            field)
+            for name in ("../config/defaults", "pr-review/../../config/defaults"):     # the second begins as a Role's (Astra)
+                self.assertTrue(caught(check_authority.run(config=dict(config, **{field: name})), "no Role's name"),
+                                (field, name))
         self.assertTrue(caught(check_authority.run(config=dict(config, owner_role=None)), "no Role's name"))
 
     def test_a_value_held_twice_must_agree(self):
