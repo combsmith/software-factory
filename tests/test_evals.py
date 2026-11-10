@@ -3394,6 +3394,14 @@ class EvalJob(unittest.TestCase):
         pr4 = [c["id"] for c in both["cases"][20:30]]
         self.assertEqual(pooled([self.written(both, place, set(pr3[5:]) | set(pr4[4:]))] * 3, both), "criterion_failed")
         self.assertEqual(pooled([self.written(both, place, set(pr3[5:]) | set(pr4[5:]))] * 3, both), "pass")
+        # Each floor at its own fraction: PR-4's nine of ten fails at eight beside PR-3's half (Astra's read).
+        apart, _ = self.floored(groups, floors={"PR-3": [1, 2], "PR-4": [9, 10]})
+        self.assertEqual((pooled([self.written(apart, place, set(pr3[5:]) | set(pr4[8:]))] * 3, apart),
+                          pooled([self.written(apart, place, set(pr3[5:]) | set(pr4[9:]))] * 3, apart)), ("criterion_failed", "pass"))
+        # And a report is held on its second floor's counts as on its first (Astra's read).
+        second = self.written(both, place, set(pr3[5:]) | set(pr4[5:]))
+        second["criteria"]["PR-4"]["interval"] = job.wilson(4, 10)
+        self.assertEqual(judged(second, both), "count_differs")
         # A criterion the set does not floor is not counted, and fails nothing: PR-4 at none of ten, and no floor at all.
         unfloored = [c["id"] for c in found["cases"][20:30]]
         self.assertEqual(pooled([self.written(found, place, set(unfloored[:7]))] * 3, found), "pass")
