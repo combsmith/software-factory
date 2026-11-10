@@ -4630,25 +4630,28 @@ class Rules(unittest.TestCase):
 
     def test_a_list_that_cannot_be_read_is_unreadable_never_empty(self):
         unreadable = (None, "push_list_unreadable")
+        # Each with the base's config/defaults.json answered whole after it, so that the list alone is what fails.
         for over in ({"type": "dir"}, {"path": "config/other.json"}, {"size": 3}, {"size": 0}, {"size": True},
                      {"encoding": "utf-8"}, {"content": "!!not base64!!"}, {"content": None}):
-            self.assertEqual(self.read(self.answer(**over)), unreadable, over)
+            self.assertEqual(self.read(self.answer(**over), self.defaults()), unreadable, over)
         for data in (b"{", b"[]", json.dumps({"protected": []}).encode(), b"\xff\xfe"):
-            self.assertEqual(self.read(self.answer(data)), unreadable, data)
+            self.assertEqual(self.read(self.answer(data), self.defaults()), unreadable, data)
         gone = self.answer()
         gone["response"].update(status=404, body={"message": "Not Found"})
-        self.assertEqual(self.read(gone), unreadable)
+        self.assertEqual(self.read(gone, self.defaults()), unreadable)
         # An answer that is no 200 is none, though its body is the file's.
         refused = self.answer()
         refused["response"]["status"] = 404
-        self.assertEqual(self.read(refused), unreadable)
+        self.assertEqual(self.read(refused, self.defaults()), unreadable)
         # A size that is no integer is none, though it counts the file's bytes.
         whole = self.answer()
-        self.assertEqual(self.read(self.answer(size=float(whole["response"]["body"]["size"]))), unreadable)
+        self.assertEqual(self.read(self.answer(size=float(whole["response"]["body"]["size"])), self.defaults()), unreadable)
         # A directory's answer is a list of its entries.
         listing = self.answer()
         listing["response"]["body"] = [listing["response"]["body"]]
-        self.assertEqual(self.read(listing), unreadable)
+        self.assertEqual(self.read(listing, self.defaults()), unreadable)
+        # And the two answered whole are read, so that each case above fails by its own answer.
+        self.assertIsNone(self.read(self.answer(), self.defaults())[1])
         # Coordinates that cannot name a commit of a repo are not asked at all.
         class Unasked:
             def send(self, req):

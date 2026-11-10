@@ -1255,6 +1255,7 @@ class Bundle(unittest.TestCase):
                      "diff --git a/x.bin b/x.bin\nindex 1..2 100644\nGIT binary patch\nliteral 2\nJcmZQ%0000\n\n".encode(),
                      "diff --git a/x.bin b/x.bin\nindex 1..2 100644\nBinary files a/x.bin and b/x.bin differ\n".encode(),
                      b"diff --git a/caf\xe9.md b/caf\xe9.md\nold mode 100644\nnew mode 100755\n",
+                     b"diff --git a/x.md b/y.md\nsimilarity index 100%\nrename from caf\xe9.md\nrename to y.md\n",
                      b'diff --git "a/x\\377.md" "b/x\\377.md"\nold mode 100644\nnew mode 100755\n',
                      b"diff --git a/x b/y z\nold mode 100644\nnew mode 100755\n",
                      b"diff --git a/\nold mode 100644\nnew mode 100755\n",
