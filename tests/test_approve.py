@@ -464,6 +464,9 @@ class TheAct(unittest.TestCase):
             # no read's.
             (GitHub(), reads(ctx=context(paused=None)), ("environment", "pause_unreadable"), "refused"),
             (GitHub(), reads(ctx=context(paused="true")), ("environment", "pause_unreadable"), "refused"),
+            # A number is no Pause read, though Python holds 0 and 1 equal to the two a Pause may be (Carbon's read).
+            (GitHub(), reads(ctx=context(paused=0)), ("environment", "pause_unreadable"), "refused"),
+            (GitHub(), reads(ctx=context(paused=1)), ("environment", "pause_unreadable"), "refused"),
             (GitHub(), lambda: (facts(), HEAD, REVIEWED, None), ("environment", "facts_unreadable"), "refused"),
             # Where more than one is unreadable, the first as the item is read again names it: the run records, the
             # snapshot, then the Pause.

@@ -99,7 +99,7 @@ def _unread(facts, head, runs, context):
         return "snapshot_unreadable"
     if not isinstance(context, dict):
         return "facts_unreadable"
-    if context.get("paused") not in (True, False):
+    if not isinstance(context.get("paused"), bool):     # 0 and 1 equal the two, and are no Pause read
         return "pause_unreadable"
     return None
 
