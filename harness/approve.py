@@ -9,7 +9,7 @@ issue 195's rulings 4 to 7, decision 0055).
    own included (`environment`, `approver_unreadable`).
 3. The item is read again: its facts, the head commit its first read gave, the run records and the context, as the pass
    reads them. A pull request that changed while it was read is a change under the act (`superseded`, `head_moved`);
-   one that cannot be read is the environment's (`facts_unreadable`).
+   one that cannot be read is the environment's, by the code of the read GitHub did not answer (`shared.unread`).
 4. The approver's approval of that commit, if it stands, is recovered by its node id and nothing is written: a re-run
    after an approval landed does not fail (section 3.6).
 5. The Kernel is asked again on what was just read, with this Run left out (I-38), and the approval goes ahead only if
@@ -105,8 +105,8 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
         facts, head, runs, context = read()
     except Moved:
         return _records(run, release, "refused", None, ("superseded", "head_moved"))
-    except Exception:     # any read that failed is the environment's, never a Run that died with no outcome (ruling 6)
-        return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
+    except Exception as err:     # any read that failed is the environment's, never a Run that died with no outcome (ruling 6)
+        return _records(run, release, "refused", None, ("environment", shared.unread(err)))
     # A Pause that cannot be read is a read that failed: the environment's, not a change under the act.
     # Each part read is held to its schema before anything is asked of it, so none can end the job unrecorded (Codex).
     if shared.errors(facts, "facts") or not isinstance(head, str) \

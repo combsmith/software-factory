@@ -43,6 +43,14 @@ def _utc() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _named(err: Unanswered, part: str) -> Unanswered:
+    """`err`, told which part of the snapshot GitHub did not answer, as `part`: a name of the snapshot's own, never what
+    GitHub said, which the reader's step prints (`harness/read.py`; pull request 688, the dry run). A Moved is no part."""
+    if not isinstance(err, Moved):
+        err.part = part
+    return err
+
+
 def snapshot(transport, repo: str, number: int, identities: dict, accounts: timeline.Accounts, runs_whole: bool,
              clock=_utc, kept=None, with_head: bool = False, opener=None, *, recorded: tuple, opened: dict) -> tuple:
     """`(facts/1, title)` for one pull request, or `(facts/1, title, head)` `with_head`: the head commit its first read
@@ -53,24 +61,49 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     read. `kept`, where given, is filled with what GitHub gave the timeline, reviews, threads and check runs reads,
     each with whether it was whole, once the snapshot is whole: reconciliation reads them, so no read is made twice
     (`adapters/seen.py`, decision 0061)."""
+    part = ["pull"]     # the read under way, which names a refusal (`_named`)
+    try:
+        return _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, kept, with_head, opener,
+                         recorded, opened, part)
+    except Unanswered as err:
+        raise _named(err, part[0])
+
+
+def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, kept, with_head, opener, recorded,
+              opened, part: list) -> tuple:
+    """`snapshot`'s reads, in order, each naming itself in `part` before it starts."""
     raw = {}
     first = pull.read(transport, repo, number)
     own, title = pull.own(first, identities)
+    part[0] = "base"
     branch = pull.base(transport, first)
+    part[0] = "push"
     pusher, pushed_at = pull.last_push(transport, first)
+    part[0] = "diff"
     content = pull.diff(transport, first, branch["head"])
+    part[0] = "paths"
     paths = pull.changed_paths(transport, first, branch["head"])
+    part[0] = "timeline"
     events, timeline_whole = timeline.events(transport, first)
     raw["events"] = (events, timeline_whole)
+    part[0] = "reviews"
     reviews, reviews_whole = timeline.reviews(transport, first, events, accounts, branch["head"], raw)
+    part[0] = "writer"
     writer = timeline.since_writer(events, accounts)
+    part[0] = "labels"
     labels = timeline.label_events(events, accounts)
+    part[0] = "checks"
     read = checks.read(transport, first, raw)
+    part[0] = "acceptance"
     contract, contract_whole = acceptance.read(transport, first, accounts, opener, opened)
+    part[0] = "threads"
     found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded, content["content_id"])
+    part[0] = "edits"
     edited = edits.last_edited_at(transport, first)
+    part[0] = "push"
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
+    part[0] = "unchanged"
     if not pull.unchanged(transport, first):
         raise Moved("the pull request changed while it was read; it is read again at the next pass")
     now = clock()
@@ -101,6 +134,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},
         "read_at": now,
     })
+    part[0] = "schema"
     problems = validate(facts, SCHEMA)
     if problems:
         raise Unanswered("the snapshot does not hold to facts/1: %s" % problems[0])
