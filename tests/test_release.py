@@ -320,6 +320,7 @@ class Fixture(unittest.TestCase):
     PATH = ROOT / "release" / "fixtures" / "gate.v0-1-0.json"
     CUT = ROOT / "release" / "fixtures" / "cut.v0-1-0.json"
     NEXT_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-1.json"
+    THIRD_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-2.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
 
     def item(self, fixture, name):
@@ -398,12 +399,13 @@ class Fixture(unittest.TestCase):
         self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
         self.assertEqual(rules["conditions"]["ref_name"]["exclude"], [])
 
-    def test_the_next_cut_moved_next_on(self):
-        # Run 42697380276 cut factory/v0.1.1 on 2026-11-09 at the commit eval run 42694638100 had passed, the eval job's
-        # own dispatch and its one run on that commit, ended before the cut. `next` moved to it with a Deployment of its
-        # own, the newest; factory/v0.1.0 stayed where the first cut left it, and its Deployment went inactive.
-        fixture, first = json.loads(self.NEXT_CUT.read_text()), json.loads(self.CUT.read_text())
-        self.assertEqual(check_release.fixture_problems(fixture, "cut.v0-1-1.json"), [])
+    def a_later_cut_moved_next_on(self, path, eval_run, earlier):
+        """The cut `path` records, at the commit eval run `eval_run` had passed, the eval job's own dispatch and its one
+        run on that commit, ended before the cut; `next` moved to it with a Deployment of its own, the newest, before
+        those of `earlier`, the cuts before it, newest first; the Release before it stayed where its cut left it, and
+        that Release's Deployment went inactive."""
+        fixture, before = json.loads(path.read_text()), [json.loads(p.read_text()) for p in earlier]
+        self.assertEqual(check_release.fixture_problems(fixture, path.name), [])
         made = self.item(fixture, "cut_and_move_of_next")
         commit, channel = made["asked"]["cut_commit"], move.next_channel(json.loads(move.RINGS.read_text()))
         self.assertEqual((made["asked"]["command"], made["asked"]["version"]), ("cut", fixture["version"]))
@@ -411,27 +413,37 @@ class Fixture(unittest.TestCase):
                          ("success", [["create", fixture["version"], commit], ["move", channel, commit]]))
         body = lambda path: (lambda answer: self.assertEqual(answer["status"], 200, path) or answer["body"])(
             self.answered(made, path))
-        run, ran = body("/repos/%s/actions/runs/%d" % (REPO, made["run"])), body("/repos/%s/actions/runs/42694638100" % REPO)
+        run, ran = body("/repos/%s/actions/runs/%d" % (REPO, made["run"])), body("/repos/%s/actions/runs/%d" % (REPO, eval_run))
         self.assertEqual((ran["id"], ran["path"], ran["event"], ran["conclusion"], ran["head_sha"]),
-                         (42694638100, ".github/workflows/eval.yml", "workflow_dispatch", "success", commit))
+                         (eval_run, ".github/workflows/eval.yml", "workflow_dispatch", "success", commit))
         listed = body("/repos/%s/actions/workflows/%d/runs?head_sha=%s" % (REPO, ran["workflow_id"], commit))
         self.assertEqual((listed["total_count"], [r["id"] for r in listed["workflow_runs"]]), (1, [ran["id"]]))
         self.assertLess(ran["updated_at"], run["created_at"], "the eval had ended before the cut was asked")
         for tag in (fixture["version"], channel):
             with self.subTest(tag=tag):
                 self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, tag))["object"]["sha"], commit)
-        earlier = self.item(first, "cut_and_move_of_next")
-        self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, first["version"]))["object"]["sha"],
-                         earlier["asked"]["cut_commit"])
+        cuts = [self.item(f, "cut_and_move_of_next") for f in before]
+        self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, before[0]["version"]))["object"]["sha"],
+                         cuts[0]["asked"]["cut_commit"])
         deployed = body("/repos/%s/deployments?environment=factory-next" % REPO)
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
-                         [(made["printed"]["deployments"][0], commit, fixture["version"]),
-                          (earlier["printed"]["deployments"][0], earlier["asked"]["cut_commit"], first["version"])])
+                         [(made["printed"]["deployments"][0], commit, fixture["version"])]
+                         + [(c["printed"]["deployments"][0], c["asked"]["cut_commit"], f["version"])
+                            for c, f in zip(cuts, before)])
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))
         self.assertEqual([s["state"] for s in statuses], ["success"])
         # GitHub marks the Deployment `next` moved off inactive, newest first, beside the success it kept.
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, deployed[1]["id"]))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
+
+    def test_the_next_cut_moved_next_on(self):
+        # Each cut after the first. Run 42697380276 cut factory/v0.1.1 on 2026-11-09 at the commit eval run 42694638100
+        # had passed; run 42741714653 cut factory/v0.1.2 on 2026-11-10 at the commit eval run 42739717534 had passed,
+        # #694's merge, after slice 1's first dry run stopped in the reader.
+        for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
+                                        (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT])):
+            with self.subTest(cut=path.name):
+                self.a_later_cut_moved_next_on(path, eval_run, earlier)
 
     def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
         # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,
