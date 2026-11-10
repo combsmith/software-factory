@@ -81,7 +81,9 @@ def _hidden(errors):
 
 def _shown_none(node) -> bool:
     """Whether `node` is a check run whose suite GitHub gives with its App null, as it does where it refused it."""
-    suite = node.get("checkSuite") if isinstance(node, dict) else None
+    if not isinstance(node, dict):
+        return False
+    suite = node.get("checkSuite")
     return node.get("__typename") == "CheckRun" and isinstance(suite, dict) and "app" in suite and suite["app"] is None
 
 

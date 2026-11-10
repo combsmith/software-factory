@@ -441,6 +441,11 @@ class SeenPort(unittest.TestCase):
                            "totalCount": 2, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}}},
                        {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
                            "total_count": 2, "check_runs": []}},
+                       # A check run whose App GitHub gives no id for, null or absent (decision 0180).
+                       {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
+                           "total_count": 1, "check_runs": [{"node_id": "CR_h", "started_at": AT, "app": None}]}},
+                       {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
+                           "total_count": 1, "check_runs": [{"node_id": "CR_h", "started_at": AT}]}},
                        {("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
                            "totalCount": 1, "pageInfo": {"hasNextPage": True},
                            "nodes": [{"id": "PRRT_l", "isResolved": False}]}}}}}},

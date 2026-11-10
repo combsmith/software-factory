@@ -1979,6 +1979,13 @@ class Checks(unittest.TestCase):
         nodes[-1].update({"__typename": "CheckRun", "checkSuite": {"app": None}})
         with self.assertRaises(github.Unanswered):
             checks.read(github.Replay([answered([dict(refused, path=place[:9] + [-1] + place[10:])])]), as_pull(node))
+        # A refusal at a place that holds no object, not a check run, is refused too, never a crash.
+        odd = copy.deepcopy(node)
+        odd["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"][at] = None
+        exchange = checks_answer(odd)
+        exchange["response"]["body"]["errors"] = [refused]
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([exchange]), as_pull(odd))
         empty = copy.deepcopy(node)
         empty["commits"]["nodes"][0]["commit"]["statusCheckRollup"] = None
         exchange = checks_answer(empty)
