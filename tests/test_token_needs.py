@@ -9,7 +9,9 @@ from __future__ import annotations
 import ast
 import json
 import pathlib
+import tempfile
 import unittest
+import unittest.mock
 
 from adapters import effects, identity
 from controller import __main__ as pass_main
@@ -44,15 +46,17 @@ RAW = {
     "adapters.pause._org_value": {"actions_variables": R}, "adapters.pause._value": {"actions_variables": R},
     "adapters.pull.read": {"pull_requests": R}, "adapters.pull.base": {"contents": R},
     "adapters.pull.change": {"contents": R}, "adapters.pull.changed_paths": {"contents": R},
-    "adapters.pull.diff": {"contents": R}, "adapters.pull.last_push": {"metadata": R},
+    "adapters.pull.diff": {"contents": R},
+    "adapters.pull.last_push": {"contents": R},                        # a branch's activity (decision 0048, P-47)
     # The queue App's port: the pull request, its threads and its place in the queue, read before each write; and its
     # writes, as config/apps.json's needs name them.
     "adapters.queue.pull": {"pull_requests": R}, "adapters.queue.threads": {"pull_requests": R},
     "adapters.queue.queued": {"pull_requests": R}, "adapters.queue.enqueue": {"contents": W},
     "adapters.queue.dequeue": {"contents": W}, "adapters.queue.resolve": {"contents": W},
     "adapters.records._list": {"actions": R},
-    "adapters.seen._check_runs": {"checks": R}, "adapters.seen._threads": {"pull_requests": R},
-    "adapters.seen.pushes": {"metadata": R},
+    "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
+    "adapters.seen._threads": {"pull_requests": R},
+    "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
     "adapters.timeline.Accounts": {"metadata": R},                     # a login's permission on the repo
@@ -60,6 +64,83 @@ RAW = {
     "adapters.timeline._pages": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
     "harness.head.fetch": {"contents": R}, "harness.head.tree": {"contents": R},
 }
+# How many requests each of those builds itself: one more, in a function already classed, is classed again first.
+SITES = {
+    "adapters.acceptance.closing": 1,
+    "adapters.acceptance.labelled": 1,
+    "adapters.artifacts._listed": 1,
+    "adapters.artifacts.read": 1,
+    "adapters.checks._read": 1,
+    "adapters.edits.last_edited_at": 1,
+    "adapters.effects._check": 3,
+    "adapters.effects._comment": 3,
+    "adapters.effects._dispatch": 1,
+    "adapters.effects._review": 3,
+    "adapters.effects._threads": 1,
+    "adapters.effects.open_issues": 1,
+    "adapters.effects.tracking": 3,
+    "adapters.effects.write_status": 3,
+    "adapters.identity.mint": 2,
+    "adapters.identity.revoke": 1,
+    "adapters.items._page": 1,
+    "adapters.passes.find": 1,
+    "adapters.passes.records": 1,
+    "adapters.passes.started": 1,
+    "adapters.passes.written": 1,
+    "adapters.pause._org_value": 1,
+    "adapters.pause._value": 1,
+    "adapters.pull.base": 1,
+    "adapters.pull.change": 1,
+    "adapters.pull.changed_paths": 1,
+    "adapters.pull.diff": 1,
+    "adapters.pull.last_push": 1,
+    "adapters.pull.read": 1,
+    "adapters.queue.dequeue": 1,
+    "adapters.queue.enqueue": 1,
+    "adapters.queue.pull": 1,
+    "adapters.queue.queued": 1,
+    "adapters.queue.resolve": 1,
+    "adapters.queue.threads": 1,
+    "adapters.records._list": 1,
+    "adapters.seen._check_runs": 2,
+    "adapters.seen._threads": 1,
+    "adapters.seen.pushes": 1,
+    "adapters.tags._ours": 1,
+    "adapters.tags._page": 1,
+    "adapters.texts.issues": 1,
+    "adapters.threads._read": 1,
+    "adapters.timeline.Accounts": 1,
+    "adapters.timeline._content": 1,
+    "adapters.timeline._pages": 1,
+    "harness.head.fetch": 1,
+    "harness.head.tree": 1,
+}
+# Every request the approving act can reach, through the machine user's token: one more, a mint among them, is seen.
+APPROVING = [
+    "adapters.acceptance.closing",
+    "adapters.acceptance.labelled",
+    "adapters.artifacts._listed",
+    "adapters.artifacts.read",
+    "adapters.checks._read",
+    "adapters.edits.last_edited_at",
+    "adapters.effects._open_at",
+    "adapters.effects.approval_of",
+    "adapters.effects.approve",
+    "adapters.effects.approver_of",
+    "adapters.passes.find",
+    "adapters.pause._org_value",
+    "adapters.pause._value",
+    "adapters.pull.base",
+    "adapters.pull.changed_paths",
+    "adapters.pull.diff",
+    "adapters.pull.last_push",
+    "adapters.pull.read",
+    "adapters.records._list",
+    "adapters.threads._read",
+    "adapters.timeline.Accounts",
+    "adapters.timeline._content",
+    "adapters.timeline._pages",
+]
 # A request of GitHub's, built where it is sent: whatever function builds one reads or writes GitHub itself.
 REQUESTS = {"request", "download", "tarball"}
 
@@ -77,8 +158,49 @@ def imports(tree) -> dict:
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.split(".")[0] in PACKAGES:
-                    names[alias.asname or alias.name] = alias.name
+                    # `import a.b` binds `a`, through which `a.b.f` is reached; `import a.b as c` binds `c` to `a.b`.
+                    names[alias.asname or alias.name.split(".")[0]] = alias.name if alias.asname else alias.name.split(".")[0]
     return names
+
+
+def dotted_name(node) -> list:
+    """`a.b.c` as `["a", "b", "c"]`, for a name and the attributes on it; empty for anything else."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.insert(0, node.attr)
+        node = node.value
+    return [node.id] + parts if isinstance(node, ast.Name) else []
+
+
+def resolve(module: str, rest: list) -> tuple:
+    """`(module, name)` for `module.rest...`: the deepest module of the packages walked the dotted name holds, and the
+    function or class named after it."""
+    for depth in range(len(rest), -1, -1):
+        candidate = ".".join([module] + rest[:depth])
+        if (ROOT / (candidate.replace(".", "/") + ".py")).exists() and depth < len(rest):
+            return candidate, ".".join(rest[depth:])
+    return module, ".".join(rest)
+
+
+def requests_in(dotted: str, name: str) -> int:
+    """How many requests of GitHub's `name` of the module `dotted` builds itself, in its own body."""
+    tree = ast.parse((ROOT / (dotted.replace(".", "/") + ".py")).read_text())
+    names = imports(tree)
+    defined = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+    count = 0
+    for node in ast.walk(defined[name]):
+        if not isinstance(node, ast.Call):
+            continue
+        chain = dotted_name(node.func)
+        if not chain or chain[0] not in names:
+            continue
+        target = names[chain[0]]
+        if ":" in target:
+            module, function_ = target.split(":")[0], ".".join([target.split(":")[1]] + chain[1:])
+        else:
+            module, function_ = resolve(target, chain[1:])
+        count += module == "adapters.github" and function_ in REQUESTS
+    return count
 
 
 def reached(dotted: str, function: str) -> set:
@@ -102,10 +224,13 @@ def reached(dotted: str, function: str) -> set:
             if not isinstance(node, ast.Call):
                 continue
             called = node.func
-            if isinstance(called, ast.Attribute) and isinstance(called.value, ast.Name) and called.value.id in names:
-                target = names[called.value.id]
-                module, function_ = (target.split(":")[0], "%s.%s" % (target.split(":")[1], called.attr)) \
-                    if ":" in target else (target, called.attr)
+            chain = dotted_name(called)
+            if isinstance(called, ast.Attribute) and chain and chain[0] in names:
+                target = names[chain[0]]
+                if ":" in target:
+                    module, function_ = target.split(":")[0], ".".join([target.split(":")[1]] + chain[1:])
+                else:
+                    module, function_ = resolve(target, chain[1:])
             elif isinstance(called, ast.Name) and called.id in defined:
                 module, function_ = dotted, called.id
             elif isinstance(called, ast.Name) and called.id in names and ":" in names[called.id]:
@@ -127,12 +252,13 @@ def taken(leaf: str) -> dict:
 
 
 def effects_minted() -> dict:
-    """The Controller's token for its writes step, as `adapters/effects.controller_token` mints it: each of
-    `CONTROLLER_NEEDS` the App is granted."""
-    wanted = {}
-    for name in effects.CONTROLLER_NEEDS:
-        for permission, level in identity.granted(APPS["apps"]["controller"], APPS["needs"], [name], "write").items():
-            wanted[permission] = max(wanted.get(permission, "read"), level, key=identity.LEVELS.index)
+    """The Controller's token for its writes step, as `adapters/effects.controller_token` asks the mint for it, observed
+    at the mint, never worked out beside it."""
+    asked = []
+    with unittest.mock.patch.object(effects.identity, "from_key",
+                                    lambda app, repo, wanted, key, now, connect: asked.append(wanted) or ("t", None)):
+        effects.controller_token({"CONTROLLER_APP_KEY": "a key"}, {"home": {"repo": "combsmith/software-factory"}}, 0)
+    (wanted,) = asked
     return wanted
 
 
@@ -177,6 +303,26 @@ class TokenNeeds(unittest.TestCase):
             unknown = sorted(reached(dotted, function) - set(RAW))
             self.assertEqual(unknown, [], step)
 
+    def test_each_classed_function_builds_the_requests_it_was_classed_for(self):
+        # A request added inside a function already classed is seen: the count of requests it builds is pinned, so the
+        # function is classed again before its new request ships.
+        self.assertEqual(set(SITES), set(RAW))
+        for leaf, count in SITES.items():
+            module, name = leaf.rsplit(".", 1)
+            self.assertEqual(requests_in(module, name), count, leaf)
+
+    def test_a_request_through_a_dotted_import_is_reached(self):
+        # `import adapters.github` and `adapters.github.request(...)` is reached as the request it builds.
+        with tempfile.TemporaryDirectory() as folder, unittest.mock.patch(__name__ + ".ROOT", pathlib.Path(folder)):
+            for package in ("adapters", "harness"):
+                pathlib.Path(folder, package).mkdir()
+            pathlib.Path(folder, "adapters", "github.py").write_text("")
+            pathlib.Path(folder, "harness", "probe.py").write_text(
+                "import adapters.github\n\n\ndef step(transport):\n"
+                "    return transport.send(adapters.github.request(\"GET\", \"/repos/a/b/actions/secrets\"))\n")
+            self.assertEqual(reached("harness.probe", "step"), {"harness.probe.step"})
+            self.assertEqual(requests_in("harness.probe", "step"), 1)
+
     def test_each_step_mints_every_permission_its_reads_take(self):
         # Slice 1's third dry run stopped in apply as pause_unreadable: apply's token held no actions_variables for the
         # Pause its read again reads. Each step's token is held here to every read and write its code can reach, each at
@@ -211,7 +357,8 @@ class TokenNeeds(unittest.TestCase):
     def test_the_approving_act_mints_no_token(self):
         # Its reads and its one write go through the machine user's token, which the workflow gives it: no App's token is
         # minted, by from_key or by mint itself, so there is none to hold here (harness/approve_step.py).
-        self.assertNotIn("adapters.identity.mint", reached("harness.approve_step", "written"))
+        # Every request it makes is pinned, so a new one, a mint among them, fails here.
+        self.assertEqual(sorted(reached("harness.approve_step", "written")), APPROVING)
         self.assertIn("adapters.identity.mint", reached("harness.read", "step"))     # as the reader's step mints one
 
 
