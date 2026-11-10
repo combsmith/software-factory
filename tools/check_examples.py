@@ -38,7 +38,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
             "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data", "credential-ages": "data", "machine-user": "data",
-            "rings": "data", "release-fixture": "data"}
+            "rings": "data", "release-fixture": "data", "release-exchanges": "record"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named

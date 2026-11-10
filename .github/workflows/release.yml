@@ -52,3 +52,11 @@ jobs:
           RELEASE_TO: ${{ inputs.to }}
           RELEASE_CUT_COMMIT: ${{ github.sha }}
           RELEASE_TOKEN: ${{ steps.mint.outputs.token }}
+          RELEASE_EXCHANGES: ${{ github.workspace }}
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-exchanges
+          path: release-exchanges.json
+          if-no-files-found: ignore
+          retention-days: 90

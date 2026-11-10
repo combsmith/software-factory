@@ -117,6 +117,7 @@ VENDORED = {"vendor", "vendored", "third_party", "site-packages", "node_modules"
 LINKS = set()
 # Compiled code. Python loads it ahead of the source beside it, or with none there, and no check reads it.
 COMPILED = {".pyc", ".pyo", ".so", ".pyd"}
+EXCHANGES = "release-exchanges.json"     # release/exchanges.py's NAME, at the checkout's root
 # The org's secrets baseline opens .gitignore, word for word (combsmith/.github, the
 # gitignore standard, "L1 — Secrets baseline"). When the org changes it, copy the new block in
 # and put its hash here; never edit between the markers.
@@ -266,6 +267,11 @@ def _unloadable(rel: pathlib.PurePath) -> list:
     if walk.SKIP & set(folded[:-1]):
         problems.append("%s: in __pycache__/, Python's local output, committed; Python loads it ahead of the "
                         "reviewed source, and no check reads it; remove it from git" % rel)
+    # The release step writes its exchanges at the checkout's root for the job's artifact (issue 531): one a commit
+    # carries would stand there first, and be uploaded publicly in their place, or, as a link, what it points at.
+    if folded == [EXCHANGES.casefold()]:
+        problems.append("%s: where the release step writes its own exchanges for its run's artifact; a committed one "
+                        "would be uploaded in their place; remove it" % rel)
     if len(rel.parts) > 1 and folded[0] in walk.ROOT_ONLY:
         problems.append("%s: in corpus/, local output make_corpus.py writes, committed; nothing reads it from "
                         "git, and the corpus is remade from the Kernel; remove it from git" % rel)
