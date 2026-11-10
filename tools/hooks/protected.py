@@ -729,11 +729,16 @@ class Command:
     def _cp(self, program: str, args: list):
         """cp, mv and install write their target; mv also takes away what it moves."""
         positional, target, as_file, i = [], None, False, 0
+        # A copy of a directory, or a move of anything, may make its target a directory: one that may come to hold a
+        # protected path, as cp -r evals/pr-review evals/qa-lead makes a set's manifest (issue 696).
+        tree = program == "mv"
         while i < len(args):
             word = args[i]
             if word == "--":
                 positional += args[i + 1:]
                 break
+            if word in ("--recursive", "--archive") or (word[:1] == "-" and word[1:2] != "-" and set(word[1:]) & set("rRa")):
+                tree = True
             option, given, value = word.partition("=")
             if option in ("-t", "--target-directory", "-S", "--suffix", "-m", "--mode", "-o", "--owner", "-g",
                           "--group"):
@@ -766,7 +771,7 @@ class Command:
                     return
                 continue
             if as_file or not (self.rules.is_dir(place) or target.endswith("/")):
-                if self.check([place], holds=False):
+                if self.check([place], holds=tree):
                     return
                 continue
             for source in positional:      # into a directory: each source by its own name

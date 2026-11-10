@@ -193,10 +193,11 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
         tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
-        the tree of the one file `support.tarball` holds."""
+        the tree of the one file `support.tarball` holds. `raising`, where given, is `(module, name, error)`: that read
+        raises `error` in place of its stand-in."""
         calls = {"minted": [], "revoked": 0, "tags": [], "tarballs": [], "trees": []}
 
         def fetched(transport, repo, sha):
@@ -257,7 +258,14 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
                 unittest.mock.patch.object(read.texts, "issues", read_issues), \
                 unittest.mock.patch.object(read.head_, "fetch", fetched), \
-                unittest.mock.patch.object(read.head_, "tree", tree_read):
+                unittest.mock.patch.object(read.head_, "tree", tree_read), \
+                contextlib.ExitStack() as more:
+            if raising is not None:
+                module, name, error = raising
+
+                def raised(*a, **k):
+                    raise error
+                more.enter_context(unittest.mock.patch.object(module, name, raised))
             code, printed = ran(read.step, argv or [NAME, ITEM, PASS, "task"],
                                 environ if environ is not None else {read.KEY: "the key"}, d)
             folder = pathlib.Path(d, "task")
@@ -429,6 +437,29 @@ class Reader(unittest.TestCase):
                            ([NAME.replace(HOME, "a/fork"), "a/fork#42", PASS, "task"], "item_not_home")):
             code, printed, files, _, calls = self.go(argv=argv)
             self.assertEqual((code, printed, files, calls["minted"]), (1, want + "\n", None, []), argv)
+        # A read GitHub did not answer stops the step by a code that names the read, never by what GitHub said, so a Run
+        # that stops says which read it was (pull request 688, the dry run); one that moved is told apart; the token is
+        # revoked anyway.
+        def part():
+            err = github.Unanswered("what GitHub said")
+            err.part = "timeline"
+            return err
+        no = lambda: github.Unanswered("what GitHub said")
+        for (module, name, error), want in (((read.tags, "read", no), "release_refs_unreadable"),
+                                            ((passes, "find", no), "pass_record_unreadable"),
+                                            ((read.records, "runs", no), "run_records_unreadable"),
+                                            ((read.applied, "recorded", no), "lens_records_unreadable"),
+                                            ((read.applied, "opened", no), "opened_records_unreadable"),
+                                            ((read.facts_, "snapshot", no), "snapshot_unreadable"),
+                                            ((read.facts_, "snapshot", part), "snapshot_timeline_unreadable"),
+                                            ((read.facts_, "snapshot", lambda: read.facts_.Moved("moved")), "pull_moved"),
+                                            ((read.pull, "read", no), "pull_unreadable"),
+                                            ((read.pull, "change", no), "change_unreadable"),
+                                            ((read.texts, "issues", no), "issue_texts_unreadable"),
+                                            # A read no stage names, should one be added, still stops by a code.
+                                            ((read.facts_, "accounts_of", no), "facts_unreadable")):
+            code, printed, files, _, calls = self.go(raising=(module, name, error()))
+            self.assertEqual((code, printed, files, calls["revoked"]), (1, want + "\n", [], 1), want)
 
 
 class PassFound(unittest.TestCase):
@@ -582,8 +613,12 @@ class Apply(unittest.TestCase):
         _, _, _, calls = self.go(result=data)
         self.assertIsNone(calls["job"][0][1])
         # A pull request that changed while it was read again is a change under the Run; one that cannot be read, not.
+        staged = github.Unanswered("no answer")
+        staged.stage, staged.part = "snapshot", "timeline"
         for raised, want in ((reread.facts_.Moved("moved"), ("superseded", "head_moved")),
-                             (github.Unanswered("no answer"), ("environment", "facts_unreadable"))):
+                             (github.Unanswered("no answer"), ("environment", "facts_unreadable")),
+                             # Named by the read again's stage and the snapshot's part (pull request 688, the dry run).
+                             (staged, ("environment", "snapshot_timeline_unreadable"))):
             def reading(*a, raised=raised):
                 raise raised
             with unittest.mock.patch.object(reread, "item", reading):
@@ -850,10 +885,30 @@ class Reread(unittest.TestCase):
                     unittest.mock.patch.object(reread.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(reread.pause_, "read", lambda *a: {"org": None, "repos": {HOME: None}}):
                 if short.get("runs") == "x":
-                    with self.assertRaises(github.Unanswered):
+                    with self.assertRaises(github.Unanswered) as raised:
                         reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+                    self.assertEqual(getattr(raised.exception, "stage", None), "run_records")
                 else:
                     self.assertIsNone(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["active_runs"])
+        # Each read GitHub did not answer is named by its stage, and a snapshot's part is kept (pull request 688).
+        def no(*a, **k):
+            err = github.Unanswered("what GitHub said")
+            if a and a[0] == "part":
+                err.part = "timeline"
+            raise err
+        fine = {"runs": lambda *a, **k: copy.deepcopy(listed), "snapshot": lambda *a, **k: (facts, "t", HEAD),
+                "pause": lambda *a: {"org": None, "repos": {HOME: None}}}
+        for target, name, standin, want in ((reread.records, "runs", no, ("run_records", None)),
+                                            (reread.applied, "recorded", no, ("lens_records", None)),
+                                            (reread.applied, "opened", no, ("opened_records", None)),
+                                            (reread.facts_, "snapshot", lambda *a, **k: no("part"), ("snapshot", "timeline")),
+                                            (reread.pause_, "read", no, ("pause", None))):
+            with unittest.mock.patch.object(reread.records, "runs", fine["runs"]), \
+                    unittest.mock.patch.object(reread.facts_, "snapshot", fine["snapshot"]), \
+                    unittest.mock.patch.object(reread.pause_, "read", fine["pause"]), \
+                    unittest.mock.patch.object(target, name, standin), self.assertRaises(github.Unanswered) as raised:
+                reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+            self.assertEqual((getattr(raised.exception, "stage", None), getattr(raised.exception, "part", None)), want)
         # A list read short holds the threads to nothing recorded, and they are not whole (issue 338).
         self.assertEqual(whole, [(False, ({}, False, [])), (False, ({}, False, []))])
         asked_ = []

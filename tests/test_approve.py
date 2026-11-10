@@ -422,9 +422,12 @@ class TheAct(unittest.TestCase):
             return GitHub(over)
         moved = {"status": 200, "body": {"state": "open", "head": {"sha": "f" * 40}}}
         closed = {"status": 200, "body": {"state": "closed", "head": {"sha": HEAD}}}
+        paused_unread = Unanswered("no")
+        paused_unread.stage = "pause"     # a read the read again named, by its stage (pull request 688, the dry run)
         cases = [
             (GitHub(), failing(Moved("moved")), ("superseded", "head_moved"), "refused"),
             (GitHub(), failing(Unanswered("no")), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), failing(paused_unread), ("environment", "pause_unreadable"), "refused"),
             (GitHub(), failing(KeyError("x")), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), reads(head="not a commit"), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), reads(head=None), ("environment", "facts_unreadable"), "refused"),
