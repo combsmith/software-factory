@@ -189,7 +189,21 @@ def readable_link(entry, config: dict) -> bool:
     closer = entry.get("closed_issue_at", "")
     if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
-    return readable_draft_events(entry) and readable_link_events(entry) and readable_events(entry.get("label_events"), config)
+    return readable_draft_events(entry) and readable_link_events(entry) and readable_keyword(entry) \
+        and readable_events(entry.get("label_events"), config)
+
+
+def readable_keyword(entry: dict) -> bool:
+    """Whether a pull request's closing keyword can be read: whether its references name the issue by one now, and when a
+    pass first saw one there, null where none has, no earlier than it opened (issue 552)."""
+    seen = entry.get("keyword_seen_at", "")
+    return type(entry.get("keyword")) is bool and (seen is None or is_time(seen) and seen >= entry["opened_at"])
+
+
+def keyword_seen_before(entry: dict, when: str) -> bool:
+    """Whether a pass saw a pull request's closing keyword before `when`'s second: a keyword link's time is the first pass
+    that saw it, which no edit after can move back (issue 552). One first seen in that second carries no order against it."""
+    return entry["keyword_seen_at"] is not None and entry["keyword_seen_at"] < when
 
 
 def readable_link_events(entry: dict) -> bool:
@@ -593,11 +607,15 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # it: the issue stood held (row 4), and the merge leaves it so (issue 551). Each is read as it stood at the
         # merge: an outsider's only where a person had admitted it by then, so no admission after the merge moves a
         # done issue. One unlinked at or after the merge lets the merge read on for good, as a Hold's removal does: a
-        # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A link
-        # in the merge's second, or one with no time, a closing keyword's, reads as before: the Factory's merge beside
+        # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A closing
+        # keyword's link stood where a pass saw it before the merge's second (issue 552): the port keeps listing a pull
+        # request once a pass saw its keyword, so no edit after the merge moves the issue, and no keyword first seen after
+        # it reaches back. A link in the merge's second, or one no pass timed, reads as before: the Factory's merge beside
         # another in its second is done (decision 0132).
-        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first)) and linked_by_hand_before(p, first)
-                 and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
+        stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
+                 and (linked_by_hand_before(p, first)
+                      and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
+                      or keyword_seen_before(p, first))
                  and (p["closed_at"] is None or p["closed_at"] >= first)]
         # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
         # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.

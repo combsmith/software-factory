@@ -304,7 +304,9 @@
             "label_events": [],
             "closed_issue_at": null,
             "draft_events": [],
-            "link_events": []
+            "link_events": [],
+            "keyword": true,
+            "keyword_seen_at": null
           },
           {
             "number": 140,
@@ -334,7 +336,9 @@
             ],
             "closed_issue_at": null,
             "draft_events": [],
-            "link_events": []
+            "link_events": [],
+            "keyword": true,
+            "keyword_seen_at": null
           }
         ],
         "role_comments": [
