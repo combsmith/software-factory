@@ -3359,6 +3359,19 @@ class Snapshot(unittest.TestCase):
                            lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIsNone(getattr(raised.exception, "part", None))
 
+    def test_a_snapshot_is_read_whole_through_the_approvers_transport(self):  # pull request 688, the fourth dry run
+        # The approving act reads the item again through its token held to the item (`effects.Approving`): every read
+        # the snapshot sends goes through it, the compare of two commits among them, whose path holds two dots together.
+        item = {"repo": canary(), "type": "pull_request", "number": 26}
+        seen = Recording(Router(github.Replay(self.sequence(1)), {"don-petry": "admin"}))
+        held = effects.Approving(seen, item)
+        got, _, head = facts.snapshot(held, canary(), 26, person(), timeline.Accounts(held, canary(), MACHINE, {}), True,
+                                      lambda: self.NOW, with_head=True, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual(got, self.read(1)[0])
+        compared = [r["path"] for r in seen.sent if "/compare/" in r["path"]]
+        self.assertEqual(len(compared), 2, compared)
+        self.assertTrue(all(p.endswith("..." + head) for p in compared), compared)
+
     def test_a_snapshot_hands_back_its_head(self):  # #193's ruling 10
         router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         got, title, head = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
