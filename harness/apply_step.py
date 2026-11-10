@@ -140,8 +140,8 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
             except Moved:
                 # The pull request changed while it was read again: a change under the Run, never the environment's.
                 done = _ended(parts["run"], release, ("superseded", "head_moved"))
-            except Unanswered:
-                done = _ended(parts["run"], release, ("environment", "facts_unreadable"))
+            except Unanswered as err:
+                done = _ended(parts["run"], release, ("environment", shared.unread(err)))
     finally:
         revoked = revoke()
     # A read token GitHub did not confirm revoked may still read: the Run is the Factory's to look at.
