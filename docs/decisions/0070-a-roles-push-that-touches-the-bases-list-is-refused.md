@@ -1,6 +1,6 @@
 # 0070. A Role's push that touches the base's list is refused
 
-Status: accepted. Taken as working rulings on 2026-10-26, which the Maintainer may overturn in review, for "Harness: apply refuses a Role's push to a protected path or a Lens's input that no model Lens has reviewed" (issue 139). It refuses earlier what `docs/decisions/0020-a-change-to-the-factorys-own-rules-or-a-lenss-inputs-is-reviewed-by-a-model-lens.md` holds at convergence, over the list `docs/decisions/0052-a-change-to-a-model-lenss-own-inputs-needs-a-different-persons-approval.md` extends.
+Status: replaced by `docs/decisions/NNNN-a-roles-push-is-refused-where-it-touches-a-protected-path-or-a-model-lenss-input-read-from-its-bundle-before-any-token-is-minted.md`, which holds the rule in force.
 
 ## Decision
 
@@ -25,10 +25,10 @@ judge it. Refusing the push is the same rule, read before anything is written.
 | A push that touches nothing on the list is not refused, at the glob's edges | `tests/test_apply.py::test_a_push_that_touches_nothing_on_the_list_is_not_refused` |
 | A path that cannot be read as one is refused | `tests/test_apply.py::test_a_path_that_cannot_be_read_as_one_is_refused` |
 | A list that is none, empty or holds what is no pattern refuses every push as unreadable | `tests/test_apply.py::test_a_list_that_is_none_or_empty_refuses_every_push` |
-| The repo's own list holds the Kernel and the review Role's inputs | `tests/test_apply.py::test_the_repos_own_list_holds_the_kernel_and_the_review_roles_inputs` |
-| The list is the base commit's, every protected path and Lens's input once | `tests/test_adapters.py::test_the_list_is_the_bases_every_protected_path_and_lens_input_once` |
+| The repo's own list holds the Kernel and the review Role's inputs | `tests/test_apply.py::test_the_repos_own_list_holds_the_rules_and_the_review_roles_inputs`, `tools/hooks/protected.py`; mutant: "every Lens's input is on the push list" |
+| The list is the base commit's, every protected path and Lens's input once | `tests/test_adapters.py::test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once`, `adapters/rules.py`; mutant: "a deterministic Lens's input is refused at a push" |
 | A list that cannot be read is unreadable, never empty, and coordinates that name no commit are not asked | `tests/test_adapters.py::test_a_list_that_cannot_be_read_is_unreadable_never_empty` |
-| `apply` calls the refusal on every push Effect, and its refusal is in the run record | waiting on `harness/push.py` |
+| `apply` calls the refusal on every push Effect, and its refusal is in the run record | `tests/test_apply.py::test_a_push_is_held_before_anything_is_minted_and_its_refusal_recorded`, `harness/apply.py`; mutant: "a push is never held" |
 | A list pattern with a backslash or a control character, which no path may hold, refuses every push as unreadable, and the list that holds one cannot be read at all | `tests/test_apply.py::test_a_list_that_is_none_or_empty_refuses_every_push`, `tests/test_hooks.py::test_a_path_with_a_control_character_or_a_backslash_is_refused`, `tools/check_examples.py` |
 | A list answered with no 200, or whose size is no integer, is unreadable, and a repo named `.` is not asked | `tests/test_adapters.py::test_a_list_that_cannot_be_read_is_unreadable_never_empty` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

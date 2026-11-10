@@ -37,3 +37,4 @@ Lens of another family exists, its review of the head may stand for the person's
 | An unreadable list defers for the Maintainer, and a queued item leaves the queue | `tests/test_decide.py::test_an_unreadable_list_of_a_model_lenss_inputs_defers_for_the_maintainer` |
 | The Controller builds the list from the base branch's `config/hooks.json` | waiting on `adapters/settings.py` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
+| A Role's push that touches a model Lens's own input is refused before anything lands, the base's model Lenses read at its commit | `tests/test_adapters.py::test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once`, `tools/hooks/protected.py`, `adapters/rules.py`; mutant: "a model Lens's inputs are pushed"; mutant: "the base's model Lenses are not read" |
