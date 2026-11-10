@@ -183,6 +183,7 @@ BRACKET_TESTS = (IDENTITY_TESTS + "test_a_bracket_expression_is_read_as_the_shel
 QUOTED_TESTS = (IDENTITY_TESTS + "test_a_substitution_in_double_quotes_is_read_with_quotes_of_its_own",)
 COMMENT_TESTS = (IDENTITY_TESTS + "test_a_comment_or_a_parameter_expansion_in_a_substitution_does_not_end_it",)
 BUDGET_TESTS = (IDENTITY_TESTS + "test_a_reading_that_would_run_on_is_cut_short_and_refused",)
+STEPS_TESTS = ("tests.test_hooks.Budgets.test_a_reading_whose_steps_grow_faster_than_its_size_fails",)
 # Issue 174: a word is read as the shell reads it.
 WORD_TESTS = (IDENTITY_TESTS + "test_a_substitution_a_quote_holds_and_a_comment_are_data",)
 SPLIT_TESTS = (IDENTITY_TESTS + "test_a_command_that_cannot_be_split_is_refused_whatever_it_names",)
@@ -7213,6 +7214,30 @@ MUTANTS = ISSUE + [
     ("a reading may grow faster than linearly", "tests/support.py",
      "    if grew >= 4 * grew_half + 0.1:\n", "    if False:\n",
      ("tests.test_hooks.Budgets.test_a_reading_that_grows_faster_than_its_size_fails",)),
+    # #706's CI: the readings that ran long are counted in the lines of tools/hooks/ they execute, not timed.
+    ("a reading's steps may grow faster than linearly", "tests/support.py",
+     "    if whole - quarter > 3.5 * max(half - quarter, 0):\n", "    if False:\n", STEPS_TESTS),
+    ("the line for growth in steps is drawn past n to the 1.6", "tests/support.py",
+     "whole - quarter > 3.5 * max(", "whole - quarter > 4.5 * max(", STEPS_TESTS),
+    ("a count that falls at the half is read as growth", "tests/support.py",
+     "3.5 * max(half - quarter, 0):", "3.5 * abs(half - quarter):", STEPS_TESTS),
+    ("a count that falls or holds at the half may grow at the whole", "tests/support.py",
+     "    if whole - quarter > 3.5 * max(half - quarter, 0):\n", "    if half > quarter and whole - quarter > 3.5 * (half - quarter):\n",
+     STEPS_TESTS),
+    ("a reading's count is taken and not held to anything", "tests/support.py",
+     '    test.assertEqual(faster_than_linear_in_steps(*[n for n, _ in counted]), "", what)\n', "", STEPS_TESTS),
+    ("a count is the quarter's result", "tests/support.py",
+     "    return counted[-1][1]\n", "    return counted[0][1]\n", STEPS_TESTS),
+    ("a count that missed tools/hooks/ holds nothing and passes", "tests/support.py",
+     "    if quarter <= 0:\n", "    if False:\n", STEPS_TESTS),
+    ("every line a reading runs is counted, the test's own among them", "tests/support.py",
+     "line if frame.f_code.co_filename.startswith(HOOKS) else None", "line", STEPS_TESTS),
+    ("a count says only whether a line of tools/hooks/ ran", "tests/support.py",
+     '        count[0] += event == "line"\n', '        count[0] |= event == "line"\n', STEPS_TESTS),
+    ("a count is of the calls of tools/hooks/ that return, not its lines", "tests/support.py",
+     '        count[0] += event == "line"\n', '        count[0] += event == "return"\n', STEPS_TESTS),
+    ("a tracer in place is lost to a count", "tests/support.py",
+     "        sys.settrace(before)\n", "        sys.settrace(None)\n", STEPS_TESTS),
     ("the machine's cores stand for the process's", "tests/support.py",
      "        return max(1, len(os.sched_getaffinity(0)))\n", "        return max(1, os.cpu_count() or 1)\n",
      ("tests.test_hooks.Budgets.test_a_slow_hook_fails_and_a_loaded_machine_does_not",)),
@@ -15803,6 +15828,14 @@ MUTANTS = ISSUE + [
      '    if name not in seen:\n', '    if True:\n', (IDENTITY_TESTS + 'test_whether_a_command_defines_a_printers_name_is_searched_once_a_name',)),
     ("each command that prints searches the whole text again", 'tools/hooks/identity.py',
      '_defined(program, text, defines)', '_defined(program, text)', (IDENTITY_TESTS + 'test_whether_a_command_defines_a_printers_name_is_searched_once_a_name',)),
+    # #706's CI: a slow path back in a reading the counted tests hold, each told only by the lines it executes.
+    ("a long bundle of options is read again from each of its letters", 'tools/hooks/identity.py',
+     '            places += [word[i:] for i in range(2, min(len(word), head)) if word[i] in ".*?[{$"]\n',
+     '            places += [word[i:] for i in range(2, min(len(word), head))]\n',
+     (IDENTITY_TESTS + 'test_the_spellings_that_ran_long_are_read_in_linear_time',)),
+    ("how far a substitution's quotes are read is read again from its start", 'tools/hooks/shell.py',
+     '    seen[(inner, "quotes")] = (j, quoted, braces, nested)\n', '',
+     (IDENTITY_TESTS + 'test_the_readings_issue_174_adds_run_in_linear_time',)),
     # Issue 605, the rest: a double-quoted substitution in one, as the protected hook reads it; a backtick in double
     # quotes; and a quote past a backtick in a here-document's substitution.
     ("the protected hook reads a command once, as it stands", 'tools/hooks/protected.py',
