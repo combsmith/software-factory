@@ -267,6 +267,11 @@ class Budgets(unittest.TestCase):
         # and a quadratic reading of tools/hooks/ fails linear_in_steps on the real count (Astra).
         self.assertGreater(support.steps(lambda: shell.commands("a; " * 40))[0],
                            2 * support.steps(lambda: shell.commands("a; " * 10))[0])
+        # A loop inside one call is counted at each pass, not once as the call returns (Astra): _tick_end reads one
+        # character a pass.
+        once = [support.steps(lambda: shell._tick_end("x" * n, 0))[0] for n in (100, 400)]
+        self.assertGreaterEqual(once[0], 100)
+        self.assertGreater(once[1], 3 * once[0])
         with self.assertRaises(AssertionError):
             support.linear_in_steps(self, lambda n: [shell.unmarked("x" * k) for k in range(n)] and
                                     [shell.unmarked("x") for _ in range(n * n)], 64)

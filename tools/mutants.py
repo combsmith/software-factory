@@ -7159,6 +7159,8 @@ MUTANTS = ISSUE + [
      "line if frame.f_code.co_filename.startswith(HOOKS) else None", "line", STEPS_TESTS),
     ("a count says only whether a line of tools/hooks/ ran", "tests/support.py",
      '        count[0] += event == "line"\n', '        count[0] |= event == "line"\n', STEPS_TESTS),
+    ("a count is of the calls of tools/hooks/ that return, not its lines", "tests/support.py",
+     '        count[0] += event == "line"\n', '        count[0] += event == "return"\n', STEPS_TESTS),
     ("a tracer in place is lost to a count", "tests/support.py",
      "        sys.settrace(before)\n", "        sys.settrace(None)\n", STEPS_TESTS),
     ("the machine's cores stand for the process's", "tests/support.py",
