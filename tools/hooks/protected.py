@@ -267,8 +267,23 @@ def model_lens_inputs(models: list, path: pathlib.Path = ROOT / "config" / "hook
     Lenses config/defaults.json names, as a pattern in the one syntax of config/hooks.json. The same list as
     protected_paths, read by the same load(), so the two never drift: a change to one of these converges only once a
     person has approved its head as well (issue 140). Raises Unreadable as load() does."""
-    data = load(path)
+    return model_inputs_of(load(path), models)
+
+
+def model_inputs_of(data: dict, models: list) -> list:
+    """model_lens_inputs() of data load() or parse() read."""
     return [p for lens, p, _ in data["lens_inputs"] if lens in models]
+
+
+def push_of(data: dict, models: list) -> list:
+    """What a Role's push may not touch, of data load() or parse() read: every protected path, then each input of a
+    model Lens of `models`, each once (issue 139). A path that is only a deterministic Lens's input is pushed, and
+    converges only once every model Lens has reviewed its head (decision 0020)."""
+    out = []
+    for pattern in [p for p, _ in data["protected"]] + model_inputs_of(data, models):
+        if pattern not in out:
+            out.append(pattern)
+    return out
 
 
 def entries(listing: list) -> list:

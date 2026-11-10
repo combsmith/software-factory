@@ -43,9 +43,9 @@ from kernel.coverage import covered
 from kernel.decide import decide
 from tools.hooks import protected
 
-# The order `apply` writes in: effect/1's, one list for each type (section 3.6). No Role resolves a thread: the Lens
-# rules, and resolving is the Kernel's act, which the queue App carries out (issue 389).
-ORDER = ("submit_review", "create_check_run", "comment")
+# The order `apply` writes in: effect/1's, one list for each type (section 3.6), a push first. No Role resolves a
+# thread: the Lens rules, and resolving is the Kernel's act, which the queue App carries out (issue 389).
+ORDER = ("push_commits", "submit_review", "create_check_run", "comment")
 # The halves of a Disposition, and the kind of Role that may make each (section 3.8).
 PROPOSES = "author"
 DECIDES = "owner"
@@ -75,14 +75,16 @@ PATH_LONGEST = 4096
 
 def push_refusal(paths, previous_paths, protected_list):
     """Why a Role's push may not land, or None (issue 139): `push_protected` where a path it changes, or one a path of
-    it was renamed or copied from, is on the base's list (`adapters/rules.py`), every protected path and every Lens's
-    input, matched as `tools/hooks/protected.py` matches them. A push lands content no model Lens has reviewed, so one
-    that touches the list is always refused, and a person pushes such a change (decisions 0020 and 0052). A path that
+    it was renamed or copied from, is on the base's list (`adapters/rules.py`), every protected path and each model
+    Lens's input, matched as `tools/hooks/protected.py` matches them. A push lands content no model Lens has reviewed:
+    one that touches what a person must judge, or what a model Lens is given, is refused, and a person pushes such a
+    change (decisions 0004, 0005 and 0052); one that touches only a deterministic Lens's input lands, and converges
+    once every model Lens has reviewed its head (decision 0020). A path that
     cannot be read as one from the top of the repo (an empty name, `.` or `..`, a control character or a backslash), or
     paths that are no list, could be any, and are refused too. A list that is none, or empty, or holds what the Kernel
     reads as no pattern (`kernel/derive.py`'s `readable_pattern`), or a pattern with a control character or a backslash,
     which no path it is matched against may hold and so protects nothing, is `push_list_unreadable`, never nothing to
-    touch. No Effect pushes yet: slice 2's push Effect calls this."""
+    touch. `harness/bundle.py`'s `held` calls this on every push Effect, before anything is minted."""
     if not isinstance(protected_list, list) or not protected_list \
             or not all(derive.readable_pattern(p) and not UNREADABLE_PATH.search(p) for p in protected_list):
         return LIST_UNREADABLE
@@ -379,6 +381,9 @@ def requests(task: dict, result: dict, head: str, role: dict, since: str = None)
     comment, which has no key, when the Run began and its place among the Run's comments, by which it is recovered."""
     raised = {f["ref"]: f for f in result["findings"]}
     out = []
+    # A push lands on top of the commit the Decision admitted; the branch is the item's, never the Result's.
+    for push in result["effects"].get("push_commits", ()):
+        out.append((push["id"], "push_commits", {"commit": head, "bundle": dict(push["bundle"])}))
     for review in result["effects"].get("submit_review", ()):
         out.append((review["id"], "submit_review", {
             "commit": head, "event": "COMMENT", "body": review["body"] or "",
@@ -496,12 +501,14 @@ def taken(data: bytes, digest: str):
     return result if not shared.errors(result, "result") else None
 
 
-def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str) -> tuple:
+def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: str, held=None) -> tuple:
     """`(applied/1, outcome/1)` for one Result. `read()` is the item read again, `(facts, head, runs, context, diff)`,
     `diff()` its diff's bytes, read only for a completed Result that posts a Finding and that every check needing no diff
     let through, from which the Task's diff is built again as the Run was given it (decisions 0146 and 0148);
     `mint(permissions)` a token for the item's repo with exactly those, as a transport, and `write(transport, type,
-    request)` the effects port's read-back of one Effect. Nothing is minted for a Result that is refused, and the
+    request)` the effects port's read-back of one Effect. `held(effects)` is why a Result's push may not land, or None,
+    `harness/bundle.py`'s `held` given the base commit and the read token: a Result that asks for a push with no `held`
+    is refused, the Factory's, `push_not_held` (issue 139). Nothing is minted for a Result that is refused, and the
     token is revoked when the Effects are written, whatever happened (`mint` returns `(transport, revoke)`)."""
     if result is None:
         record = {"schema": "applied/1", "run": admit["run"], "release": admit["release"], "effects": [],
@@ -532,6 +539,12 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
     if off is not None:
         record = applied(admit, result, [], role, refused=off)
         return record, outcome(admit, record, ("item", off))
+    # A push is held to the base's list before any token is minted: refused, nothing is written (issue 139).
+    if result["status"] == "completed" and result["effects"].get("push_commits"):
+        pushed = held(result["effects"]) if held is not None else ("environment", "push_not_held")
+        if pushed is not None:
+            record = applied(admit, result, [], role, refused=pushed[1])
+            return record, outcome(admit, record, pushed)
     # When the Run began: its record's start, or, while it is listed before its name, its run's creation (decision
     # 0036). Neither read, a comment on the item cannot be recovered, and is refused as unreadable.
     since = next((r["started_at"] for r in runs if r["run"] == admit["run"]), None)

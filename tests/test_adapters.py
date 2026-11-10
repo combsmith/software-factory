@@ -4570,37 +4570,63 @@ class Items(unittest.TestCase):
 
 
 class Rules(unittest.TestCase):
-    """config/hooks.json as a commit holds it, in the shape trials/P-51.json recorded a file read at a commit (issue 139)."""
+    """config/hooks.json and config/defaults.json as a commit holds them, in the shape trials/P-51.json recorded a file
+    read at a commit (issue 139)."""
     SHA = "b" * 40
+    ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-    def answer(self, data: bytes = None, **over) -> dict:
+    def answer(self, data: bytes = None, of: str = "config/hooks.json", **over) -> dict:
         found = copy.deepcopy(exchanges("P-51")[5])
-        data = (pathlib.Path(__file__).resolve().parent.parent / "config" / "hooks.json").read_bytes() if data is None \
-            else data
-        found["request"]["call"] = "GET /repos/o/r/contents/config/hooks.json?ref=%s" % self.SHA
-        found["response"]["body"].update(name="hooks.json", path="config/hooks.json", size=len(data),
+        data = (self.ROOT / of).read_bytes() if data is None else data
+        found["request"]["call"] = "GET /repos/o/r/contents/%s?ref=%s" % (of, self.SHA)
+        found["response"]["body"].update(name=of.rsplit("/", 1)[-1], path=of, size=len(data),
                                          content=base64.encodebytes(data).decode(), encoding="base64", type="file")
         found["response"]["body"].update(over)
         return found
 
+    def defaults(self, data: bytes = None, **over) -> dict:
+        return self.answer(data, "config/defaults.json", **over)
+
     def read(self, *found, repo="o/r", sha=SHA, transport=None):
         return rules.listed_at(transport or github.Replay(list(found)), repo, sha)
 
-    def test_the_list_is_the_bases_every_protected_path_and_lens_input_once(self):
+    def test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once(self):
         from tools.hooks import protected
-        patterns, why = self.read(self.answer())
+        patterns, why = self.read(self.answer(), self.defaults())
         self.assertIsNone(why)
-        once = []
-        for pattern in protected.protected_paths():
-            if pattern not in once:
-                once.append(pattern)
-        self.assertEqual(patterns, once)
-        self.assertTrue(set(protected.model_lens_inputs(["pr-review"])) <= set(patterns))
+        held = protected.load()
+        self.assertEqual(patterns, protected.push_of(held, ["pr-review"]))
+        self.assertEqual(len(patterns), len(set(patterns)))
+        self.assertTrue({p for p, _ in held["protected"]} | set(protected.model_lens_inputs(["pr-review"])) == set(patterns))
+        # A deterministic Lens's input alone is not on it: it is pushed, and held at convergence (decision 0020).
+        for alone in ("kernel/", "tests/", "*", ".gitleaks.toml"):
+            self.assertNotIn(alone, patterns)
         # Another commit's list is that commit's: a pattern its hooks.json holds, and no other.
-        held = json.loads((pathlib.Path(__file__).resolve().parent.parent / "config" / "hooks.json").read_text())
-        held["protected"].append({"path": "docs/frozen.md", "is": "a test"})
-        patterns, _ = self.read(self.answer(json.dumps(held).encode()))
+        data = json.loads((self.ROOT / "config" / "hooks.json").read_text())
+        data["protected"].append({"path": "docs/frozen.md", "is": "a test"})
+        patterns, _ = self.read(self.answer(json.dumps(data).encode()), self.defaults())
         self.assertIn("docs/frozen.md", patterns)
+        # And which Lens is a model Lens is that commit's word too: one that names verify a model Lens lists its inputs.
+        said = json.loads((self.ROOT / "config" / "defaults.json").read_text())
+        said["required_lenses"]["model"] = ["pr-review", "verify"]
+        patterns, _ = self.read(self.answer(), self.defaults(json.dumps(said).encode()))
+        self.assertIn("kernel/", patterns)
+
+    def test_a_commit_that_names_no_model_lens_is_unreadable(self):
+        unreadable = (None, "push_list_unreadable")
+        said = json.loads((self.ROOT / "config" / "defaults.json").read_text())
+        for model in ([], "pr-review", [""], [1], None):
+            data = json.dumps(dict(said, required_lenses=dict(said["required_lenses"], model=model))).encode()
+            self.assertEqual(self.read(self.answer(), self.defaults(data)), unreadable, model)
+        for data in (b"{", b"[]", json.dumps({"required_lenses": {}}).encode(), b"\xff\xfe"):
+            self.assertEqual(self.read(self.answer(), self.defaults(data)), unreadable, data)
+        for over in ({"path": "config/hooks.json"}, {"size": 3}, {"type": "dir"}):
+            self.assertEqual(self.read(self.answer(), self.defaults(**over)), unreadable, over)
+        gone = self.defaults()
+        gone["response"]["status"] = 404
+        self.assertEqual(self.read(self.answer(), gone), unreadable)
+        # Read, and nothing after: the transport answers the list alone.
+        self.assertEqual(self.read(self.answer()), unreadable)
 
     def test_a_list_that_cannot_be_read_is_unreadable_never_empty(self):
         unreadable = (None, "push_list_unreadable")
