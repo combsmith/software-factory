@@ -1030,8 +1030,10 @@ class Done(unittest.TestCase):
             d = derive(facts(linked=[own, pr(number=12, keyword=False, spans=[(1, gone)])], **closed))
             self.assertEqual(d["state"], "held" if held else "done", gone)
         # A keyword taken out before the merge and put back after it reaches back to nothing: no edit after the merge
-        # moves a done issue. Put back before the merge, it stood at it.
-        for spans, held in (([(1, 2), (7, None)], False), ([(1, 2), (3, None)], True), ([(1, 2), (3, 4), (6, None)], False)):
+        # moves a done issue. Put back before the merge, it stood at it; standing at it, taken out and put back after, it
+        # still holds.
+        for spans, held in (([(1, 2), (7, None)], False), ([(1, 2), (3, None)], True), ([(1, 2), (3, 4), (6, None)], False),
+                            ([(1, 6), (7, None)], True)):
             d = derive(facts(linked=[own, pr(number=12, spans=spans)], **closed))
             self.assertEqual(d["state"], "held" if held else "done", spans)
         # Before any merge, a pull request whose keyword an edit took out and no link by hand holds is no open link.
