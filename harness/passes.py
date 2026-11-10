@@ -40,9 +40,9 @@ ALLOWED = {"passes": lambda v: v in ("whole", "per_file"), "runs": lambda v: typ
 def settings(config: dict) -> dict:
     """The review's settings, as the Harness's configuration gives them over DEFAULTS; DEFAULTS where it gives no block.
     A block with a key or a value harness/1 does not allow is a ValueError: a replay is never measured on a misread one."""
-    given = config.get("review")
-    if given is None:
+    if "review" not in config:
         return dict(DEFAULTS)
+    given = config["review"]
     if not isinstance(given, dict) or set(given) - set(ALLOWED) or not all(ALLOWED[k](v) for k, v in given.items()):
         raise ValueError("the configuration's review block is not as harness/1 allows")
     # A replay measures one approach against the same commit: two switched on at once would measure neither, and multiply
@@ -61,7 +61,9 @@ def split(the_task: dict) -> list:
         return [the_task]
     parts = tasks.FILE_START.split(the_task["texts"][at[0]]["body"])
     parts = [part for part in parts if part]
-    if not 2 <= len(parts) <= MOST_FILES or not all(part.startswith("diff --git ") for part in parts):
+    # A part whose path git's header does not give plainly, as a quoted name with a tab in it, leaves the Task whole: each
+    # pass is told its own path and the others'.
+    if not 2 <= len(parts) <= MOST_FILES or not all(part.startswith("diff --git ") and HEADER.match(part) for part in parts):
         return [the_task]
     out = []
     for part in parts:
@@ -145,11 +147,12 @@ def union(results: list) -> dict:
     for result in results:
         if result["status"] != "completed":
             return dict(result, usage=usage)
-    raised = []
-    for result in results:
+    raised, answer = [], []
+    for n, result in enumerate(results):
         posted = {item["finding"]: (kind, item["body"]) for kind, field in POSTED
                   for effect in result["effects"].get(kind, []) for item in effect[field]}
         raised += [(finding, posted.get(finding["ref"])) for finding in result["findings"]]
+        answer += [n] * len(result["findings"])
     # Findings at one place, the same path with lines that overlap, are one, whatever each cites: decision 0160 fails a
     # case with two at its place, so a union that kept both would score a fault found twice as worse than found once.
     # Each group holds the places of its Findings in `raised`, in order.
@@ -160,7 +163,9 @@ def union(results: list) -> dict:
     kept = []
     for group in sorted(groups):
         said = [(raised[i][0].get("criterion"), raised[i][0]["severity"], raised[i][0]["category"]) for i in group]
-        most = max(said, key=lambda triple: (said.count(triple), -said.index(triple)))
+        # Agreement is counted by answer, not by Finding: one answer raising three at a place is one voice.
+        voices = {triple: len({answer[i] for i, t in zip(group, said) if t == triple}) for triple in said}
+        most = max(said, key=lambda triple: (voices[triple], -said.index(triple)))
         kept.append(raised[group[said.index(most)]])
     findings, items = [], {kind: [] for kind, _ in POSTED}
     for n, (finding, post) in enumerate(kept, 1):

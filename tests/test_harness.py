@@ -1030,7 +1030,7 @@ class Passes(unittest.TestCase):
         _, asked = self.asked(switched(runs=2))
         self.assertFalse(any("This pass judges one changed file" in " ".join(c["args"]) for c in asked))
         # A block harness/1 does not allow is refused, never read as something else.
-        for given in ({"runs": 4}, {"runs": "2"}, {"runs": True}, {"passes": "per_hunk"}, {"checklist": 1}, {"union": 2},
+        for given in (None, [], {"runs": 4}, {"runs": "2"}, {"runs": True}, {"passes": "per_hunk"}, {"checklist": 1}, {"union": 2},
                       {"runs": 2, "checklist": True}, {"passes": "per_file", "read_head": True}):
             with self.subTest(given=given), self.assertRaises(ValueError):
                 passes.settings({"review": given})
@@ -1066,6 +1066,14 @@ class Passes(unittest.TestCase):
         wide = of(many)
         self.assertEqual(passes.split(wide), [wide])
         self.assertEqual(len(passes.split(of(many[:many.index(b"diff --git a/f%d" % passes.MOST_FILES)]))), passes.MOST_FILES)
+        # The bound is eight, whatever the constant says: eight files are eight passes, nine are one.
+        files = lambda n: b"".join(b"diff --git a/g%d b/g%d\n--- a/g%d\n+++ b/g%d\n@@ -1,1 +1,1 @@\n-a\n+b\n" % ((i,) * 4) for i in range(n))
+        self.assertEqual((len(passes.split(of(files(8)))), len(passes.split(of(files(9))))), (8, 1))
+        # A path git quotes, as one with a tab in it, leaves the Task whole.
+        quoted = (b'diff --git "a/a\\tb.py" "b/a\\tb.py"\n--- "a/a\\tb.py"\n+++ "b/a\\tb.py"\n@@ -1,1 +1,1 @@\n-a\n+b\n'
+                  b"diff --git a/c.py b/c.py\n--- a/c.py\n+++ b/c.py\n@@ -1,1 +1,1 @@\n-a\n+b\n")
+        self.assertEqual(len(passes.split(of(quoted))), 1)
+        self.assertEqual(len(passes.asked(of(quoted), dict(passes.DEFAULTS, passes="per_file"))), 1)
 
     def test_results_are_joined_by_the_merge_rule(self):
         the_task = built()
@@ -1080,6 +1088,10 @@ class Passes(unittest.TestCase):
             {"finding": "n1", "body": "On n1."}, {"finding": "n2", "body": "On n2."}]}]})
         self.assertTrue(engine.held(joined, the_task))
         self.assertEqual(passes.union([said([other]), said([here])])["findings"][0]["criterion"], "PR-2", "the earliest on a tie")
+        # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
+        minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]
+        voted = passes.union([said([other]), said([dict(other)]), said(minors)])
+        self.assertEqual([(f["criterion"], f["severity"]) for f in voted["findings"]], [("PR-2", "blocking")])
         # Lines that do not overlap, another path, or no lines at all, are two.
         apart = raised("n1", "kernel/decide.py", 95, 99)
         self.assertEqual(len(passes.union([said([here]), said([apart])])["findings"]), 2)
