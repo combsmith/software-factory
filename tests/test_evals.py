@@ -3140,8 +3140,8 @@ class EvalJob(unittest.TestCase):
                 (changed(["kinds"], None), "count_differs"),
                 (changed(["kinds_pass"], None), "count_differs"),
                 # Where no kind was read, the job says nothing of the split or the blocking cases either.
-                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
-                (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, kinds_pass=None, split_ok=True, blocking_pass=None), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, kinds_pass=None, split_ok=None, blocking_pass=True), "count_differs"),
                 (dict(copy.deepcopy(good), kinds=None, criteria=None, kinds_pass=None, split_ok=None, blocking_pass=None),
                  "eval_split_short"),
                 # Where no kind was read, no criterion was either (issue 692).
