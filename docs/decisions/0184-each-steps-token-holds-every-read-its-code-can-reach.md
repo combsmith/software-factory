@@ -1,4 +1,4 @@
-# 0182. Each step's token holds every read its code can reach
+# 0184. Each step's token holds every read its code can reach
 
 Status: accepted. The Factory Builder's ruling of 2026-11-10. Slice 1's third dry run, on v0.1.3, got past the reader and the model, and then stopped in `apply` as `pause_unreadable`. The Builder asked for a sweep, so that the next dry run does not stop at the next such gap.
 

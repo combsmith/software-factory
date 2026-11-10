@@ -994,7 +994,7 @@ class RoleWrites(unittest.TestCase):
 
     def test_the_role_app_is_granted_what_apply_reads_again(self):  # the Maintainer, 2026-10-22
         # Granted, and read again by trial P-39 on 2026-10-27: apply reads the item, the run records and the Pause
-        # again with the Role App's own token, read-only (decision 0182: slice 1's third dry run stopped without the Pause).
+        # again with the Role App's own token, read-only (decision 0184: slice 1's third dry run stopped without the Pause).
         self.assertEqual(identity.granted(APPS["apps"]["pr-review"], APPS["needs"], apply.READS, "read"),
                          {"actions": "read", "actions_variables": "read", "checks": "read", "contents": "read",
                           "issues": "read", "metadata": "read", "pull_requests": "read"})
