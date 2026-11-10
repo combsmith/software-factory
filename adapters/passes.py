@@ -117,16 +117,16 @@ def records(transport, repo: str, branch: str, poller: str, own: int):
 def _recorded(transport, repo: str, row: dict) -> tuple:
     """One look at what a pass recorded of its writes: `(its written/1 or None, whether the look read it, whether the
     record is past its retention)`. One that succeeded and lists none, a list or a record that cannot be read, and a
-    record that is not `written/1`, are not read."""
-    told = []
+    record that is not `written/1`, are not read. The list is asked uncached, so a second look is not the first's answer."""
+    told, held = [], None
     try:
         held, whole = artifacts.read(transport, repo, row["id"], name=WRITTEN, member=WRITTEN_MEMBER,
                                      held_most=artifacts.APPLIED_MOST, required=row.get("conclusion") == "success",
-                                     expired=told)
+                                     expired=told, fresh=True)
         done = json.loads(held.decode("utf-8")) if held is not None else None
     except (Unanswered, ValueError, RecursionError):
         whole, done = False, None
-    if not whole or (done is not None and validate(done, artifacts.SCHEMAS["written"], schemas=artifacts.SCHEMAS)):
+    if not whole or (held is not None and validate(done, artifacts.SCHEMAS["written"], schemas=artifacts.SCHEMAS)):
         return None, False, False
     return done, True, bool(told)
 
@@ -137,10 +137,10 @@ def written(transport, repo: str, branch: str, poller: str, own: int, since: str
     "read": [{"id", "attempt"}], "at": {pass: when it was made}, "whole": bool}`, for reconciliation (decisions 0061, 0112).
     An attempt is read once: `known` holds the `(id, attempt)` a record before this one read. One that succeeded and lists
     no record, one whose record cannot be read or is not `written/1`, and any past the `most` a pass reads, are not read, so
-    a later pass reads them, and what this one read is not whole. One that did not succeed and lists none is looked at once
-    more, after one wait for them all: a completed run uploads nothing more, so one that lists none again recorded nothing,
-    and is read (decision 0184). A write it made is then matched to no record, which is reconciliation's to alarm on. The
-    list is held as the records port holds its own: each run once, one count."""
+    a later pass reads them, and what this one read is not whole. One whose conclusion says it did not succeed and that lists
+    none is looked at once more, after one wait for them all: a completed run uploads nothing more, so one that lists none
+    again recorded nothing, and is read (decision 0184). A write it made is then matched to no record, which is
+    reconciliation's to alarm on. The list is held as the records port holds its own: each run once, one count."""
     out, page, rows, counts = {"written": [], "read": [], "at": {}, "whole": True}, 1, [], set()
     while True:
         try:
@@ -193,7 +193,8 @@ def written(transport, repo: str, branch: str, poller: str, own: int, since: str
         if not whole:
             out["whole"] = False
         elif done is None and not gone:
-            again.append((row, attempt, made))
+            if isinstance(row.get("conclusion"), str):  # with none, it does not say it did not succeed: a later pass asks
+                again.append((row, attempt, made))
         else:
             read(row, attempt, made, done)
     # The second look, at each that listed none and may only be lagging in GitHub's list: at most as many looks again as

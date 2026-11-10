@@ -4443,7 +4443,7 @@ class EffectsRecorded(unittest.TestCase):
     def test_a_pass_that_did_not_succeed_and_lists_none_is_read_after_a_second_look(self):  # issue 709, decision 0184
         none = {"written": [], "read": [], "at": {}, "whole": True}
         made = "2026-10-11T12:00:00Z"
-        for conclusion in ("failure", "cancelled", "timed_out", "skipped", None):
+        for conclusion in ("failure", "cancelled", "timed_out", "skipped"):
             slept = []
             got = self.passes_(self.page([a_pass(30, conclusion=conclusion, run_attempt=1)]), written_stored(30, None), written_stored(30, None), slept=slept)
             # Listing none twice, a wait apart, it recorded nothing: it is read, with no record, and no pass reads it again.
@@ -4462,13 +4462,38 @@ class EffectsRecorded(unittest.TestCase):
         self.assertEqual(self.passes_(failed, written_stored(30, None), written_stored(30, dict(self.DONE, schema="written/2"))), dict(none, whole=False))
         # Past its retention at the second look, it recorded nothing that can be read: it is read.
         self.assertEqual(self.passes_(failed, written_stored(30, None), written_stored(30, self.DONE, expired=True)[:1]), dict(none, read=[{"id": 30, "attempt": 1}]))
-        # The wait is one for a pass, however many it looks at again, and every first look comes before it; none with none
-        # to look at again. One that succeeded and lists none is short at its one look, and is never looked at twice.
+        # The wait is one for a pass, however many it looks at again: every first look comes before it and every second
+        # after, and each that listed none is looked at again, its record dated as its own pass was made.
+        slept, late, later = [], "2026-10-11T11:00:00Z", dict(self.DONE, **{"pass": "p_01JA7R"})
+        three = self.page([a_pass(30, conclusion="cancelled", run_attempt=1, created_at="2026-10-11T13:00:00Z"), a_pass(20, run_attempt=1, created_at=made),
+                           a_pass(10, conclusion="failure", run_attempt=2, created_at=late)])
+        hub = Recording(github.Replay([three] + written_stored(30, None) + written_stored(20, self.DONE) + written_stored(10, None)
+                                      + written_stored(30, None) + written_stored(10, later)))
+        got = passes.written(hub, HOME, "main", POLLER, self.OWN, self.SINCE, set(), sleep=lambda seconds: slept.append((seconds, len(hub.sent))))
+        self.assertEqual(got, {"written": [self.DONE, later], "read": [{"id": 20, "attempt": 1}, {"id": 30, "attempt": 1}, {"id": 10, "attempt": 2}],
+                               "at": {"p_01JA7Q": made, "p_01JA7R": late}, "whole": True})
+        self.assertEqual((slept, len(hub.sent)), ([(passes.WAIT, 5)], 8))
+        # Each look is asked uncached, the first and the second: GitHub lets a list be held a minute (decision 0036), and
+        # a second look answered from the first's would settle nothing.
+        looks = [r["headers"] for r in hub.sent if "/artifacts?" in r["path"]]
+        self.assertEqual(looks, [records.FRESH] * 5)
+        self.assertIs(passes.written.__defaults__[-1], passes.time.sleep)
+        # A second look that cannot be read leaves its own pass unread and what was read short; the next is still looked at.
+        two = self.page([a_pass(30, conclusion="cancelled", run_attempt=1), a_pass(10, conclusion="failure", run_attempt=2)])
+        self.assertEqual(self.passes_(two, written_stored(30, None), written_stored(10, None), refused, written_stored(10, None)),
+                         dict(none, read=[{"id": 10, "attempt": 2}], whole=False))
+        # A record that holds `null` is no `written/1`, whatever the pass concluded: short at its one look, never read as
+        # one that listed none, and not looked at twice.
+        for conclusion in ("success", "failure"):
+            slept = []
+            got = self.passes_(self.page([a_pass(30, conclusion=conclusion, run_attempt=1)]), written_stored(30, "null"), written_stored(30, "null"), slept=slept)
+            self.assertEqual((got, slept), (dict(none, whole=False), []), conclusion)
+        # A completed run with no conclusion does not say it did not succeed: it is not looked at twice and not read, so a
+        # later pass asks of it again, and what was read is whole.
         slept = []
-        three = self.page([a_pass(30, conclusion="cancelled", run_attempt=1), a_pass(20, run_attempt=1, created_at=made), a_pass(10, conclusion="failure", run_attempt=2)])
-        got = self.passes_(three, written_stored(30, None), written_stored(20, self.DONE), written_stored(10, None), written_stored(30, None), written_stored(10, None), slept=slept)
-        self.assertEqual((got, slept), ({"written": [self.DONE], "read": [{"id": 20, "attempt": 1}, {"id": 30, "attempt": 1}, {"id": 10, "attempt": 2}],
-                                         "at": {"p_01JA7Q": made}, "whole": True}, [passes.WAIT]))
+        got = self.passes_(self.page([a_pass(30, conclusion=None, run_attempt=1)]), written_stored(30, None), written_stored(30, None), slept=slept)
+        self.assertEqual((got, slept), (none, []))
+        # None with none to look at again. One that succeeded and lists none is short at its one look, never looked at twice.
         slept = []
         self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1)]), written_stored(30, self.DONE), slept=slept)["read"], [{"id": 30, "attempt": 1}])
         self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1)]), written_stored(30, None), written_stored(30, None), slept=slept), dict(none, whole=False))

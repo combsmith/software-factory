@@ -46,11 +46,12 @@ SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
 # An `applied/1` past the artifact retention: what its Run recorded can no longer be read (issue 346).
 EXPIRED = object()
 
-def _listed(transport, repo: str, github_id: int, seen=None, name: str = NAME):
+def _listed(transport, repo: str, github_id: int, seen=None, name: str = NAME, fresh: bool = False):
     """The one artifact named `name`, `outcome` unless asked, the run lists, None if it lists none, or False if the list
-    cannot be read. `seen`, where given, is handed the list's answer, so the caller can record what the read cost."""
+    cannot be read. `seen`, where given, is handed the list's answer, so the caller can record what the read cost.
+    `fresh` asks for the list uncached, as the records port asks for its own (decision 0036)."""
     answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/artifacts?name=%s&per_page=100"
-                                    % (repo, github_id, name)))
+                                    % (repo, github_id, name), headers={"Cache-Control": "no-cache"} if fresh else None))
     if answer["status"] != 200 or not isinstance(answer["body"], dict):
         raise Unanswered("the artifacts of run %d answered %d" % (github_id, answer["status"]))
     if seen is not None:
@@ -83,13 +84,14 @@ def _member(zipped: bytes, member: str = MEMBER, held: int = HELD):
 
 
 def read(transport, repo: str, github_id: int, seen=None, name: str = NAME, member: str = MEMBER,
-         zipped_most: int = ZIPPED, held_most: int = HELD, required: bool = False, expired=None) -> tuple:
+         zipped_most: int = ZIPPED, held_most: int = HELD, required: bool = False, expired=None,
+         fresh: bool = False) -> tuple:
     """`(bytes, whole)` of the one file of the one artifact named `name` the run GitHub numbers `github_id` lists, read
     in the bounds given: None and whole for a run that lists none, or one past its retention; None and not whole for
     what cannot be read, and for a run that lists none where one is `required`. `outcome`'s bounds unless asked; a
     wider `zipped_most` is downloaded under `PASSED`. `expired`, a list, is told when the artifact is past its
-    retention, so that a caller can tell it from one never uploaded (issue 346)."""
-    found = _listed(transport, repo, github_id, seen, name)
+    retention, so that a caller can tell it from one never uploaded (issue 346). `fresh` asks for the list uncached."""
+    found = _listed(transport, repo, github_id, seen, name, fresh)
     if found is None:
         return None, not required
     if found and found.get("expired") is True:
