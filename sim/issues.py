@@ -76,6 +76,14 @@ MOVE_LABELS = (t.LABEL_HOLD, t.LABEL_HANDS_OFF, t.LABEL_ADMIT, issue.LABEL_TRIAG
 HUMAN, FACTORY, PLATFORM, STRANGER_BY = "human", "factory", "platform", "stranger"
 
 
+
+def closed(p: dict, now: str) -> list:
+    """A linked pull request's closes and reopenings with its close at `now` after them, a merge's among them: GitHub
+    raises a ClosedEvent at the merge too (trials/P-48.json, issue 672)."""
+    # GitHub: a_pull_requests_close_and_reopening_are_timed
+    return p["close_events"] + [{"action": issue.CLOSED, "at": now}]
+
+
 class IssueWorld:
     def __init__(self, seed: int, faults: bool = True, people: bool = True):
         self.rng = random.Random(seed)
@@ -517,7 +525,7 @@ class IssueWorld:
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": True,
                                 "draft": True, "opened_at": self.now(), "merged_at": None, "closed_at": None,
                                 "empty": False, "label_events": [], "closed_issue_at": None,
-                                "draft_events": [], "link_events": []})
+                                "draft_events": [], "link_events": [], "close_events": []})
             self.branch_head = "%040x" % (0xabc0 + number)
             self.moves()
             self.note("run %s: opened the draft #%d" % (run["run"], number))
@@ -548,7 +556,7 @@ class IssueWorld:
                 # while the issue is in review: the Controller dequeues the pull request of an issue a person held or
                 # closed (the Maintainer's ruling on issue 227), so no merge lands while the issue is held or
                 # declined, nor from new. Were one to land, the Kernel would read it as never done (issue 237).
-                p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False,
+                p.update(open=False, merged_at=self.now(), closed_at=self.now(), close_events=closed(p, self.now()), empty=False,
                          closed_issue_at=self.closes_the_issue())
                 self.moves()
                 self.note("#%d merged by the queue" % p["number"])
@@ -559,7 +567,7 @@ class IssueWorld:
             self.linked.append({"number": 200 + len(self.linked), "class": "outside", "opener": dict(STRANGER),
                                 "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
                                 "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None,
-                                "draft_events": [], "link_events": []})
+                                "draft_events": [], "link_events": [], "close_events": []})
             self.reached.append(2)
             self.note("a stranger's pull request names the issue")
             self.caused(STRANGER_BY)
@@ -704,7 +712,7 @@ class IssueWorld:
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": False,
                                 "draft": False, "opened_at": merged, "merged_at": merged,
                                 "closed_at": merged, "empty": False, "label_events": [], "closed_issue_at": None,
-                                "draft_events": [], "link_events": []})
+                                "draft_events": [], "link_events": [], "close_events": [{"action": issue.CLOSED, "at": merged}]})
             self.late.append(number)
             self.reached.append(6)
             self.note("an edit after its merge made #%d name the issue" % number)
@@ -726,10 +734,10 @@ class IssueWorld:
             # A person merges or closes the stranger's pull request: it moves the issue no more than it did open.
             p = theirs[0]
             if self.rng.random() < 0.5:
-                p.update(open=False, merged_at=self.now(), closed_at=self.now(), closed_issue_at=self.closes_the_issue())
+                p.update(open=False, merged_at=self.now(), closed_at=self.now(), close_events=closed(p, self.now()), closed_issue_at=self.closes_the_issue())
                 self.note("%s merged the stranger's #%d" % (who["name"], p["number"]))
             else:
-                p.update(open=False, closed_at=self.now())
+                p.update(open=False, closed_at=self.now(), close_events=closed(p, self.now()))
                 self.note("%s closed the stranger's #%d unmerged" % (who["name"], p["number"]))
             self.writer_acted()
             return
@@ -739,7 +747,7 @@ class IssueWorld:
                 self.linked.append({"number": 300 + len(self.linked), "class": "maintainer", "opener": dict(who),
                                     "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
                                     "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None,
-                                    "draft_events": [], "link_events": []})
+                                    "draft_events": [], "link_events": [], "close_events": []})
                 self.writer_acted()
                 self.note("%s opened a pull request of their own" % who["name"])
             return
@@ -754,11 +762,11 @@ class IssueWorld:
             # Not while the issue is declined, closed or reopened by an outsider: the Lifecycle lets nothing out of
             # declined, and the Kernel would read the merge as done (issue 237 builds the Hold for it). A person's
             # merge while the issue is held stands: the Lifecycle declares held -> done by a person.
-            p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=self.rng.random() < 0.1,
+            p.update(open=False, merged_at=self.now(), closed_at=self.now(), close_events=closed(p, self.now()), empty=self.rng.random() < 0.1,
                      closed_issue_at=self.closes_the_issue())
             self.note("%s merged #%d" % (who["name"], p["number"]))
         else:
-            p.update(open=False, closed_at=self.now())
+            p.update(open=False, closed_at=self.now(), close_events=closed(p, self.now()))
             self.note("%s closed #%d unmerged" % (who["name"], p["number"]))
         self.writer_acted()
 

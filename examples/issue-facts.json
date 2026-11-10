@@ -65,7 +65,8 @@
           "at": "2026-10-11T09:50:00Z"
         }
       ],
-      "link_events": []
+      "link_events": [],
+      "close_events": []
     },
     {
       "number": 140,
@@ -95,7 +96,13 @@
       ],
       "closed_issue_at": null,
       "draft_events": [],
-      "link_events": []
+      "link_events": [],
+      "close_events": [
+        {
+          "action": "closed",
+          "at": "2026-10-11T10:00:00Z"
+        }
+      ]
     }
   ],
   "role_comments": [
