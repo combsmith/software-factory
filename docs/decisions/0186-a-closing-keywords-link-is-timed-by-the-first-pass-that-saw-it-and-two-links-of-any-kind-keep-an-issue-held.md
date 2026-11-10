@@ -1,4 +1,4 @@
-# NNNN. A closing keyword's link is timed by the first pass that saw it, and two links of any kind at an issue's merge keep it held
+# 0186. A closing keyword's link is timed by the first pass that saw it, and two links of any kind at an issue's merge keep it held
 
 Status: accepted. The Factory Builder's rulings of 2026-11-10 on "Facts: a closing keyword's link timed by the first pass that saw it, and the Consumer entry at the merge (after the first cut)" (issue 552): its design, and rulings (1) to (3). It amends decision 0174's rows "The same second", "What carries no time" and "Two links at the merge", for a closing keyword's link.
 
