@@ -66,7 +66,7 @@ BAR_OF_A_KIND = {"met": (9, 10), "finding": (3, 10)}
 KIND_LEAST = 20
 KINDS = ("finding", "met")
 BLOCKING = "blocking"       # whether every case that expects a Finding of this severity passed is said, and closes nothing
-BLOCKING_LEAST = 1          # by itself (decision 0150); a set holds one, or a true word for them could mean none exist
+BLOCKING_LEAST = 1          # by itself (decision 0150); a development set holds one, or a true word could mean none exist
 # How many dispatches on one commit a gate set's gate pools, every one of them counted, so that no run is the best of
 # several (issue 613).
 POOL_LEAST = 3
@@ -607,13 +607,16 @@ def kinds_of(found: dict, place: pathlib.Path):
 
 
 def split_ok(found: dict, place: pathlib.Path):
-    """Whether the set's cases hold `kind_least_of` of each kind and BLOCKING_LEAST that expect a blocking Finding: one word of
-    the whole set, never how many of any: the gate needs no more (decision 0120). None where `kinds_of` can say nothing."""
+    """Whether the set's cases hold `kind_least_of` of each kind and, but for a gate set, BLOCKING_LEAST that expect a
+    blocking Finding: one word of the whole set, never how many of any: the gate needs no more (decision 0120). None where
+    `kinds_of` can say nothing."""
     kinds = kinds_of(found, place)
     if kinds is None:
         return None
+    # A gate set brings its own least of each kind, and the blocking word closes nothing (decision 0150): one grading only
+    # what no check holds may hold no blocking case, and would otherwise be short on every run (issue 691).
     return min(list(kinds.values()).count(kind) for kind in KINDS) >= kind_least_of(found) \
-        and len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST
+        and (gate_set(found) or len(blocking_cases(found, _expected(found, place))) >= BLOCKING_LEAST)
 
 
 def _clears(passed: int, of: int, bar: tuple) -> bool:
@@ -675,7 +678,7 @@ def blocking_cases(found: dict, expected: dict) -> list:
 def blocking_pass(found: dict, place: pathlib.Path, assessed: dict):
     """Whether every case that expects a blocking Finding passed, read where the cases are: one word, never how many, which
     the judge's line says and which closes nothing by itself (decision 0150). True of a set with none, which `split_ok`
-    closes on. None where `_expected` can say nothing."""
+    closes on for a development set and not for a gate set (issue 691). None where `_expected` can say nothing."""
     expected = _expected(found, place)
     if expected is None:
         return None
