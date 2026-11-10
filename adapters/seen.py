@@ -130,11 +130,8 @@ def _check_runs(transport, item: dict) -> tuple:
     runs = body.get("check_runs") if isinstance(body.get("check_runs"), list) else None
     if runs is None:
         return [], False
-    # A run whose App GitHub gives no id for is kept with its App null, as the checks read keeps one it is not shown,
-    # so what was seen is short (decision 0180).
     kept = [{"id": _object(r).get("node_id"), "startedAt": _object(r).get("started_at"),
-             "checkSuite": {"app": {"databaseId": _object(_object(r).get("app")).get("id")}
-                            if _object(_object(r).get("app")).get("id") is not None else None}} for r in runs]
+             "checkSuite": {"app": {"databaseId": _object(_object(r).get("app")).get("id")}}} for r in runs]
     return kept, body.get("total_count") == len(runs) < PAGE
 
 
