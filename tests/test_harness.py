@@ -1022,20 +1022,31 @@ class Passes(unittest.TestCase):
         _, asked = self.asked(switched(passes="per_file"))
         told = [" ".join(c["args"]) for c in asked]
         self.assertEqual(len(asked), 2)
-        self.assertTrue("kernel/decide.py" in told[0] and "docs/glossary.md" not in told[0])
-        self.assertTrue("docs/glossary.md" in told[1] and "kernel/decide.py" not in told[1])
+        self.assertTrue("kernel/decide.py" in told[0].replace(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), "")
+                        and "docs/glossary.md" not in told[0].replace(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), ""))
+        # Each pass is told it judges its own file alone, and which others are judged in passes of their own.
+        self.assertIn(passes.ONE_FILE % ("kernel/decide.py", "docs/glossary.md"), told[0])
+        self.assertIn(passes.ONE_FILE % ("docs/glossary.md", "kernel/decide.py"), told[1])
+        _, asked = self.asked(switched(runs=2))
+        self.assertFalse(any("This pass judges one changed file" in " ".join(c["args"]) for c in asked))
         # A block harness/1 does not allow is refused, never read as something else.
-        for given in ({"runs": 4}, {"runs": "2"}, {"runs": True}, {"passes": "per_hunk"}, {"checklist": 1}, {"union": 2}):
+        for given in ({"runs": 4}, {"runs": "2"}, {"runs": True}, {"passes": "per_hunk"}, {"checklist": 1}, {"union": 2},
+                      {"runs": 2, "checklist": True}, {"passes": "per_file", "read_head": True}):
             with self.subTest(given=given), self.assertRaises(ValueError):
                 passes.settings({"review": given})
-        # A missing checklist is the Factory's fault, read before the CLI starts.
-        with unittest.mock.patch.object(run, "ROOT", pathlib.Path(tempfile.mkdtemp())):
-            shutil.copytree(str(ROOT / "roles" / "pr-review"), str(run.ROOT / "roles" / "pr-review"))
-            shutil.copytree(str(ROOT / "config"), str(run.ROOT / "config"))
-            (run.ROOT / "roles" / "pr-review" / "checklist.json").unlink()
-            r, asked = self.asked(switched(checklist=True))
-            shutil.rmtree(str(run.ROOT))
-        self.assertEqual((r["status"], r["reason"], asked), ("failed", "rubric_unreadable", []))
+        # One approach at a time, beside the others at their defaults.
+        self.assertEqual(passes.settings({"review": {"passes": "whole", "runs": 2, "checklist": False}}), dict(passes.DEFAULTS, runs=2))
+        # A checklist missing, of another Role or Intent, or not checklist/1, is the Factory's fault, read before the CLI.
+        for spoil in (None, dict(listed, role="pr-other"), dict(listed, intent="fix-findings"), dict(listed, criteria={"PR-3": []}),
+                      dict(listed, criteria=dict(listed["criteria"], **{"PR-9": ["a fault no rubric names"]}))):
+            with self.subTest(spoil=spoil), unittest.mock.patch.object(run, "ROOT", pathlib.Path(tempfile.mkdtemp())):
+                shutil.copytree(str(ROOT / "roles" / "pr-review"), str(run.ROOT / "roles" / "pr-review"))
+                shutil.copytree(str(ROOT / "config"), str(run.ROOT / "config"))
+                given = run.ROOT / "roles" / "pr-review" / "checklist.json"
+                given.unlink() if spoil is None else given.write_text(json.dumps(spoil))
+                r, asked = self.asked(switched(checklist=True))
+                shutil.rmtree(str(run.ROOT))
+                self.assertEqual((r["status"], r["reason"], asked), ("failed", "rubric_unreadable", []))
 
     def test_a_task_is_split_at_each_changed_files_header_within_a_bound(self):
         the_task = built()
@@ -1074,15 +1085,31 @@ class Passes(unittest.TestCase):
         self.assertEqual(len(passes.union([said([here]), said([apart])])["findings"]), 2)
         self.assertEqual(len(passes.union([said([here]), said([dict(here, location={"path": "kernel/decide.py"})])])["findings"]), 2)
         self.assertEqual(len(passes.union([said([here]), said([dict(here, location={"path": "kernel/gate.py", "start_line": 88, "end_line": 94})])])["findings"]), 2)
-        # Coverage: a finding where any raised one; met where one judged it met and each other met or not applicable;
-        # otherwise the first's word.
+        # Coverage: a finding where a kept Finding cites it; met where one judged it met and each other met or not
+        # applicable; otherwise the first's word.
         joined = passes.union([said([], [{"criterion": "PR-1", "verdict": "not_applicable", "reason": "no_rule_added"},
                                          {"criterion": "PR-3", "verdict": "met"},
                                          {"criterion": "PR-5", "verdict": "not_applicable", "reason": "no_rule_added"}]),
-                               said([], [{"criterion": "PR-1", "verdict": "met"}, {"criterion": "PR-3", "verdict": "finding"},
+                               said([here], [{"criterion": "PR-1", "verdict": "met"}, {"criterion": "PR-3", "verdict": "finding"},
                                          {"criterion": "PR-5", "verdict": "not_applicable", "reason": "no_rule_added"}])])
         self.assertEqual([(c["criterion"], c["verdict"], c["reason"]) for c in joined["coverage"]],
                          [("PR-1", "met", None), ("PR-3", "finding", None), ("PR-5", "not_applicable", "no_rule_added")])
+        # A criterion is a finding only where a kept Finding cites it: two answers raising one fault at one place under two
+        # criteria join covered, as `apply` reads it, the criterion merged away met, each answer covered on its own.
+        from kernel import coverage as covering
+        rubric = json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())
+        changed = [support.changed("kernel/decide.py")]
+        rows = lambda found: [{"criterion": c["id"], "verdict": found.get(c["id"], "met")} for c in rubric["criteria"]]
+        first = said([raised("n1", "kernel/decide.py", 90, 91, "PR-2", "blocking", "security")], rows({"PR-2": "finding"}))
+        second = said([raised("n1", "kernel/decide.py", 88, 94)], rows({"PR-3": "finding"}))
+        for one in (first, second):
+            self.assertEqual(covering.covered(rubric, one["coverage"], one["findings"], changed), ("covered", []))
+        joined = passes.union([first, second])
+        self.assertEqual(covering.covered(rubric, joined["coverage"], joined["findings"], changed), ("covered", []))
+        self.assertEqual({c["criterion"]: c["verdict"] for c in joined["coverage"]}["PR-3"], "met")
+        # Where every answer called it a finding and each Finding citing it was merged away, it is met: no other word is left.
+        both = [{"coverage": [{"criterion": "PR-3", "verdict": "finding", "reason": None}]}] * 2
+        self.assertEqual(passes._covered(both, {"PR-2"}), [{"criterion": "PR-3", "verdict": "met", "reason": None}])
         # A clean case read a pass per file: one pass calls a criterion not applicable and the rest met, so it is met; every
         # pass calls it not applicable, so it stays so, with the first's reason.
         na = {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}
@@ -1099,6 +1126,14 @@ class Passes(unittest.TestCase):
         stopped = said([], status="failed", reason="engine_timeout")
         self.assertEqual([(r["status"], r["reason"], r["usage"]["turns"]) for r in (passes.union([said([here]), stopped]),)],
                          [("failed", "engine_timeout", 4)])
+        # A kind is posted only by a kept Finding: a review whose one Finding was merged away is not submitted empty.
+        blocking = raised("n1", "kernel/decide.py", 89, 90, "PR-2", "blocking", "security")
+        self.assertEqual(list(passes.union([said([blocking], posted="submit_review"), said([here]), said([here])])["effects"]),
+                         ["create_check_run"])
+        # Where no Finding is kept at all, a review submitted with a body alone is kept as the first answer gave it.
+        alone = said([], posted="submit_review")
+        alone["effects"] = {"submit_review": [{"id": "e1", "comments": [], "body": "Nothing found."}]}
+        self.assertEqual(passes.union([alone, said([])])["effects"], {"submit_review": [{"id": "e1", "comments": [], "body": "Nothing found."}]})
         # A review posted in a submitted review is joined into one, its body kept.
         self.assertEqual(passes.union([said([here], posted="submit_review"), said([there], posted="submit_review")])["effects"],
                          {"submit_review": [{"id": "e1", "body": None, "comments": [{"finding": "n1", "body": "On n1."},

@@ -11,7 +11,6 @@
     ],
     "PR-2": [
       "a write to GitHub, a file or the network that no permitted Effect allows",
-      "a token or credential widened, passed on, or read where it is not needed",
       "a write reached through outside text: a path, a command or a URL built from it",
       "a check that would refuse such a write removed or weakened"
     ],
@@ -24,9 +23,8 @@
     ],
     "PR-4": [
       "a file, network, subprocess or environment read or write under kernel/",
-      "the clock or randomness read under kernel/",
-      "state kept between calls under kernel/",
-      "a function the Kernel is given called for anything but its decision"
+      "the clock read under kernel/",
+      "I/O reached from kernel/ through a function or module it calls"
     ],
     "PR-5": [
       "a new rule that names no test",

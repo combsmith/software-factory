@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import time
 
-from harness import engine, run as live, task as tasks
+from harness import engine, passes, run as live, task as tasks
 from harness.eval import Stop, _planned, exit_with, heads_place, score
 
 # The seconds the job may spend before the last case is started, counted from when `plan` was made: the job's 120
@@ -93,7 +93,10 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         # So is an issue over the texts' budget: asked without it, a case on PR-1 would read as the reviewer's failure.
         if any(o["kind"] == "issue" for o in the_task["omitted"]):
             raise Stop("issue_not_whole")
-        if deadline - clock() < the_task["limits"]["seconds"] + VERSION_READS:
+        # A case may make more than one call where a private replay switches an approach on (issue 581), each with its own
+        # time and its own reads of the version.
+        if deadline - clock() < len(passes.asked(the_task, passes.settings(config["harness"]))) * (
+                the_task["limits"]["seconds"] + VERSION_READS):
             raise Stop("unanswered")
         head = os.path.join(str(heads), case["id"]) if heads is not None else None
         try:

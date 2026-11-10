@@ -81,16 +81,22 @@ def instructions(root: pathlib.Path, the_task: dict) -> str:
     return told
 
 
-def checklist(root: pathlib.Path, role: str) -> str:
+def checklist(root: pathlib.Path, role: str, intent: str) -> str:
     """The fault kinds each criterion of the Role's rubric covers, `roles/<role>/checklist.json`, among the Role's own
     files and so a model Lens's input as they are, as the model is told them when its configuration asks for the
-    checklist (issue 581); RubricUnreadable where it is missing, names another Role, or does not hold to checklist/1."""
+    checklist (issue 581); RubricUnreadable where it is missing, names another Role or Intent, or does not hold to
+    checklist/1."""
     path = root / "roles" / role / "checklist.json"
     try:
         held = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise RubricUnreadable("rubric_unreadable") from None
-    if shared.errors(held, "checklist") or held["role"] != role:
+    # Each criterion it names is one of the rubric's, so that no stale one is told.
+    try:
+        criteria = {c["id"] for c in json.loads((root / "config" / ("rubric-%s.json" % role)).read_text())["criteria"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        criteria = set()
+    if shared.errors(held, "checklist") or (held["role"], held["intent"]) != (role, intent) or not set(held["criteria"]) <= criteria:
         raise RubricUnreadable("rubric_unreadable")
     return engine.CHECKLIST + json.dumps(held["criteria"], sort_keys=True)
 
@@ -163,7 +169,7 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     else:
         try:
             told = instructions(ROOT, the_task)
-            told += checklist(ROOT, the_task["role"]) if review["checklist"] is True else ""
+            told += checklist(ROOT, the_task["role"], the_task["intent"]) if review["checklist"] is True else ""
             told += engine.READ_FIRST if review["read_head"] is True else ""
         except RubricUnreadable:
             fault = "rubric_unreadable"
@@ -177,10 +183,9 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         return asked(args, env=env, timeout=timeout, head=head) if reviewing else asked(args, env=env, timeout=timeout)
     # A pass per changed file, or the whole Task more than once, each asked as the one call always was, and joined.
     # Each call after the first is a session of its own, as a CLI is never asked twice under one.
-    asked_of = [one for one in (passes.split(the_task) if review["passes"] == "per_file" else [the_task])
-                for _ in range(review["runs"])]
     results = [engine.run(one, job_env.get(CLI, ""), job_env, config["harness"], called, clock,
-                          session if n == 0 else str(uuid.uuid4()), told, read=reviewing) for n, one in enumerate(asked_of)]
+                          session if n == 0 else str(uuid.uuid4()), told + note, read=reviewing)
+               for n, (one, note) in enumerate(passes.asked(the_task, review))]
     joined = passes.union(results)
     if len(results) > 1 and joined["status"] == "completed" and not engine.held(joined, the_task):
         return engine.failed(the_task, "result_invalid", joined["usage"])

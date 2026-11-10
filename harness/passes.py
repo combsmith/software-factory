@@ -9,6 +9,7 @@ joins the Results by the merge rule the record states.
 from __future__ import annotations
 
 import copy
+import re
 
 from harness import task as tasks
 
@@ -17,6 +18,13 @@ from harness import task as tasks
 DEFAULTS = {"passes": "whole", "runs": 1, "checklist": False, "read_head": False}
 # A change of more files than this is judged in one pass, so a replay's cost per case has a bound.
 MOST_FILES = 8
+# The head's path of one file's part of a diff, from git's header line.
+HEADER = re.compile(r"diff --git a/\S+ b/(\S+)")
+# What a pass of one changed file is told after its instructions, so that it judges that file alone and is not left to
+# read the rest as missing (the Claude review of issue 581).
+ONE_FILE = ("\n\nThis pass judges one changed file of the pull request, %s, alone: the diff in the Task holds its part "
+            "only. The other changed files, %s, are judged in passes of their own, so do not answer incomplete for them, "
+            "and judge each criterion on this file's part alone, not applicable where it touches only the others.")
 # Where each raised Finding is posted, by the Effect's type and the list in it that names Findings (effect/1).
 POSTED = (("submit_review", "comments"), ("create_check_run", "annotations"))
 # The counts a Result's `usage` sums over its calls; every other field is the first call's.
@@ -37,6 +45,10 @@ def settings(config: dict) -> dict:
         return dict(DEFAULTS)
     if not isinstance(given, dict) or set(given) - set(ALLOWED) or not all(ALLOWED[k](v) for k, v in given.items()):
         raise ValueError("the configuration's review block is not as harness/1 allows")
+    # A replay measures one approach against the same commit: two switched on at once would measure neither, and multiply
+    # the calls a case may make.
+    if len([k for k, v in given.items() if v != DEFAULTS[k]]) > 1:
+        raise ValueError("the configuration's review block switches on more than one approach")
     return dict(DEFAULTS, **given)
 
 
@@ -57,6 +69,22 @@ def split(the_task: dict) -> list:
         one["texts"][at[0]] = dict(one["texts"][at[0]], body=part)
         out.append(one)
     return out
+
+
+def path(part: dict) -> str:
+    """The path a Task of one changed file judges, as its diff's header names it at the head; none where it names none."""
+    body = [t for t in part["texts"] if t["id"].startswith("diff:")][0]["body"]
+    found = HEADER.match(body)
+    return found.group(1) if found else None
+
+
+def asked(the_task: dict, review: dict) -> list:
+    """`(task, note)` for each call a review makes under `review`: each changed file's Task with the note that tells it
+    the rest are judged in other passes, or the whole Task with none, each `runs` times."""
+    parts = split(the_task) if review["passes"] == "per_file" else [the_task]
+    named = [path(part) for part in parts] if len(parts) > 1 else []
+    notes = [ONE_FILE % (named[i], ", ".join(n for j, n in enumerate(named) if j != i)) for i in range(len(named))] or [""]
+    return [(part, note) for part, note in zip(parts, notes) for _ in range(review["runs"])]
 
 
 def _lines(finding: dict):
@@ -80,9 +108,12 @@ def _usage(results: list) -> dict:
     return usage
 
 
-def _covered(results: list) -> list:
-    """Each criterion any Result covers, in the order first given: `finding` where any raised one; `met` where at least
-    one judged it met and each other met or not applicable; otherwise as the first that covers it says."""
+def _covered(results: list, cited: set) -> list:
+    """Each criterion any Result covers, in the order first given: `finding` where a kept Finding cites it, `cited`, so
+    that the joined Result is covered as `apply` reads it (`kernel.coverage.covered`); otherwise, of the words that are not
+    `finding`, `met` where at least one judged it met and each other met or not applicable, `met` too where none is left,
+    every Finding that cited it merged into one kept at its place under another criterion; otherwise as the first that
+    covers it with such a word says."""
     order, said = [], {}
     for result in results:
         for entry in result["coverage"]:
@@ -92,13 +123,14 @@ def _covered(results: list) -> list:
             said[entry["criterion"]].append(entry)
     out = []
     for criterion in order:
-        verdicts = [e["verdict"] for e in said[criterion]]
-        if "finding" in verdicts:
+        rest = [e for e in said[criterion] if e["verdict"] != "finding"]
+        verdicts = [e["verdict"] for e in rest]
+        if criterion in cited:
             out.append({"criterion": criterion, "verdict": "finding", "reason": None})
-        elif "met" in verdicts and set(verdicts) <= {"met", "not_applicable"}:
+        elif not rest or ("met" in verdicts and set(verdicts) <= {"met", "not_applicable"}):
             out.append({"criterion": criterion, "verdict": "met", "reason": None})
         else:
-            out.append(dict(said[criterion][0]))
+            out.append(dict(rest[0]))
     return out
 
 
@@ -147,10 +179,18 @@ def union(results: list) -> dict:
             effects[kind].append(dict(effect, id="e%d" % ids))
     for kind, field in POSTED:
         given = [effect for result in results for effect in result["effects"].get(kind, [])]
-        if not given:
+        # A kind is posted only where a kept Finding is posted by it, never from the answer of a Finding merged away; where
+        # no Finding is kept at all, as the first answer posted it.
+        if not items[kind] and (findings or kind not in results[0]["effects"]):
+            continue
+        if not findings:
+            for effect in results[0]["effects"][kind]:
+                ids += 1
+                effects.setdefault(kind, []).append(dict(effect, id="e%d" % ids))
             continue
         ids += 1
         # A submitted review keeps the first body any answer gave it; a check run has none.
         body = {"body": next((e["body"] for e in given if e["body"] is not None), None)} if kind == "submit_review" else {}
         effects[kind] = [dict({"id": "e%d" % ids, field: items[kind]}, **body)]
-    return dict(results[0], findings=findings, effects=effects, coverage=_covered(results), usage=usage)
+    cited = {f["criterion"] for f in findings if f.get("criterion")}
+    return dict(results[0], findings=findings, effects=effects, coverage=_covered(results, cited), usage=usage)
