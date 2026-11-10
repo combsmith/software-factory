@@ -3069,7 +3069,7 @@ class ProtectedPaths(Asks):
                 "cat > /tmp/notes.md <<'EOF'\nlifecycle/ and gh pr merge\nEOF", "mkdir -p /tmp/x && cp docs/notes.md /tmp/x/",
                 "rm -rf /tmp/scratch", "python3 tools/check_context.py", "echo $HOME", "export PATH=$PATH:/x",
                 'echo "$x" > /tmp/y', "git commit -F - <<'EOF'\nChange lifecycle/issue.json\nEOF",
-                'for f in docs/*.md; do wc -l "$f"; done', "tar -czf /tmp/x.tgz docs", "cd docs && echo x > notes.md",
+                'for f in docs/*.md; do wc -l "$f"; done', "tar -czf /tmp/x.tgz notes", "cd docs && echo x > notes.md",
                 "cat lifecycle/issue.json | python3 -c 'import json, sys; json.load(sys.stdin)'",
                 "ls | xargs -n1 wc -l", 'cd "$TMPDIR" && echo x > y', "git push -u origin HEAD",
                 "ls | xargs -n 1 wc -l", "python3 tools/hooks/protected.py < /tmp/payload.json",
@@ -3640,12 +3640,14 @@ class MergesAndSettings(Asks):
 
     def test_a_relative_place_git_writes_is_read_from_its_directory_behind_a_wrapper(self):
         p = a_tree()
-        (p / "docs" / "l").symlink_to(p / "lifecycle")     # a way into a protected path that names none
-        for command in ("GIT_INDEX_FILE=l/x nice git -C docs status",
-                        "GIT_OBJECT_DIRECTORY=l setsid git -C docs commit-graph write",
-                        "GIT_INDEX_FILE=l/x nice -n 5 git -c color.ui=never -C docs status"):
+        # A directory that holds no protected path: docs/ holds docs/CODEOWNERS (issue 139).
+        (p / "notes").mkdir()
+        (p / "notes" / "l").symlink_to(p / "lifecycle")     # a way into a protected path that names none
+        for command in ("GIT_INDEX_FILE=l/x nice git -C notes status",
+                        "GIT_OBJECT_DIRECTORY=l setsid git -C notes commit-graph write",
+                        "GIT_INDEX_FILE=l/x nice -n 5 git -c color.ui=never -C notes status"):
             self.asked(self.run_(command, p, project=p), "protected_path", command)
-        for command in ("GIT_INDEX_FILE=x nice git -C docs status", "GIT_INDEX_FILE=l/x nice git status"):
+        for command in ("GIT_INDEX_FILE=x nice git -C notes status", "GIT_INDEX_FILE=l/x nice git status"):
             self.assertEqual(self.run_(command, p, project=p), "", command)
 
     def test_a_place_git_writes_given_to_a_wrapper_is_read(self):

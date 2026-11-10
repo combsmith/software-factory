@@ -558,10 +558,10 @@ class Apply(unittest.TestCase):
                 return revoked
             return "the read transport", revoke
 
-        def recorded(admit, result, read_, write, mint, role, config, now):
+        def recorded(admit, result, read_, write, mint, role, config, now, held=None):
             calls["job"].append((admit, result, config))
             if a_job:
-                return a_job(admit, result, read_, write, mint, role, config, now)
+                return a_job(admit, result, read_, write, mint, role, config, now, held)
             return job(admit) if job else apply_step._ended(admit["run"], admit["release"], (None, None))
         def find(*a):
             if record is github.Unanswered:
@@ -662,6 +662,34 @@ class Apply(unittest.TestCase):
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"], calls["revoked"]),
                          ("superseded", "no_decision", [], 1))
 
+    def test_apply_holds_a_push_to_the_list_at_the_base_its_pull_request_was_read_at(self):  # issue 139
+        # The step gives apply its hold: the base commit from a read of the pull request at the head its facts were read
+        # at, and the list read through the read token at that commit, never one the head names.
+        asked = []
+
+        def read_pull(transport, repo, number):
+            asked.append(("read", transport, repo, number))
+            return {"head": {"sha": HEAD}, "base": {"sha": "b" * 40}}
+
+        def holding(effects, base, transport, repo, fetch=None):
+            asked.append(("held", effects, base, transport, repo))
+            return "item", "push_protected"
+
+        def a_job(admit, result, read_, write, mint, role, config, now, held):
+            read_()
+            return apply_step._ended(admit["run"], admit["release"], held({"push_commits": ["e9"]}))
+        with unittest.mock.patch.object(apply_step.pull, "read", read_pull), \
+                unittest.mock.patch.object(apply_step.bundle, "held", holding), \
+                unittest.mock.patch.object(reread, "item", lambda *a, **k: ("facts", HEAD, [], {})):
+            code, _, ended, _ = self.go(a_job=a_job)
+        self.assertEqual((code, ended["outcome"], ended["reason"]), (0, "item", "push_protected"))
+        self.assertEqual(asked, [("read", "the read transport", HOME, 42),
+                                 ("held", {"push_commits": ["e9"]}, "b" * 40, "the read transport", HOME)])
+        # A pull request that moved from the head its facts were read at is a change under the Run.
+        with unittest.mock.patch.object(apply_step.pull, "read", read_pull):
+            with self.assertRaises(reread.facts_.Moved):
+                apply_step.base_at("t", HOME, 42, "c" * 40)
+
     def test_apply_reads_the_diff_again_at_the_head_its_facts_were_read_at(self):  # issue 567
         asked = []
         first = {"head": {"sha": HEAD}}
@@ -691,7 +719,7 @@ class Apply(unittest.TestCase):
         # The facts of the content admitted, so the diff is read again of it.
         facts = dict(support.facts(), threads=[support.thread("T1")], content_id=CONTENT)
 
-        def a_job(admit, result, read_, write, mint, role, config, now):
+        def a_job(admit, result, read_, write, mint, role, config, now, held):
             read_()[4]()
             transport, revoke = mint({"pull_requests": "write"})
             write(transport, "comment", {"on": "item"})

@@ -17,7 +17,7 @@ import unittest.mock
 
 from adapters import effects, github, identity
 from adapters.facts import Moved
-from harness import apply, engine, shared
+from harness import apply, bundle, engine, shared
 from harness import task as task_
 from tests import support
 
@@ -1141,11 +1141,222 @@ class Push(unittest.TestCase):
                        ["kernel/\x7f"]):
             self.assertEqual(apply.push_refusal(["docs/a.md"], [None], listed), "push_list_unreadable", listed)
 
-    def test_the_repos_own_list_holds_the_kernel_and_the_review_roles_inputs(self):
-        from tools.hooks import protected
-        listed = protected.protected_paths()
-        for path in ("kernel/derive.py", "config/hooks.json", "harness/apply.py", "roles/pr-review.json"):
-            self.assertEqual(apply.push_refusal([path], [None], listed), "push_protected", path)
+    def test_the_repos_own_list_holds_the_rules_and_the_review_roles_inputs(self):
+        for path in ("config/hooks.json", "harness/apply.py", "roles/pr-review.json", "kernel/gate.py", "CODEOWNERS"):
+            self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        # The Kernel's own code is verify's input alone: pushed, and held at convergence (decision 0020).
+        self.assertIsNone(apply.push_refusal(["kernel/derive.py"], [None], own_list()))
+
+
+def own_list() -> list:
+    """What a push may not touch, as this checkout holds it: config/hooks.json read with config/defaults.json's model
+    Lenses, as `adapters/rules.py` reads them at the base commit (issue 139)."""
+    from tools.hooks import protected
+    models = json.loads((ROOT / "config" / "defaults.json").read_text())["required_lenses"]["model"]
+    return protected.push_of(protected.load(), models)
+
+
+def changed(path: str) -> str:
+    """A `diff --git` section that changes one line of `path`, as git writes it."""
+    return ("diff --git a/%s b/%s\nindex 1111111..2222222 100644\n--- a/%s\n+++ b/%s\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n"
+            % (path, path, path, path))
+
+
+def moved(old: str, new: str) -> str:
+    """A section that renames `old` to `new` whole, as git writes it."""
+    return "diff --git a/%s b/%s\nsimilarity index 100%%\nrename from %s\nrename to %s\n" % (old, new, old, new)
+
+
+def a_bundle(*sections) -> bytes:
+    return "".join(sections).encode()
+
+
+def push_effect(data: bytes) -> dict:
+    return {"id": "e9", "bundle": {"artifact": "bundle", "digest": "sha256:" + hashlib.sha256(data).hexdigest()}}
+
+
+class Bundle(unittest.TestCase):
+    """What a Role's push hands over, held to the base's list before anything is minted (issue 139)."""
+    BASE = "b" * 40
+
+    def held(self, data, listed=None, fetch=None, why=None):
+        asked = []
+
+        def listed_at(transport, repo, sha):
+            asked.append((transport, repo, sha))
+            return (None, why) if why else (own_list() if listed is None else listed, None)
+        with unittest.mock.patch.object(bundle.rules, "listed_at", listed_at):
+            said = bundle.held({"push_commits": [push_effect(data)]}, self.BASE, "the read token", REPO,
+                               fetch or (lambda artifact, digest: data))
+        return said, asked
+
+    def test_every_name_a_patch_writes_or_reads_is_read_from_it(self):
+        self.assertEqual(bundle.names(a_bundle(changed("docs/a.md"))), (["docs/a.md"], []))
+        # A rename's and a copy's source are read, as is each side of a hunk's file.
+        copied = ("diff --git a/kernel/x.py b/docs/y.py\nsimilarity index 90%\ncopy from kernel/x.py\ncopy to docs/y.py\n"
+                  "--- a/kernel/x.py\n+++ b/docs/y.py\n@@ -1 +1,2 @@\n a\n+z\n")
+        self.assertEqual(bundle.names(a_bundle(moved("config/hooks.json", "docs/h.json"), copied)),
+                         (["docs/h.json", "docs/y.py"], ["config/hooks.json", "kernel/x.py"]))
+        # A file made, a file removed, an empty file made, and a mode changed.
+        made = "diff --git a/n.md b/n.md\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/n.md\n@@ -0,0 +1 @@\n+x\n"
+        gone = "diff --git a/o.md b/o.md\ndeleted file mode 100644\nindex 1111111..0000000\n--- a/o.md\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n"
+        empty = "diff --git a/e.md b/e.md\nnew file mode 100644\nindex 0000000..e69de29\n"
+        mode = "diff --git a/run.sh b/run.sh\nold mode 100644\nnew mode 100755\n"
+        self.assertEqual(bundle.names(a_bundle(made, gone, empty, mode)), (["n.md", "o.md", "e.md", "run.sh"], []))
+        # A name with a space, ended by a tab on its sides; a name git quoted, its bytes past ASCII in octal.
+        spaced = ("diff --git a/docs/a b.md b/docs/a b.md\nindex 1..2 100644\n--- a/docs/a b.md\t\n+++ b/docs/a b.md\t\n"
+                  "@@ -1 +1 @@\n-a\n+b\n")
+        quoted = ('diff --git "a/docs/caf\\303\\251.md" "b/docs/caf\\303\\251.md"\nindex 1..2 100644\n'
+                  '--- "a/docs/caf\\303\\251.md"\n+++ "b/docs/caf\\303\\251.md"\n@@ -1 +1 @@\n-a\n+b\n')
+        self.assertEqual(bundle.names(a_bundle(spaced, quoted)), (["docs/a b.md", "docs/caf\u00e9.md"], []))
+        # A rename whose names hold spaces cannot be told apart in its header: its rename lines name both.
+        self.assertEqual(bundle.names(a_bundle(moved("kernel/a b.py", "docs/c d.py"))), (["docs/c d.py"], ["kernel/a b.py"]))
+        # A mode changed on a name with a space: its header alone names it, read as git reads it (Muse's read).
+        spaced_mode = "diff --git a/docs/a b.md b/docs/a b.md\nold mode 100644\nnew mode 100755\n"
+        self.assertEqual(bundle.names(a_bundle(spaced_mode)), (["docs/a b.md"], []))
+        # A quoted name's bytes are unquoted as git unquotes them, and read as UTF-8 once (Argon's read).
+        raw = b'diff --git "a/\xc3\x83\xc2\xa9" "b/\xc3\x83\xc2\xa9"\nold mode 100644\nnew mode 100755\n'
+        self.assertEqual(bundle.names(raw), (["\u00c3\u00a9"], []))
+        # A line with no newline at the end of a file.
+        last = "diff --git a/z.md b/z.md\nindex 1..2 100644\n--- a/z.md\n+++ b/z.md\n@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n\\ No newline at end of file\n"
+        self.assertEqual(bundle.names(a_bundle(last)), (["z.md"], []))
+        # A count of nine digits, leading zeros and all, is read (Astra's read).
+        self.assertEqual(bundle.names(a_bundle(changed("docs/a.md").replace("@@ -1,2 +1,2 @@", "@@ -1,000000002 +1,000000002 @@"))),
+                         (["docs/a.md"], []))
+
+    def test_a_patch_as_git_writes_it_is_read_whole(self):
+        # Against git itself: a change, a rename, a copy, a removal, a name with a space and one past ASCII.
+        with tempfile.TemporaryDirectory() as where:
+            tree = pathlib.Path(where)
+            run = lambda *args: subprocess.run(("git",) + args, cwd=tree, check=True, capture_output=True).stdout
+            run("init", "-q")
+            (tree / "kernel").mkdir()
+            (tree / "kernel" / "x.py").write_text("a\nb\nc\nd\ne\nf\n")
+            (tree / "a b.md").write_text("one\n")
+            (tree / "old.md").write_text("gone\n")
+            run("add", "-A")
+            first = run("write-tree").decode().strip()
+            run("mv", "kernel/x.py", "docs.py")
+            (tree / "copy.py").write_text("a\nb\nc\nd\ne\nf\nz\n")
+            (tree / "a b.md").write_text("two\n")
+            (tree / "caf\u00e9.md").write_text("new\n")
+            (tree / "old.md").unlink()
+            run("add", "-A")
+            data = run("-c", "core.quotepath=true", "diff", "--cached", "-M", "-C", "--find-copies-harder", first)
+        written, read = bundle.names(data)
+        self.assertEqual((sorted(written), sorted(read)),
+                         (sorted(["a b.md", "caf\u00e9.md", "copy.py", "docs.py", "old.md"]), ["kernel/x.py"]))
+
+    def test_what_is_not_a_patch_of_text_is_unreadable(self):
+        good = changed("docs/a.md")
+        for data in (b"", "", None, good.encode()[:-1], ("From x\n" + good).encode(),
+                     b"--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+b\n",
+                     good.replace("index 1111111..2222222 100644\n", "something else\n").encode(),
+                     good.replace(" a\n-b\n+c\n", " a\n-b\n").encode(),
+                     good.replace(" a\n-b\n+c\n", " a\n-b\n+c\n+d\n").encode(),
+                     good.replace("+++ b/docs/a.md\n", "").encode(),
+                     good.replace("+++ b/docs/a.md", "+++ docs/a.md").encode(),
+                     good.replace(" a\n", "a\n").encode(),
+                     good.replace("@@ -1,2 +1,2 @@", "@@ -1,2 @@").encode(),
+                     "diff --git a/x.bin b/x.bin\nindex 1..2 100644\nGIT binary patch\nliteral 2\nJcmZQ%0000\n\n".encode(),
+                     "diff --git a/x.bin b/x.bin\nindex 1..2 100644\nBinary files a/x.bin and b/x.bin differ\n".encode(),
+                     b"diff --git a/caf\xe9.md b/caf\xe9.md\nold mode 100644\nnew mode 100755\n",
+                     b"diff --git a/x.md b/y.md\nsimilarity index 100%\nrename from caf\xe9.md\nrename to y.md\n",
+                     # A quote git would read otherwise: an unquoted name that holds one, or text after a quoted name, in
+                     # a header that alone names the file (the Claude review of #139: git reads CODEOWNERS from these).
+                     b'diff --git a/CODEOWNERS "b/CODEOWNERS" "b/docs/zz"\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git a/docs/CODEOWNERS "b/docs/CODEOWNERS" "b/zz"\nnew file mode 100644\nindex 0000000..e69de29\n',
+                     b'diff --git a/CODEOWNERS "b/CODEOWNERS" y b/CODEOWNERS "b/CODEOWNERS" y\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git "a/CODEOWNERS" x "b/docs/a"\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git a/x.md b/y.md\nsimilarity index 100%\nrename from x"y.md\nrename to y.md\n',
+                     b"diff --git a/x\ty.md b/x\ty.md\nold mode 100644\nnew mode 100755\n",
+                     # A count no change is long enough to hold, which no Python reads on every version.
+                     ("diff --git a/docs/x b/docs/x\n--- a/docs/x\n+++ b/docs/x\n@@ -1," + "9" * 5000 + " +1 @@\n-a\n+b\n").encode(),
+                     # /dev/null with no mode line that makes or removes a file is a path git writes: dev/null.
+                     b"diff --git a/docs/x b/docs/x\nindex 1..2 100644\n--- a/docs/x\n+++ /dev/null\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n",
+                     b"diff --git a/docs/x b/docs/x\nnew file mode 100644\n--- a/docs/x\n+++ b/docs/x\n@@ -0,0 +1 @@\n+x\n",
+                     # A count of ten digits; a side of another prefix whose name the header holds; a line with a NUL,
+                     # a binary change written as text; and a line led by a backslash that is no marker git writes
+                     # (Astra's read).
+                     good.replace("@@ -1,2 +1,2 @@", "@@ -1,0000000002 +1,2 @@").encode(),
+                     good.replace("+++ b/docs/a.md", "+++ c/docs/a.md").encode(),
+                     good.replace("--- a/docs/a.md", "--- c/docs/a.md").encode(),
+                     # A header of other prefixes, which alone names a file whose mode changed (Astra's second read).
+                     b"diff --git long/.github/CODEOWNERS long/.github/CODEOWNERS\nold mode 100644\nnew mode 100755\n",
+                     b"diff --git a/docs/p.bin b/docs/p.bin\nnew file mode 100644\n--- /dev/null\n+++ b/docs/p.bin\n@@ -0,0 +1 @@\n+\x00\n",
+                     b"diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n\\ x\n+b\n",
+                     b"diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+b\n\\ x\n",
+                     # A side that names what the header does not, or a header that cannot be read and no rename's
+                     # lines, so that a side would name the file alone, as git reads it otherwise (Argon's read).
+                     b"diff --git a/README.md b/README.md\n--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -1 +1 @@\n-o\n+n\n",
+                     b"diff --git a/one two b/three four\n--- a/kernel/gate.py x\n+++ b/kernel/gate.py x\n@@ -1 +1 @@\n-o\n+n\n",
+                     b"diff --git a/p q b/r s\n--- a/p q\n+++ b/r s\n@@ -1 +1 @@\n-a\n+b\n",
+                     b"diff --git a/README.md b/README.md\n--- a/kernel/gate.py\t2026-01-01\n+++ b/kernel/gate.py\t2026-01-01\n@@ -1 +1 @@\n-o\n+n\n",
+                     b"diff --git a/one two b/three four\nrename from README.md\nrename to kernel/gate.py\t\n",
+                     # An escape git does not write, and a quote unescaped inside a quoted name.
+                     b'diff --git "a/\\x" "b/\\x"\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git "a/x" "b/x"\nold mode 100644\nnew mode 100755\nrename from "a"b"\nrename to y\n',
+                     b'diff --git "a/x\\377.md" "b/x\\377.md"\nold mode 100644\nnew mode 100755\n',
+                     b"diff --git a/x b/y z\nold mode 100644\nnew mode 100755\n",
+                     b"diff --git a/\nold mode 100644\nnew mode 100755\n",
+                     b"diff --git a/x.md b/x.md\nrename from \"x\nrename to y\n"):
+            self.assertIsNone(bundle.names(data), data)
+
+    def test_a_push_is_held_to_the_bases_list_by_each_class_of_path(self):
+        # What a person must judge, and what a model Lens is given, is refused, changed or renamed out of; what only a
+        # deterministic Lens reads, and the rest, is pushed (decision 0020 holds it at convergence).
+        refused = (".github/workflows/verify.yml", ".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS",
+                   "lifecycle/pull_request.json", "config/authority.json", "kernel/gate.py", "kernel/brakes.py",
+                   "config/hooks.json", "roles/pr-review.json", "roles/pr-review/prompt.md", "harness/apply.py",
+                   "config/rubric-pr-review.json", "config/harness.json", "tools/hooks/protected.py")
+        pushed = ("kernel/derive.py", "tests/test_apply.py", "tools/check_context.py", "README.md", ".gitleaks.toml",
+                  "schemas/effect.schema.json", "Makefile", "docs/a.md", "docs/decisions/x.md")
+        for path in refused:
+            for data in (a_bundle(changed(path)), a_bundle(moved(path, "docs/moved.md")),
+                         a_bundle(moved("docs/moved.md", path)), a_bundle(changed("docs/a.md"), changed(path))):
+                self.assertEqual(self.held(data)[0], ("item", "push_protected"), (path, data))
+        for path in pushed:
+            for data in (a_bundle(changed(path)), a_bundle(moved(path, "docs/moved.md"))):
+                self.assertIsNone(self.held(data)[0], (path, data))
+
+    def test_the_list_is_the_bases_read_first_and_unread_refuses_every_push(self):
+        data = a_bundle(changed("docs/a.md"))
+        said, asked = self.held(data)
+        self.assertEqual((said, asked), (None, [("the read token", REPO, self.BASE)]))
+        # A list that cannot be read refuses the push, the Factory's, and no bundle is fetched for it.
+        fetched = []
+        said, _ = self.held(data, why="push_list_unreadable", fetch=lambda a, d: fetched.append(a) or data)
+        self.assertEqual((said, fetched), (("environment", "push_list_unreadable"), []))
+        # So does a list the refusal cannot read, though it was read.
+        self.assertEqual(self.held(data, listed=[])[0], ("environment", "push_list_unreadable"))
+        # A list read from the head, which would let the change take itself off it, is never asked: only `base` is.
+        self.assertNotIn(HEAD, [sha for _, _, sha in asked])
+
+    def test_a_bundle_is_taken_only_by_its_digest_and_read_from_itself(self):
+        data = a_bundle(changed("docs/a.md"))
+        # Not fetched, the Factory's; bytes that are not the digest named, or no patch, the Role's.
+        for raised in (bundle.Unfetched("none"), github.Unanswered("none"), OSError("none")):
+            def fetch(artifact, digest, raised=raised):
+                raise raised
+            self.assertEqual(self.held(data, fetch=fetch)[0], ("environment", "bundle_unfetched"), raised)
+        # An artifact the Run did not hand over is the Role's, as the Result names it (the Claude review of #139).
+        def absent(artifact, digest):
+            raise bundle.NotHandedOver(artifact)
+        self.assertEqual(self.held(data, fetch=absent)[0], ("item", "bundle_not_handed_over"))
+        other = a_bundle(changed("config/hooks.json"))
+        for given in (other, data + b"\n", "text", None):
+            self.assertEqual(self.held(data, fetch=lambda a, d, given=given: given)[0], ("item", "bundle_digest_differs"),
+                             given)
+        self.assertEqual(self.held(b"not a patch\n")[0], ("item", "bundle_unreadable"))
+        # The names are the bundle's, never the Result's: one that says docs/ alone but changes the rules is refused.
+        self.assertEqual(self.held(other)[0], ("item", "push_protected"))
+        # Until the run job's shape is chosen, no bundle can be fetched.
+        with self.assertRaises(bundle.Unfetched):
+            bundle.fetch_bundle("bundle", push_effect(data)["bundle"]["digest"])
+        # A Result that asks for no push reads no list.
+        with unittest.mock.patch.object(bundle.rules, "listed_at", lambda *a: self.fail("read")):
+            self.assertIsNone(bundle.held({"submit_review": []}, self.BASE, "t", REPO))
+            self.assertIsNone(bundle.held({"push_commits": []}, self.BASE, "t", REPO))
 
 
 class Opened(unittest.TestCase):
@@ -1279,7 +1490,7 @@ class Job(unittest.TestCase):
         self.assertEqual((ended["outcome"], ended["reason"]), ("item", "finding_not_in_hunk"))
 
     def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None,
-           revoked=True, config=None, facts=None, change=RAW):
+           revoked=True, config=None, facts=None, change=RAW, held=None):
         calls = {"mint": [], "revoke": 0, "written": [], "diff": 0}
         given = facts
 
@@ -1320,10 +1531,58 @@ class Job(unittest.TestCase):
             surfaces = {c["finding"]: "PRRT_kw7" for c in req.get("comments", ())}
             return {"state": "applied", "key": "PRR_kwDOA7", "surfaces": surfaces}
         with unittest.mock.patch.object(apply.task_, "diff_of", diff_of):
-            record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, config or self.CONFIG, NOW)
+            record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, config or self.CONFIG, NOW,
+                                      held=held)
         self.assertEqual(shared.errors(record, "applied"), [])
         self.assertEqual(shared.errors(ended, "outcome"), [])
         return record, ended, calls
+
+    def test_a_push_is_held_before_anything_is_minted_and_its_refusal_recorded(self):  # issue 139
+        data = a_bundle(changed("docs/a.md"))
+        res = result(effects=dict(result()["effects"], push_commits=[push_effect(data)]))
+        task = the_task(permitted_effects=["push_commits", "submit_review", "create_check_run"])
+        seen = []
+
+        def holding(why):
+            def held(effects):
+                seen.append(effects)
+                return why
+            return held
+        # Refused: nothing is minted, and each Effect the Result asked for is recorded refused, the push first.
+        for why in (("item", "push_protected"), ("environment", "push_list_unreadable"), ("item", "bundle_unreadable")):
+            record, ended, calls = self.go(res, task=task, held=holding(why))
+            self.assertEqual(((ended["outcome"], ended["reason"]), calls["mint"], calls["written"]), (why, [], []), why)
+            self.assertEqual([(e["id"], e["type"], e["state"], e["reason"]) for e in record["effects"]],
+                             [("e9", "push_commits", "refused", why[1]), ("e1", "submit_review", "refused", why[1]),
+                              ("e2", "create_check_run", "refused", why[1])], why)
+        self.assertEqual(seen[0], res["effects"])
+        # A Result that asks for a push, and no hold given, is refused, the Factory's: no push lands unheld.
+        record, ended, calls = self.go(res, task=task)
+        self.assertEqual(((ended["outcome"], ended["reason"]), calls["mint"]), (("environment", "push_not_held"), []))
+        # Held and let through, the push is written first, on the commit the Decision admitted, by a token minted after.
+        app = copy.deepcopy(APPS["apps"]["pr-review"])
+        app["permissions"]["contents"] = {"level": "write", "needs": app["permissions"]["contents"]["needs"] + ["effect:push_commits"]}
+        needs = dict(APPS["needs"], **{"effect:push_commits": {"permission": "contents", "level": "write"}})
+        record, ended, calls = self.go(res, task=task, held=holding(None), config=dict(self.CONFIG, app=app, needs=needs))
+        self.assertEqual([kind for _, kind, _ in calls["written"]], ["push_commits", "submit_review", "create_check_run"])
+        self.assertEqual(calls["written"][0][2], {"commit": HEAD, "bundle": push_effect(data)["bundle"]})
+        self.assertEqual(calls["mint"][0]["contents"], "write")
+        # Without a grant for it, the token is never minted wider than the Effects: the push waits on its write.
+        record, ended, calls = self.go(res, task=task, held=holding(None))
+        self.assertEqual(((ended["outcome"], ended["reason"]), calls["mint"]), (("environment", "effect_not_grantable"), []))
+        # Held after every other check: a Result refused for itself is never held, nor is one that pushes nothing.
+        seen.clear()
+        record, ended, calls = self.go(result(run="r_01JA7Z", effects=res["effects"]), task=task, held=holding(None))
+        self.assertEqual(((ended["outcome"], ended["reason"]), seen), (("item", "result_not_the_runs"), []))
+        record, ended, calls = self.go(result(), held=holding(("item", "push_protected")))
+        self.assertEqual((ended, seen), (self.go(result())[1], []))
+        # One push to a Result: a second is no Result at all.
+        twice = result(effects={"push_commits": [push_effect(data), dict(push_effect(data), id="e8")]})
+        self.assertNotEqual(shared.errors(twice, "result"), [])
+        self.assertEqual(shared.errors(res, "result"), [])
+        # Nor may a Role the Task does not permit to push ask for one.
+        record, ended, calls = self.go(res, held=holding(None))
+        self.assertEqual((ended["outcome"], ended["reason"], seen), ("item", "effect_not_permitted", []))
 
     def test_an_owners_ruling_is_recorded_whatever_its_result_writes(self):  # issue 389
         # The owner's ruling Run on the author's answer: its decision is recorded in applied/1, as the ruling the Kernel
