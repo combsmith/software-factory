@@ -1967,7 +1967,8 @@ class Checks(unittest.TestCase):
             self.assertIsNone(got["checks"][0]["app_id"], errors)     # the first check run in the rollup
             self.assertIs(got["complete"], True)
         for errors in ([dict(refused, type="NOT_FOUND")], [dict(refused, path=place[:-1] + ["workflowRun"])],
-                       [dict(refused, path=place[:4] + [1] + place[5:])], [refused, {"type": "INTERNAL"}],
+                       [dict(refused, path=place[:4] + [1] + place[5:])], [dict(refused, path=place[:4] + [False] + place[5:])],
+                       [dict(refused, path=place[:4] + [0.0] + place[5:])], [refused, {"type": "INTERNAL"}],
                        [dict(refused, path=place[:9] + [len(nodes)] + place[10:])], "FORBIDDEN"):
             with self.assertRaises(github.Unanswered, msg=errors):
                 checks.read(github.Replay([answered(errors)]), as_pull(node))

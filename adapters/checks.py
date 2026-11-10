@@ -72,12 +72,16 @@ def _hidden(errors):
     for error in errors:
         path = error.get("path") if isinstance(error, dict) else None
         if not (isinstance(error, dict) and error.get("type") == "FORBIDDEN" and isinstance(path, list)
-                and len(path) == len(SHOWN_APP) + 3 and path[:len(SHOWN_APP)] == SHOWN_APP
+                and len(path) == len(SHOWN_APP) + 3 and _same(path[:len(SHOWN_APP)], SHOWN_APP)
                 and type(path[len(SHOWN_APP)]) is int and path[len(SHOWN_APP) + 1:] == ["checkSuite", "app"]):
             return None
         places.add(path[len(SHOWN_APP)])
     return places
 
+
+def _same(given: list, place: list) -> bool:
+    """Whether `given` is `place` part for part, each of its own type: no false for the commit's 0, nor 0.0."""
+    return all(type(a) is type(b) and a == b for a, b in zip(given, place))
 
 def _shown_none(node) -> bool:
     """Whether `node` is a check run whose suite GitHub gives with its App null, as it does where it refused it."""
