@@ -13,6 +13,7 @@ from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, vali
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Data files that are the real thing, not illustrations, and their schema.
 LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle", "roles/pr-review.json": "role",
+        "roles/pr-review/checklist.json": "checklist",
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller", "config/harness.json": "harness",
@@ -35,7 +36,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "facts": "record", "issue-facts": "record", "seen": "record", "decision": "record", "issue-decision": "record", "finding": "record",
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
-            "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
+            "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data", "checklist": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
             "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data", "credential-ages": "data", "machine-user": "data",
             "rings": "data", "release-fixture": "data", "release-exchanges": "record"}

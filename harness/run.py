@@ -28,7 +28,7 @@ import tempfile
 import time
 import uuid
 
-from harness import engine, steps, task
+from harness import engine, passes, shared, steps, task
 from kernel.coverage import readable_rubric
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -79,6 +79,20 @@ def instructions(root: pathlib.Path, the_task: dict) -> str:
     elif the_task["intent"] in REVIEWING:
         raise RubricUnreadable("rubric_unreadable")
     return told
+
+
+def checklist(root: pathlib.Path, role: str) -> str:
+    """The fault kinds each criterion of the Role's rubric covers, `roles/<role>/checklist.json`, among the Role's own
+    files and so a model Lens's input as they are, as the model is told them when its configuration asks for the
+    checklist (issue 581); RubricUnreadable where it is missing, names another Role, or does not hold to checklist/1."""
+    path = root / "roles" / role / "checklist.json"
+    try:
+        held = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise RubricUnreadable("rubric_unreadable") from None
+    if shared.errors(held, "checklist") or held["role"] != role:
+        raise RubricUnreadable("rubric_unreadable")
+    return engine.CHECKLIST + json.dumps(held["criteria"], sort_keys=True)
 
 
 def cli_call(args: list, env: dict, timeout: float, head: str = None):
@@ -137,6 +151,9 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     session = session or str(uuid.uuid4())
     fault, told = None, None
     reviewing = the_task["intent"] in REVIEWING
+    # What a private replay may switch on, one approach at a time, in its own copy of the configuration (issue 581). The
+    # committed configuration gives none of it, so a review is asked once, whole, and told what it always was.
+    review = passes.settings(config["harness"]) if reviewing else dict(passes.DEFAULTS)
     if reviewing and any(o["kind"] == "diff" for o in the_task["omitted"]):
         # The Kernel holds a pull request whose diff no Task carries whole; one admitted all the same is never reviewed
         # in part (issue 327).
@@ -146,6 +163,8 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     else:
         try:
             told = instructions(ROOT, the_task)
+            told += checklist(ROOT, the_task["role"]) if review["checklist"] is True else ""
+            told += engine.READ_FIRST if review["read_head"] is True else ""
         except RubricUnreadable:
             fault = "rubric_unreadable"
     if fault:
@@ -156,8 +175,16 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     def called(args, env, timeout):
         # The head is the folder the CLI starts in, for a review alone; any other Intent's call is as it always was.
         return asked(args, env=env, timeout=timeout, head=head) if reviewing else asked(args, env=env, timeout=timeout)
-    return engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], called, clock, session, told,
-                      read=reviewing)
+    # A pass per changed file, or the whole Task more than once, each asked as the one call always was, and joined.
+    # Each call after the first is a session of its own, as a CLI is never asked twice under one.
+    asked_of = [one for one in (passes.split(the_task) if review["passes"] == "per_file" else [the_task])
+                for _ in range(review["runs"])]
+    results = [engine.run(one, job_env.get(CLI, ""), job_env, config["harness"], called, clock,
+                          session if n == 0 else str(uuid.uuid4()), told, read=reviewing) for n, one in enumerate(asked_of)]
+    joined = passes.union(results)
+    if len(results) > 1 and joined["status"] == "completed" and not engine.held(joined, the_task):
+        return engine.failed(the_task, "result_invalid", joined["usage"])
+    return joined
 
 
 RUN_ID = re.compile(r"r_[0-9A-Z]{6,26}")
