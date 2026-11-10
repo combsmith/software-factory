@@ -360,8 +360,20 @@ class Unreadable(unittest.TestCase):
                dict(good, opened_at=at(2), close_events=[{"action": "closed", "by": dict(WRITER), "at": at(1)}, {"action": "reopened", "by": dict(WRITER), "at": at(3)}]),
                dict(good, close_events=[{"action": "closed", "by": dict(WRITER), "at": at(3)}]),
                pr(is_open=False, closed=5, closes=[]), pr(is_open=False, closed=5, closes=[("closed", 4)]),
-               # Its last close more than max_close_lag_seconds after closed_at (300 here).
-               pr(is_open=False, closed=5, closes=[("closed", 11)]),
+               # Its last close more than max_close_lag_seconds after closed_at (300 here), or at it exactly.
+               pr(is_open=False, closed=5, closes=[("closed", 11)]), pr(is_open=False, closed=5, closes=[("closed", 10)]),
+               # Closed now, but its last event a reopening, in closed_at's second (Astra).
+               pr(is_open=False, closed=5, closes=[("closed", 3), ("reopened", 5)]),
+               # A close time that is no time, beside a close event that is; and one before the opening, though its
+               # close event, within the lag of it, is after the opening.
+               dict(pr(is_open=False, closed=5), closed_at="soon"), dict(pr(is_open=False, closed=6, opened=5), closed_at=at(4)),
+               # A merged pull request closed before its merge's second, or closed and reopened after it (Astra).
+               pr(is_open=False, merged=5, closes=[("closed", 4), ("reopened", 6), ("closed", 7)], closed_issue=None),
+               dict(pr(is_open=False, merged=5), close_events=[{"action": "closed", "by": dict(WRITER), "at": at(3)},
+                                                              {"action": "reopened", "by": dict(WRITER), "at": at(4)},
+                                                              {"action": "closed", "by": dict(WRITER), "at": at(5)},
+                                                              {"action": "reopened", "by": dict(WRITER), "at": at(6)},
+                                                              {"action": "closed", "by": dict(WRITER), "at": at(6)}]),
                pr(is_open=False, merged=5, closes=[("closed", 3), ("reopened", 4)]),
                # Each by whom, read whole as a label event's actor is (issue 552): none, or one that cannot be read.
                dict(good, close_events=[{"action": "closed", "at": at(3)}, {"action": "reopened", "by": dict(WRITER), "at": at(4)}]),
@@ -380,6 +392,13 @@ class Unreadable(unittest.TestCase):
         trailing = dict(pr(is_open=False, closed=5), close_events=[{"action": "closed", "by": dict(WRITER),
                                                                     "at": "2026-10-11T12:05:01Z"}])
         self.assertNotEqual(derive(facts(linked=[trailing]))["reason"], "linked_unreadable")
+        # A close 299 seconds after closed_at, inside the limit, is read; one at 300 is not (above).
+        inside = dict(pr(is_open=False, closed=5), close_events=[{"action": "closed", "by": dict(WRITER),
+                                                                  "at": "2026-10-11T12:09:59Z"}])
+        self.assertNotEqual(derive(facts(linked=[inside]))["reason"], "linked_unreadable")
+        # A merged one closed and reopened before its merge, then merged, is read (trials/P-48.json's pull request).
+        reopened = pr(is_open=False, merged=5, closes=[("closed", 2), ("reopened", 3), ("closed", 5)])
+        self.assertNotEqual(derive(facts(linked=[reopened]))["reason"], "linked_unreadable")
         # With no limit that can be read, only a close in closed_at's own second is read.
         for bad in (None, 0, "300"):
             cfg = config()

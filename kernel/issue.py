@@ -227,6 +227,11 @@ def readable_close_events(entry: dict, config: dict) -> bool:
         return False
     if any(b["at"] < a["at"] or b["action"] == a["action"] for a, b in zip(events, events[1:])):
         return False
+    # A merge closes a pull request for good: it stood open until its merge's second, and nothing after that second
+    # but the merge's own close (trials/P-48.json; Astra).
+    merged = entry["merged_at"]
+    if merged is not None and (closed_before(entry, merged) or len([ev for ev in events if ev["at"] >= merged]) != 1):
+        return False
     last = events[-1] if events else None
     if entry["closed_at"] is None:
         return last is None or last["action"] != CLOSED
