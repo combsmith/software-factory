@@ -22,6 +22,7 @@ import zlib
 
 from harness import engine, head, passes, run, shared, task
 from tests import support
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RECORD = json.loads((ROOT / "examples" / "pass.json").read_text())
@@ -1060,8 +1061,9 @@ class Passes(unittest.TestCase):
         for spoil in (None, dict(listed, role="pr-other"), dict(listed, intent="fix-findings"), dict(listed, criteria={"PR-3": []}),
                       dict(listed, criteria=dict(listed["criteria"], **{"PR-9": ["a fault no rubric names"]}))):
             with self.subTest(spoil=spoil), unittest.mock.patch.object(run, "ROOT", pathlib.Path(tempfile.mkdtemp())):
-                shutil.copytree(str(ROOT / "roles" / "pr-review"), str(run.ROOT / "roles" / "pr-review"))
-                shutil.copytree(str(ROOT / "config"), str(run.ROOT / "config"))
+                for path in walk.files(ROOT, "roles/pr-review") + walk.files(ROOT, "config"):
+                    (run.ROOT / path.relative_to(ROOT)).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(str(path), str(run.ROOT / path.relative_to(ROOT)))
                 given = run.ROOT / "roles" / "pr-review" / "checklist.json"
                 given.unlink() if spoil is None else given.write_text(json.dumps(spoil))
                 r, asked = self.asked(switched(checklist=True))
