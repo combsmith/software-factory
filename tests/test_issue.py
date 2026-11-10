@@ -367,6 +367,8 @@ class Unreadable(unittest.TestCase):
                # A close time that is no time, beside a close event that is; and one before the opening, though its
                # close event, within the lag of it, is after the opening.
                dict(pr(is_open=False, closed=5), closed_at="soon"), dict(pr(is_open=False, closed=6, opened=5), closed_at=at(4)),
+               # Merged a minute after its close time, its close event at the merge, within the lag of closed_at.
+               dict(pr(is_open=False, merged=6, closes=[("closed", 6)]), closed_at=at(5)),
                # A merged pull request closed before its merge's second, or closed and reopened after it (Astra).
                pr(is_open=False, merged=5, closes=[("closed", 4), ("reopened", 6), ("closed", 7)], closed_issue=None),
                dict(pr(is_open=False, merged=5), close_events=[{"action": "closed", "by": dict(WRITER), "at": at(3)},
