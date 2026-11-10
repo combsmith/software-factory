@@ -3184,6 +3184,21 @@ class DescriptionEdits(unittest.TestCase):
             self.assertEqual(found["request"]["body"]["query"], edits.QUERY)
             self.assertEqual(edits.last_edited_at(github.Replay([found]), canary96), "2026-11-03T19:24:25Z")
 
+    def test_a_revision_deleted_from_the_history_is_read_as_the_trial_recorded_it(self):  # trials/P-58.deleted.json
+        # Issue 549: a person deleted one revision from a description's history. GitHub still lists its node, with its
+        # editedAt and a deletedAt, and moves neither lastEditedAt nor the count, so the port reads the same time before
+        # the deletion and after it, and refuses neither.
+        canary101 = {"number": 101, "base": {"repo": {"full_name": canary()}}}
+        before, after = exchanges("P-58.deleted")[2:]
+        for found in (before, after):
+            self.assertEqual(found["request"]["body"]["query"], edits.QUERY)
+            self.assertEqual(edits.last_edited_at(github.Replay([found]), canary101), "2026-11-10T20:48:14Z")
+        listed = [ex["response"]["body"]["data"]["repository"]["pullRequest"]["userContentEdits"] for ex in (before, after)]
+        self.assertEqual([[n["deletedAt"] for n in edited["nodes"]] for edited in listed],
+                         [[None] * 5, [None, None, "2026-11-10T23:02:37Z", None, None]])
+        self.assertEqual([[n["editedAt"] for n in edited["nodes"]] for edited in listed][0],
+                         [n["editedAt"] for n in listed[1]["nodes"]])
+
     def test_the_last_edit_is_told_by_its_edited_at_never_its_created_at(self):  # trials/P-58.json
         # P-58: the opening text's entry was made with the first later edit, so its createdAt is that edit's, 23 seconds
         # after its editedAt. The time read is the later of lastEditedAt and every editedAt, never a createdAt.

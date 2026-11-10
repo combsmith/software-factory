@@ -6,8 +6,9 @@ One GraphQL read, the query trials/P-58.reader.json recorded word for word, whic
 `userContentEdits`, whoever made it, a bot's or an App's among them, and a push or a title's edit moves neither
 (trials/P-58.json). The time is the later of `lastEditedAt` and every edit's `editedAt`, never a `createdAt`: the opening
 text's entry is made only with the first later edit, and takes that edit's `createdAt` (P-58). An edit whose revision a
-writer deleted from the history still happened, and counts. No editor is read: whoever edited, the edit holds the item
-(decision 0140), so no description's text and no account is kept.
+writer deleted from the history still happened, and counts: GitHub still lists it, with its `editedAt`
+(trials/P-58.deleted.json). No editor is read: whoever edited, the edit holds the item (decision 0140), so no
+description's text and no account is kept.
 
 The list is whole only when it says there is no next page and its count is every edit it lists; a count below the
 edits it lists, or anything not in GraphQL's shape, cannot be read. Past the first hundred, or short, `lastEditedAt`

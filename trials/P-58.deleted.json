@@ -1,0 +1,409 @@
+{
+  "schema": "trial/1",
+  "trial": "P-58",
+  "question": "Does a pull request's `lastEditedAt` move when its description is edited, and not when only its title is, or when its head is pushed; and does an edit by a bot or an App move it?",
+  "pass": "Written 2026-11-10T20:45:57Z, before anything runs (issue 549, raised by the Claude security read of pull request 548; the leg of P-58 that decision 0140 assumed and no trial recorded). On a new canary pull request opened by the Maintainer's login, the description is edited twice by that login, and the query the facts port sends, adapters/edits.py's QUERY word for word with its variables, is read by the Maintainer's login. The Maintainer then deletes one revision from the description's edit history in the browser, by hand, and the same query is read again. Pass if the read after the deletion is answered 200 with no errors and in the shape the port reads: every node of userContentEdits, the deleted revision's among them if it is still listed, with an editedAt that is a UTC time to the second, a totalCount no less than the nodes listed, and lastEditedAt and the count agreeing that the description was edited; and if the time the port gives for it, the later of lastEditedAt and every editedAt, is no earlier than the time it gave before the deletion. Then a deleted revision still counts, as decision 0140 assumed. Fail otherwise: a deleted node whose editedAt is null or absent, or any answer the port refuses, leaves that pull request refused on every pass, and a time that moved back hides an edit; either is told to the Maintainer, and a rule and its test are owed. Recorded, deciding nothing: whether the deleted revision's node stays in the list, what its deletedAt says, and whether totalCount, lastEditedAt or editor move at the deletion. Not asked here: the same read through the reader App's token, whose key is the Maintainer's; trials/P-58.reader.json found the reader answered as the Maintainer's login is. Run on 2026-11-10 on canary pull request 101, opened and its description edited twice by the Maintainer's login (writes not recorded here), and one revision deleted by the Maintainer in the browser; ran_at is the time of the trial branch's one commit, the first write GitHub timed. Passed. Four reads are recorded, each answered 200 with no errors. At once after it opened, cubic had already edited, nine seconds after the opening: two edits, the opening text's, editedAt 20:46:33Z with cubic's time, 20:46:42Z, as its createdAt, and cubic's. After the Maintainer's two edits, at 20:47:01Z and 20:47:06Z: four edits, lastEditedAt 20:47:06Z, editor don-petry. At 20:51:34Z, before the deletion, after CodeRabbit's edit at 20:48:14Z: five edits, lastEditedAt 20:48:14Z, editor coderabbitai, every deletedAt null. At 23:02:55Z, after the Maintainer deleted the revision of 20:47:01Z: that revision's node is still listed, in its place, its editedAt, createdAt and editor as before, and its deletedAt now 2026-11-10T23:02:37Z; every other node is as it was, totalCount is still 5 with no next page, and lastEditedAt and editor did not move. The port gives 2026-11-10T20:48:14Z for the read before the deletion and for the read after it. So a deleted revision keeps its time and still counts, as decision 0140 assumed, and a deletion is itself no edit: it moves no time. The revision deleted was a middle one; whether GitHub lets the newest be deleted, and what it then answers, was not asked.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-10T20:46:28Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 101's lastEditedAt, editor and userContentEdits, by the query the facts port sends, at once after it opened",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 101
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 10 Nov 2026 20:46:55 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C434:E2982:1323FE9:3B58C06:6AF382BF",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4767",
+          "x-ratelimit-reset": "1794345675",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "233"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "lastEditedAt": "2026-11-10T20:46:42Z",
+                "editor": {
+                  "__typename": "Bot",
+                  "login": "cubic-dev-ai"
+                },
+                "userContentEdits": {
+                  "totalCount": 2,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpHPAAAAASX2vB4="
+                  },
+                  "nodes": [
+                    {
+                      "editedAt": "2026-11-10T20:46:42Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "cubic-dev-ai",
+                        "databaseId": 191113872
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:46:33Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 101's lastEditedAt, editor and userContentEdits, by the query the facts port sends, after the Maintainer's two edits of its description",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 101
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 10 Nov 2026 20:47:19 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C484:348BB9:12BAFD9:3A1FC0E:6AF382D7",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4752",
+          "x-ratelimit-reset": "1794345675",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "248"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "lastEditedAt": "2026-11-10T20:47:06Z",
+                "editor": {
+                  "__typename": "User",
+                  "login": "don-petry"
+                },
+                "userContentEdits": {
+                  "totalCount": 4,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpHPAAAAASX2vB4="
+                  },
+                  "nodes": [
+                    {
+                      "editedAt": "2026-11-10T20:47:06Z",
+                      "createdAt": "2026-11-10T20:47:06Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:47:01Z",
+                      "createdAt": "2026-11-10T20:47:01Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:46:42Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "cubic-dev-ai",
+                        "databaseId": 191113872
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:46:33Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 101's lastEditedAt, editor and userContentEdits, by the query the facts port sends, before the deletion, after CodeRabbit's edit",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 101
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 10 Nov 2026 20:51:34 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "C98C:204FF8:12E2C3B:3ABAB70:6AF383D6",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4640",
+          "x-ratelimit-reset": "1794345675",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "360"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "lastEditedAt": "2026-11-10T20:48:14Z",
+                "editor": {
+                  "__typename": "Bot",
+                  "login": "coderabbitai"
+                },
+                "userContentEdits": {
+                  "totalCount": 5,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpHPAAAAASX2vB4="
+                  },
+                  "nodes": [
+                    {
+                      "editedAt": "2026-11-10T20:48:14Z",
+                      "createdAt": "2026-11-10T20:48:14Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "coderabbitai",
+                        "databaseId": 136622811
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:47:06Z",
+                      "createdAt": "2026-11-10T20:47:06Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:47:01Z",
+                      "createdAt": "2026-11-10T20:47:01Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:46:42Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "cubic-dev-ai",
+                        "databaseId": 191113872
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:46:33Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 101's lastEditedAt, editor and userContentEdits, by the query the facts port sends, after the Maintainer deleted one revision from the history",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){lastEditedAt editor{__typename login} userContentEdits(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{editedAt createdAt deletedAt editor{__typename login ... on User{databaseId} ... on Bot{databaseId}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 101
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 10 Nov 2026 23:02:56 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "CCB4:162233:AEA93:21D4C3:6AF3A29F",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4984",
+          "x-ratelimit-reset": "1794355038",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "16"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "lastEditedAt": "2026-11-10T20:48:14Z",
+                "editor": {
+                  "__typename": "Bot",
+                  "login": "coderabbitai"
+                },
+                "userContentEdits": {
+                  "totalCount": 5,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpHPAAAAASX2vB4="
+                  },
+                  "nodes": [
+                    {
+                      "editedAt": "2026-11-10T20:48:14Z",
+                      "createdAt": "2026-11-10T20:48:14Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "coderabbitai",
+                        "databaseId": 136622811
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:47:06Z",
+                      "createdAt": "2026-11-10T20:47:06Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:47:01Z",
+                      "createdAt": "2026-11-10T20:47:01Z",
+                      "deletedAt": "2026-11-10T23:02:37Z",
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:46:42Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "Bot",
+                        "login": "cubic-dev-ai",
+                        "databaseId": 191113872
+                      }
+                    },
+                    {
+                      "editedAt": "2026-11-10T20:46:33Z",
+                      "createdAt": "2026-11-10T20:46:42Z",
+                      "deletedAt": null,
+                      "editor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
