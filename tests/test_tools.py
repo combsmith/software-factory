@@ -10120,6 +10120,240 @@ class Writes(unittest.TestCase):
                     "harness/modstore.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
+    def test_the_routes_issue_655_names_are_refused(self):
+        # Issue 655: the routes the reads of #640 and #650 found past that change, each taken only by code written to hide
+        # a write. Each is refused, by the problem that names what it does.
+        files = {
+            "harness/portc.py": "class Port:\n    pass\n",
+            "harness/portinst.py": "class Port:\n    pass\n\n\nPORT = Port()\nTABLE = {}\n\n\ndef go():\n    return None\n",
+            # A name stored under an if, imported under another name; a global another module's function assigns.
+            "harness/storeda.py": "import os\n\nfrom harness.portc import Port\n\nif os.environ.get('X'):\n    P = Port\n",
+            "harness/storedb.py": "from adapters import effects\nfrom harness.storeda import P as Q\n\nQ.w = effects.approve\n",
+            "harness/globa.py": "from harness.portc import Port\n\n\ndef f():\n    global C\n    C = Port\n",
+            "harness/globb.py": "from adapters import effects\nfrom harness.globa import C\n\n\ndef g():\n    C.w = effects.approve\n",
+            # A second class it may be.
+            "harness/twoclass.py": "import os\n\nfrom adapters import effects\nfrom harness import approve\n\n\nclass Local:\n"
+                                   "    pass\n\n\nif os.environ.get('X'):\n    C = Local\nelse:\n    C = approve.Port\nC.w = effects.approve\n",
+            # A PATCHERS file's second owner.
+            "tools/make_corpus.py": "import os\n\nimport sim.world\nfrom harness import portinst\n\nif os.environ.get('X'):\n"
+                                    "    W = sim.world\nelse:\n    W = portinst\nW.decide = len\n",
+            # Another module's names, held by a name before they are handed on.
+            "harness/varsname.py": "from harness import portinst\n\n\ndef go(sink):\n    d = vars(portinst)\n    sink(d)\n",
+            "harness/varstop.py": "from harness import portinst\n\nd = portinst.__dict__\nprint(d)\n",
+            # A nonlocal value two steps away.
+            "harness/nonlocal2.py": "from adapters import effects\nfrom harness.portc import Port\n\n\ndef f():\n    c = None\n\n"
+                                    "    def g():\n        nonlocal c\n        p = Port\n        c = p\n    g()\n    c.w = effects.approve\n",
+            # exec or eval by a binding that may never run, or that is deleted.
+            "harness/execif.py": "if False:\n    from re import compile as exec\n\n\ndef go(s):\n    return exec(s)\n",
+            "harness/exectry.py": "try:\n    from re import compile as eval\nexcept ImportError:\n    pass\n\n\ndef go(s):\n"
+                                  "    return eval(s)\n",
+            "harness/execdel.py": "class exec:\n    pass\n\n\ndel exec\n\n\ndef go(s):\n    return exec(s)\n",
+            "harness/execfn.py": "def go(s):\n    from re import compile as exec\n    return exec(s)\n\n\ndef again(s):\n    return exec(s)\n",
+            # A loader, or __builtins__, by a literal or as another module's attribute; sys and modules by get.
+            "harness/loadget.py": "import tools.mutants as m\n\n\ndef go():\n    return getattr(m, 'importlib')\n",
+            "harness/loadkey.py": "import tools.mutants as m\n\n\ndef go():\n    return m.__dict__['importlib']\n",
+            "harness/builtinsattr.py": "import kernel.decide as k\n\n\ndef go(s):\n    return k.__builtins__['eval'](s)\n",
+            "harness/getsys.py": "import os\n\n\ndef go():\n    return vars(vars(os).get('sys')).get('modules')['adapters.effects']\n",
+            # Shell words: timeout's options, eval, watch, stdbuf, and a case pattern's ).
+            "harness/timeoutopt.py": "import os\n\n\ndef go():\n    return os.system('timeout -s KILL 60 git push')\n",
+            "harness/evalgit.py": "import os\n\n\ndef go():\n    return os.system('eval git push')\n",
+            "harness/watchgit.py": "import os\n\n\ndef go():\n    return os.system('watch git push')\n",
+            "harness/stdbufgit.py": "import os\n\n\ndef go():\n    return os.system('stdbuf -oL git push')\n",
+            "harness/casegh.py": "import os\n\n\ndef go():\n    return os.system('case x in x) gh pr merge 1;; esac')\n",
+            # An unbound fill on another module's container.
+            "harness/portbox.py": "TABLE = {}\nLIST = []\n",
+            "adapters/unboundfill.py": "from adapters import effects\nfrom harness import portbox\n\n"
+                                       "dict.update(portbox.TABLE, go=effects.approve)\nlist.append(portbox.LIST, effects.approve)\n",
+            # Muse's read of this change: sys by pop, setdefault or __getitem__; a name stored plainly and under an if; a
+            # global through a local name for its module; vars held by a global or an imported name.
+            "harness/popsys.py": "import os\n\n\ndef go():\n    return vars(vars(os).pop('sys')).setdefault('modules', 0)\n",
+            "harness/getitemsys.py": "import os\n\n\ndef go():\n    return vars(os).__getitem__('sys')\n",
+            "harness/plainif.py": "import os\n\nfrom harness.portc import Port\n\n\nclass Local:\n    pass\n\n\nP = Local\n"
+                                  "if os.environ.get('X'):\n    P = Port\nP.w = len\n",
+            "harness/globc.py": "from harness import globa\n\n\ndef g():\n    m = globa\n    m.C.w = len\n",
+            "harness/globd.py": "from harness import globa\n\n\ndef g(m=globa):\n    m.C.w = len\n",
+            "harness/varsglobal.py": "from harness import portinst\n\n\ndef setup():\n    global d\n    d = vars(portinst)\n\n\n"
+                                     "def go(sink):\n    return sink(d)\n",
+            "harness/varsholder.py": "from harness import portinst\n\nd = vars(portinst)\n",
+            "harness/varsuser.py": "from harness.varsholder import d\n\n\ndef go(sink):\n    return sink(d)\n",
+            # The reads of this change's first round: exec or eval by a literal; exec used before or inside its binding, or
+            # after an except deletes it; a global the importing module's function assigns; an unbound fill by any name
+            # for a container's type, by __ior__, or on a name that is no type; more shell words; a top-level tuple; and
+            # one problem told once.
+            "harness/textkey.py": "def go(s):\n    return vars(len.__self__)['eval'](s)\n",
+            "harness/textgetattr.py": "def go(s):\n    return getattr(len.__self__, 'exec')(s)\n",
+            "harness/textget.py": "def go(s):\n    return len.__self__.__dict__.get('eval')(s)\n",
+            "harness/execbefore.py": "exec('1')\n\n\ndef exec():\n    pass\n",
+            "harness/execinside.py": "def exec(x=exec('1')):\n    pass\n",
+            "harness/execclass.py": "class exec:\n    exec('1')\n",
+            "harness/execexcept.py": "def exec(s):\n    return None\n\n\ntry:\n    pass\nexcept Exception as exec:\n    pass\n\n\n"
+                                     "def go(s):\n    return exec(s)\n",
+            "harness/oa.py": "P = None\n",
+            "harness/ob.py": "from harness.oa import P as Q\nfrom harness.portc import Port\n\n\ndef arm():\n    global Q\n"
+                             "    Q = Port\n\n\ndef fire():\n    Q.w = len\n",
+            "adapters/fillalias.py": "from collections.abc import MutableMapping\n\nfrom adapters import effects\nfrom harness import portbox\n\n"
+                                     "D = dict\nD.update(portbox.TABLE, go=effects.approve)\nMutableMapping.update(portbox.TABLE, go=effects.approve)\n"
+                                     "dict.__ior__(portbox.TABLE, {'go': effects.approve})\nportbox.TABLE.__ior__({'go': effects.approve})\n",
+            "adapters/dictshadow.py": "from adapters import effects\nfrom harness.portbox import TABLE as dict\n\n"
+                                      "dict.update({'k': effects.approve})\n",
+            "harness/setsidgit.py": "import os\n\n\ndef go():\n    return os.system('setsid git push')\n",
+            "harness/flockgit.py": "import os\n\n\ndef go():\n    return os.system('flock /tmp/l git push')\n",
+            "harness/tupletop.py": "from harness import portinst\n\nd, e = portinst.TABLE, 1\nd['go'] = len\n",
+            "harness/dupvars.py": "import os\n\nfrom harness import portinst\n\nd = vars(portinst)\nif os.environ.get('X'):\n"
+                                  "    d = vars(portinst)\nprint(d)\n",
+            "adapters/fillalias2.py": "from adapters import effects\nfrom harness import portbox\n\n\ndef go():\n    D = dict\n"
+                                      "    D.update(portbox.TABLE, go=effects.approve)\n",
+            "adapters/fillmixed.py": "import os\n\nfrom adapters import effects\nfrom harness import portbox\n\nif os.environ.get('X'):\n"
+                                     "    D = dict\nelse:\n    D = portbox.TABLE\nD.update({'go': effects.approve})\n",
+            "harness/execbuiltins.py": "from builtins import exec\n\n\ndef go(s):\n    return exec(s)\n",
+            # Muse's second read: a case pattern's alternatives or opening (; taskset and chrt's first word; an unbound
+            # accessor's key; exec in a function called before the binding; a name a class binds and an if stores; vars held
+            # by another module's name, reached as its attribute.
+            "harness/casealt.py": "import os\n\n\ndef go():\n    return os.system('case x in a|b) git push;; esac')\n",
+            "harness/caseparen.py": "import os\n\n\ndef go():\n    return os.system('case x in (x) git push;; esac')\n",
+            "harness/tasksetgit.py": "import os\n\n\ndef go():\n    return os.system('taskset 1 git push')\n",
+            "harness/chrtgit.py": "import os\n\n\ndef go():\n    return os.system('chrt 10 git push')\n",
+            "harness/unboundget.py": "import os\n\n\ndef go():\n    return dict.get(vars(os), 'sys')\n",
+            "harness/unboundeval.py": "def go(b, s):\n    return dict.get(vars(b), 'eval')(s)\n",
+            "harness/execcalled.py": "def go(s):\n    return exec(s)\n\n\ngo('x = 1')\nfrom re import compile as exec\n",
+            "harness/defstored.py": "import os\n\nfrom harness.portc import Port\n\n\nclass P:\n    pass\n\n\nif os.environ.get('X'):\n"
+                                    "    P = Port\nP.w = len\n",
+            "harness/varsattr.py": "from harness import varsholder\n\n\ndef go(sink):\n    return sink(varsholder.d)\n",
+            "harness/casesecond.py": "import os\n\n\ndef go():\n    return os.system('case x in a) true;; b) git push;; esac')\n",
+            "harness/caseamp.py": "import os\n\n\ndef go():\n    return os.system('case x in a) true;& b) git push;; esac')\n",
+            "harness/varsattralias.py": "from harness import varsholder\n\n\ndef go(sink):\n    m = varsholder\n    return sink(m.d)\n",
+            "harness/varswalrus.py": "from harness import portinst\n\nprint(d := vars(portinst))\n",
+            # Argon's second read: an import followed beside a store of the same name.
+            "harness/sa.py": "import os\n\nfrom harness.portc import Port\n\nif os.environ.get('X'):\n    P = Port\n",
+            "harness/sb.py": "import os\n\nif os.environ.get('X'):\n    Q = {}\nfrom harness.sa import P as Q\n\n\ndef go():\n    Q.w = len\n",
+            # Muse's third read: case leads with no space; exec deleted by __delitem__; getattr as an attribute; vars behind a
+            # second name, through an attribute or a walrus; an imported container filled by |= or +=.
+            "harness/casenospace.py": "import os\n\n\ndef go():\n    return os.system('case x in a) true;;b) git push;; esac')\n",
+            "harness/caseinparen.py": "import os\n\n\ndef go():\n    return os.system('case x in(x) git push;; esac')\n",
+            "harness/execdelitem.py": "from re import compile as exec\n\nglobals().__delitem__('exec')\n\n\ndef go(s):\n    return exec(s)\n",
+            "harness/getattrattr.py": "def go(s):\n    return len.__self__.getattr(len.__self__, 'eval')(s)\n",
+            "harness/holder2.py": "from harness import portinst\n\ne = vars(portinst)\nd = e\n",
+            "harness/viaholder2.py": "from harness import holder2\n\n\ndef go(sink):\n    return sink(holder2.d)\n",
+            "harness/walrus2.py": "from harness import portinst\n\n\ndef go(sink):\n    e = vars(portinst)\n    return sink(d := e)\n",
+            "adapters/augfill.py": "from adapters import effects\nfrom harness.portbox import LIST, TABLE\n\nTABLE |= {'go': effects.approve}\n"
+                                   "LIST += [effects.approve]\n",
+            # The Claude review's third read: a container's type a module stores, read in its own scope, and one a default
+            # gives under a shadowing name; a def an if stores; a re-exported holder; getattr of a holder; and a bound get's
+            # default, which is no key.
+            "harness/ctshadow.py": "from harness import portbox\n\nD = dict\nE = D\n\n\ndef g():\n    D = E\n"
+                                   "    D.update(portbox.TABLE, go=len)\n",
+            "harness/ctdefault.py": "from harness import portbox\n\nE = dict\n\n\ndef g(E=E):\n    D = E\n"
+                                    "    D.update(portbox.TABLE, go=len)\n",
+            "harness/defstored2.py": "import os\n\nfrom harness.portc import Port\n\n\ndef P():\n    pass\n\n\nif os.environ.get('X'):\n"
+                                     "    P = Port\nP.w = len\n",
+            "harness/vareexp.py": "from harness.varsholder import d\n",
+            "harness/viavareexp.py": "from harness import vareexp\n\n\ndef go(sink):\n    return sink(vareexp.d)\n",
+            "harness/getattrholder.py": "from harness import varsholder\n\n\ndef go(sink):\n    return sink(getattr(varsholder, 'd'))\n",
+            "harness/getdefaultok.py": "import os\n\n\ndef mode(cfg):\n    return os.environ.get('MODE', 'exec'), cfg.get('os', 'sys')\n",
+            # Argon's third read: a key in an f-string of constants; a module-level alias for a module as an attribute's
+            # base; a container's type imported from another module of the repo's.
+            "harness/fstrkey.py": "def go(s):\n    return vars(len.__self__)[f'eval'](s)\n",
+            "harness/modalias2.py": "from harness import portalias\n\nM = portalias\n\n\ndef install():\n    M.P.w = len\n",
+            "harness/dalias.py": "D = dict\n",
+            "adapters/dimport.py": "from adapters import effects\nfrom harness import portbox\nfrom harness.dalias import D\n\n"
+                                   "D.update(portbox.TABLE, go=effects.approve)\n",
+            "harness/portalias.py": "from harness.portc import Port\n\nP = Port\n",
+            "harness/parenok.py": "MESSAGES = ('nothing to do (see log) git status was clean', '1) git fetch')\n",
+            # Two files of one module name.
+            "harness/dup.py": "X = 1\n", "harness/dup/__init__.py": "X = 2\n",
+            # And what still passes: exec imported unconditionally at the top level, a module's own container filled.
+            "harness/execok.py": "from re import compile as exec\n\n\ndef go(s):\n    return exec(s)\n",
+            "harness/ownfill.py": "TABLE = {}\ndict.update(TABLE, go=len)\n",
+        }
+        problems = check_writes.run(clone(files))
+        for rel, said in (("harness/storedb.py:4", "sets w on the class Port from outside its module's top level"),
+                          ("harness/globb.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/twoclass.py:15", "sets w on the class Port from outside its module's top level"),
+                          ("tools/make_corpus.py:10", "sets harness.portinst.decide from another module"),
+                          ("harness/varsname.py:6", "hands on harness.portinst's names"),
+                          ("harness/varstop.py:4", "hands on harness.portinst's names"),
+                          ("harness/nonlocal2.py:13", "sets w on the class Port from outside its module's top level"),
+                          ("harness/execif.py:6", "runs code from text"),
+                          ("harness/exectry.py:8", "runs code from text"),
+                          ("harness/execdel.py:9", "runs code from text"),
+                          ("harness/execfn.py:3", "runs code from text"),
+                          ("harness/execfn.py:7", "runs code from text"),
+                          ("harness/loadget.py:5", "loads a module by its name"),
+                          ("harness/loadkey.py:5", "loads a module by its name"),
+                          ("harness/builtinsattr.py:5", "loads a module by its name"),
+                          ("harness/getsys.py:5", "loads a module by its name"),
+                          ("harness/timeoutopt.py:5", "names gh or git as a command"),
+                          ("harness/evalgit.py:5", "names gh or git as a command"),
+                          ("harness/watchgit.py:5", "names gh or git as a command"),
+                          ("harness/stdbufgit.py:5", "names gh or git as a command"),
+                          ("harness/casegh.py:5", "names gh or git as a command"),
+                          ("adapters/unboundfill.py:4", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/unboundfill.py:5", "sets a key of harness.portbox.LIST from another module"),
+                          ("harness/popsys.py:5", "loads a module by its name"),
+                          ("harness/getitemsys.py:5", "loads a module by its name"),
+                          ("harness/plainif.py:13", "sets w on the class Port from outside its module's top level"),
+                          ("harness/globc.py:6", "sets w on the class Port from outside its module's top level"),
+                          ("harness/globd.py:5", "sets w on the class Port from outside its module's top level"),
+                          ("harness/varsglobal.py:10", "hands on harness.portinst's names"),
+                          ("harness/varsuser.py:5", "hands on harness.portinst's names"),
+                          ("harness/textkey.py:2", "runs code from text"),
+                          ("harness/textgetattr.py:2", "runs code from text"),
+                          ("harness/textget.py:2", "runs code from text"),
+                          ("harness/execbefore.py:1", "runs code from text"),
+                          ("harness/execinside.py:1", "runs code from text"),
+                          ("harness/execclass.py:2", "runs code from text"),
+                          ("harness/execexcept.py:12", "runs code from text"),
+                          ("harness/ob.py:11", "sets w on the class Port from outside its module's top level"),
+                          ("adapters/fillalias.py:7", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/fillalias.py:8", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/fillalias.py:9", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/fillalias.py:10", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/dictshadow.py:4", "sets a key of harness.portbox.TABLE from another module"),
+                          ("harness/setsidgit.py:5", "names gh or git as a command"),
+                          ("harness/flockgit.py:5", "names gh or git as a command"),
+                          ("harness/tupletop.py:4", "sets a key of harness.portinst.TABLE from another module"),
+                          ("adapters/fillalias2.py:7", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/fillmixed.py:10", "sets a key of harness.portbox.TABLE from another module"),
+                          ("harness/execbuiltins.py:5", "runs code from text"),
+                          ("harness/casealt.py:5", "names gh or git as a command"),
+                          ("harness/caseparen.py:5", "names gh or git as a command"),
+                          ("harness/tasksetgit.py:5", "names gh or git as a command"),
+                          ("harness/chrtgit.py:5", "names gh or git as a command"),
+                          ("harness/unboundget.py:5", "loads a module by its name"),
+                          ("harness/unboundeval.py:2", "runs code from text"),
+                          ("harness/execcalled.py:2", "runs code from text"),
+                          ("harness/defstored.py:12", "names P, which the module binds more than one way"),
+                          ("harness/varsattr.py:5", "hands on harness.portinst's names"),
+                          ("harness/casesecond.py:5", "names gh or git as a command"),
+                          ("harness/caseamp.py:5", "names gh or git as a command"),
+                          ("harness/varsattralias.py:6", "hands on harness.portinst's names"),
+                          ("harness/varswalrus.py:3", "hands on harness.portinst's names"),
+                          ("harness/sb.py:9", "sets w on the class Port from outside its module's top level"),
+                          ("harness/casenospace.py:5", "names gh or git as a command"),
+                          ("harness/caseinparen.py:5", "names gh or git as a command"),
+                          ("harness/execdelitem.py:3", "runs code from text"),
+                          ("harness/getattrattr.py:2", "runs code from text"),
+                          ("harness/viaholder2.py:5", "hands on harness.portinst's names"),
+                          ("harness/walrus2.py:6", "hands on harness.portinst's names"),
+                          ("adapters/augfill.py:4", "sets a key of harness.portbox.TABLE from another module"),
+                          ("adapters/augfill.py:5", "sets a key of harness.portbox.LIST from another module"),
+                          ("harness/ctshadow.py:9", "sets a key of harness.portbox.TABLE from another module"),
+                          ("harness/ctdefault.py:8", "sets a key of harness.portbox.TABLE from another module"),
+                          ("harness/defstored2.py:12", "names P, which the module binds more than one way"),
+                          ("harness/viavareexp.py:5", "hands on harness.portinst's names"),
+                          ("harness/getattrholder.py:5", "hands on harness.portinst's names"),
+                          ("harness/fstrkey.py:2", "runs code from text"),
+                          ("harness/modalias2.py:7", "sets w on the class Port from outside its module's top level"),
+                          ("adapters/dimport.py:5", "sets a key of harness.portbox.TABLE from another module")):
+            self.assertTrue(caught(problems, "%s %s" % (rel, said)), (rel, problems))
+        self.assertTrue(caught(problems, "are one module, harness.dup, so what it reaches cannot be read"), problems)
+        for rel in ("harness/execok.py", "harness/ownfill.py", "harness/parenok.py", "harness/getdefaultok.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
+        self.assertEqual(sum(p.startswith("harness/dupvars.py:8 hands on") for p in problems), 1, problems)
+        # What a function's reading is cached under is the node itself, which no dropped tree can hand to another.
+        self.assertTrue(check_writes._READ and all(isinstance(key[0] if key[0] != "scope" else key[1], ast.AST)
+                                                   for key in check_writes._READ), list(check_writes._READ)[:3])
+
     def test_a_namespace_package_is_read_as_one(self):  # issue 596
         # With no adapters/__init__.py, Python imports adapters as a namespace package: a dotted import of one of its
         # modules reaches what that module writes.
