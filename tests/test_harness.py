@@ -1034,6 +1034,10 @@ class Passes(unittest.TestCase):
                       {"runs": 2, "checklist": True}, {"passes": "per_file", "read_head": True}):
             with self.subTest(given=given), self.assertRaises(ValueError):
                 passes.settings({"review": given})
+        # Three runs are allowed, and asked.
+        self.assertEqual(passes.settings({"review": {"runs": 3}})["runs"], 3)
+        _, asked = self.asked(switched(runs=3))
+        self.assertEqual(len(asked), 3)
         # One approach at a time, beside the others at their defaults.
         self.assertEqual(passes.settings({"review": {"passes": "whole", "runs": 2, "checklist": False}}), dict(passes.DEFAULTS, runs=2))
         # A checklist missing, of another Role or Intent, or not checklist/1, is the Factory's fault, read before the CLI.
@@ -1073,6 +1077,10 @@ class Passes(unittest.TestCase):
         quoted = (b'diff --git "a/a\\tb.py" "b/a\\tb.py"\n--- "a/a\\tb.py"\n+++ "b/a\\tb.py"\n@@ -1,1 +1,1 @@\n-a\n+b\n'
                   b"diff --git a/c.py b/c.py\n--- a/c.py\n+++ b/c.py\n@@ -1,1 +1,1 @@\n-a\n+b\n")
         self.assertEqual(len(passes.split(of(quoted))), 1)
+        # So does a header whose path holds a space git leaves unquoted, as a rename to one: its path cannot be read whole.
+        spaced = (b"diff --git a/old.py b/new name.py\nsimilarity index 90%\nrename from old.py\nrename to new name.py\n"
+                  b"diff --git a/c.py b/c.py\n--- a/c.py\n+++ b/c.py\n@@ -1,1 +1,1 @@\n-a\n+b\n")
+        self.assertEqual(len(passes.split(of(spaced))), 1)
         self.assertEqual(len(passes.asked(of(quoted), dict(passes.DEFAULTS, passes="per_file"))), 1)
 
     def test_results_are_joined_by_the_merge_rule(self):
@@ -1142,6 +1150,9 @@ class Passes(unittest.TestCase):
         unknown["usage"] = dict(unknown["usage"], cost_usd=None)
         self.assertIsNone(passes.union([said([]), unknown])["usage"]["cost_usd"])
         stopped = said([], status="failed", reason="engine_timeout")
+        # The first that did not complete is the answer: a later failure does not hide it.
+        refused = said([], status="failed", reason="result_invalid")
+        self.assertEqual(passes.union([said([]), refused, stopped])["reason"], "result_invalid")
         self.assertEqual([(r["status"], r["reason"], r["usage"]["turns"]) for r in (passes.union([said([here]), stopped]),)],
                          [("failed", "engine_timeout", 4)])
         # A kind is posted only by a kept Finding: a review whose one Finding was merged away is not submitted empty.

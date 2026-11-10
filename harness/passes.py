@@ -19,7 +19,7 @@ DEFAULTS = {"passes": "whole", "runs": 1, "checklist": False, "read_head": False
 # A change of more files than this is judged in one pass, so a replay's cost per case has a bound.
 MOST_FILES = 8
 # The head's path of one file's part of a diff, from git's header line.
-HEADER = re.compile(r"diff --git a/\S+ b/(\S+)")
+HEADER = re.compile(r"diff --git a/\S+ b/(\S+)\n")
 # What a pass of one changed file is told after its instructions, so that it judges that file alone and is not left to
 # read the rest as missing (the Claude review of issue 581).
 ONE_FILE = ("\n\nThis pass judges one changed file of the pull request, %s, alone: the diff in the Task holds its part "
