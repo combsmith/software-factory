@@ -100,7 +100,10 @@ def check(node: dict) -> dict:
     App (decision 0180). The Kernel never takes a null App for a Lens's."""
     suite = node.get("checkSuite") if isinstance(node.get("checkSuite"), dict) else {}
     shown = suite.get("app", False)
-    app = None if shown is None else shown.get("databaseId") if isinstance(shown, dict) else False
+    if shown is None:
+        app = None
+    else:
+        app = shown.get("databaseId") if isinstance(shown, dict) and shown.get("databaseId") is not None else False
     run = suite.get("workflowRun")
     file = run.get("file") if isinstance(run, dict) else None
     if not (run is None or isinstance(run, dict)) or not (file is None or isinstance(file, dict)):
@@ -159,13 +162,15 @@ def _read(transport, pull: dict, runs: list) -> dict:
             raise Unanswered("the pull request's place in the merge queue cannot be read")
         queue = entry is not None
         rollup = commit.get("statusCheckRollup")
+        if hidden and rollup is None:
+            raise Unanswered("a check's App was refused, and the rollup gives no check")
         if rollup is None:
             return {"checks": found, "complete": after is None, "queue": queue}
         contexts = rollup.get("contexts") if isinstance(rollup, dict) else None
         page = (contexts or {}).get("pageInfo") if isinstance(contexts, dict) else None
         if not isinstance(contexts, dict) or not isinstance(contexts.get("nodes"), list) or not isinstance(page, dict):
             return {"checks": found, "complete": False, "queue": queue}
-        if any(not isinstance(i, int) or i >= len(contexts["nodes"]) or not _shown_none(contexts["nodes"][i])
+        if any(not isinstance(i, int) or not 0 <= i < len(contexts["nodes"]) or not _shown_none(contexts["nodes"][i])
                for i in hidden):
             raise Unanswered("a check's App was refused, and the rollup gives it anyway")
         counted = contexts.get("totalCount")

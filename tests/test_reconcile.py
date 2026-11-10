@@ -461,7 +461,9 @@ class SeenPort(unittest.TestCase):
         for parts in [None, {}, dict(kept(), threads=None), dict(kept(), events=([], False)),
                       dict(kept(), reviews=([], False)), dict(kept(), check_runs=([], False)),
                       dict(kept(), threads=([], False)),
-                      kept(threads=[{"id": "PRRT_u", "isResolved": True, "resolvedBy": {"login": "x"}}])] \
+                      kept(threads=[{"id": "PRRT_u", "isResolved": True, "resolvedBy": {"login": "x"}}]),
+                      # A check run whose App GitHub did not show the reading token (decision 0180).
+                      kept(check_runs=[dict(check_run(5364144, "CR_h"), checkSuite={"app": None})])] \
                 + [kept(**{name: value}) for name, value in bad.items()] \
                 + [kept(**{name: value}) for name, value in keyless.items()]:
             self.assertIs(port(parts)[2], False, parts)

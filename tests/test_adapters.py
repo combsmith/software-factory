@@ -1936,7 +1936,8 @@ class Checks(unittest.TestCase):
                 "completedAt": None, "checkSuite": {"app": {"databaseId": 15368}, "workflowRun": None}}
         self.assertEqual(checks.check(node)["conclusion"], "in_progress")
         for broken in ({"name": ""}, {"checkSuite": {"workflowRun": None}}, {"checkSuite": None},
-                       {"checkSuite": {"app": "verify"}}, {"checkSuite": {"app": {"databaseId": 0}}}, {"status": "in progress"},
+                       {"checkSuite": {"app": "verify"}}, {"checkSuite": {"app": {"databaseId": 0}}},
+                       {"checkSuite": {"app": {}}}, {"checkSuite": {"app": {"databaseId": None}}}, {"status": "in progress"},
                        {"conclusion": "SUCCESS"}, {"completedAt": "2026-10-20T00:51:22Z"},
                        {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": {"path": ""}}}},
                        {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": "verify"}},
@@ -1970,7 +1971,20 @@ class Checks(unittest.TestCase):
                        [dict(refused, path=place[:9] + [len(nodes)] + place[10:])], "FORBIDDEN"):
             with self.assertRaises(github.Unanswered, msg=errors):
                 checks.read(github.Replay([answered(errors)]), as_pull(node))
-        # A refusal of an App the rollup gives anyway contradicts itself, and refuses the read.
+        # A refusal of an App the rollup gives anyway contradicts itself, and refuses the read; so does one at a place
+        # before the page's first, or with no rollup at all.
+        for broken in ([dict(refused, path=place[:9] + [-1] + place[10:])],):
+            with self.assertRaises(github.Unanswered, msg=broken):
+                checks.read(github.Replay([answered(broken)]), as_pull(node))
+        nodes[-1].update({"__typename": "CheckRun", "checkSuite": {"app": None}})
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([answered([dict(refused, path=place[:9] + [-1] + place[10:])])]), as_pull(node))
+        empty = copy.deepcopy(node)
+        empty["commits"]["nodes"][0]["commit"]["statusCheckRollup"] = None
+        exchange = checks_answer(empty)
+        exchange["response"]["body"]["errors"] = [refused]
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([exchange]), as_pull(empty))
         nodes[at]["checkSuite"]["app"] = {"databaseId": 15368}
         with self.assertRaises(github.Unanswered):
             checks.read(github.Replay([answered([refused])]), as_pull(node))
