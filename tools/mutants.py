@@ -14041,6 +14041,8 @@ MUTANTS = ISSUE + [
      'for kind in ("issue", "pullRequest"))', 'for kind in ("issue",))', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
     ('P-61 asks the Maintainer to close nothing', "tools/trial_p61_timeline.sh",
      '             "close the pull request without merging it" \\\n', '', ('tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named',)),
+    ('P-61 asks the reopening before the close', "tools/trial_p61_timeline.sh",
+     '             "close the pull request without merging it" \\\n             "reopen the pull request" \\\n', '             "reopen the pull request" \\\n             "close the pull request without merging it" \\\n', ('tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named',)),
     ("P-61 asks no link by hand", "tools/trial_p61_timeline.sh", 'CONNECTED_EVENT,DISCONNECTED_EVENT,', '', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
     ("P-61 reads another repo's issue", "tools/trial_p61_timeline.sh", '-f owner="$owner" -f name="$name"', '-f owner="$owner" -f name=other', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
     ("P-61 writes inside the repo", "tools/trial_p61_timeline.sh",

@@ -13727,7 +13727,11 @@ if mode == "cut":
         for n in range(1, 12):
             self.assertNotIn("ghs_", (out / ("clean-%d" % n)).read_text())
             self.assertIn('"timelineItems"', (out / ("clean-%d" % n)).read_text())
-        self.assertEqual(len((out / "steps").read_text().splitlines()), 11)
+        steps = (out / "steps").read_text().splitlines()
+        self.assertEqual(len(steps), 11)
+        # The pull request is closed, then reopened, then merged, in that order (issue 672): it starts open.
+        self.assertEqual([line.split(" ", 1)[1] for line in steps[7:10]],
+                         ["close the pull request without merging it", "reopen the pull request", "merge the pull request"])
         # Every call is the same GraphQL read through gh, of that repo's issue and pull request, and nothing else.
         self.assertEqual(calls, [["api", "graphql", "--include", "-f", "query=" + query, "-f", "owner=x", "-f", "name=canary",
                                   "-F", "issue=7", "-F", "pr=8"]] * 11)
