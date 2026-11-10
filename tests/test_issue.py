@@ -384,7 +384,10 @@ class Unreadable(unittest.TestCase):
                ]
         no_class = dict(good)
         del no_class["class"]
-        for entry in bad + [no_class]:
+        # No close events at all is no history, not an empty one (Astra).
+        no_closes = dict(good)
+        del no_closes["close_events"]
+        for entry in bad + [no_class, no_closes]:
             for f in (facts(linked=[entry]), facts(state="closed", linked=[entry])):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), entry)

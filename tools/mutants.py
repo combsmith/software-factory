@@ -431,6 +431,9 @@ ISSUE = [
     # Issue 672: a linked pull request's closes and reopenings, read whole, and a rival read as it stood at the merge.
     ("a pull request's close events are not read", ISSUE_PY,
      'readable_link_events(entry) and readable_close_events(entry, config)\n', 'readable_link_events(entry)\n', ('tests.test_issue.Unreadable.test_an_unreadable_linked_pull_request_defers',)),
+    ('a pull request with no close events has none', ISSUE_PY,
+     '    events = entry.get("close_events")\n', '    events = entry.get("close_events", [])\n',
+     ('tests.test_issue.Unreadable.test_an_unreadable_linked_pull_request_defers',)),
     ('close events that are no list are read', ISSUE_PY,
      '    events = entry.get("close_events")\n    if not isinstance(events, list):\n        return False\n',
      '    events = entry.get("close_events") or []\n', ('tests.test_issue.Unreadable.test_an_unreadable_linked_pull_request_defers',)),
