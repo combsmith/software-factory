@@ -27,6 +27,7 @@
       }
     }
   },
+  "criteria": {},
   "origin": {
     "natural": {
       "cases": 30,
@@ -77,6 +78,7 @@
     ]
   },
   "kind_least": 20,
+  "criterion_bars": {},
   "split_ok": true,
   "kinds_pass": {
     "finding": true,

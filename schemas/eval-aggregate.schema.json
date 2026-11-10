@@ -12,6 +12,7 @@
     "set",
     "passed",
     "kinds",
+    "criteria",
     "origin",
     "faults",
     "preflight",
@@ -20,6 +21,7 @@
     "models",
     "bars",
     "kind_least",
+    "criterion_bars",
     "split_ok",
     "kinds_pass",
     "blocking_pass",
@@ -541,6 +543,65 @@
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         }
+      }
+    },
+    "criteria": {
+      "description": "Of each criterion the set's manifest floors, and no other, its cases that expect a Finding on it, how many passed and their Wilson interval at 95%: counts alone, each of FLOOR_LEAST cases at least, so that runs on one commit can be pooled and each floor applied, and no count tells one case's verdict (issue 692). Null where a case was not read or its answer is no kind.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cases",
+          "passed",
+          "interval"
+        ],
+        "properties": {
+          "cases": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "interval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "low",
+              "high"
+            ],
+            "properties": {
+              "low": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "high": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "criterion_bars": {
+      "description": "The floor each criterion was held to, as a whole fraction, as the set's manifest gives them; empty where it gives none (issue 692).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minItems": 2,
+        "maxItems": 2
       }
     }
   }
