@@ -181,10 +181,9 @@ def readable_link(entry, config: dict) -> bool:
     # The opening, the merge and the close, each that is there, in that order: a merge closes it, so it comes no later
     # than the close, and in the same second as it as a rule. Out of order is no chronology: its opening, read as the
     # newest movement, would hold off staleness, and its merge would make the issue done. A merge is there only with a
-    # close, as read above.
+    # close, as read above. A close before the opening is refused with its close events, whose last is the close and
+    # none of which comes before the opening (issue 672).
     opened_on, merged_on, closed_on = entry["opened_at"], entry["merged_at"], entry["closed_at"]
-    if closed_on is not None and closed_on < opened_on:
-        return False
     if merged_on is not None and not (opened_on <= merged_on and merged_on <= closed_on):
         return False
     # The close of the issue the timeline names it the closer of: a pull request closes an issue only by merging, so
