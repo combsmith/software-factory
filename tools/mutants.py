@@ -115,6 +115,7 @@ ROLLBACK_FIXTURE = ("tests.test_release.Fixture.test_a_rollback_with_no_earlier_
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
+DECLINE_TESTS = ("tests.test_tools.Mutants.test_on_a_pull_request_the_mutants_decline_and_on_a_merge_group_every_shard_runs",)
 ROUTES_655 = ("tests.test_tools.Writes.test_the_routes_issue_655_names_are_refused",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
 NOT_KILLED_TESTS = ("tests.test_tools.Mutants.test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite",)
@@ -4446,6 +4447,12 @@ MUTANTS = ISSUE + [
      '                if outcome == "SURVIVED" and alone and first:\n', NOT_KILLED_TESTS),
     ("an edit untested.py tries is held to its named tests alone", 'tools/mutants.py',
      "            if alone and first:\n", "            if first:\n", NOT_KILLED_TESTS),
+    # On a pull request the shards decline; on a merge group every shard runs.
+    ("mutants run in full on a pull request", 'tools/mutants.py', 'DECLINED = "pull_request"\n', 'DECLINED = "no event"\n', DECLINE_TESTS),
+    ("mutants decline on a merge group too", 'tools/mutants.py',
+     '    if environ.get("GITHUB_EVENT_NAME") == DECLINED:\n', '    if environ.get("GITHUB_EVENT_NAME") in (DECLINED, "merge_group"):\n', DECLINE_TESTS),
+    ("a declined pull request fails", 'tools/mutants.py',
+     "              \"the builder's\")\n        return 0\n", "              \"the builder's\")\n        return 1\n", DECLINE_TESTS),
     ('a mutant a row names is killed by any test', 'tools/mutants.py',
      '({"only": first[0]} if name in _held_by_rows(root) ' 'else {"first": first[0]})', '{"first": first[0]}', RUN_ALONE),
     ("the impostor workflow posts from the Lens's own file", "sim/world.py",
@@ -17300,8 +17307,20 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
     return 0 if killed == len(mutants) else 1
 
 
+# On a pull request the shards decline and pass: on 2026-11-09 they were 77% of the runner minutes, about three quarters
+# of them on pull requests, and in 94 pull-request runs they caught what the tests did not in 3, and 49 ran on a baseline
+# already red. The merge group runs every shard in full, and a builder still owes the desk run. The event is the runner's
+# own GITHUB_EVENT_NAME: the shard job's env is held to MUTANTS_SHARD and MUTANTS_SHARDS alone (tools/check_workflows.py).
+DECLINED = "pull_request"
+
+
 def front(environ, paths: list, run=suite, root: pathlib.Path = ROOT, mutants: list = None) -> int:
-    """`python3 -m tools.mutants [PATH...]`: the run `selected` reads from `environ` and `paths`, as `main` runs it."""
+    """`python3 -m tools.mutants [PATH...]`: the run `selected` reads from `environ` and `paths`, as `main` runs it; on a
+    pull request, nothing, and it passes."""
+    if environ.get("GITHUB_EVENT_NAME") == DECLINED:
+        print("the mutants decline on a pull request and pass: the merge group runs every shard, and the desk run is "
+              "the builder's")
+        return 0
     try:
         chosen, where, at_once, share = selected(environ, paths, mutants)
     except ValueError as err:
