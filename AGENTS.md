@@ -9,11 +9,11 @@ except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standard
 ## Verify
 
 ```
-make verify                  # every check and every test: 15 minutes on CI, 40 on a busy desk; SIM_SEEDS=40 is quicker
-python3 -m tools.mutants     # breaks each rule, one to a CPU; a test must notice. Over an hour; CI runs 12 shards of 4.4 to 12.3 minutes
+make checks; python3 -m tools.mutants PATH...  # the desk's, before a change is finished: the checks, then the mutants of the files it touches, or all of them for a file of more than 40
+make verify                                    # CI's, never the desk's: three legs on every pull request and merge group; mutant shards on the merge group alone (record 0182)
 ```
 
-Both must pass before a change is finished. Python 3.9 or later; nothing to install. Hooks run the checks alone after an edit and before a stop, refuse a commit not the Maintainer's, and ask before a protected edit or a merge, not in bypass mode.
+Python 3.9 or later; nothing to install. Hooks run the checks alone after an edit and before a stop, refuse a commit not the Maintainer's, and ask before a protected edit or a merge, not in bypass mode.
 
 ## The rules that are never broken
 
@@ -40,7 +40,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 2. Write the boundary case in `tests/test_decide.py`, or take `@pending` off the one that states it. Watch it fail.
 3. Change the code in `kernel/`.
 4. Add a mutant for the new rule to `tools/mutants.py`.
-5. Run both commands under Verify.
+5. Run the desk's two commands under Verify.
 
 ## Where to read next
 

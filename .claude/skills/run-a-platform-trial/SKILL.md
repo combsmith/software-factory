@@ -108,6 +108,6 @@ artifact. No `set -x`, and no verbose curl.
    - branches, pull requests, issues, check runs and workflow runs that hold anything not redacted.
 
    Keep only what the story says stays.
-9. **Verify, then hand over.** `make verify` and `python3 -m tools.mutants` pass. The pull request
+9. **Verify, then hand over.** `make checks` and `python3 -m tools.mutants PATH...` pass at the desk, and CI's `make verify`. The pull request
    holds the fixture and its grounding only, and is the Maintainer's to open. Its body names the
    trial, the verdict, what was removed, and what step 8 undid.

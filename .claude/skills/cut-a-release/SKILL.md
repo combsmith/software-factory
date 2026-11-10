@@ -98,4 +98,4 @@ past it, and it is his.
 
 ## Verify, then hand over
 
-Run `make verify`. A fixture of a cut or a rollback is kept under release/, redacted as a trial's is.
+Run `make checks`, and let CI's `make verify` pass. A fixture of a cut or a rollback is kept under release/, redacted as a trial's is.

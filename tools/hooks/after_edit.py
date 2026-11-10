@@ -2,8 +2,8 @@
 
 The edit has already happened; exit 2 puts the failure in front of the agent and refuses nothing. A run
 that does not finish found nothing, and says that it did not finish. Where the checks last passed at the
-state the tree is in now, they are not run again (make.checks). The tests are CI's, and a builder's
-own `make verify`: they outgrew any time a hook can spend (issue 438).
+state the tree is in now, they are not run again (make.checks). The tests are CI's,
+in its `make verify`, never the desk's: they outgrew any time a hook can spend (issue 438).
 Run as `python3 -I` on this file, so nothing in the working directory can stand in for the standard
 library; the repo is put last on the path, after it.
 """

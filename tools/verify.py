@@ -2,7 +2,7 @@
 
 `make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
 minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
-`tools/hooks/before_stop.py`); the tests are CI's, and each builder's own `make verify`.
+`tools/hooks/before_stop.py`), and what the desk owes with the mutants of the files a change touches; the tests are CI's.
 
 CI runs `make verify` in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix: each leg runs every check and its
 share of the tests, so that across the legs every test runs once and no leg nears the step's limit. Neither set: every
