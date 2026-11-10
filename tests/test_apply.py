@@ -1281,6 +1281,8 @@ class Bundle(unittest.TestCase):
                      good.replace("@@ -1,2 +1,2 @@", "@@ -1,0000000002 +1,2 @@").encode(),
                      good.replace("+++ b/docs/a.md", "+++ c/docs/a.md").encode(),
                      good.replace("--- a/docs/a.md", "--- c/docs/a.md").encode(),
+                     # A header of other prefixes, which alone names a file whose mode changed (Astra's second read).
+                     b"diff --git long/.github/CODEOWNERS long/.github/CODEOWNERS\nold mode 100644\nnew mode 100755\n",
                      b"diff --git a/docs/p.bin b/docs/p.bin\nnew file mode 100644\n--- /dev/null\n+++ b/docs/p.bin\n@@ -0,0 +1 @@\n+\x00\n",
                      b"diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n\\ x\n+b\n",
                      b"diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+b\n\\ x\n",
