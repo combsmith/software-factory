@@ -1,4 +1,4 @@
-# 0177. A read GitHub did not answer is named by its stage and the snapshot's part, never by one code for every read
+# 0179. A read GitHub did not answer is named by its stage and the snapshot's part, never by one code for every read
 
 Status: accepted. The Factory Builder's ruling of 2026-11-09, after slice 1's dry run on pull request 688 stopped twice in the reader with one code, `facts_unreadable`, before any model call. It amends 0110's row "An issue's text, live", whose short read stopped the step as `facts_unreadable`: that read now stops as `issue_texts_unreadable`.
 
