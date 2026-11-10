@@ -15163,7 +15163,7 @@ MUTANTS = ISSUE + [
      ("tests.test_harness.Passes.test_results_are_joined_by_the_merge_rule",)),
     ('a criterion one run found is met', 'harness/passes.py', '        if "finding" in verdicts:\n', '        if False:\n',
      ("tests.test_harness.Passes.test_results_are_joined_by_the_merge_rule",)),
-    ('met beside not applicable is not met', 'harness/passes.py', 'elif "met" in verdicts and set(verdicts) <= {"met", "not_applicable"}:',
+    ('not_applicable vetoes met', 'harness/passes.py', 'elif "met" in verdicts and set(verdicts) <= {"met", "not_applicable"}:',
      'elif set(verdicts) == {"met"}:', ("tests.test_harness.Passes.test_results_are_joined_by_the_merge_rule",)),
     ('a call that did not complete is joined as one that did', 'harness/passes.py',
      '        if result["status"] != "completed":\n            return dict(result, usage=usage)\n', '        if result["status"] != "completed":\n            pass\n',

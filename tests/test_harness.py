@@ -1083,6 +1083,14 @@ class Passes(unittest.TestCase):
                                          {"criterion": "PR-5", "verdict": "not_applicable", "reason": "no_rule_added"}])])
         self.assertEqual([(c["criterion"], c["verdict"], c["reason"]) for c in joined["coverage"]],
                          [("PR-1", "met", None), ("PR-3", "finding", None), ("PR-5", "not_applicable", "no_rule_added")])
+        # A clean case read a pass per file: one pass calls a criterion not applicable and the rest met, so it is met; every
+        # pass calls it not applicable, so it stays so, with the first's reason.
+        na = {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}
+        met = {"criterion": "PR-3", "verdict": "met"}
+        self.assertEqual([(c["verdict"], c["reason"]) for c in passes.union([said([], [na]), said([], [met]), said([], [met])])["coverage"]],
+                         [("met", None)])
+        self.assertEqual([(c["verdict"], c["reason"]) for c in passes.union([said([], [na]), said([], [na]), said([], [na])])["coverage"]],
+                         [("not_applicable", "no_rule_added")])
         # Usage is summed, and none where any call counted none; one that did not complete is the answer, by its reason.
         self.assertEqual((joined["usage"]["turns"], joined["usage"]["cost_usd"]), (4, 0.2))
         unknown = said([])
