@@ -195,10 +195,15 @@ def readable_link(entry, config: dict) -> bool:
 
 def readable_keyword(entry: dict) -> bool:
     """Whether a pull request's closing keyword can be read: whether its references name the issue by one now, and when a
-    pass first saw one there, null where none has, no earlier than it opened; and that it is listed for something, a
+    pass first saw one there, null where none has, no earlier than it opened, and when a pass first saw it taken out,
+    null while it stands; and that it is listed for something, a
     keyword, a link by hand or a close it made, so that none linked by nothing is read (issue 552)."""
     seen = entry.get("keyword_seen_at", "")
     if not (type(entry.get("keyword")) is bool and (seen is None or is_time(seen) and seen >= entry["opened_at"])):
+        return False
+    # When a pass first saw it taken out: only while it is out, after it was seen.
+    gone = entry.get("keyword_gone_at", "")
+    if not (gone is None or is_time(gone) and not entry["keyword"] and seen is not None and gone >= seen):
         return False
     # Listed for something: a keyword now or once seen, a link by hand, or the close of the issue it made.
     return entry["keyword"] or seen is not None or bool(entry["link_events"]) or entry["closed_issue_at"] is not None
@@ -210,9 +215,11 @@ def linked_now(entry: dict) -> bool:
 
 
 def keyword_seen_before(entry: dict, when: str) -> bool:
-    """Whether a pass saw a pull request's closing keyword before `when`'s second: a keyword link's time is the first pass
-    that saw it, which no edit after can move back (issue 552). One first seen in that second carries no order against it."""
-    return entry["keyword_seen_at"] is not None and entry["keyword_seen_at"] < when
+    """Whether a pass saw a pull request's closing keyword before `when`'s second, and none saw it taken out before that
+    second: a keyword link's time is the first pass that saw it, which no edit after can move back (issue 552). One first
+    seen in that second carries no order against it; one taken out in that second or after still stood."""
+    gone = entry["keyword_gone_at"]
+    return entry["keyword_seen_at"] is not None and entry["keyword_seen_at"] < when and not (gone is not None and gone < when)
 
 
 def readable_link_events(entry: dict) -> bool:

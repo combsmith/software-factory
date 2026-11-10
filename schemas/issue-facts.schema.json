@@ -185,7 +185,8 @@
           "draft_events",
           "link_events",
           "keyword",
-          "keyword_seen_at"
+          "keyword_seen_at",
+          "keyword_gone_at"
         ],
         "properties": {
           "number": {
@@ -302,7 +303,15 @@
             "type": "boolean"
           },
           "keyword_seen_at": {
-            "description": "When the issue's facts were read in the first pass whose record listed this pull request with its keyword, those facts' read_at, not the pass's start, which comes before GitHub is read: a keyword link's time, which GitHub does not record (trials/P-48.json). Null where no pass has seen one. The port reads it only from pass records the Factory itself wrote. Row 1 reads a keyword link that a pass saw before the first merge's second as a link at it (issue 552); the issue port that reads it from the pass records is not built yet",
+            "description": "When the issue's facts were read in the first pass whose record listed this pull request with its keyword, those facts' read_at, which the port takes no earlier than it reads the pull request's closing references, not the pass's start, which comes before GitHub is read: a keyword link's time, which GitHub does not record (trials/P-48.json). Null where no pass has seen one. The port reads it only from pass records the Factory itself wrote. Row 1 reads a keyword link that a pass saw before the first merge's second as a link at it (issue 552); the issue port that reads it from the pass records is not built yet",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          },
+          "keyword_gone_at": {
+            "description": "When the issue's facts were read in the first pass after the keyword's last sighting whose record listed this pull request with its keyword gone, those facts' read_at; null while the keyword stands, or where none was seen. Row 1 reads a keyword taken out before the first merge's second as no link at it, as rows 4 to 7 read it as none; one taken out in that second or after moves nothing (issue 552)",
             "type": [
               "string",
               "null"

@@ -309,7 +309,8 @@
             "draft_events": [],
             "link_events": [],
             "keyword": true,
-            "keyword_seen_at": null
+            "keyword_seen_at": null,
+            "keyword_gone_at": null
           },
           {
             "number": 140,
@@ -341,7 +342,8 @@
             "draft_events": [],
             "link_events": [],
             "keyword": true,
-            "keyword_seen_at": null
+            "keyword_seen_at": null,
+            "keyword_gone_at": null
           }
         ],
         "role_comments": [

@@ -69,13 +69,14 @@ def unlabelled(label: str, by=None, minute: int = 2) -> dict:
 
 
 def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=None, closed=None, empty=False,
-       events=(), opened=0, closed_issue="merge", drafts=(), links=(), keyword=True, seen=None) -> dict:
+       events=(), opened=0, closed_issue="merge", drafts=(), links=(), keyword=True, seen=None, gone=None) -> dict:
     """A pull request that closes the issue. By default the Maintainer's, opened with the issue, open and ready. A
     merged one closed then, and closed the issue in its second, as the issue's timeline records it (P-33);
     `closed_issue=None` is one the issue's timeline never names, as one whose reference an edit added (P-46). `drafts`
     are its conversions to a draft and its markings ready, as (action, minute), the last of which is its flag now; `links`
     its links to the issue by hand and unlinkings, as (action, minute), none by default, as a closing keyword's; `keyword`
-    whether its references name the issue by one now, and `seen` the minute a pass first saw it, none by default."""
+    whether its references name the issue by one now, `seen` the minute a pass first saw it, and `gone` the minute a pass
+    first saw it taken out, none by default."""
     if merged is not None and closed is None:
         closed = merged
     if closed_issue == "merge":
@@ -86,7 +87,8 @@ def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=N
             "closed_issue_at": None if closed_issue is None else at(closed_issue),
             "draft_events": [{"action": action, "at": at(minute)} for action, minute in drafts],
             "link_events": [{"action": action, "at": at(minute)} for action, minute in links],
-            "keyword": keyword, "keyword_seen_at": None if seen is None else at(seen)}
+            "keyword": keyword, "keyword_seen_at": None if seen is None else at(seen),
+            "keyword_gone_at": None if gone is None else at(gone)}
 
 
 def agents(**over) -> dict:
@@ -345,6 +347,12 @@ class Unreadable(unittest.TestCase):
                dict(good, keyword=None), dict(good, keyword="yes"), dict(good, keyword_seen_at="soon"),
                dict(good, keyword_seen_at=12), dict(good, opened_at=at(2), keyword_seen_at=at(1)),
                {k: v for k, v in good.items() if k != "keyword_seen_at"},
+               # When a pass first saw it taken out: only while it is out, after it was seen, a time.
+               dict(good, keyword_gone_at=at(3)), dict(good, keyword_seen_at=at(1), keyword_gone_at=at(3)),
+               dict(good, keyword=False, keyword_seen_at=at(3), keyword_gone_at=at(2)),
+               dict(good, keyword=False, keyword_gone_at=at(3), link_events=[{"action": "connected", "at": at(1)}]),
+               dict(good, keyword=False, keyword_seen_at=at(1), keyword_gone_at="soon"),
+               {k: v for k, v in good.items() if k != "keyword_gone_at"},
                # Listed for nothing: no keyword now or once seen, no link by hand, no close it made.
                dict(good, keyword=False),
                ]
@@ -365,6 +373,11 @@ class Unreadable(unittest.TestCase):
         # A keyword first seen in its opening second is read; one taken out, once seen, is listed for that (issue 552).
         self.assertEqual(state(facts(linked=[pr(opened=2, seen=2)])), "in_review")
         self.assertEqual(derive(facts(linked=[pr(keyword=False, seen=2)]))["reason"], "acceptance_due")
+        # Listed for a link by hand alone, or for the close it made, a keyword taken out that no pass saw (issue 552).
+        self.assertEqual(state(facts(linked=[pr(keyword=False, links=[("connected", 1)])])), "in_review")
+        closer = agents(is_open=False, merged=5, keyword=False)
+        self.assertEqual(state(facts(state="closed", closed_first_at=at(5), linked=[closer])), "done")
+        self.assertEqual(derive(facts(linked=[pr(keyword=False, seen=1, gone=2)]))["reason"], "acceptance_due")
         # A link by hand in its opening second, unlinked and linked again in one second, is read (issue 551).
         both = pr(links=[("connected", 0), ("disconnected", 3), ("connected", 3)])
         self.assertEqual(state(facts(linked=[both])), "in_review")
@@ -1004,10 +1017,18 @@ class Done(unittest.TestCase):
         both = pr(number=12, links=[("connected", 1), ("disconnected", 7)], seen=3)
         d = derive(facts(linked=[own, both], **closed))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # A keyword a pass saw taken out before the merge's second was no link at it, as rows 4 to 7 read it; one taken
+        # out in that second or after still stood.
+        for gone, held in ((2, False), (5, True), (6, True)):
+            d = derive(facts(linked=[own, pr(number=12, keyword=False, seen=1, gone=gone)], **closed))
+            self.assertEqual(d["state"], "held" if held else "done", gone)
         # Before any merge, a pull request whose keyword an edit took out and no link by hand holds is no open link.
         d = derive(facts(linked=[agents(number=11), pr(number=12, keyword=False, seen=1)]))
         self.assertNotEqual(d["reason"], "linked_twice")
         self.assertEqual(derive(facts(linked=[agents(number=11), pr(number=12, seen=1)]))["reason"], "linked_twice")
+        # One linked by hand alone, its keyword taken out or never there, is an open link while the link stands.
+        hand = pr(number=12, keyword=False, links=[("connected", 1)])
+        self.assertEqual(derive(facts(linked=[agents(number=11), hand]))["reason"], "linked_twice")
         undone = pr(number=12, keyword=False, links=[("connected", 1), ("disconnected", 2)])
         self.assertNotEqual(derive(facts(linked=[agents(number=11), undone]))["reason"], "linked_twice")
         # Nor is the merge's own keyword first seen in its second a link before it.

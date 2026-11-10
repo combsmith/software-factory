@@ -517,7 +517,7 @@ class IssueWorld:
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": True,
                                 "draft": True, "opened_at": self.now(), "merged_at": None, "closed_at": None,
                                 "empty": False, "label_events": [], "closed_issue_at": None,
-                                "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None})
+                                "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None, "keyword_gone_at": None})
             self.branch_head = "%040x" % (0xabc0 + number)
             self.moves()
             self.note("run %s: opened the draft #%d" % (run["run"], number))
@@ -559,7 +559,7 @@ class IssueWorld:
             self.linked.append({"number": 200 + len(self.linked), "class": "outside", "opener": dict(STRANGER),
                                 "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
                                 "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None,
-                                "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None})
+                                "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None, "keyword_gone_at": None})
             self.reached.append(2)
             self.note("a stranger's pull request names the issue")
             self.caused(STRANGER_BY)
@@ -704,7 +704,7 @@ class IssueWorld:
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": False,
                                 "draft": False, "opened_at": merged, "merged_at": merged,
                                 "closed_at": merged, "empty": False, "label_events": [], "closed_issue_at": None,
-                                "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None})
+                                "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None, "keyword_gone_at": None})
             self.late.append(number)
             self.reached.append(6)
             self.note("an edit after its merge made #%d name the issue" % number)
@@ -739,7 +739,7 @@ class IssueWorld:
                 self.linked.append({"number": 300 + len(self.linked), "class": "maintainer", "opener": dict(who),
                                     "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
                                     "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None,
-                                    "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None})
+                                    "draft_events": [], "link_events": [], "keyword": True, "keyword_seen_at": None, "keyword_gone_at": None})
                 self.writer_acted()
                 self.note("%s opened a pull request of their own" % who["name"])
             return
