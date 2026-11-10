@@ -355,8 +355,7 @@ class Unreadable(unittest.TestCase):
                dict(good, keyword=False, keyword_spans=[{"seen_at": at(3), "gone_at": at(2)}]),
                dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": None}, {"seen_at": at(3), "gone_at": None}]),
                dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": at(4)}, {"seen_at": at(3), "gone_at": None}]),
-               # A keyword standing now, though its last span ended and none began since.
-               dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": at(2)}]),
+               dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": at(2)}, {"seen_at": at(2), "gone_at": None}]),
                # Listed for nothing: no keyword now or once seen, no link by hand, no close it made.
                dict(good, keyword=False),
                ]
@@ -376,12 +375,16 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(state(facts(linked=[strangers()])), "new")
         # A keyword first seen in its opening second is read; one taken out, once seen, is listed for that (issue 552).
         self.assertEqual(state(facts(linked=[pr(opened=2, spans=[(2, None)])])), "in_review")
+        # Put back since the last pass that saw it taken out: read, its new span not begun yet (issue 552).
+        self.assertEqual(state(facts(linked=[pr(spans=[(1, 3)])])), "in_review")
         self.assertEqual(derive(facts(linked=[pr(keyword=False, spans=[(2, None)])]))["reason"], "acceptance_due")
         # Listed for a link by hand alone, or for the close it made, a keyword taken out that no pass saw (issue 552).
         self.assertEqual(state(facts(linked=[pr(keyword=False, links=[("connected", 1)])])), "in_review")
         closer = agents(is_open=False, merged=5, keyword=False)
         self.assertEqual(state(facts(state="closed", closed_first_at=at(5), linked=[closer])), "done")
         self.assertEqual(derive(facts(linked=[pr(keyword=False, spans=[(1, 2)])]))["reason"], "acceptance_due")
+        # A span seen gone in the second it was first seen is read (issue 552).
+        self.assertEqual(derive(facts(linked=[pr(keyword=False, spans=[(2, 2)])]))["reason"], "acceptance_due")
         # A link by hand in its opening second, unlinked and linked again in one second, is read (issue 551).
         both = pr(links=[("connected", 0), ("disconnected", 3), ("connected", 3)])
         self.assertEqual(state(facts(linked=[both])), "in_review")

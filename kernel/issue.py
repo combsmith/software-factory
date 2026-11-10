@@ -197,7 +197,8 @@ def readable_keyword(entry: dict) -> bool:
     """Whether a pull request's closing keyword can be read: whether its references name the issue by one now, and each
     time it stood as the passes saw it, a span from when it was first seen to when it was first seen gone, or open while
     it stands: in order, none before the pull request opened, each ending no earlier than it began and before the next
-    began, only the last open, and that one only while the keyword stands or until a pass sees it gone. And that it is
+    began, and only the last open: a keyword standing now with every span ended was put back since the last pass that saw
+    it, and one taken out with its last span open was taken out since. And that it is
     listed for something, a keyword now or once seen, a link by hand or a close it made, so that none linked by nothing
     is read (issue 552)."""
     spans = entry.get("keyword_spans")
@@ -208,9 +209,7 @@ def readable_keyword(entry: dict) -> bool:
         return False
     if spans and entry["opened_at"] > spans[0]["seen_at"]:
         return False
-    if any(span["gone_at"] is None or later["seen_at"] < span["gone_at"] for span, later in zip(spans, spans[1:])):
-        return False
-    if entry["keyword"] and spans and spans[-1]["gone_at"] is not None:
+    if any(span["gone_at"] is None or later["seen_at"] <= span["gone_at"] for span, later in zip(spans, spans[1:])):
         return False
     # Listed for something: a keyword now or once seen, a link by hand, or the close of the issue it made.
     return entry["keyword"] or bool(spans) or bool(entry["link_events"]) or entry["closed_issue_at"] is not None
@@ -631,10 +630,11 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # merge: an outsider's only where a person had admitted it by then, so no admission after the merge moves a
         # done issue. One unlinked at or after the merge lets the merge read on for good, as a Hold's removal does: a
         # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A closing
-        # keyword's link stood where a pass saw it before the merge's second (issue 552): the port keeps listing a pull
-        # request once a pass saw its keyword, so no edit after the merge moves the issue, and no keyword first seen after
-        # it reaches back. A link in the merge's second, or one no pass timed, reads as before: the Factory's merge beside
-        # another in its second is done (decision 0132).
+        # keyword's link stood where one span of it, as the passes saw it, began before the merge's second and was not
+        # seen gone before it (issue 552): the port keeps listing a pull request once a pass saw its keyword, so no edit
+        # after the merge moves the issue, and a keyword first seen after it, or taken out before it and put back after,
+        # reaches back to nothing. A link in the merge's second, or one no pass timed, reads as before: the Factory's merge
+        # beside another in its second is done (decision 0132).
         stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
                  and (linked_by_hand_before(p, first)
                       and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
