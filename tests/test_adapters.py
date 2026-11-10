@@ -1935,13 +1935,45 @@ class Checks(unittest.TestCase):
         node = {"__typename": "CheckRun", "name": "verify", "conclusion": None, "status": "IN_PROGRESS",
                 "completedAt": None, "checkSuite": {"app": {"databaseId": 15368}, "workflowRun": None}}
         self.assertEqual(checks.check(node)["conclusion"], "in_progress")
-        for broken in ({"name": ""}, {"checkSuite": {"app": None}}, {"status": "in progress"},
+        for broken in ({"name": ""}, {"checkSuite": {"workflowRun": None}}, {"checkSuite": None},
+                       {"checkSuite": {"app": "verify"}}, {"checkSuite": {"app": {"databaseId": 0}}}, {"status": "in progress"},
                        {"conclusion": "SUCCESS"}, {"completedAt": "2026-10-20T00:51:22Z"},
                        {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": {"path": ""}}}},
                        {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": "verify"}},
                        {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": "verify.yml"}}}):
             with self.assertRaises(github.Unanswered, msg=broken):
                 checks.check(dict(node, **broken))
+
+    def test_a_check_whose_app_github_does_not_show_reads_as_no_app(self):  # decision 0180, pull request 688
+        # Another App's token is not shown a private App, such as the Controller's on its own check: GitHub gives that
+        # check's suite's App null, or refuses it, FORBIDDEN, at that place alone. Either reads as app_id null; any
+        # other error, or the same at any other place, refuses the read, as before.
+        node = p32_pull()
+        nodes = node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+        at = next(i for i, n in enumerate(nodes) if n["__typename"] == "CheckRun")
+        nodes[at]["checkSuite"]["app"] = None
+        place = ["repository", "pullRequest", "commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes",
+                 at, "checkSuite", "app"]
+
+        def answered(errors=None):
+            exchange = checks_answer(copy.deepcopy(node))
+            if errors is not None:
+                exchange["response"]["body"]["errors"] = errors
+            return exchange
+        refused = {"type": "FORBIDDEN", "path": place, "message": "Resource not accessible by integration"}
+        for errors in (None, [refused]):
+            got = checks.read(github.Replay([answered(errors)]), as_pull(node))
+            self.assertIsNone(got["checks"][0]["app_id"], errors)     # the first check run in the rollup
+            self.assertIs(got["complete"], True)
+        for errors in ([dict(refused, type="NOT_FOUND")], [dict(refused, path=place[:-1] + ["workflowRun"])],
+                       [dict(refused, path=place[:4] + [1] + place[5:])], [refused, {"type": "INTERNAL"}],
+                       [dict(refused, path=place[:9] + [len(nodes)] + place[10:])], "FORBIDDEN"):
+            with self.assertRaises(github.Unanswered, msg=errors):
+                checks.read(github.Replay([answered(errors)]), as_pull(node))
+        # A refusal of an App the rollup gives anyway contradicts itself, and refuses the read.
+        nodes[at]["checkSuite"]["app"] = {"databaseId": 15368}
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([answered([refused])]), as_pull(node))
 
     def test_a_rollup_of_another_commit_or_cut_short_is_not_read_whole(self):
         node = p32_pull()
@@ -4068,6 +4100,12 @@ class Contract(unittest.TestCase):
                          required_lenses=dict(config["required_lenses"], deterministic=[other]))
         for n in forged:
             self.assertEqual(derive.foreign_results(given_by(n), facts_, elsewhere), ["AC-1:from_app:15368"])
+        # A result's check whose App GitHub does not show is refused, as any check it cannot read: no result is
+        # reported by an App that cannot be named (decision 0180).
+        hidden = copy.deepcopy(real[0])
+        hidden["checkSuite"]["app"] = None
+        with self.assertRaises(github.Unanswered):
+            acceptance.result_check(hidden)
 
     def test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids(self):
         # Issue 439: the job's form, whole, its run's id and its own. That is what one forging attempt showed and no promise

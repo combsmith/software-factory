@@ -1420,6 +1420,18 @@ class Content(unittest.TestCase):
                                    "completed_at": None}])
         self.assertEqual(go(f, REVIEWED)["state"], "converged")
 
+    def test_a_check_no_lens_names_whose_app_is_not_shown_changes_no_decision(self):  # decision 0180
+        # The Controller's own status, and a Role App's check, are no Lens: where the reading token is not shown their
+        # private App, app_id null, the Decision is the one taken without that check, so nothing becomes admittable
+        # that was not before. Under a required Lens's name a null App is a deferral, as the test after this holds.
+        hidden = {"name": "factory", "app_id": None, "workflow": None, "conclusion": "neutral",
+                  "completed_at": "2026-10-11T12:00:00Z"}
+        for runs, reviews in (((), []), (REVIEWED, []), (REVIEWED, APPROVED)):
+            for checks in (GREEN, [dict(GREEN[0], conclusion="failure")] + GREEN[1:]):
+                plain, seen = go(facts(checks=checks, reviews=reviews), runs), go(facts(checks=checks + [hidden],
+                                                                                         reviews=reviews), runs)
+                self.assertEqual(seen, plain, (len(runs), len(reviews), checks[0]["conclusion"]))
+
     def test_a_check_from_another_app_is_unreadable_for_its_lens(self):  # I-13, I-27
         # Any App with checks: write can post a check under any name. The ruleset pins `verify` to its App, and the
         # Kernel pins every required Lens: a check with a required Lens's name from any other App, or with an App id

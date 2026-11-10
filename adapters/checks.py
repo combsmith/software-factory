@@ -10,7 +10,9 @@ check. The list is whole only when its last page says there is no next one and e
 over more than one page, only when every context carries its own id and none was read twice, since a rollup that moves
 between pages can repeat one context and leave out another. A cursor that repeats, or pages past the count, end the read
 short. Whether the pull request is in the merge queue is its entry, an object, or null: any other shape is refused. A
-rollup of another commit than the head is refused, and so is one read while the pull request's head moved.
+rollup of another commit than the head is refused, and so is one read while the pull request's head moved. A check
+run's App GitHub does not show this token is read as null, whether the rollup gives it null or refuses it, FORBIDDEN,
+at that check run's suite's App alone; any other error refuses the read (decision 0180).
 
 """
 from __future__ import annotations
@@ -55,6 +57,34 @@ QUERY = """query FactsChecks($owner: String!, $name: String!, $number: Int!, $af
 }""" % PAGE
 
 
+# Where an App this token is not shown is refused: a check run's suite's App, by its place in the page (decision 0180).
+SHOWN_APP = ["repository", "pullRequest", "commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes"]
+
+
+def _hidden(errors):
+    """The places in the page of the check runs whose App GitHub refused this token, from the answer's errors: a set,
+    empty where there are none, or None where any error is another kind, or at another place, which refuses the read."""
+    if errors is None or errors == []:
+        return set()
+    if not isinstance(errors, list):
+        return None
+    places = set()
+    for error in errors:
+        path = error.get("path") if isinstance(error, dict) else None
+        if not (isinstance(error, dict) and error.get("type") == "FORBIDDEN" and isinstance(path, list)
+                and len(path) == len(SHOWN_APP) + 3 and path[:len(SHOWN_APP)] == SHOWN_APP
+                and type(path[len(SHOWN_APP)]) is int and path[len(SHOWN_APP) + 1:] == ["checkSuite", "app"]):
+            return None
+        places.add(path[len(SHOWN_APP)])
+    return places
+
+
+def _shown_none(node) -> bool:
+    """Whether `node` is a check run whose suite GitHub gives with its App null, as it does where it refused it."""
+    suite = node.get("checkSuite") if isinstance(node, dict) else None
+    return node.get("__typename") == "CheckRun" and isinstance(suite, dict) and "app" in suite and suite["app"] is None
+
+
 def own_job(details, check_id, run_id) -> bool:
     """Whether `details` is the URL of a job's own check: the job's form, its run's id `run_id` and its own `check_id`.
     GitHub leaves a check a job creates at `/runs/ID`, whatever details it was given (P-35). That is what one forging
@@ -65,16 +95,20 @@ def own_job(details, check_id, run_id) -> bool:
 
 
 def check(node: dict) -> dict:
-    """One check run as `facts/1` holds it; refused when any part GitHub gives cannot be read."""
+    """One check run as `facts/1` holds it; refused when any part GitHub gives cannot be read. Its App is null where
+    GitHub gives the suite's App as null: an App this token is not shown, as another App's token is not shown a private
+    App (decision 0180). The Kernel never takes a null App for a Lens's."""
     suite = node.get("checkSuite") if isinstance(node.get("checkSuite"), dict) else {}
-    app = (suite.get("app") or {}).get("databaseId") if isinstance(suite.get("app"), dict) else None
+    shown = suite.get("app", False)
+    app = None if shown is None else shown.get("databaseId") if isinstance(shown, dict) else False
     run = suite.get("workflowRun")
     file = run.get("file") if isinstance(run, dict) else None
     if not (run is None or isinstance(run, dict)) or not (file is None or isinstance(file, dict)):
         raise Unanswered("a check run's workflow run cannot be read")
     path = file.get("path") if isinstance(file, dict) else None
     name, status, conclusion, done = node.get("name"), node.get("status"), node.get("conclusion"), node.get("completedAt")
-    if not isinstance(name, str) or not name or not isinstance(app, int) or isinstance(app, bool) or app < 1:
+    if not isinstance(name, str) or not name or \
+            (app is not None and (not isinstance(app, int) or isinstance(app, bool) or app < 1)):
         raise Unanswered("a check run's name or App cannot be read")
     if path is not None and (not isinstance(path, str) or not path):
         raise Unanswered("a check run's workflow file cannot be read")
@@ -110,7 +144,8 @@ def _read(transport, pull: dict, runs: list) -> dict:
     while True:
         variables = {"owner": owner, "name": name, "number": pull["number"], "after": after}
         answer = transport.send(request("POST", "/graphql", body={"query": QUERY, "variables": variables}))
-        if answer["status"] != 200 or not isinstance(answer["body"], dict) or answer["body"].get("errors"):
+        hidden = _hidden(answer["body"].get("errors")) if isinstance(answer["body"], dict) else None
+        if answer["status"] != 200 or hidden is None:
             raise Unanswered("the checks' read answered %d" % answer["status"])
         pr = (((answer["body"].get("data") or {}).get("repository") or {}).get("pullRequest")) or {}
         nodes = ((pr.get("commits") or {}).get("nodes")) or []
@@ -130,6 +165,9 @@ def _read(transport, pull: dict, runs: list) -> dict:
         page = (contexts or {}).get("pageInfo") if isinstance(contexts, dict) else None
         if not isinstance(contexts, dict) or not isinstance(contexts.get("nodes"), list) or not isinstance(page, dict):
             return {"checks": found, "complete": False, "queue": queue}
+        if any(not isinstance(i, int) or i >= len(contexts["nodes"]) or not _shown_none(contexts["nodes"][i])
+               for i in hidden):
+            raise Unanswered("a check's App was refused, and the rollup gives it anyway")
         counted = contexts.get("totalCount")
         total = counted if total is None else total
         for node in contexts["nodes"]:
