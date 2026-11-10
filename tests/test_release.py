@@ -321,6 +321,7 @@ class Fixture(unittest.TestCase):
     CUT = ROOT / "release" / "fixtures" / "cut.v0-1-0.json"
     NEXT_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-1.json"
     THIRD_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-2.json"
+    FOURTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-3.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
 
     def item(self, fixture, name):
@@ -439,9 +440,11 @@ class Fixture(unittest.TestCase):
     def test_the_next_cut_moved_next_on(self):
         # Each cut after the first. Run 42697380276 cut factory/v0.1.1 on 2026-11-09 at the commit eval run 42694638100
         # had passed; run 42741714653 cut factory/v0.1.2 on 2026-11-10 at the commit eval run 42739717534 had passed,
-        # #694's merge, after slice 1's first dry run stopped in the reader.
+        # #694's merge, after slice 1's first dry run stopped in the reader; run 42755427902 cut factory/v0.1.3 on
+        # 2026-11-10 at the commit eval run 42753588971 had passed, #708's merge, after the second.
         for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
-                                        (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT])):
+                                        (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
+                                        (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
 
