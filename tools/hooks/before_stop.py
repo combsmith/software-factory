@@ -5,7 +5,7 @@ no bound and no person. With nothing changed and nothing unpushed there is nothi
 turn spent answering questions costs nothing, and where the checks last passed at the state the tree is in
 now, after an edit or at a stop, they are not run again (make.checks). Run as `python3 -I` on this file; see after_edit.py.
 
-It runs the checks alone. The tests are CI's, and a builder's own `make verify`: they outgrew any time
+It runs the checks alone. The tests are CI's, in its `make verify`, never the desk's: they outgrew any time
 a hook can spend (issue 438). A run it cannot finish is not started (issue 344): each run that ends,
 or runs out of the hook's time, is written down in the tree's git directory, and while the last one
 there ran out of time, within RETRY, the session is told so and ends; CI runs the checks as before.
