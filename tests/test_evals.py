@@ -3168,7 +3168,7 @@ class EvalJob(unittest.TestCase):
                  "eval_split_short"),
                 # Where no kind was read, no criterion was either (issue 692).
                 (dict(copy.deepcopy(good), kinds=None, kinds_pass=None, split_ok=None, blocking_pass=None), "count_differs"),
-                (dict(copy.deepcopy(good), kinds=None, split_ok=None, blocking_pass=None), "count_differs"),
+                (dict(copy.deepcopy(good), kinds=None, criteria=None, split_ok=None, blocking_pass=None), "count_differs"),
                 (self.aggregate_of(finding=(19, 6), met=(21, 19), natural=(30, 18))[2], "count_differs"),
                 (changed(["bars", "finding"], [2, 10]), "bars_differ"),
                 (changed(["kind_least"], 0), "bars_differ"),
