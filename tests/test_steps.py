@@ -807,12 +807,11 @@ class Approve(unittest.TestCase):
         now = datetime.datetime.strptime(record["now"], "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=datetime.timezone.utc).timestamp()
 
-        def read_again(*a):
-            return (copy.deepcopy(entry["facts"]), ta.HEAD, copy.deepcopy(record["runs"]),
-                    copy.deepcopy(record["context"]))
-
-        def go(name, item=ITEM, found=record):
+        def go(name, item=ITEM, found=record, context=record["context"]):
             sent = ta.GitHub()
+
+            def read_again(*a):
+                return (copy.deepcopy(entry["facts"]), ta.HEAD, copy.deepcopy(record["runs"]), copy.deepcopy(context))
             with tempfile.TemporaryDirectory() as d, \
                     unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(found)), \
                     unittest.mock.patch.object(reread, "item", read_again):
@@ -841,6 +840,15 @@ class Approve(unittest.TestCase):
                 del e["decision"]["content_id"]
         self.assertEqual(shared.errors(bare, "pass"), [])
         self.assertEqual(go(mine, found=bare), (1, "not_the_decision\n", "superseded", "refused", []))
+        # A Pause the approver's token may not read is handed back unread by the Pause's port, never raised; the step
+        # ends by the Pause's own code, and nothing is written (pull request 688, the fifth dry run).
+        class Refusing:
+            def send(self, req):
+                return {"status": 403, "body": {}, "headers": {}}
+        unread, _ = reread.pass_.human_pause(reread.pause_.read(Refusing(), HOME.split("/")[0], [HOME]), [HOME])
+        self.assertIsNone(unread)
+        self.assertEqual(go(mine, context=dict(record["context"], paused=unread)),
+                         (1, "pause_unreadable\n", "environment", "refused", []))
 
 
 class Diff(unittest.TestCase):
