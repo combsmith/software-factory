@@ -876,6 +876,11 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(check_authority.run(config=dict(config, author_role="dev-lead")), "no dev-lead.json"))
         self.assertTrue(caught(check_authority.run(config=dict(config, owner_role="reviewer")), "no reviewer.json"))
         self.assertTrue(caught(check_authority.run(config=dict(config, author_role="pr-review")), "author Role differs"))
+        # A name that is no Role's, one that would reach outside roles/ among them, and an owner Role named none (Muse).
+        for field in ("author_role", "owner_role"):
+            self.assertTrue(caught(check_authority.run(config=dict(config, **{field: "../config/defaults"})), "no Role's name"),
+                            field)
+        self.assertTrue(caught(check_authority.run(config=dict(config, owner_role=None)), "no Role's name"))
 
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9

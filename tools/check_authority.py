@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import re
 import pathlib
 
 from kernel import terms
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+# A Role's name, as role/1 spells one (schemas/role.schema.json).
+ROLE_NAME = re.compile(r"[a-z][a-z-]*[a-z]")
 MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliability",
                 "requirements", "uncategorised"}
 
@@ -150,11 +153,17 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
     # Run dispatched to a Role with none fails at its read, on every pass, until the Run ceiling holds it (issue 675).
     if c["author_role"] is not None and a["author_role"] != c["author_role"]:
         problems.append("the author Role differs between the authority table and the configuration")
+    # Each a Role's own name, as role/1 spells one, so it names no file outside roles/ (Muse); the owner always, the
+    # author or none.
     for field in ("author_role", "owner_role"):
         name = c[field]
-        if name is not None and not (ROOT / "roles" / ("%s.json" % name)).is_file():
-            problems.append("the configuration's %s is %r, and roles/ holds no %s.json; name none until it does"
-                            % (field, name, name))
+        if name is None and field == "author_role":
+            continue
+        if not (isinstance(name, str) and ROLE_NAME.fullmatch(name)):
+            problems.append("the configuration's %s is %r, which is no Role's name" % (field, name))
+        elif not (ROOT / "roles" / ("%s.json" % name)).is_file():
+            problems.append("the configuration's %s is %r, and roles/ holds no %s.json%s"
+                            % (field, name, name, "; name none until it does" if field == "author_role" else ""))
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
     # A Lens or a check named twice, deterministic or model, could pin two Apps or be read as the other, and which one
