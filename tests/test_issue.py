@@ -344,6 +344,9 @@ class Unreadable(unittest.TestCase):
                # or null, no earlier than it opened.
                dict(good, keyword=None), dict(good, keyword="yes"), dict(good, keyword_seen_at="soon"),
                dict(good, keyword_seen_at=12), dict(good, opened_at=at(2), keyword_seen_at=at(1)),
+               {k: v for k, v in good.items() if k != "keyword_seen_at"},
+               # Listed for nothing: no keyword now or once seen, no link by hand, no close it made.
+               dict(good, keyword=False),
                ]
         no_class = dict(good)
         del no_class["class"]
@@ -359,6 +362,9 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[strangers()])), "new")
+        # A keyword first seen in its opening second is read; one taken out, once seen, is listed for that (issue 552).
+        self.assertEqual(state(facts(linked=[pr(opened=2, seen=2)])), "in_review")
+        self.assertEqual(derive(facts(linked=[pr(keyword=False, seen=2)]))["reason"], "acceptance_due")
         # A link by hand in its opening second, unlinked and linked again in one second, is read (issue 551).
         both = pr(links=[("connected", 0), ("disconnected", 3), ("connected", 3)])
         self.assertEqual(state(facts(linked=[both])), "in_review")
@@ -993,6 +999,17 @@ class Done(unittest.TestCase):
                       strangers(number=13, events=[labelled(ADMIT, minute=9)], seen=3)):
             d = derive(facts(linked=[own, rival], **closed))
             self.assertEqual((d["state"], d["reason"]), ("done", "merged"), rival)
+        # A rival linked by hand too, unlinked by hand after the merge, still holds by its keyword: a keyword's link cannot
+        # be unlinked by hand.
+        both = pr(number=12, links=[("connected", 1), ("disconnected", 7)], seen=3)
+        d = derive(facts(linked=[own, both], **closed))
+        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # Before any merge, a pull request whose keyword an edit took out and no link by hand holds is no open link.
+        d = derive(facts(linked=[agents(number=11), pr(number=12, keyword=False, seen=1)]))
+        self.assertNotEqual(d["reason"], "linked_twice")
+        self.assertEqual(derive(facts(linked=[agents(number=11), pr(number=12, seen=1)]))["reason"], "linked_twice")
+        undone = pr(number=12, keyword=False, links=[("connected", 1), ("disconnected", 2)])
+        self.assertNotEqual(derive(facts(linked=[agents(number=11), undone]))["reason"], "linked_twice")
         # Nor is the merge's own keyword first seen in its second a link before it.
         late = agents(number=11, is_open=False, merged=5, seen=5)
         d = derive(facts(linked=[late, pr(number=12, seen=3)], **closed))

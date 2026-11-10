@@ -302,7 +302,7 @@
             "type": "boolean"
           },
           "keyword_seen_at": {
-            "description": "When the first pass whose record listed this pull request with its keyword started, its `now`: a keyword link's time, which GitHub does not record (trials/P-48.json). Null where no pass has seen one. Row 1 reads a keyword link that a pass saw before the first merge's second as a link at it (issue 552); the issue port that reads it from the pass records is not built yet",
+            "description": "When the issue's facts were read in the first pass whose record listed this pull request with its keyword, those facts' read_at, not the pass's start, which comes before GitHub is read: a keyword link's time, which GitHub does not record (trials/P-48.json). Null where no pass has seen one. The port reads it only from pass records the Factory itself wrote. Row 1 reads a keyword link that a pass saw before the first merge's second as a link at it (issue 552); the issue port that reads it from the pass records is not built yet",
             "type": [
               "string",
               "null"

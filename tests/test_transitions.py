@@ -1250,8 +1250,8 @@ def queue_merges_issue(item: dict, kind: str = "agent"):
     only a person ends it (issue 522): held by a Hold on the issue, the race of a pass that has not yet dequeued; and
     not served by a person's hands-off on the issue, under which the Factory leaves a queued item to merge; and held
     by two links each made by hand, which carry their times (issue 551). Under a linked draft's Hold or hands-off, from
-    two links one of which is a closing keyword's alone, or on an issue the Consumer entry leaves out, row 1 waits on
-    the time a link was made (decision 0141, issue 552)."""
+    two links one of which is a closing keyword's no pass has timed, or on an issue the Consumer entry leaves out, row 1
+    reads as before (decision 0141). Every keyword time is null here until the issue port gives them (issue 552)."""
     live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == kind and not p["draft"]]
     d = issue_kernel(item)
     by_hand = [p for p in item["facts"]["linked"] if p["open"] and p["link_events"]
