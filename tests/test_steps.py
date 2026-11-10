@@ -465,7 +465,11 @@ class Reader(unittest.TestCase):
                                             ((read.pull, "change", no), "change_unreadable"),
                                             ((read.texts, "issues", no), "issue_texts_unreadable"),
                                             # A read no stage names, should one be added, still stops by a code.
-                                            ((read.facts_, "accounts_of", no), "facts_unreadable")):
+                                            ((read.facts_, "accounts_of", no), "facts_unreadable"),
+                                            # A fault of a read's own code is told its stage (decision 0187), and the
+                                            # reader still fails on it as it did, by no read's code.
+                                            ((read.facts_, "snapshot", lambda: TypeError("x")), "step_failed"),
+                                            ((read.records, "runs", lambda: KeyError("x")), "step_failed")):
             code, printed, files, _, calls = self.go(raising=(module, name, error()))
             self.assertEqual((code, printed, files, calls["revoked"]), (1, want + "\n", [], 1), want)
 
@@ -632,6 +636,14 @@ class Apply(unittest.TestCase):
             with unittest.mock.patch.object(reread, "item", reading):
                 code, _, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
             self.assertEqual((ended["outcome"], ended["reason"]), want, raised)
+        # A fault of the read's own code is told its stage (decision 0187), and apply still fails on it as it did: by
+        # no read's code, and with no outcome of its own.
+        def faulty(*a):
+            with shared.staged("context"):
+                raise TypeError("an answer no adapter expected")
+        with unittest.mock.patch.object(reread, "item", faulty):
+            code, printed, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
+        self.assertEqual((code, printed, ended), (1, "step_failed\n", None))
         # A record that cannot be read is the environment's; a Decision of another item, no Decision of this Run's.
         code, _, ended, calls = self.go(record=github.Unanswered)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "record_unreadable", []))
@@ -807,12 +819,11 @@ class Approve(unittest.TestCase):
         now = datetime.datetime.strptime(record["now"], "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=datetime.timezone.utc).timestamp()
 
-        def read_again(*a):
-            return (copy.deepcopy(entry["facts"]), ta.HEAD, copy.deepcopy(record["runs"]),
-                    copy.deepcopy(record["context"]))
-
-        def go(name, item=ITEM, found=record):
+        def go(name, item=ITEM, found=record, context=record["context"]):
             sent = ta.GitHub()
+
+            def read_again(*a):
+                return (copy.deepcopy(entry["facts"]), ta.HEAD, copy.deepcopy(record["runs"]), copy.deepcopy(context))
             with tempfile.TemporaryDirectory() as d, \
                     unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(found)), \
                     unittest.mock.patch.object(reread, "item", read_again):
@@ -841,6 +852,15 @@ class Approve(unittest.TestCase):
                 del e["decision"]["content_id"]
         self.assertEqual(shared.errors(bare, "pass"), [])
         self.assertEqual(go(mine, found=bare), (1, "not_the_decision\n", "superseded", "refused", []))
+        # A Pause the approver's token may not read is handed back unread by the Pause's port, never raised; the step
+        # ends by the Pause's own code, and nothing is written (pull request 688, the fifth dry run).
+        class Refusing:
+            def send(self, req):
+                return {"status": 403, "body": {}, "headers": {}}
+        unread, _ = reread.pass_.human_pause(reread.pause_.read(Refusing(), HOME.split("/")[0], [HOME]), [HOME])
+        self.assertIsNone(unread)
+        self.assertEqual(go(mine, context=dict(record["context"], paused=unread)),
+                         (1, "pause_unreadable\n", "environment", "refused", []))
 
 
 class Diff(unittest.TestCase):
@@ -965,6 +985,20 @@ class Reread(unittest.TestCase):
                     unittest.mock.patch.object(target, name, standin), self.assertRaises(github.Unanswered) as raised:
                 reread.item("t", config, 42, support.NOW, lambda: support.NOW)
             self.assertEqual((getattr(raised.exception, "stage", None), getattr(raised.exception, "part", None)), want)
+        # A fault of the read's own code is told its stage too, and so is the context's building, which reads nothing:
+        # the approving act records every fault of the read again, and one left unnamed no log can find (decision 0187).
+        def odd(*a, **k):
+            raise TypeError("an answer no adapter expected")
+        for target, name, want in ((reread.records, "runs", "run_records"), (reread.applied, "recorded", "lens_records"),
+                                   (reread.applied, "opened", "opened_records"), (reread.facts_, "snapshot", "snapshot"),
+                                   (reread.pause_, "read", "pause"), (reread.reads_, "configured", "context"),
+                                   (reread.pass_, "context_of", "context")):
+            with unittest.mock.patch.object(reread.records, "runs", fine["runs"]), \
+                    unittest.mock.patch.object(reread.facts_, "snapshot", fine["snapshot"]), \
+                    unittest.mock.patch.object(reread.pause_, "read", fine["pause"]), \
+                    unittest.mock.patch.object(target, name, odd), self.assertRaises(TypeError) as raised:
+                reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+            self.assertEqual(getattr(raised.exception, "stage", None), want, name)
         # A list read short holds the threads to nothing recorded, and they are not whole (issue 338).
         self.assertEqual(whole, [(False, ({}, False, [])), (False, ({}, False, []))])
         asked_ = []

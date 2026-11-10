@@ -6,8 +6,8 @@ the Pause is `FACTORY_PAUSED` on the org and on the item's repo; the facts are t
 request, with the accounts `controller/1` holds, the App that opens pull requests (issue 295), whether the run
 records were read whole and what the item's Lenses recorded in them (`adapters/applied.py`). The context is built from
 them by `controller/pass_.context_of`, as one pass builds it, with no pass records before, so `passes_since` is
-unreadable, which defers nothing. What cannot be read raises, named by its stage (`harness/shared.unread`), and the
-job that asked records whose fault it was."""
+unreadable, which defers nothing. What cannot be read raises, named by its stage (`harness/shared.unread`), a fault of
+a read's own code as a read GitHub did not answer, and the job that asked records whose fault it was."""
 from __future__ import annotations
 
 from adapters import applied, facts as facts_, pause as pause_, records, timeline
@@ -36,8 +36,9 @@ def item(transport, config: dict, number: int, now: str, clock) -> tuple:
                                          recorded=found[number], opened=opened)
     with shared.staged("pause"):
         paused = pause_.read(transport, home.split("/")[0], [home])
-    rules = reads_.configured(controller)
-    listed_, _, runs, _, _, _, context = pass_.context_of(listed, paused, [home], rules, now)
+    with shared.staged("context"):     # no read: built from what the reads gave, and named as they are (decision 0187)
+        rules = reads_.configured(controller)
+        listed_, _, runs, _, _, _, context = pass_.context_of(listed, paused, [home], rules, now)
     if not listed_:
         with shared.staged("run_records"):
             raise Unanswered("the run records cannot be read")

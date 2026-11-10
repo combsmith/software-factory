@@ -10,7 +10,7 @@ import unittest
 from adapters import acceptance, checks, edits, effects, threads
 from adapters.facts import Moved
 from adapters.github import Unanswered
-from harness import approve
+from harness import approve, shared
 from kernel.decide import decide
 from tests.support import CONFIG, NOW, ROOT, context, facts, labelled, review, run
 from tools.jsonschema_lite import validate
@@ -76,9 +76,12 @@ def reads(f=None, runs=REVIEWED, ctx=None, head=HEAD):
     return read
 
 
-def failing(err):
+def failing(err, stage=None):
     def read():
-        raise err
+        if stage is None:
+            raise err
+        with shared.staged(stage):
+            raise err
     return read
 
 
@@ -441,25 +444,47 @@ class TheAct(unittest.TestCase):
         closed = {"status": 200, "body": {"state": "closed", "head": {"sha": HEAD}}}
         paused_unread = Unanswered("no")
         paused_unread.stage = "pause"     # a read the read again named, by its stage (pull request 688, the dry run)
+        parted = IndexError("x")
+        parted.part = "timeline"
         cases = [
             (GitHub(), failing(Moved("moved")), ("superseded", "head_moved"), "refused"),
             (GitHub(), failing(Unanswered("no")), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), failing(paused_unread), ("environment", "pause_unreadable"), "refused"),
             (GitHub(), failing(KeyError("x")), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(head="not a commit"), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(head=None), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), failing(IndexError("x")), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (None, HEAD, REVIEWED, context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (facts(), HEAD, None, context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: ({}, HEAD, REVIEWED, context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (dict(facts(), state="?"), HEAD, REVIEWED, context()), ("environment", "facts_unreadable"),
+            # A fault of the read's own code is named by its stage as a read GitHub refused is, and by a snapshot's
+            # part: the act records every fault, so one it left unnamed is one no log can find (decision 0187).
+            (GitHub(), failing(KeyError("x"), "snapshot"), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), failing(TypeError("x"), "context"), ("environment", "context_unreadable"), "refused"),
+            (GitHub(), failing(parted, "snapshot"), ("environment", "snapshot_timeline_unreadable"), "refused"),
+            # A part read that is not as its schema holds it is named by the read that gave it, as a read GitHub did
+            # not answer is (pull request 688's fifth dry run stopped at one code for all of them): the snapshot's,
+            (GitHub(), reads(head="not a commit"), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), reads(head=None), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), lambda: (None, HEAD, REVIEWED, context()), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), lambda: ({}, HEAD, REVIEWED, context()), ("environment", "snapshot_unreadable"), "refused"),
+            (GitHub(), lambda: (dict(facts(), state="?"), HEAD, REVIEWED, context()),
+             ("environment", "snapshot_unreadable"), "refused"),
+            # the run records',
+            (GitHub(), lambda: (facts(), HEAD, None, context()), ("environment", "run_records_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, [None], context()), ("environment", "run_records_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, [dict(run(), status="?")], context()),
+             ("environment", "run_records_unreadable"), "refused"),
+            # and the Pause's, which the Pause's port hands back unread and never raises. A context that is none is
+            # the context's own.
+            (GitHub(), reads(ctx=context(paused=None)), ("environment", "pause_unreadable"), "refused"),
+            (GitHub(), reads(ctx=context(paused="true")), ("environment", "pause_unreadable"), "refused"),
+            # A number is no Pause read, though Python holds 0 and 1 equal to the two a Pause may be (Carbon's read).
+            (GitHub(), reads(ctx=context(paused=0)), ("environment", "pause_unreadable"), "refused"),
+            (GitHub(), reads(ctx=context(paused=1)), ("environment", "pause_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, REVIEWED, None), ("environment", "context_unreadable"), "refused"),
+            # Where more than one is unreadable, the first as the item is read again names it: the run records, the
+            # snapshot, then the Pause.
+            (GitHub(), lambda: ({}, None, [None], context(paused=None)), ("environment", "run_records_unreadable"),
              "refused"),
-            (GitHub(), lambda: (facts(), HEAD, [None], context()), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), lambda: (facts(), HEAD, [dict(run(), status="?")], context()), ("environment", "facts_unreadable"),
+            (GitHub(), lambda: ({}, HEAD, REVIEWED, context(paused=None)), ("environment", "snapshot_unreadable"),
              "refused"),
-            (GitHub(), lambda: (facts(), HEAD, REVIEWED, None), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(ctx=context(paused=None)), ("environment", "facts_unreadable"), "refused"),
-            (GitHub(), reads(ctx=context(paused="true")), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), None, REVIEWED, None), ("environment", "snapshot_unreadable"), "refused"),
             (posting({"status": 201, "body": LANDED}), None, ("environment", "not_read_back"), "failed"),
             (posting({"status": 200, "body": [LANDED]}), None, ("environment", "not_read_back"), "failed"),
             (posting({"status": 401, "body": {}}), None, ("environment", "token_refused"), "refused"),
