@@ -146,14 +146,18 @@ class TheAct(unittest.TestCase):
                    # The org's own variable, which the Pause is no longer read from (issue 362).
                    ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
         # Two dots together are read in a compare of two commits of the item's repo, and in nothing that is not one
-        # whole: a branch's name, a commit's short or capital form, two dots or four, a path or a query after it, or
-        # another repo's compare (pull request 688, the fourth dry run).
+        # whole: a branch's name, either commit's short or capital form, two dots or four, two dots and another
+        # character, a line's end, a path or a query after it, or another repo's compare (pull request 688, the fourth
+        # dry run).
         base = "a" * 40
         compare = "/repos/%s/compare/%s...%s" % (repo, base, HEAD)
         refused += [("GET", path, None) for path in (
             "/repos/%s/compare/main...%s" % (repo, HEAD), "/repos/%s/compare/%s...main" % (repo, base),
             "/repos/%s/compare/%s...%s" % (repo, base[:39], HEAD), "/repos/%s/compare/%s...%s" % (repo, base.upper(), HEAD),
+            "/repos/%s/compare/%s...%s" % (repo, base, HEAD[:39]), "/repos/%s/compare/%s...%s" % (repo, base, HEAD.upper()),
             "/repos/%s/compare/%s..%s" % (repo, base, HEAD), "/repos/%s/compare/%s....%s" % (repo, base, HEAD),
+            "/repos/%s/compare/%s..?%s" % (repo, base, HEAD), "/repos/%s/compare/%s..x%s" % (repo, base, HEAD),
+            compare + "\n",
             compare + "/../../pulls/43", compare + "?per_page=1", compare + "0", "/repos/%s/x/../compare/%s...%s" % (
                 repo, base, HEAD), "/repos/combsmith/other/compare/%s...%s" % (base, HEAD), "/user/../" + compare[1:])]
         for method, path, body in refused:

@@ -425,6 +425,12 @@ class Reader(unittest.TestCase):
             self.assertEqual((code, printed, files), (1, want + "\n", []), change)
             # A key read is always revoked, whatever stopped the reads.
             self.assertEqual(calls["revoked"], 0 if change == {"environ": {}} else 1, change)
+        # An approving run-name finds its act, and the reader builds no Task on it: the approval is the approving act's.
+        out = tc.passed(tc.reads(pulls=[tc.pr(1), tc.pr(42)], runs=[tc.run(number=42)]))
+        approving, = [d for d in out["dispatch"] if " issue-approval " in d["name"]]
+        code, printed, files, _, calls = self.go(record=out["record"],
+                                                 argv=[approving["name"], ITEM, out["record"]["pass"], "task"])
+        self.assertEqual((code, printed, files, calls["revoked"]), (1, "not_the_decision\n", [], 1))
         # The reader's token is its App's reads alone, whatever else the App were granted.
         apps = json.loads((ROOT / "config" / "apps.json").read_text())
         app = copy.deepcopy(apps["apps"]["reader"])
@@ -805,10 +811,10 @@ class Approve(unittest.TestCase):
             return (copy.deepcopy(entry["facts"]), ta.HEAD, copy.deepcopy(record["runs"]),
                     copy.deepcopy(record["context"]))
 
-        def go(name, item=ITEM):
+        def go(name, item=ITEM, found=record):
             sent = ta.GitHub()
             with tempfile.TemporaryDirectory() as d, \
-                    unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(record)), \
+                    unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(found)), \
                     unittest.mock.patch.object(reread, "item", read_again):
                 code, printed = ran(approve_step.step, [name, item, record["pass"], "approved"],
                                     {"RELEASE": RELEASE, approve_step.TOKEN: "t", "GITHUB_RUN_ID": "9"}, d,
@@ -828,6 +834,13 @@ class Approve(unittest.TestCase):
                            (mine.replace(" issue-approval ", " review-change "), ITEM)):
             self.assertNotEqual(name, mine)
             self.assertEqual(go(name, item), (1, "not_the_decision\n", "superseded", "refused", []), name)
+        # An act that names no content is no run-name's: the record is read, and nothing is written.
+        bare = copy.deepcopy(record)
+        for e in bare["pull_requests"]:
+            if e["run"] == approving["run"]:
+                del e["decision"]["content_id"]
+        self.assertEqual(shared.errors(bare, "pass"), [])
+        self.assertEqual(go(mine, found=bare), (1, "not_the_decision\n", "superseded", "refused", []))
 
 
 class Diff(unittest.TestCase):

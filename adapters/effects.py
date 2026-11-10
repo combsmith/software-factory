@@ -828,12 +828,12 @@ class Approving:
         if item:
             self._repo = "/repos/%s/" % item["repo"]
             self._reviews = "/repos/%s/pulls/%d/reviews" % (item["repo"], item["number"])
-            self._compare = re.compile(re.escape(self._repo) + COMPARED)
+            self._compare = re.compile(re.escape(self._repo) + COMPARED).fullmatch
 
     def _read(self, path) -> bool:
         if not isinstance(path, str) or "%2e" in path.lower() or "//" in path:
             return False
-        if ".." in path and not (self._item is not None and self._compare.fullmatch(path)):
+        if ".." in path and not (self._item is not None and self._compare(path)):
             return False
         return path == "/user" or (self._item is not None and path.startswith(self._repo))
 

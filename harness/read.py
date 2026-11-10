@@ -111,7 +111,7 @@ def decided(record, parts: dict, owner_role: str) -> dict:
         raise Stop("record_unreadable")
     if parts["intent"] == t.ISSUE_APPROVAL:    # the run-name's Intent; `approve.APPROVAL` is the Decision's action
         act = approve.decision_of(record, parts["run"])
-        if act is None or act["item"] != parts["item"] or act["content_id"] != parts["content_id"] \
+        if act is None or act["item"] != parts["item"] or act.get("content_id") != parts["content_id"] \
                 or parts["role"] != owner_role:
             raise Stop("not_the_decision")
         return act
