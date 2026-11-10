@@ -12,7 +12,7 @@ between pages can repeat one context and leave out another. A cursor that repeat
 short. Whether the pull request is in the merge queue is its entry, an object, or null: any other shape is refused. A
 rollup of another commit than the head is refused, and so is one read while the pull request's head moved. A check
 run's App GitHub does not show this token is read as null, whether the rollup gives it null or refuses it, FORBIDDEN,
-at that check run's suite's App alone; any other error refuses the read (decision 0180).
+at that check run's suite's App alone; any other error refuses the read (decision 0181).
 
 """
 from __future__ import annotations
@@ -57,7 +57,7 @@ QUERY = """query FactsChecks($owner: String!, $name: String!, $number: Int!, $af
 }""" % PAGE
 
 
-# Where an App this token is not shown is refused: a check run's suite's App, by its place in the page (decision 0180).
+# Where an App this token is not shown is refused: a check run's suite's App, by its place in the page (decision 0181).
 SHOWN_APP = ["repository", "pullRequest", "commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes"]
 
 
@@ -103,7 +103,7 @@ def own_job(details, check_id, run_id) -> bool:
 def check(node: dict) -> dict:
     """One check run as `facts/1` holds it; refused when any part GitHub gives cannot be read. Its App is null where
     GitHub gives the suite's App as null: an App this token is not shown, as another App's token is not shown a private
-    App (decision 0180). The Kernel never takes a null App for a Lens's."""
+    App (decision 0181). The Kernel never takes a null App for a Lens's."""
     suite = node.get("checkSuite") if isinstance(node.get("checkSuite"), dict) else {}
     shown = suite.get("app", False)
     if shown is None:

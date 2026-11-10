@@ -1945,7 +1945,7 @@ class Checks(unittest.TestCase):
             with self.assertRaises(github.Unanswered, msg=broken):
                 checks.check(dict(node, **broken))
 
-    def test_a_check_whose_app_github_does_not_show_reads_as_no_app(self):  # decision 0180, pull request 688
+    def test_a_check_whose_app_github_does_not_show_reads_as_no_app(self):  # decision 0181, pull request 688
         # Another App's token is not shown a private App, such as the Controller's on its own check: GitHub gives that
         # check's suite's App null, or refuses it, FORBIDDEN, at that place alone. Either reads as app_id null; any
         # other error, or the same at any other place, refuses the read, as before.
@@ -4126,7 +4126,7 @@ class Contract(unittest.TestCase):
         for n in forged:
             self.assertEqual(derive.foreign_results(given_by(n), facts_, elsewhere), ["AC-1:from_app:15368"])
         # A result's check whose App GitHub does not show is refused, as any check it cannot read: no result is
-        # reported by an App that cannot be named (decision 0180).
+        # reported by an App that cannot be named (decision 0181).
         hidden = copy.deepcopy(real[0])
         hidden["checkSuite"]["app"] = None
         with self.assertRaises(github.Unanswered):

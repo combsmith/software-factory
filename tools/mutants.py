@@ -3988,7 +3988,7 @@ MUTANTS = ISSUE + [
     ("a GraphQL answer with errors is the checks' answer", 'adapters/checks.py',
      '        hidden = _hidden(answer["body"].get("errors")) if isinstance(answer["body"], dict) else None\n',
      '        hidden = set() if isinstance(answer["body"], dict) else None\n', ('tests.test_adapters.Contract.test_a_recorded_refusal_is_no_answer',)),
-    # Decision 0180, pull request 688's second dry run: a check's App another App's token is not shown reads as null.
+    # Decision 0181, pull request 688's second dry run: a check's App another App's token is not shown reads as null.
     ("a check whose App GitHub gives null is refused", 'adapters/checks.py',
      '    if shown is None:\n        app = None\n', '    if shown is None:\n        app = False\n', ('tests.test_adapters.Checks.test_a_check_whose_app_github_does_not_show_reads_as_no_app',)),
     ("an App with no id reads as one not shown", 'adapters/checks.py',

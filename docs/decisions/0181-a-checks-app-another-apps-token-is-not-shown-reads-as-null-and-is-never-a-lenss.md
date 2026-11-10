@@ -1,4 +1,4 @@
-# 0180. A check's App another App's token is not shown reads as null, and is never a Lens's
+# 0181. A check's App another App's token is not shown reads as null, and is never a Lens's
 
 Status: accepted. The Factory Builder's ruling of 2026-11-10. Slice 1's second dry run, at v0.1.2, stopped in the reader as `snapshot_checks_unreadable`. The Builder ruled that this one fix covers both readings of that stop, a null App and a refused one, with no probe first: v0.1.3's run is the probe.
 

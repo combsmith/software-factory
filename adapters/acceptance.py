@@ -199,7 +199,7 @@ def result_check(node: dict) -> dict:
     workflow runs that Lens, and from its App where none does, since no Lens of GitHub Actions' runs with no workflow
     (`tools/check_workflows.py`). The results' port, not built yet, reads each result's check by this (decisions 0104 and
     0149). A check it cannot read is refused, as the checks port refuses one, and so is one whose App it is not shown
-    (decision 0180); whether the port then reads the results
+    (decision 0181); whether the port then reads the results
     short, so the Kernel defers, is that port's to decide."""
     found = checks.check(node)
     if found["app_id"] is None:

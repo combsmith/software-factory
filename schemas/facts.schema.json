@@ -376,7 +376,7 @@
             "type": "string"
           },
           "app_id": {
-            "description": "The id of the App that reported the check, as GitHub gives it: the check run's app.id. Null where GitHub does not show the reading token that App, as another App's token is not shown a private App (decision 0180). A required Lens is read only from the App the configuration names for it, which a null App never is",
+            "description": "The id of the App that reported the check, as GitHub gives it: the check run's app.id. Null where GitHub does not show the reading token that App, as another App's token is not shown a private App (decision 0181). A required Lens is read only from the App the configuration names for it, which a null App never is",
             "type": ["integer", "null"],
             "minimum": 1
           },
