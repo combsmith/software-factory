@@ -1585,7 +1585,8 @@ class EvalJob(unittest.TestCase):
         self.assertIs(told(**{"c-blocking": ("pass", ["surplus_at_place"])}), True)
         # Any other severity, and a clean case, is the bar's to weigh.
         self.assertIs(told(**{"c-major": miss, "c-minor": miss, "c-met": ("fail", ["criterion_not_met"])}), True)
-        # A set with none has nothing for the word to hold, and a set must hold one: it is short, by a code and no count.
+        # A set with none has nothing for the word to hold, and a development set must hold one: it is short, by a code
+        # and no count. A gate set need not (issue 691).
         self.assertIs(job.blocking_pass({"cases": [{"id": "c-major"}]}, place, passed), True)
         with mock.patch.object(job, "BLOCKING_LEAST", 1):
             self.assertIs(job.split_ok(found, place), True)
@@ -2844,6 +2845,27 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.score, lambda case: surplus), "scored 2 of 2 cases, 0 passed")
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual((written["preflight"]["passed"], written["faults"]), (0, [{"code": "unanswered", "count": 2}]))
+
+    def test_a_gate_set_needs_no_case_that_expects_a_blocking_finding(self):  # issue 691
+        # A gate set brings its own least of each kind, and the blocking word closes nothing (decision 0150): one that holds
+        # no blocking case, as one grading only what no check holds may, is split, and its gate passes. A development set
+        # is short without one, as before.
+        from harness import eval as job
+        with mock.patch.object(job, "BLOCKING_LEAST", 1):
+            self.gate_run()
+            written = json.loads((self.work / job.REPORT).read_text())
+            written = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
+            found, digest = job.manifest(self.root, "pr-review-gate")
+            self.assertEqual((job.gate_set(found), written["split_ok"], written["blocking_pass"]), (True, True, True))
+            self.assertEqual(job.aggregate_verdict(written, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
+            self.assertEqual(job.pooled_verdict([written] * job.POOL_LEAST, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
+            # Its own least of each kind still holds it, and the same cases as a development set are short of a blocking one.
+            place = self.temp / "heldout"
+            self.assertIs(job.split_ok(dict(found, kind_least=found["count"]), place), False)
+            development = {k: v for k, v in found.items() if k not in ("gate",) + job.OWN}
+            self.assertEqual((job.gate_set(development), job.split_ok(development, place)), (False, False))
+            with mock.patch.object(job, "BLOCKING_LEAST", 0):
+                self.assertIs(job.split_ok(development, place), True)
 
     def test_a_gate_sets_report_holds_counts_alone_and_its_ledger_every_case(self):  # issue 612
         from harness import eval as job
