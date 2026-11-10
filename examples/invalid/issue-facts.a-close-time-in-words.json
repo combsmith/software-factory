@@ -58,7 +58,8 @@
       "draft_events": [],
       "link_events": [],
       "keyword": true,
-      "keyword_spans": []
+      "keyword_spans": [],
+      "close_events": []
     },
     {
       "number": 140,
@@ -90,7 +91,18 @@
       "draft_events": [],
       "link_events": [],
       "keyword": true,
-      "keyword_spans": []
+      "keyword_spans": [],
+      "close_events": [
+        {
+          "action": "closed",
+          "by": {
+            "kind": "human",
+            "name": "stranger",
+            "can_write": false
+          },
+          "at": "2026-10-11T10:00:00Z"
+        }
+      ]
     }
   ],
   "role_comments": [

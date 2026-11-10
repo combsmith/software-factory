@@ -1194,7 +1194,8 @@ def linked_pull_request(how: str):
             p["draft"] = True
             p["draft_events"].append({"action": issue.DRAFTED, "at": now(item)})
         else:
-            p.update(open=False, closed_at=now(item), merged_at=now(item) if how != "close" else None,
+            p.update(open=False, closed_at=now(item), close_events=p["close_events"] + issue_facts.closes(now(item)),
+                     merged_at=now(item) if how != "close" else None,
                      empty=how == "empty", closed_issue_at=closes_the_issue(item) if how != "close" else None)
         return item
     return a_writers(change)
@@ -1261,7 +1262,8 @@ def queue_merges_issue(item: dict, kind: str = "agent"):
         (d["reason"] == "linked_twice" and len(by_hand) > 1)
     if not live or not (d["state"] in (("in_review", "new") if kind == "outside" else ("in_review",)) or kept):
         return None
-    live[0].update(open=False, closed_at=now(item), merged_at=now(item), closed_issue_at=closes_the_issue(item))
+    live[0].update(open=False, closed_at=now(item), close_events=live[0]["close_events"] + issue_facts.closes(now(item)),
+                   merged_at=now(item), closed_issue_at=closes_the_issue(item))
     return item
 
 

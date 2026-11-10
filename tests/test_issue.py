@@ -69,14 +69,15 @@ def unlabelled(label: str, by=None, minute: int = 2) -> dict:
 
 
 def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=None, closed=None, empty=False,
-       events=(), opened=0, closed_issue="merge", drafts=(), links=(), keyword=True, spans=()) -> dict:
+       events=(), opened=0, closed_issue="merge", drafts=(), links=(), keyword=True, spans=(), closes=None) -> dict:
     """A pull request that closes the issue. By default the Maintainer's, opened with the issue, open and ready. A
     merged one closed then, and closed the issue in its second, as the issue's timeline records it (P-33);
     `closed_issue=None` is one the issue's timeline never names, as one whose reference an edit added (P-46). `drafts`
     are its conversions to a draft and its markings ready, as (action, minute), the last of which is its flag now; `links`
     its links to the issue by hand and unlinkings, as (action, minute), none by default, as a closing keyword's; `keyword`
     whether its references name the issue by one now, and `spans` each time it stood as the passes saw it, as (minute
-    first seen, minute first seen gone or None), none by default."""
+    first seen, minute first seen gone or None), none by default; `closes` its closes and reopenings, as (action, minute),
+    by default its one close if it is closed, a merge's among them (issue 672, trials/P-48.json)."""
     if merged is not None and closed is None:
         closed = merged
     if closed_issue == "merge":
@@ -88,7 +89,14 @@ def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=N
             "draft_events": [{"action": action, "at": at(minute)} for action, minute in drafts],
             "link_events": [{"action": action, "at": at(minute)} for action, minute in links],
             "keyword": keyword, "keyword_spans": [{"seen_at": at(seen), "gone_at": None if gone is None else at(gone)}
-                                                  for seen, gone in spans]}
+                                                  for seen, gone in spans],
+            "close_events": [{"action": action, "by": dict(WRITER), "at": at(minute)}
+                             for action, minute in (closes if closes is not None else ([("closed", closed)] if closed is not None else []))]}
+
+
+def closes(when: str) -> list:
+    """A pull request's one close, at `when`, as its timeline gives it (issue 672)."""
+    return [{"action": "closed", "by": dict(WRITER), "at": when}]
 
 
 def agents(**over) -> dict:
@@ -358,14 +366,72 @@ class Unreadable(unittest.TestCase):
                dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": at(2)}, {"seen_at": at(2), "gone_at": None}]),
                # Listed for nothing: no keyword now or once seen, no link by hand, no close it made.
                dict(good, keyword=False),
+               # Its closes and reopenings (issue 672): each one or the other with its time, alternating, the first a
+               # close, none before it opened, in order, and the last its close now: closed_at, or none.
+               dict(good, close_events=None), dict(good, close_events=["closed"]),
+               dict(good, close_events=[{"action": "merged", "by": dict(WRITER), "at": at(3)}, {"action": "reopened", "by": dict(WRITER), "at": at(4)}]),
+               dict(good, close_events=[{"action": "closed", "by": dict(WRITER)}, {"action": "reopened", "by": dict(WRITER), "at": at(4)}]),
+               dict(good, close_events=[{"action": "closed", "by": dict(WRITER), "at": "2026-10-11"}, {"action": "reopened", "by": dict(WRITER), "at": at(4)}]),
+               dict(good, close_events=[{"action": "reopened", "by": dict(WRITER), "at": at(3)}]),
+               dict(good, close_events=[{"action": "closed", "by": dict(WRITER), "at": at(3)}, {"action": "closed", "by": dict(WRITER), "at": at(4)},
+                                        {"action": "reopened", "by": dict(WRITER), "at": at(5)}]),
+               dict(good, close_events=[{"action": "closed", "by": dict(WRITER), "at": at(4)}, {"action": "reopened", "by": dict(WRITER), "at": at(3)}]),
+               dict(good, opened_at=at(2), close_events=[{"action": "closed", "by": dict(WRITER), "at": at(1)}, {"action": "reopened", "by": dict(WRITER), "at": at(3)}]),
+               dict(good, close_events=[{"action": "closed", "by": dict(WRITER), "at": at(3)}]),
+               pr(is_open=False, closed=5, closes=[]), pr(is_open=False, closed=5, closes=[("closed", 4)]),
+               # Its last close more than max_close_lag_seconds after closed_at (300 here), or at it exactly.
+               pr(is_open=False, closed=5, closes=[("closed", 11)]), pr(is_open=False, closed=5, closes=[("closed", 10)]),
+               # Closed now, but its last event a reopening, in closed_at's second (Astra).
+               pr(is_open=False, closed=5, closes=[("closed", 3), ("reopened", 5)]),
+               # A close time that is no time, beside a close event that is; and one before the opening, though its
+               # close event, within the lag of it, is after the opening.
+               dict(pr(is_open=False, closed=5), closed_at="soon"), dict(pr(is_open=False, closed=6, opened=5), closed_at=at(4)),
+               # Merged a minute after its close time, its close event at the merge, within the lag of closed_at.
+               dict(pr(is_open=False, merged=6, closes=[("closed", 6)]), closed_at=at(5)),
+               # A merged pull request closed before its merge's second, or closed and reopened after it (Astra).
+               pr(is_open=False, merged=5, closes=[("closed", 4), ("reopened", 6), ("closed", 7)], closed_issue=None),
+               dict(pr(is_open=False, merged=5), close_events=[{"action": "closed", "by": dict(WRITER), "at": at(3)},
+                                                              {"action": "reopened", "by": dict(WRITER), "at": at(4)},
+                                                              {"action": "closed", "by": dict(WRITER), "at": at(5)},
+                                                              {"action": "reopened", "by": dict(WRITER), "at": at(6)},
+                                                              {"action": "closed", "by": dict(WRITER), "at": at(6)}]),
+               pr(is_open=False, merged=5, closes=[("closed", 3), ("reopened", 4)]),
+               # Each by whom, read whole as a label event's actor is (issue 552): none, or one that cannot be read.
+               dict(good, close_events=[{"action": "closed", "at": at(3)}, {"action": "reopened", "by": dict(WRITER), "at": at(4)}]),
+               dict(good, close_events=[{"action": "closed", "by": {"kind": "human", "name": "x"}, "at": at(3)},
+                                        {"action": "reopened", "by": dict(WRITER), "at": at(4)}]),
                ]
         no_class = dict(good)
         del no_class["class"]
-        for entry in bad + [no_class]:
+        # No close events at all is no history, not an empty one (Astra).
+        no_closes = dict(good)
+        del no_closes["close_events"]
+        for entry in bad + [no_class, no_closes]:
             for f in (facts(linked=[entry]), facts(state="closed", linked=[entry])):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), entry)
         self.assertEqual(derive(facts(linked=None))["reason"], "linked_unreadable")
+        # The other side: a close GitHub dates a second after closed_at, as it dated an issue's in trials/P-48.json, is
+        # read (the Claude review of issue 672).
+        trailing = dict(pr(is_open=False, closed=5), close_events=[{"action": "closed", "by": dict(WRITER),
+                                                                    "at": "2026-10-11T12:05:01Z"}])
+        self.assertNotEqual(derive(facts(linked=[trailing]))["reason"], "linked_unreadable")
+        # A close 299 seconds after closed_at, inside the limit, is read; one at 300 is not (above).
+        inside = dict(pr(is_open=False, closed=5), close_events=[{"action": "closed", "by": dict(WRITER),
+                                                                  "at": "2026-10-11T12:09:59Z"}])
+        self.assertNotEqual(derive(facts(linked=[inside]))["reason"], "linked_unreadable")
+        # A merged one closed and reopened before its merge, then merged, is read (trials/P-48.json's pull request).
+        reopened = pr(is_open=False, merged=5, closes=[("closed", 2), ("reopened", 3), ("closed", 5)])
+        self.assertNotEqual(derive(facts(linked=[reopened]))["reason"], "linked_unreadable")
+        # With no limit that can be read, only a close in closed_at's own second is read.
+        for bad in (None, 0, "300"):
+            cfg = config()
+            if bad is None:
+                del cfg["limits"]["max_close_lag_seconds"]
+            else:
+                cfg["limits"]["max_close_lag_seconds"] = bad
+            self.assertEqual(derive(facts(linked=[trailing]), cfg=cfg)["reason"], "linked_unreadable", bad)
+            self.assertNotEqual(derive(facts(linked=[pr(is_open=False, closed=5)]), cfg=cfg)["reason"], "linked_unreadable", bad)
         # One pull request listed twice, which would be two links (issue 551).
         self.assertEqual(derive(facts(linked=[pr(), pr()]))["reason"], "linked_unreadable")
         # The other side: the first number, closed unmerged, merged, and a stranger's pull request are read.
@@ -961,7 +1027,10 @@ class Done(unittest.TestCase):
         own = agents(number=11, is_open=False, merged=5, links=[("connected", 2)])
         for rival in (pr(number=12, links=[("connected", 3)]), pr(number=12, links=[("connected", 1)]),
                       pr(number=12, is_open=False, closed=5, links=[("connected", 3)]),
-                      pr(number=12, links=[("connected", 1), ("disconnected", 2), ("connected", 4)])):
+                      pr(number=12, links=[("connected", 1), ("disconnected", 2), ("connected", 4)]),
+                      # Closed and reopened before the merge, it stood open at it (issue 672).
+                      pr(number=12, links=[("connected", 1)], closes=[("closed", 2), ("reopened", 4)]),
+                      pr(number=12, links=[("connected", 1)], closes=[("closed", 4), ("reopened", 4)])):
             d = derive(facts(linked=[own, rival], **closed))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]), rival)
         # Two queue merges in one second, each linked by hand before it, leave it held too.
@@ -975,7 +1044,15 @@ class Done(unittest.TestCase):
                       pr(number=12, links=[("connected", 3), ("disconnected", 4)]),
                       # Unlinked before the merge and linked again after it: no link at it.
                       pr(number=12, links=[("connected", 3), ("disconnected", 4), ("connected", 7)]),
-                      pr(number=12, is_open=False, closed=4, links=[("connected", 3)])):
+                      pr(number=12, is_open=False, closed=4, links=[("connected", 3)]),
+                      # Closed before the merge and reopened after it, which clears its closed_at: it stood closed at
+                      # the merge, so the reopening moves no done issue (issue 672).
+                      pr(number=12, links=[("connected", 3)], closes=[("closed", 4), ("reopened", 7)]),
+                      # Reopened in the merge's second: no order can be told in it, so it stands as before that second,
+                      # closed, as a link made in it does (decision 0132).
+                      pr(number=12, links=[("connected", 3)], closes=[("closed", 4), ("reopened", 5)]),
+                      pr(number=12, is_open=False, closed=9, links=[("connected", 3)],
+                         closes=[("closed", 4), ("reopened", 7), ("closed", 9)])):
             d = derive(facts(linked=[own, rival], **closed))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), rival)
         late = agents(number=11, is_open=False, merged=5, links=[("connected", 5)])
@@ -2303,7 +2380,7 @@ class Stale(unittest.TestCase):
             ("a writer's linked pull request opened", dict(WAITING, linked=[dict(pr(draft=True), opened_at=then)]), [],
              "in_progress"),
             ("a linked pull request closed",
-             dict(WAITING, linked=[dict(agents(is_open=False, closed=0), opened_at=START, closed_at=then)]), [],
+             dict(WAITING, linked=[dict(agents(is_open=False, closed=0), opened_at=START, closed_at=then, close_events=closes(then))]), [],
              "triage"),
         ]
         for name, f, runs, state in sources:
@@ -2327,7 +2404,7 @@ class Stale(unittest.TestCase):
             ("a Role's comment", dict(WAITING, role_comments=[{"by": ANALYST["name"], "at": then}]), [], "triage"),
             ("a dependency bot's pull request opened", dict(WAITING, linked=[dependency]), [], "triage"),
             ("a dependency bot's pull request closed",
-             dict(WAITING, linked=[dict(dependency, open=False, opened_at=START, closed_at=then)]), [], "triage"),
+             dict(WAITING, linked=[dict(dependency, open=False, opened_at=START, closed_at=then, close_events=closes(then))]), [], "triage"),
             ("a stranger's pull request nobody admitted", dict(WAITING, linked=[dict(strangers(), opened_at=then)]),
              [], "triage"),
             # Each of the sources above, timed after now.
@@ -2342,7 +2419,7 @@ class Stale(unittest.TestCase):
             ("a linked pull request opened after now", dict(WAITING, linked=[dict(agents(draft=True), opened_at=later)]),
              [], "in_progress"),
             ("a linked pull request closed after now",
-             dict(WAITING, linked=[dict(agents(is_open=False, closed=0), opened_at=START, closed_at=later)]), [],
+             dict(WAITING, linked=[dict(agents(is_open=False, closed=0), opened_at=START, closed_at=later, close_events=closes(later))]), [],
              "triage"),
         ]
         for name, f, runs, state in others:
@@ -2395,11 +2472,11 @@ class Stale(unittest.TestCase):
         # Each time is a real moment, but a close before the opening is no chronology: read, its opening would be the
         # issue's newest movement, and hold off its staleness.
         then = minutes_after(MOVED, 2)
-        closed = dict(agents(is_open=False, closed=0), opened_at=minutes_after(then, 1), closed_at=then)
-        merged = dict(agents(is_open=False, merged=0), opened_at=minutes_after(then, 1), merged_at=then, closed_at=then,
+        closed = dict(agents(is_open=False, closed=0), opened_at=minutes_after(then, 1), closed_at=then, close_events=closes(then))
+        merged = dict(agents(is_open=False, merged=0), opened_at=minutes_after(then, 1), merged_at=then, closed_at=then, close_events=closes(then),
                       closed_issue_at=then)
         # A merge before the opening, though the close is after it: read, the issue would be done.
-        merged_first = dict(merged, closed_at=minutes_after(then, 2))
+        merged_first = dict(merged, closed_at=minutes_after(then, 2), close_events=closes(minutes_after(then, 2)))
         # A merge after the close, though both are after the opening: a merge closes it, so it cannot come later.
         merged_late = dict(merged, opened_at=MOVED, merged_at=minutes_after(then, 1), closed_issue_at=minutes_after(then, 1))
         for entry in (closed, merged_first, merged, merged_late):
@@ -2481,7 +2558,7 @@ class Stale(unittest.TestCase):
         # Its author could close and reopen it every day, and keep the issue from ever showing.
         then = minutes_after(MOVED, 2)
         now = minutes_after(MOVED, limit("triage") + 1)
-        cycled = dict(strangers(admitted=True, is_open=False, closed=0), opened_at=START, closed_at=then)
+        cycled = dict(strangers(admitted=True, is_open=False, closed=0), opened_at=START, closed_at=then, close_events=closes(then))
         reopened = dict(strangers(admitted=True, draft=True), opened_at=then)
         for f, state in ((dict(WAITING, linked=[cycled]), "triage"), (dict(WAITING, linked=[reopened]), "in_progress")):
             d = decide(f, ctx=PASSING, now=now)

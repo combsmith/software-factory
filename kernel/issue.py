@@ -43,6 +43,9 @@ DRAFT_ACTIONS = ("converted_to_draft", "ready_for_review")
 # The issue's timeline events that link a pull request to it by hand and unlink it (trial P-61), as the facts name them.
 CONNECTED = "connected"
 LINK_ACTIONS = ("connected", "disconnected")
+# A pull request's closes and reopenings on its own timeline, a merge's close among them (trials/P-48.json, issue 672).
+CLOSED = "closed"
+CLOSE_ACTIONS = ("closed", "reopened")
 # The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
 APP_KINDS = ("app", "lens", "queue")
 # What GitHub says of an issue: open, or closed.
@@ -189,8 +192,8 @@ def readable_link(entry, config: dict) -> bool:
     closer = entry.get("closed_issue_at", "")
     if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
-    return readable_draft_events(entry) and readable_link_events(entry) and readable_keyword(entry) \
-        and readable_events(entry.get("label_events"), config)
+    return (readable_draft_events(entry) and readable_link_events(entry) and readable_keyword(entry)
+            and readable_close_events(entry, config) and readable_events(entry.get("label_events"), config))
 
 
 def readable_keyword(entry: dict) -> bool:
@@ -241,6 +244,47 @@ def readable_link_events(entry: dict) -> bool:
     if events and (events[0]["action"] != CONNECTED or entry["opened_at"] > events[0]["at"]):
         return False
     return not any(later["at"] < ev["at"] or later["action"] == ev["action"] for ev, later in zip(events, events[1:]))
+
+
+def readable_close_events(entry: dict, config: dict) -> bool:
+    """Whether a pull request's closes and reopenings can be read: each one or the other, by whom, read whole as a label
+    event's actor is, which a hold a person's close releases needs (issue 552), and with its time, in the order its
+    timeline lists them, two in one second among them; each a change, so the two alternate and the first is a close; none
+    before it opened; and the last its close now, closed at its closed_at, or none and open (issue 672). A merge closes
+    it too, at the merge (trials/P-48.json)."""
+    events = entry.get("close_events")
+    if not isinstance(events, list):
+        return False
+    if not all(isinstance(ev, dict) and ev.get("action") in CLOSE_ACTIONS and is_time(ev.get("at"))
+               and whole_actor(ev.get("by"), config) for ev in events):
+        return False
+    if events and (events[0]["action"] != CLOSED or not entry["opened_at"] <= events[0]["at"]):
+        return False
+    if any(b["at"] < a["at"] or b["action"] == a["action"] for a, b in zip(events, events[1:])):
+        return False
+    # A merge closes a pull request for good: nothing from its merge's second on but the merge's own close, which with
+    # the order above leaves it open until that second (trials/P-48.json; Astra).
+    merged = entry["merged_at"]
+    if merged is not None and len([ev for ev in events if ev["at"] >= merged]) != 1:
+        return False
+    last = events[-1] if events else None
+    if entry["closed_at"] is None:
+        return last is None or last["action"] != CLOSED
+    # Its last close no earlier than closed_at, and within max_close_lag_seconds of it: GitHub dates the event a second
+    # after closedAt at times, as it did an issue's in trials/P-48.json (the Claude review).
+    # With no limit that can be read, only a close in closed_at's own second is read; the limit itself defers where the
+    # wait is asked (row 1).
+    lag = config.get("limits", {}).get("max_close_lag_seconds") if isinstance(config.get("limits"), dict) else None
+    bound = lag if type(lag) is int and 1 <= lag else 1
+    return (last is not None and last["action"] == CLOSED
+            and 0 <= seconds(last["at"]) - seconds(entry["closed_at"]) < bound)
+
+
+def closed_before(entry: dict, when: str) -> bool:
+    """Whether a pull request stood closed before `when`'s second: its last close or reopening before it is a close. GitHub
+    clears closed_at on a reopening, so a reopening after `when` leaves it closed then (issue 672)."""
+    before = [ev for ev in entry["close_events"] if ev["at"] < when]
+    return bool(before) and before[-1]["action"] == CLOSED
 
 
 def linked_by_hand_before(entry: dict, when: str) -> bool:
@@ -628,7 +672,8 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # Two pull requests linked by hand before the first merge's second, neither closed before it, were two links at
         # it: the issue stood held (row 4), and the merge leaves it so (issue 551). Each is read as it stood at the
         # merge: an outsider's only where a person had admitted it by then, so no admission after the merge moves a
-        # done issue. One unlinked at or after the merge lets the merge read on for good, as a Hold's removal does: a
+        # done issue; and open or closed by its closes and reopenings, so no reopening after the merge does (issue
+        # 672). One unlinked at or after the merge lets the merge read on for good, as a Hold's removal does: a
         # link made again since moves nothing. Who unlinked it carries no actor until trial P-61 shows who can. A closing
         # keyword's link stood where one span of it, as the passes saw it, began before the merge's second and was not
         # seen gone before it (issue 552): the port keeps listing a pull request once a pass saw its keyword, so no edit
@@ -639,7 +684,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
                  and (linked_by_hand_before(p, first)
                       and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
                       or keyword_stood(p, first))
-                 and (p["closed_at"] is None or p["closed_at"] >= first)]
+                 and not closed_before(p, first)]
         # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
         # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.
         if len(stood) > 1 and not placed_by_a_person(standing_labels(past), past):
