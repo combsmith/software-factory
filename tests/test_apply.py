@@ -1220,6 +1220,9 @@ class Bundle(unittest.TestCase):
         # A line with no newline at the end of a file.
         last = "diff --git a/z.md b/z.md\nindex 1..2 100644\n--- a/z.md\n+++ b/z.md\n@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n\\ No newline at end of file\n"
         self.assertEqual(bundle.names(a_bundle(last)), (["z.md"], []))
+        # A count of nine digits, leading zeros and all, is read (Astra's read).
+        self.assertEqual(bundle.names(a_bundle(changed("docs/a.md").replace("@@ -1,2 +1,2 @@", "@@ -1,000000002 +1,000000002 @@"))),
+                         (["docs/a.md"], []))
 
     def test_a_patch_as_git_writes_it_is_read_whole(self):
         # Against git itself: a change, a rename, a copy, a removal, a name with a space and one past ASCII.
@@ -1272,6 +1275,15 @@ class Bundle(unittest.TestCase):
                      # /dev/null with no mode line that makes or removes a file is a path git writes: dev/null.
                      b"diff --git a/docs/x b/docs/x\nindex 1..2 100644\n--- a/docs/x\n+++ /dev/null\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n",
                      b"diff --git a/docs/x b/docs/x\nnew file mode 100644\n--- a/docs/x\n+++ b/docs/x\n@@ -0,0 +1 @@\n+x\n",
+                     # A count of ten digits; a side of another prefix whose name the header holds; a line with a NUL,
+                     # a binary change written as text; and a line led by a backslash that is no marker git writes
+                     # (Astra's read).
+                     good.replace("@@ -1,2 +1,2 @@", "@@ -1,0000000002 +1,2 @@").encode(),
+                     good.replace("+++ b/docs/a.md", "+++ c/docs/a.md").encode(),
+                     good.replace("--- a/docs/a.md", "--- c/docs/a.md").encode(),
+                     b"diff --git a/docs/p.bin b/docs/p.bin\nnew file mode 100644\n--- /dev/null\n+++ b/docs/p.bin\n@@ -0,0 +1 @@\n+\x00\n",
+                     b"diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n\\ x\n+b\n",
+                     b"diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+b\n\\ x\n",
                      # A side that names what the header does not, or a header that cannot be read and no rename's
                      # lines, so that a side would name the file alone, as git reads it otherwise (Argon's read).
                      b"diff --git a/README.md b/README.md\n--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -1 +1 @@\n-o\n+n\n",

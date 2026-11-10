@@ -32,6 +32,8 @@ QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
 ESCAPES = {ord(k): v for k, v in (("a", 7), ("b", 8), ("t", 9), ("n", 10), ("v", 11), ("f", 12), ("r", 13), ('"', 34),
                                   ("\\", 92))}
 OCTAL = re.compile(rb"[0-3][0-7]{2}")
+# The one line git writes after a line that ends a file with no newline.
+NO_NEWLINE = b"\\ No newline at end of file"
 # What git never writes in a name it leaves unquoted: a double quote, a backslash or a control character, a tab among
 # them. A name that holds one unquoted is read otherwise by git than here, so it is no name this reads.
 UNQUOTED_NOT = re.compile(r'["\\\x00-\x1f\x7f]')
@@ -183,10 +185,12 @@ def names(patch) -> tuple:
                         old_left -= 1
                     if mark in (b" ", b"+"):
                         new_left -= 1
-                    if mark not in (b" ", b"-", b"+", b"\\"):
+                    # A line with a NUL is a binary change written as text: a person's to push, as any binary change.
+                    if mark not in (b" ", b"-", b"+", b"\\") or (mark == b"\\" and lines[i] != NO_NEWLINE) \
+                            or b"\x00" in lines[i]:
                         return None
                     i += 1
-                if i < len(lines) and lines[i].startswith(b"\\"):      # no newline at the end of the last line
+                if i < len(lines) and lines[i] == NO_NEWLINE:      # no newline at the end of the last line
                     i += 1
         if not olds and not news:
             return None
