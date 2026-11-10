@@ -880,6 +880,16 @@ class Authority(unittest.TestCase):
         # both counts (Astra). pr-review stands in for it, as the one manifest under roles/.
         named = check_authority.run(dict(self.table, author_role="pr-review"), dict(config, author_role="pr-review"))
         self.assertFalse(caught(named, "author Role differs") or caught(named, "roles/ holds no"), named)
+        # A directory of the manifest's name is no manifest (Astra): read in a tree of its own, the repo's linked in.
+        with tempfile.TemporaryDirectory() as tree:
+            tree = pathlib.Path(tree)
+            for part in ("config", "schemas", "examples"):
+                (tree / part).symlink_to(ROOT / part)
+            (tree / "roles").mkdir()
+            (tree / "roles" / "pr-review.json").symlink_to(ROOT / "roles" / "pr-review.json")
+            (tree / "roles" / "probe.json").mkdir()
+            with mock.patch.object(check_authority, "ROOT", tree):
+                self.assertTrue(caught(check_authority.run(config=dict(config, owner_role="probe")), "no probe.json"))
         # A name that is no Role's, one that would reach outside roles/ among them, and an owner Role named none (Muse).
         for field in ("author_role", "owner_role"):
             for name in ("../config/defaults", "pr-review/../../config/defaults"):     # the second begins as a Role's (Astra)
