@@ -5486,6 +5486,17 @@ MUTANTS = ISSUE + [
      ' + [p for _, p, _ in data["lens_inputs"]]', "", ("tests.test_tools.TheList",)),
     ("a Lens's input is not listed at a stop", "tools/hooks/protected.py",
      ' + [(p, what) for _, p, what in inputs]', "", ("tests.test_hooks.RulesChanged",)),
+    # Issue 675: no author Role is named until its manifest exists, and a named Role has one.
+    ("the configuration names an author Role with no manifest", "config/defaults.json",
+     '  "author_role": null,\n', '  "author_role": "dev-lead",\n',
+     ("tests.test_decide.Ceilings.test_the_configuration_names_no_author_role_until_its_manifest_exists",)),
+    ("a Role the configuration names may have no manifest", "tools/check_authority.py",
+     '        if name is not None and not (ROOT / "roles" / ("%s.json" % name)).is_file():\n', '        if False:\n',
+     ("tests.test_tools.Authority.test_a_role_the_configuration_names_has_a_manifest",)),
+    ("no author Role in the configuration differs from the authority table's", "tools/check_authority.py",
+     '    if c["author_role"] is not None and a["author_role"] != c["author_role"]:\n',
+     '    if a["author_role"] != c["author_role"]:\n',
+     ("tests.test_tools.Authority.test_a_role_the_configuration_names_has_a_manifest",)),
     # Issue 696: an eval set's manifest asks before it is edited, as a rubric does.
     ("an eval set's manifest is not protected", "config/hooks.json",
      '    {"path": "evals/*/cases.json", "is": "an eval set\'s manifest: its gate, bars, floors and natural marks"},\n',

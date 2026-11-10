@@ -146,8 +146,15 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
     a = json.loads((ROOT / "config" / "authority.json").read_text()) if authority is None else authority
     c = json.loads((ROOT / "config" / "defaults.json").read_text()) if config is None else config
     problems = []
-    if a["author_role"] != c["author_role"]:
+    # The configuration names the author Role the authority table names, or none while that Role has no manifest: a fix
+    # Run dispatched to a Role with none fails at its read, on every pass, until the Run ceiling holds it (issue 675).
+    if c["author_role"] is not None and a["author_role"] != c["author_role"]:
         problems.append("the author Role differs between the authority table and the configuration")
+    for field in ("author_role", "owner_role"):
+        name = c[field]
+        if name is not None and not (ROOT / "roles" / ("%s.json" % name)).is_file():
+            problems.append("the configuration's %s is %r, and roles/ holds no %s.json; name none until it does"
+                            % (field, name, name))
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
     # A Lens or a check named twice, deterministic or model, could pin two Apps or be read as the other, and which one

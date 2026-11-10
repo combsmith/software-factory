@@ -868,6 +868,15 @@ class Authority(unittest.TestCase):
         self.table["categories"]["functional"]["owner"] = "dev-lead"
         self.assertTrue(caught(check_authority.run(self.table), "author Role"))
 
+    def test_a_role_the_configuration_names_has_a_manifest(self):  # issue 675
+        # The author Role and the owner Role each name a file under roles/, or, the author, none; and a named author
+        # Role is the authority table's.
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(check_authority.run(config=dict(config, author_role=None)), [])
+        self.assertTrue(caught(check_authority.run(config=dict(config, author_role="dev-lead")), "no dev-lead.json"))
+        self.assertTrue(caught(check_authority.run(config=dict(config, owner_role="reviewer")), "no reviewer.json"))
+        self.assertTrue(caught(check_authority.run(config=dict(config, author_role="pr-review")), "author Role differs"))
+
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9
         self.assertTrue(caught(check_authority.run(self.table), "max_rounds differs"))
