@@ -1256,6 +1256,19 @@ class Bundle(unittest.TestCase):
                      "diff --git a/x.bin b/x.bin\nindex 1..2 100644\nBinary files a/x.bin and b/x.bin differ\n".encode(),
                      b"diff --git a/caf\xe9.md b/caf\xe9.md\nold mode 100644\nnew mode 100755\n",
                      b"diff --git a/x.md b/y.md\nsimilarity index 100%\nrename from caf\xe9.md\nrename to y.md\n",
+                     # A quote git would read otherwise: an unquoted name that holds one, or text after a quoted name, in
+                     # a header that alone names the file (the Claude review of #139: git reads CODEOWNERS from these).
+                     b'diff --git a/CODEOWNERS "b/CODEOWNERS" "b/docs/zz"\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git a/docs/CODEOWNERS "b/docs/CODEOWNERS" "b/zz"\nnew file mode 100644\nindex 0000000..e69de29\n',
+                     b'diff --git a/CODEOWNERS "b/CODEOWNERS" y b/CODEOWNERS "b/CODEOWNERS" y\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git "a/CODEOWNERS" x "b/docs/a"\nold mode 100644\nnew mode 100755\n',
+                     b'diff --git a/x.md b/y.md\nsimilarity index 100%\nrename from x"y.md\nrename to y.md\n',
+                     b"diff --git a/x\ty.md b/x\ty.md\nold mode 100644\nnew mode 100755\n",
+                     # A count no change is long enough to hold, which no Python reads on every version.
+                     ("diff --git a/docs/x b/docs/x\n--- a/docs/x\n+++ b/docs/x\n@@ -1," + "9" * 5000 + " +1 @@\n-a\n+b\n").encode(),
+                     # /dev/null with no mode line that makes or removes a file is a path git writes: dev/null.
+                     b"diff --git a/docs/x b/docs/x\nindex 1..2 100644\n--- a/docs/x\n+++ /dev/null\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n",
+                     b"diff --git a/docs/x b/docs/x\nnew file mode 100644\n--- a/docs/x\n+++ b/docs/x\n@@ -0,0 +1 @@\n+x\n",
                      b'diff --git "a/x\\377.md" "b/x\\377.md"\nold mode 100644\nnew mode 100755\n',
                      b"diff --git a/x b/y z\nold mode 100644\nnew mode 100755\n",
                      b"diff --git a/\nold mode 100644\nnew mode 100755\n",
@@ -1299,6 +1312,10 @@ class Bundle(unittest.TestCase):
             def fetch(artifact, digest, raised=raised):
                 raise raised
             self.assertEqual(self.held(data, fetch=fetch)[0], ("environment", "bundle_unfetched"), raised)
+        # An artifact the Run did not hand over is the Role's, as the Result names it (the Claude review of #139).
+        def absent(artifact, digest):
+            raise bundle.NotHandedOver(artifact)
+        self.assertEqual(self.held(data, fetch=absent)[0], ("item", "bundle_not_handed_over"))
         other = a_bundle(changed("config/hooks.json"))
         for given in (other, data + b"\n", "text", None):
             self.assertEqual(self.held(data, fetch=lambda a, d, given=given: given)[0], ("item", "bundle_digest_differs"),
