@@ -274,6 +274,11 @@ RULES = (
     ("a_link_by_hand_is_timed", "An issue's timeline gives each link of a pull request by hand, in its Development box, "
      "and each unlinking, as an event of its own with its time to the second; a link by a closing keyword raises none",
      ("P-61",), None, None),
+    # Seen in trials/P-48.json, whose pull request was closed, reopened, closed and reopened, and merged, each a timed
+    # event, the merge's close among them; but P-48's row in section 6 does not ask it, so it waits on P-61's run (issue 672).
+    ("a_pull_requests_close_and_reopening_are_timed", "A pull request's own timeline gives each close and each reopening "
+     "as an event of its own with its time, a merge's close among them, and a reopening clears its closed_at",
+     ("P-61",), None, None),
     ("a_type_change_is_timed", "An issue's timeline gives each setting, change and removal of its type as an event of "
      "its own with its time to the second, and the type before and after", ("P-61",), None, None),
     # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
@@ -457,6 +462,10 @@ ASKS = {
     },
     "who_changed_the_draft_flag_is_read": {"P-33": "Can who last changed the draft flag be read?"},
     "a_draft_change_is_timed": {"P-33": "Can who last changed the draft flag be read?"},
+    "a_pull_requests_close_and_reopening_are_timed": {
+        "P-61": "does a pull request's own timeline give each close and each reopening as an event of its own with its "
+              "time, a reopening clearing its closed_at?",
+    },
     "a_link_by_hand_is_timed": {
         "P-61": "each link of a pull request by hand in its Development box and its unlinking, as an event of its own "
               "with its time to the second",
