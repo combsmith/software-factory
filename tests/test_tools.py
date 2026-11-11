@@ -13064,7 +13064,7 @@ class Rulesets(unittest.TestCase):
         self.main = self.rulesets["rulesets"]["main"]["rules"]
 
     def run_on(self) -> list:
-        # Beside the repo's own code owners, which the check reads once `main` counts an approval (decision 0192).
+        # Beside the repo's own code owners, which the check reads once `main` counts an approval (decision 0191).
         return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                         "config/defaults.json": json.dumps(self.defaults),
                                         ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
@@ -13072,7 +13072,7 @@ class Rulesets(unittest.TestCase):
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
 
-    def test_main_counts_the_machine_users_approval_as_the_switch_left_it(self):  # decision 0192
+    def test_main_counts_the_machine_users_approval_as_the_switch_left_it(self):  # decision 0191
         # Issue 198's switch was made on 2026-11-11, once a Release on `next` had reviewed a pull request, the Factory's
         # approving act had given the machine user's approval, and it had merged. The record is of `main` as GitHub
         # answered after it: one approval, a code owner's, of the last push, a stale one dismissed, no required

@@ -8424,7 +8424,7 @@ MUTANTS = ISSUE + [
     ("a Lens a workflow runs may stand for code scanning", "tools/check_rulesets.py",
      '        if lens is None or lens.get("workflow") is not None:\n', "        if lens is None:\n",
      ("tests.test_tools.Rulesets.test_a_code_scanning_tool_no_lens_reads_is_caught",)),
-    # The record of `main` after issue 198's switch (decision 0192): each field back, and the four together, which
+    # The record of `main` after issue 198's switch (decision 0191): each field back, and the four together, which
     # `tools/check_rulesets.py` lets through as a `main` that counts no approval.
     ("the record of main counts no approval", 'config/rulesets.json',
      '"required_approving_review_count": 1', '"required_approving_review_count": 0', ('tests.test_tools.Rulesets.test_main_counts_the_machine_users_approval_as_the_switch_left_it',)),

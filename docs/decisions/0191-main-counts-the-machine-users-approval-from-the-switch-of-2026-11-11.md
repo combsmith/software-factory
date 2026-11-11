@@ -1,4 +1,4 @@
-# 0192. `main` counts the machine user's approval, from the switch of 2026-11-11
+# 0191. `main` counts the machine user's approval, from the switch of 2026-11-11
 
 Status: accepted. The Maintainer's choice of 2026-11-11, "Switch; Factory approves", as the Factory Builder relayed it, on "The ruleset switch: main requires the machine user's approval of the most recent commit, and slice 1's event is recorded" (issue 198), once its dry run had ended. It carries out 0092's row "(a) Toward the `main` ruleset", which said that `main` counted no approval that day and fixed how it must count one.
 
