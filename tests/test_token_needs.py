@@ -53,6 +53,7 @@ RAW = {
     "adapters.queue.pull": {"pull_requests": R}, "adapters.queue.threads": {"pull_requests": R},
     "adapters.queue.queued": {"pull_requests": R}, "adapters.queue.enqueue": {"contents": W},
     "adapters.queue.dequeue": {"contents": W}, "adapters.queue.resolve": {"contents": W},
+    "adapters.records._began": {"actions": R},                         # a run's jobs, for when it began (0193)
     "adapters.records._list": {"actions": R},
     "adapters.rules._file_at": {"contents": R},                        # a file at the base: what a push may not touch
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
@@ -102,6 +103,7 @@ SITES = {
     "adapters.queue.queued": 1,
     "adapters.queue.resolve": 1,
     "adapters.queue.threads": 1,
+    "adapters.records._began": 1,
     "adapters.records._list": 1,
     "adapters.rules._file_at": 1,
     "adapters.seen._check_runs": 2,
@@ -137,6 +139,7 @@ APPROVING = [
     "adapters.pull.diff",
     "adapters.pull.last_push",
     "adapters.pull.read",
+    "adapters.records._began",
     "adapters.records._list",
     "adapters.threads._read",
     "adapters.timeline.Accounts",
