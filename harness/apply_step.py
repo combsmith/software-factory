@@ -23,7 +23,7 @@ from adapters import effects, identity, passes, pull
 from adapters.facts import Moved
 from adapters.github import Live, Unanswered
 from controller import configuration
-from harness import apply, read as read_, reread, shared, steps, task
+from harness import apply, bundle, read as read_, reread, shared, steps, task
 from harness.steps import Stop
 
 APP = "pr-review"
@@ -43,6 +43,15 @@ def change_at(transport, repo: str, number: int, head: str) -> bytes:
     if str(first["head"]["sha"]) != head:
         raise Moved("the pull request moved between its facts and its diff")
     return pull.change(transport, first, pull.base(transport, first)["head"])
+
+
+def base_at(transport, repo: str, number: int, head: str) -> str:
+    """The base commit of pull request `number`, from a read of it at `head`, the commit its facts were read at, or Moved:
+    what a push may not touch is read at that commit, never at one the head names (issue 139)."""
+    first = pull.read(transport, repo, number)
+    if str(first["head"]["sha"]) != head:
+        raise Moved("the pull request moved between its facts and its base")
+    return str((first.get("base") or {}).get("sha"))
 
 
 def needs_met(needs) -> tuple:
@@ -122,6 +131,11 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
         def mint(wanted):
             return identity.from_key(config["app"], home, wanted, key, int(clock()), connect)
 
+        def holding(asked):
+            # A push is held to the base's list, read through the read token, before anything is minted (issue 139).
+            base = base_at(reading, home, parts["item"]["number"], held["item"][1])
+            return bundle.held(asked, base, reading, home)
+
         def write(transport, kind, req):
             head = held["item"][1]
             login = config["app"]["name"] + "[bot]"
@@ -136,7 +150,7 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
                 "max_diff_characters": config["kernel"]["limits"]["max_diff_characters"]}
         if admit is not None:
             try:
-                done = apply.job(admit, result, read, write, mint, role, told, utc())
+                done = apply.job(admit, result, read, write, mint, role, told, utc(), held=holding)
             except Moved:
                 # The pull request changed while it was read again: a change under the Run, never the environment's.
                 done = _ended(parts["run"], release, ("superseded", "head_moved"))

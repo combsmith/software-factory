@@ -17,6 +17,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
               lifecycle=json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()),
               protected_paths=protected.protected_paths())
+# The author Role the authority table names, so that the Kernel's fix path is held with a Role in place: the
+# configuration names none until that Role has its manifest under roles/ (issue 675).
+CONFIG["author_role"] = json.loads((ROOT / "config" / "authority.json").read_text())["author_role"]
 CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"

@@ -1,8 +1,8 @@
 # harness/
 
-The Harness: the jobs of one Run. `task.py` builds the Task from the Run's Decision, `engine.py` runs the CLI on it with no tool or secret but its own, `run.py` writes the Result and its digest alone. `apply.py` reads the item again, refuses what may not be
-written, writes the Effects by a token narrowed to them, records what it read back; `approve.py` is the approving act, with no Engine, by the machine user's token alone (decision 0055). Steps: `read.py`, the reader's; `verify.py`; `apply_step.py` and
-`outcome.py`; `approve_step.py`; `reread.py`, the item re-read; `queue.py` and `queue_step.py`, the queue App's act (decision 0130); `steps.py`, their files. `eval/`, the eval job and its check (decision 0053, `eval/AGENTS.md`). Tests drive a stand-in CLI.
+The Harness: the jobs of one Run. `task.py` builds the Task from the Run's Decision, `engine.py` runs the CLI with no tool or secret but its own, `run.py` writes the Result and its digest alone. `apply.py` reads the item again, refuses what may not be
+written, writes the Effects by a token narrowed to them, records what it read back; `bundle.py` holds a Role's push to the base's list before any token is minted; `approve.py` is the approving act, by the machine user's token alone (decision 0055). Steps:
+`read.py`; `verify.py`; `apply_step.py`, `outcome.py`; `approve_step.py`; `reread.py`; `queue.py`, `queue_step.py`, the queue App's act (decision 0130); `steps.py`, their files. `eval/`: decision 0053, `eval/AGENTS.md`. Tests drive a stand-in CLI.
 Not built yet, by the stories that hold their rules: push.py.
 
 | Rule | Held by |
@@ -28,7 +28,7 @@ Not built yet, by the stories that hold their rules: push.py.
 | A Disposition gives one half, the one its Role may make, on a Finding the Task lists; a `security` thread is never resolved on declined or deferred | `tests/test_apply.py::test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make` |
 | A review is a comment on the admitted commit; a check run is named by `apply`; a Finding is written from its surface | `tests/test_apply.py::test_a_result_on_the_item_as_admitted_is_written_and_recorded_from_what_was_read_back` |
 | The Result is taken by the digest `run` reported, and held to its schema | `tests/test_apply.py::test_a_result_is_taken_by_the_digest_run_reported_and_held_to_its_schema` |
-| A Result is held to the Decision that admitted its Run | `tests/test_apply.py::test_what_a_result_is_held_to_is_the_decision_that_admitted_its_run` |
+| A Role's push is held to the base's protected paths and model Lens inputs, read from its bundle, before anything is minted | `tests/test_apply.py::test_a_push_is_held_before_anything_is_minted_and_its_refusal_recorded` |
 | Nothing is minted for a refused Result, and the token is revoked whatever happens | `tests/test_apply.py::test_nothing_is_minted_for_a_refused_result_and_the_token_is_revoked_whatever_happens` |
 | The approving act sends one write, the approval of the commit it read, and claims only what it reads back | `tests/test_approve.py::test_the_act_sends_one_write_and_it_is_the_approval` |
 | It approves only through the approver's token, for a Decision that issued the approval, what the Kernel still wants | `tests/test_approve.py::test_the_act_approves_only_what_the_kernel_asked_again_still_wants` |
@@ -37,4 +37,4 @@ Not built yet, by the stories that hold their rules: push.py.
 | A step writes new files of its own and prints a code; `verify` takes the Result by its digest, checks `not_run` | `tests/test_steps.py::test_a_steps_files_are_new_and_its_own`, `tests/test_steps.py::test_verify_takes_the_results_digest` |
 | `apply` waits for `run` and `verify`, and reads the item again with reads alone | `tests/test_steps.py::test_apply_waits_for_its_jobs`, `tests/test_steps.py::test_apply_reads_with_reads`, `tests/test_steps.py::test_the_item_is_read_again` |
 | The last step leaves the Run's outcome; the approver reads and writes held to its item | `tests/test_steps.py::test_the_last_step_leaves_the_outcome`, `tests/test_steps.py::test_the_approver_holds_to_its_item` |
-| Each of these rules has a mutant that a test kills | `tools/mutants.py` |
+| A Result is held to the Decision that admitted its Run; each of these rules has a mutant that a test kills | `tests/test_apply.py::test_what_a_result_is_held_to_is_the_decision_that_admitted_its_run`, `tools/mutants.py` |

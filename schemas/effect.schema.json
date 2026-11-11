@@ -4,6 +4,43 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "push_commits": {
+      "description": "A Role's push: the bundle its Run handed over, a patch as git diff writes it, by the artifact it was handed over in and its digest. The branch it lands on, and the commit it lands on top of, are apply's, never the Result's; apply refuses one that touches a protected path or a model Lens's input on the base's list before it mints any token (issue 139). One to a Result. No Role permits it yet.",
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "bundle"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^e[0-9]{1,3}$"
+          },
+          "bundle": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifact",
+              "digest"
+            ],
+            "properties": {
+              "artifact": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
     "submit_review": {
       "type": "array",
       "items": {
@@ -114,6 +151,7 @@
   "$defs": {
     "type": {
       "enum": [
+        "push_commits",
         "submit_review",
         "create_check_run",
         "comment"

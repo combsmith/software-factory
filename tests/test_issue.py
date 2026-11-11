@@ -69,14 +69,15 @@ def unlabelled(label: str, by=None, minute: int = 2) -> dict:
 
 
 def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=None, closed=None, empty=False,
-       events=(), opened=0, closed_issue="merge", drafts=(), links=(), closes=None) -> dict:
+       events=(), opened=0, closed_issue="merge", drafts=(), links=(), keyword=True, spans=(), closes=None) -> dict:
     """A pull request that closes the issue. By default the Maintainer's, opened with the issue, open and ready. A
     merged one closed then, and closed the issue in its second, as the issue's timeline records it (P-33);
     `closed_issue=None` is one the issue's timeline never names, as one whose reference an edit added (P-46). `drafts`
     are its conversions to a draft and its markings ready, as (action, minute), the last of which is its flag now; `links`
-    its links to the issue by hand and unlinkings, as (action, minute), none by default, as a closing keyword's; `closes`
-    its closes and reopenings, as (action, minute), by default its one close if it is closed, a merge's among them (issue
-    672, trials/P-48.json)."""
+    its links to the issue by hand and unlinkings, as (action, minute), none by default, as a closing keyword's; `keyword`
+    whether its references name the issue by one now, and `spans` each time it stood as the passes saw it, as (minute
+    first seen, minute first seen gone or None), none by default; `closes` its closes and reopenings, as (action, minute),
+    by default its one close if it is closed, a merge's among them (issue 672, trials/P-48.json)."""
     if merged is not None and closed is None:
         closed = merged
     if closed_issue == "merge":
@@ -87,6 +88,8 @@ def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=N
             "closed_issue_at": None if closed_issue is None else at(closed_issue),
             "draft_events": [{"action": action, "at": at(minute)} for action, minute in drafts],
             "link_events": [{"action": action, "at": at(minute)} for action, minute in links],
+            "keyword": keyword, "keyword_spans": [{"seen_at": at(seen), "gone_at": None if gone is None else at(gone)}
+                                                  for seen, gone in spans],
             "close_events": [{"action": action, "by": dict(WRITER), "at": at(minute)}
                              for action, minute in (closes if closes is not None else ([("closed", closed)] if closed is not None else []))]}
 
@@ -347,6 +350,22 @@ class Unreadable(unittest.TestCase):
                dict(good, opened_at=at(2), link_events=[{"action": "connected", "at": at(1)}]),
                dict(good, link_events=[{"action": "connected", "at": "2026-10-11T12:30:00"}]),
                dict(good, link_events=[{"action": "connected", "at": at(3)}, {"action": "linked", "at": at(4)}]),
+               # Its closing keyword (issue 552): whether one names the issue now, and when a pass first saw it, a time
+               # or null, no earlier than it opened.
+               dict(good, keyword=None), dict(good, keyword="yes"), dict(good, keyword_spans=None),
+               {k: v for k, v in good.items() if k != "keyword_spans"},
+               # Each span a seen time, and a gone time or null, in order, none before it opened, only the last open.
+               dict(good, keyword_spans=[{"seen_at": "soon", "gone_at": None}]),
+               dict(good, keyword_spans=[{"seen_at": at(3)}]),
+               dict(good, keyword_spans=[{"seen_at": at(3), "gone_at": 12}]),
+               dict(good, keyword_spans=["soon"]),
+               dict(good, opened_at=at(2), keyword_spans=[{"seen_at": at(1), "gone_at": None}]),
+               dict(good, keyword=False, keyword_spans=[{"seen_at": at(3), "gone_at": at(2)}]),
+               dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": None}, {"seen_at": at(3), "gone_at": None}]),
+               dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": at(4)}, {"seen_at": at(3), "gone_at": None}]),
+               dict(good, keyword_spans=[{"seen_at": at(1), "gone_at": at(2)}, {"seen_at": at(2), "gone_at": None}]),
+               # Listed for nothing: no keyword now or once seen, no link by hand, no close it made.
+               dict(good, keyword=False),
                # Its closes and reopenings (issue 672): each one or the other with its time, alternating, the first a
                # close, none before it opened, in order, and the last its close now: closed_at, or none.
                dict(good, close_events=None), dict(good, close_events=["closed"]),
@@ -420,6 +439,18 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[strangers()])), "new")
+        # A keyword first seen in its opening second is read; one taken out, once seen, is listed for that (issue 552).
+        self.assertEqual(state(facts(linked=[pr(opened=2, spans=[(2, None)])])), "in_review")
+        # Put back since the last pass that saw it taken out: read, its new span not begun yet (issue 552).
+        self.assertEqual(state(facts(linked=[pr(spans=[(1, 3)])])), "in_review")
+        self.assertEqual(derive(facts(linked=[pr(keyword=False, spans=[(2, None)])]))["reason"], "acceptance_due")
+        # Listed for a link by hand alone, or for the close it made, a keyword taken out that no pass saw (issue 552).
+        self.assertEqual(state(facts(linked=[pr(keyword=False, links=[("connected", 1)])])), "in_review")
+        closer = agents(is_open=False, merged=5, keyword=False)
+        self.assertEqual(state(facts(state="closed", closed_first_at=at(5), linked=[closer])), "done")
+        self.assertEqual(derive(facts(linked=[pr(keyword=False, spans=[(1, 2)])]))["reason"], "acceptance_due")
+        # A span seen gone in the second it was first seen is read (issue 552).
+        self.assertEqual(derive(facts(linked=[pr(keyword=False, spans=[(2, 2)])]))["reason"], "acceptance_due")
         # A link by hand in its opening second, unlinked and linked again in one second, is read (issue 551).
         both = pr(links=[("connected", 0), ("disconnected", 3), ("connected", 3)])
         self.assertEqual(state(facts(linked=[both])), "in_review")
@@ -1046,6 +1077,55 @@ class Done(unittest.TestCase):
                             ([("connected", 3), ("disconnected", 7), ("connected", 8), ("disconnected", 9), ("connected", 10)], False)):
             d = derive(facts(linked=[own, pr(number=12, links=links)], **closed))
             self.assertEqual(d["state"], "held" if held else "done", links)
+
+    def test_a_keyword_link_a_pass_saw_before_the_merge_is_a_link_at_it(self):  # issue 552, decision 0132
+        # A closing keyword's link stood at the merge where a pass saw it before the merge's second: two such links, or
+        # one beside a link by hand, keep the issue held, and a keyword taken out after the merge, which the port keeps
+        # listing, moves nothing.
+        closed = dict(state="closed", closed_first_at=at(5))
+        own = agents(number=11, is_open=False, merged=5, spans=[(2, None)])
+        for rival in (pr(number=12, spans=[(3, None)]), pr(number=12, spans=[(1, None)]), pr(number=12, keyword=False, spans=[(3, None)])):
+            d = derive(facts(linked=[own, rival], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]), rival)
+        by_hand = agents(number=11, is_open=False, merged=5, links=[("connected", 2)])
+        d = derive(facts(linked=[by_hand, pr(number=12, spans=[(3, None)])], **closed))
+        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # The other side: a keyword first seen after the merge, in its second, or by no pass, reaches back to nothing; an
+        # outsider's admitted after the merge is no link at it. The Factory's merge is done (decision 0132).
+        for rival in (pr(number=12, spans=[(6, None)]), pr(number=12, spans=[(5, None)]), pr(number=12),
+                      strangers(number=13, events=[labelled(ADMIT, minute=9)], spans=[(3, None)])):
+            d = derive(facts(linked=[own, rival], **closed))
+            self.assertEqual((d["state"], d["reason"]), ("done", "merged"), rival)
+        # A rival linked by hand too, unlinked by hand after the merge, still holds by its keyword: a keyword's link cannot
+        # be unlinked by hand.
+        both = pr(number=12, links=[("connected", 1), ("disconnected", 7)], spans=[(3, None)])
+        d = derive(facts(linked=[own, both], **closed))
+        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # A keyword a pass saw taken out before the merge's second was no link at it, as rows 4 to 7 read it; one taken
+        # out in that second or after still stood.
+        for gone, held in ((2, False), (5, True), (6, True)):
+            d = derive(facts(linked=[own, pr(number=12, keyword=False, spans=[(1, gone)])], **closed))
+            self.assertEqual(d["state"], "held" if held else "done", gone)
+        # A keyword taken out before the merge and put back after it reaches back to nothing: no edit after the merge
+        # moves a done issue. Put back before the merge, it stood at it; standing at it, taken out and put back after, it
+        # still holds.
+        for spans, held in (([(1, 2), (7, None)], False), ([(1, 2), (3, None)], True), ([(1, 2), (3, 4), (6, None)], False),
+                            ([(1, 6), (7, None)], True)):
+            d = derive(facts(linked=[own, pr(number=12, spans=spans)], **closed))
+            self.assertEqual(d["state"], "held" if held else "done", spans)
+        # Before any merge, a pull request whose keyword an edit took out and no link by hand holds is no open link.
+        d = derive(facts(linked=[agents(number=11), pr(number=12, keyword=False, spans=[(1, None)])]))
+        self.assertNotEqual(d["reason"], "linked_twice")
+        self.assertEqual(derive(facts(linked=[agents(number=11), pr(number=12, spans=[(1, None)])]))["reason"], "linked_twice")
+        # One linked by hand alone, its keyword taken out or never there, is an open link while the link stands.
+        hand = pr(number=12, keyword=False, links=[("connected", 1)])
+        self.assertEqual(derive(facts(linked=[agents(number=11), hand]))["reason"], "linked_twice")
+        undone = pr(number=12, keyword=False, links=[("connected", 1), ("disconnected", 2)])
+        self.assertNotEqual(derive(facts(linked=[agents(number=11), undone]))["reason"], "linked_twice")
+        # Nor is the merge's own keyword first seen in its second a link before it.
+        late = agents(number=11, is_open=False, merged=5, spans=[(5, None)])
+        d = derive(facts(linked=[late, pr(number=12, spans=[(3, None)])], **closed))
+        self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
 
     def test_an_empty_merge_is_not_done(self):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=True)])), "new")

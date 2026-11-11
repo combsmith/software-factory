@@ -3372,6 +3372,16 @@ class Snapshot(unittest.TestCase):
                 facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
             self.assertEqual(getattr(raised.exception, "part", None), part, name)
+        # A fault of the snapshot's own code is named by its part as a read GitHub refused is, and one in putting the
+        # facts together, after the last read, by a part of its own (decision 0187).
+        odd = lambda *a, **k: (_ for _ in ()).throw(TypeError("an answer no adapter expected"))
+        for target, name, part in ((timeline, "events", "timeline"), (timeline, "since_writer", "writer"),
+                                   (timeline, "reopened_at", "assembly")):
+            router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+            with unittest.mock.patch.object(target, name, odd), self.assertRaises(TypeError) as raised:
+                facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                               lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+            self.assertEqual(getattr(raised.exception, "part", None), part, name)
         # A pull request that moved while it was read is still a Moved, which the pass reads again.
         router = Router(github.Replay(self.sequence(12)), {"don-petry": "admin"})
         with self.assertRaises(facts.Moved) as raised:
@@ -4408,9 +4418,9 @@ class EffectsRecorded(unittest.TestCase):
                                     "&per_page=100&page=%d" % (HOME, POLLER, self.SINCE, page))
         return found
 
-    def passes_(self, *found, known=()):
+    def passes_(self, *found, known=(), slept=None, **kw):
         return passes.written(github.Replay([e for f in found for e in (f if isinstance(f, list) else [f])]), HOME, "main",
-                              POLLER, self.OWN, self.SINCE, set(known))
+                              POLLER, self.OWN, self.SINCE, set(known), sleep=([] if slept is None else slept).append, **kw)
 
     def test_each_pass_in_the_window_is_read_once_and_what_cannot_be_read_is_read_again(self):
         made = "2026-10-11T12:00:00Z"
@@ -4425,10 +4435,11 @@ class EffectsRecorded(unittest.TestCase):
         # What is no pass of the poller from the default branch is passed over.
         others = [a_pass(40, path=".github/workflows/run.yml"), a_pass(41, head_branch="other"), a_pass(43, event="push")]
         self.assertEqual(self.passes_(self.page(others)), none)
-        # One that failed and lists none may be yet to, so it is read again, and is not short.
-        self.assertEqual(self.passes_(self.page([a_pass(30, conclusion="failure", run_attempt=1)]), written_stored(30, None)), none)
+        # One that failed and lists none is looked at once more, and then read: it recorded nothing (decision 0190).
+        self.assertEqual(self.passes_(self.page([a_pass(30, conclusion="failure", run_attempt=1)]), written_stored(30, None), written_stored(30, None)),
+                         dict(none, read=[{"id": 30, "attempt": 1}]))
         # One that succeeded and lists none is lag or a deletion, and short; and is read again.
-        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1)]), written_stored(30, None)), dict(none, whole=False))
+        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1)]), written_stored(30, None), written_stored(30, None)), dict(none, whole=False))
         # Past its retention it recorded nothing that can be read: it is read, and not again.
         got = self.passes_(self.page([a_pass(30, run_attempt=1)]), written_stored(30, self.DONE, expired=True)[:1])
         self.assertEqual(got, dict(none, read=[{"id": 30, "attempt": 1}]))
@@ -4491,6 +4502,114 @@ class EffectsRecorded(unittest.TestCase):
         self.assertEqual((got["read"], got["whole"]), ([{"id": 30, "attempt": 1}], False))
         got = passes.written(github.Replay([two] + written_stored(30, self.DONE)), HOME, "main", POLLER, self.OWN, self.SINCE, {(20, 1)}, most=1)
         self.assertEqual(got["whole"], True)
+
+    def test_a_pass_that_did_not_succeed_and_lists_none_is_read_after_a_second_look(self):  # issue 709, decision 0190
+        none = {"written": [], "read": [], "at": {}, "whole": True}
+        made = "2026-10-11T12:00:00Z"
+        for conclusion in ("failure", "cancelled", "timed_out", "skipped"):
+            slept = []
+            got = self.passes_(self.page([a_pass(30, conclusion=conclusion, run_attempt=1)]), written_stored(30, None), written_stored(30, None), slept=slept)
+            # Listing none twice, a wait apart, it recorded nothing: it is read, with no record, and no pass reads it again.
+            self.assertEqual((got, slept), (dict(none, read=[{"id": 30, "attempt": 1}]), [passes.WAIT]), conclusion)
+        self.assertEqual((passes.WAIT, records.WAIT), (5, 5))
+        # One look is not two: with the second never answered it is not read, and what was read is short.
+        slept = []
+        failed = self.page([a_pass(30, conclusion="failure", run_attempt=1)])
+        self.assertEqual((self.passes_(failed, written_stored(30, None), slept=slept), slept), (dict(none, whole=False), [passes.WAIT]))
+        refused = written_stored(30, None)
+        refused[0]["response"]["status"] = 500
+        self.assertEqual(self.passes_(failed, written_stored(30, None), refused), dict(none, whole=False))
+        # The list lagged: the record the second look lists is read as any is, and one that is no `written/1` is short.
+        self.assertEqual(self.passes_(self.page([a_pass(30, conclusion="failure", run_attempt=1, created_at=made)]), written_stored(30, None), written_stored(30, self.DONE)),
+                         {"written": [self.DONE], "read": [{"id": 30, "attempt": 1}], "at": {"p_01JA7Q": made}, "whole": True})
+        self.assertEqual(self.passes_(failed, written_stored(30, None), written_stored(30, dict(self.DONE, schema="written/2"))), dict(none, whole=False))
+        # Past its retention at the second look, it recorded nothing that can be read: it is read.
+        self.assertEqual(self.passes_(failed, written_stored(30, None), written_stored(30, self.DONE, expired=True)[:1]), dict(none, read=[{"id": 30, "attempt": 1}]))
+        # The wait is one for a pass, however many it looks at again: every first look comes before it and every second
+        # after, and each that listed none is looked at again, its record dated as its own pass was made.
+        slept, late, later = [], "2026-10-11T11:00:00Z", dict(self.DONE, **{"pass": "p_01JA7R"})
+        three = self.page([a_pass(30, conclusion="cancelled", run_attempt=1, created_at="2026-10-11T13:00:00Z"), a_pass(20, run_attempt=1, created_at=made),
+                           a_pass(10, conclusion="failure", run_attempt=2, created_at=late)])
+        hub = Recording(github.Replay([three] + written_stored(30, None) + written_stored(20, self.DONE) + written_stored(10, None)
+                                      + written_stored(30, None) + written_stored(10, later)))
+        got = passes.written(hub, HOME, "main", POLLER, self.OWN, self.SINCE, set(), sleep=lambda seconds: slept.append((seconds, len(hub.sent))))
+        self.assertEqual(got, {"written": [self.DONE, later], "read": [{"id": 20, "attempt": 1}, {"id": 30, "attempt": 1}, {"id": 10, "attempt": 2}],
+                               "at": {"p_01JA7Q": made, "p_01JA7R": late}, "whole": True})
+        self.assertEqual((slept, len(hub.sent)), ([(passes.WAIT, 5)], 8))
+        # Each look is asked uncached, the first and the second: GitHub lets a list be held a minute (decision 0036), and
+        # a second look answered from the first's would settle nothing.
+        looks = [r["headers"] for r in hub.sent if "/artifacts?" in r["path"]]
+        self.assertEqual(looks, [records.FRESH] * 5)
+        self.assertIs(passes.written.__defaults__[-1], passes.time.sleep)
+        # A second look that cannot be read leaves its own pass unread and what was read short; the next is still looked at.
+        two = self.page([a_pass(30, conclusion="cancelled", run_attempt=1), a_pass(10, conclusion="failure", run_attempt=2)])
+        self.assertEqual(self.passes_(two, written_stored(30, None), written_stored(10, None), refused, written_stored(10, None)),
+                         dict(none, read=[{"id": 10, "attempt": 2}], whole=False))
+        # A record that holds `null` is no `written/1`, whatever the pass concluded: short at its one look, never read as
+        # one that listed none, and not looked at twice.
+        for conclusion in ("success", "failure"):
+            slept = []
+            got = self.passes_(self.page([a_pass(30, conclusion=conclusion, run_attempt=1)]), written_stored(30, "null"), written_stored(30, "null"), slept=slept)
+            self.assertEqual((got, slept), (dict(none, whole=False), []), conclusion)
+        # A completed run with no conclusion does not say it did not succeed: it is not looked at twice and not read, so a
+        # later pass asks of it again, and what was read is whole.
+        slept = []
+        got = self.passes_(self.page([a_pass(30, conclusion=None, run_attempt=1)]), written_stored(30, None), written_stored(30, None), slept=slept)
+        self.assertEqual((got, slept), (none, []))
+        # None with none to look at again. One that succeeded and lists none is short at its one look, never looked at twice.
+        slept = []
+        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1)]), written_stored(30, self.DONE), slept=slept)["read"], [{"id": 30, "attempt": 1}])
+        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1)]), written_stored(30, None), written_stored(30, None), slept=slept), dict(none, whole=False))
+        self.assertEqual(slept, [])
+        # Read, it is known, and the next pass asks nothing of it.
+        self.assertEqual(self.passes_(failed, known=[(30, 1)]), none)
+
+    def test_more_passes_that_list_none_than_a_pass_reads_are_read_whole_by_the_next(self):  # issue 709, decision 0190
+        # The poller cancels the run that waits when another is queued, and a cancelled run records nothing. With more of
+        # them in the window than a pass reads, each is read by the pass that looks at it, so the next reads the rest whole.
+        rows = [a_pass(200, run_attempt=1)] + [a_pass(100 + i, conclusion="cancelled", run_attempt=1) for i in range(passes.READS + 1)]
+        nothing = lambda found: [e for row in found for e in written_stored(row["id"], None)]
+        first, slept = rows[:passes.READS], []
+        got = self.passes_(self.page(rows), written_stored(200, self.DONE), nothing(first[1:]), nothing(first[1:]), slept=slept)
+        self.assertEqual((len(got["read"]), got["written"], got["whole"], slept), (passes.READS, [self.DONE], False, [passes.WAIT]))
+        self.assertEqual({r["id"] for r in got["read"]}, {r["id"] for r in first})
+        known = [(r["id"], r["attempt"]) for r in got["read"]]
+        rest = rows[passes.READS:]
+        self.assertEqual(self.passes_(self.page(rows), nothing(rest), nothing(rest), known=known),
+                         {"written": [], "read": [{"id": r["id"], "attempt": 1} for r in rest], "at": {}, "whole": True})
+        # As many as a pass reads are read whole by one pass: the second looks are not counted against the first.
+        got = self.passes_(self.page(rows[1:passes.READS + 1]), nothing(rows[1:passes.READS + 1]), nothing(rows[1:passes.READS + 1]))
+        self.assertEqual((len(got["read"]), got["whole"]), (passes.READS, True))
+
+    def test_a_pass_still_running_is_not_looked_at_and_may_yet_record(self):  # issue 709, decision 0190
+        none = {"written": [], "read": [], "at": {}, "whole": True}
+        # A run not completed is no pass yet: nothing is asked of it, it is not read, and what was read is whole.
+        for status in ("in_progress", "queued", "waiting", None):
+            sent, slept = Recording(github.Replay([self.page([a_pass(30, status=status, conclusion=None, run_attempt=1)])] + written_stored(30, None) * 2)), []
+            got = passes.written(sent, HOME, "main", POLLER, self.OWN, self.SINCE, set(), sleep=slept.append)
+            self.assertEqual((got, len(sent.sent), slept), (none, 1, []), status)
+        # So the pass after it has ended reads what it recorded.
+        made = "2026-10-11T12:00:00Z"
+        self.assertEqual(self.passes_(self.page([a_pass(30, run_attempt=1, created_at=made)]), written_stored(30, self.DONE)),
+                         {"written": [self.DONE], "read": [{"id": 30, "attempt": 1}], "at": {"p_01JA7Q": made}, "whole": True})
+
+    def test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short(self):  # issue 709, decision 0190
+        from controller import reconcile
+        from tests.test_reconcile import ITEM, check, kinds, recorded, seen, wrote, written
+        failed = self.page([a_pass(30, conclusion="failure", run_attempt=1)])
+        got = self.passes_(failed, written_stored(30, None), written_stored(30, None))
+        self.assertEqual((got["read"], got["written"], got["whole"]), ([{"id": 30, "attempt": 1}], [], True))
+        # It wrote a status and failed before its record. Read as having recorded nothing, it vouches for no write: the
+        # status is matched to nothing, and the alert is the unmatched write's, not a reconciliation that is short.
+        status = seen(wrote("controller", "check_run", "CR_s"))
+        found = check(status, recorded(written_=got["written"], whole=got["whole"]))
+        self.assertEqual((kinds(found), found["short"], reconcile.alerts(found)),
+                         ([("controller", "check_run")], False, ["write_unmatched"]))
+        # Had it recorded the status, in a list that lagged at the first look, the second look's record matches the write.
+        done = written(("status_on_item", ITEM, None, "CR_s", "applied"))
+        got = self.passes_(failed, written_stored(30, None), written_stored(30, done))
+        found = check(status, recorded(written_=got["written"], whole=got["whole"]))
+        self.assertEqual((found["unmatched"], found["short"], reconcile.alerts(found)), ([], False, []))
 
     def test_each_run_in_the_window_is_read_once_and_only_a_listed_one(self):
         def run(name, **over):
@@ -4686,59 +4805,88 @@ class Items(unittest.TestCase):
 
 
 class Rules(unittest.TestCase):
-    """config/hooks.json as a commit holds it, in the shape trials/P-51.json recorded a file read at a commit (issue 139)."""
+    """config/hooks.json and config/defaults.json as a commit holds them, in the shape trials/P-51.json recorded a file
+    read at a commit (issue 139)."""
     SHA = "b" * 40
+    ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-    def answer(self, data: bytes = None, **over) -> dict:
+    def answer(self, data: bytes = None, of: str = "config/hooks.json", **over) -> dict:
         found = copy.deepcopy(exchanges("P-51")[5])
-        data = (pathlib.Path(__file__).resolve().parent.parent / "config" / "hooks.json").read_bytes() if data is None \
-            else data
-        found["request"]["call"] = "GET /repos/o/r/contents/config/hooks.json?ref=%s" % self.SHA
-        found["response"]["body"].update(name="hooks.json", path="config/hooks.json", size=len(data),
+        data = (self.ROOT / of).read_bytes() if data is None else data
+        found["request"]["call"] = "GET /repos/o/r/contents/%s?ref=%s" % (of, self.SHA)
+        found["response"]["body"].update(name=of.rsplit("/", 1)[-1], path=of, size=len(data),
                                          content=base64.encodebytes(data).decode(), encoding="base64", type="file")
         found["response"]["body"].update(over)
         return found
 
+    def defaults(self, data: bytes = None, **over) -> dict:
+        return self.answer(data, "config/defaults.json", **over)
+
     def read(self, *found, repo="o/r", sha=SHA, transport=None):
         return rules.listed_at(transport or github.Replay(list(found)), repo, sha)
 
-    def test_the_list_is_the_bases_every_protected_path_and_lens_input_once(self):
+    def test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once(self):
         from tools.hooks import protected
-        patterns, why = self.read(self.answer())
+        patterns, why = self.read(self.answer(), self.defaults())
         self.assertIsNone(why)
-        once = []
-        for pattern in protected.protected_paths():
-            if pattern not in once:
-                once.append(pattern)
-        self.assertEqual(patterns, once)
-        self.assertTrue(set(protected.model_lens_inputs(["pr-review"])) <= set(patterns))
+        held = protected.load()
+        self.assertEqual(patterns, protected.push_of(held, ["pr-review"]))
+        self.assertEqual(len(patterns), len(set(patterns)))
+        self.assertTrue({p for p, _ in held["protected"]} | set(protected.model_lens_inputs(["pr-review"])) == set(patterns))
+        # A deterministic Lens's input alone is not on it: it is pushed, and held at convergence (decision 0020).
+        for alone in ("kernel/", "tests/", "*", ".gitleaks.toml"):
+            self.assertNotIn(alone, patterns)
         # Another commit's list is that commit's: a pattern its hooks.json holds, and no other.
-        held = json.loads((pathlib.Path(__file__).resolve().parent.parent / "config" / "hooks.json").read_text())
-        held["protected"].append({"path": "docs/frozen.md", "is": "a test"})
-        patterns, _ = self.read(self.answer(json.dumps(held).encode()))
+        data = json.loads((self.ROOT / "config" / "hooks.json").read_text())
+        data["protected"].append({"path": "docs/frozen.md", "is": "a test"})
+        patterns, _ = self.read(self.answer(json.dumps(data).encode()), self.defaults())
         self.assertIn("docs/frozen.md", patterns)
+        # And which Lens is a model Lens is that commit's word too: one that names verify a model Lens lists its inputs.
+        said = json.loads((self.ROOT / "config" / "defaults.json").read_text())
+        said["required_lenses"]["model"] = ["pr-review", "verify"]
+        patterns, _ = self.read(self.answer(), self.defaults(json.dumps(said).encode()))
+        self.assertIn("kernel/", patterns)
+
+    def test_a_commit_that_names_no_model_lens_is_unreadable(self):
+        unreadable = (None, "push_list_unreadable")
+        said = json.loads((self.ROOT / "config" / "defaults.json").read_text())
+        for model in ([], "pr-review", [""], [1], None):
+            data = json.dumps(dict(said, required_lenses=dict(said["required_lenses"], model=model))).encode()
+            self.assertEqual(self.read(self.answer(), self.defaults(data)), unreadable, model)
+        for data in (b"{", b"[]", json.dumps({"required_lenses": {}}).encode(), b"\xff\xfe"):
+            self.assertEqual(self.read(self.answer(), self.defaults(data)), unreadable, data)
+        for over in ({"path": "config/hooks.json"}, {"size": 3}, {"type": "dir"}):
+            self.assertEqual(self.read(self.answer(), self.defaults(**over)), unreadable, over)
+        gone = self.defaults()
+        gone["response"]["status"] = 404
+        self.assertEqual(self.read(self.answer(), gone), unreadable)
+        # Read, and nothing after: the transport answers the list alone.
+        self.assertEqual(self.read(self.answer()), unreadable)
 
     def test_a_list_that_cannot_be_read_is_unreadable_never_empty(self):
         unreadable = (None, "push_list_unreadable")
+        # Each with the base's config/defaults.json answered whole after it, so that the list alone is what fails.
         for over in ({"type": "dir"}, {"path": "config/other.json"}, {"size": 3}, {"size": 0}, {"size": True},
                      {"encoding": "utf-8"}, {"content": "!!not base64!!"}, {"content": None}):
-            self.assertEqual(self.read(self.answer(**over)), unreadable, over)
+            self.assertEqual(self.read(self.answer(**over), self.defaults()), unreadable, over)
         for data in (b"{", b"[]", json.dumps({"protected": []}).encode(), b"\xff\xfe"):
-            self.assertEqual(self.read(self.answer(data)), unreadable, data)
+            self.assertEqual(self.read(self.answer(data), self.defaults()), unreadable, data)
         gone = self.answer()
         gone["response"].update(status=404, body={"message": "Not Found"})
-        self.assertEqual(self.read(gone), unreadable)
+        self.assertEqual(self.read(gone, self.defaults()), unreadable)
         # An answer that is no 200 is none, though its body is the file's.
         refused = self.answer()
         refused["response"]["status"] = 404
-        self.assertEqual(self.read(refused), unreadable)
+        self.assertEqual(self.read(refused, self.defaults()), unreadable)
         # A size that is no integer is none, though it counts the file's bytes.
         whole = self.answer()
-        self.assertEqual(self.read(self.answer(size=float(whole["response"]["body"]["size"]))), unreadable)
+        self.assertEqual(self.read(self.answer(size=float(whole["response"]["body"]["size"])), self.defaults()), unreadable)
         # A directory's answer is a list of its entries.
         listing = self.answer()
         listing["response"]["body"] = [listing["response"]["body"]]
-        self.assertEqual(self.read(listing), unreadable)
+        self.assertEqual(self.read(listing, self.defaults()), unreadable)
+        # And the two answered whole are read, so that each case above fails by its own answer.
+        self.assertIsNone(self.read(self.answer(), self.defaults())[1])
         # Coordinates that cannot name a commit of a repo are not asked at all.
         class Unasked:
             def send(self, req):

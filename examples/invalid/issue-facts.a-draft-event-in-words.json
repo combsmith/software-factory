@@ -57,6 +57,8 @@
       "closed_issue_at": null,
       "draft_events": [{"action": "drafted", "at": "2026-10-11T12:01:00Z"}],
       "link_events": [],
+      "keyword": true,
+      "keyword_spans": [],
       "close_events": []
     },
     {
@@ -88,6 +90,8 @@
       "closed_issue_at": null,
       "draft_events": [],
       "link_events": [],
+      "keyword": true,
+      "keyword_spans": [],
       "close_events": [{"action": "closed", "by": {"kind": "human", "name": "don-petry", "can_write": true}, "at": "2026-10-11T10:00:00Z"}]
     }
   ],
