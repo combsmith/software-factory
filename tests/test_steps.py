@@ -644,6 +644,16 @@ class Apply(unittest.TestCase):
         with unittest.mock.patch.object(reread, "item", faulty):
             code, printed, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
         self.assertEqual((code, printed, ended), (1, "step_failed\n", None))
+        # Apply asks the read again for no part of the Pause: it reads its Pause in the context, in its own order, as
+        # it did (decision NNNN).
+        asked_for = []
+
+        def plain(*a, **k):
+            asked_for.append(k)
+            raise reread.facts_.Moved("moved")
+        with unittest.mock.patch.object(reread, "item", plain):
+            self.go(a_job=lambda admit, result, read_, *a: read_())
+        self.assertEqual(asked_for, [{}])
         # A record that cannot be read is the environment's; a Decision of another item, no Decision of this Run's.
         code, _, ended, calls = self.go(record=github.Unanswered)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "record_unreadable", []))
@@ -788,15 +798,16 @@ class Approve(unittest.TestCase):
     def test_the_approver_holds_to_its_item(self):
         seen = []
 
-        reread_through = []
+        reread_through, asked_for = [], []
 
         def a_job(record, run_, read_, port, config, now):
             seen.append((record, run_, port, config))
             read_()
             return approve_step.approve._records(run_, config["release"], "applied", "PRR_x", None)
 
-        def item(transport, *a):
+        def item(transport, *a, **k):
             reread_through.append(transport)
+            asked_for.append(k)
             return None
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(passes, "find", lambda transport, *a: (seen.append(transport), RECORD)[1]), \
@@ -811,6 +822,8 @@ class Approve(unittest.TestCase):
         self.assertIsInstance(found, effects.Approving)
         # The item is read again through the approver's token held to its item, too.
         self.assertEqual([type(t) for t in reread_through], [effects.Approving])
+        # And asked for the Pause by name, so a Pause the port could not read says which read it was (decision NNNN).
+        self.assertEqual(asked_for, [{"name_pause": True}])
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
         with tempfile.TemporaryDirectory() as d:
@@ -847,10 +860,12 @@ class Approve(unittest.TestCase):
         now = datetime.datetime.strptime(record["now"], "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=datetime.timezone.utc).timestamp()
 
-        def go(name, item=ITEM, found=record, context=record["context"]):
+        def go(name, item=ITEM, found=record, context=record["context"], raised=None):
             sent = ta.GitHub()
 
-            def read_again(*a):
+            def read_again(*a, **k):
+                if raised is not None:
+                    raise raised
                 return (copy.deepcopy(entry["facts"]), ta.HEAD, copy.deepcopy(record["runs"]), copy.deepcopy(context))
             with tempfile.TemporaryDirectory() as d, \
                     unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(found)), \
@@ -889,6 +904,18 @@ class Approve(unittest.TestCase):
         self.assertIsNone(unread)
         self.assertEqual(go(mine, context=dict(record["context"], paused=unread)),
                          (1, "pause_unreadable\n", "environment", "refused", []))
+        # Asked by name, the read again raises that Pause as a read of its own stage, its part the port's, and the step
+        # ends by the code of both: which read GitHub refused, and nothing GitHub said (decision NNNN, after the
+        # seventh dry run stopped at the code above).
+        from controller import configuration
+        with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(tc.listed([]))), \
+                unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (entry["facts"], "t", ta.HEAD)), \
+                self.assertRaises(github.Unanswered) as named:
+            reread.item(Refusing(), configuration.load(ROOT, RELEASE, "pr-review"), 42, record["now"],
+                        lambda: record["now"], name_pause=True)
+        self.assertEqual((named.exception.stage, named.exception.part), ("pause", "org_refused"))
+        self.assertEqual(go(mine, raised=named.exception),
+                         (1, "pause_org_refused_unreadable\n", "environment", "refused", []))
 
 
 class Diff(unittest.TestCase):
@@ -1077,6 +1104,49 @@ class Reread(unittest.TestCase):
                         asked.append((org, list(repos))), paused)[1]):
                 self.assertIs(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["paused"], want, paused)
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
+        # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
+        # part the port's for the first scope unreadable, the org's before the repo's (decision NNNN). Not asked, as
+        # apply reads it, the same Pause is the context's and nothing is raised.
+        entry = {"name": reread.pause_.NAME, "value": "false"}
+        clear, unset = (200, {"total_count": 1, "variables": [entry]}), (200, {"total_count": 0, "variables": []})
+
+        class Answering:
+            def __init__(self, org, repo):
+                self.org, self.repo = org, repo
+
+            def send(self, req):
+                status, body = self.org if "/organization-variables" in req["path"] else self.repo
+                return {"status": status, "headers": {}, "body": body}
+        patched = lambda runs=listed: (
+            unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(runs)),
+            unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (facts, "t", HEAD)))
+        for org, repo, want in (((403, {}), (200, entry), "org_refused"), ((404, {}), (200, entry), "org_refused"),
+                                (unset, (200, entry), "org_unnamed"), ((500, {}), (200, entry), "org"),
+                                (clear, (403, {}), "repo_refused"), (clear, (500, {}), "repo"),
+                                ((403, {}), (403, {}), "org_refused"), (unset, (500, {}), "org_unnamed"),
+                                ((500, {}), (403, {}), "org")):
+            a, b = patched()
+            with a, b, self.assertRaises(github.Unanswered) as raised:
+                reread.item(Answering(org, repo), config, 42, support.NOW, lambda: support.NOW, name_pause=True)
+            self.assertEqual((raised.exception.stage, raised.exception.part), ("pause", want), (org, repo))
+            a, b = patched()
+            with a, b:
+                self.assertIsNone(reread.item(Answering(org, repo), config, 42, support.NOW, lambda: support.NOW)[3]["paused"])
+        # A scope that pauses is a Pause whatever else could not be read, and a value that is no Pause is one the port
+        # read: neither is raised, and each is the context's as before. A Pause read clear raises nothing.
+        for org, repo, want in (((403, {}), (200, dict(entry, value="true")), True),
+                                ((200, {"total_count": 1, "variables": [dict(entry, value="true")]}), (403, {}), True),
+                                (clear, (200, dict(entry, value="maybe")), None), (clear, (200, entry), False),
+                                (clear, (404, {}), False)):
+            a, b = patched()
+            with a, b:
+                got = reread.item(Answering(org, repo), config, 42, support.NOW, lambda: support.NOW, name_pause=True)
+            self.assertIs(got[3]["paused"], want, (org, repo))
+        # Run records that cannot be read are named first, as they are read first.
+        a, b = patched({"runs": "x"})
+        with a, b, self.assertRaises(github.Unanswered) as raised:
+            reread.item(Answering((403, {}), (403, {})), config, 42, support.NOW, lambda: support.NOW, name_pause=True)
+        self.assertEqual((raised.exception.stage, getattr(raised.exception, "part", None)), ("run_records", None))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,9 @@ request, with the accounts `controller/1` holds, the App that opens pull request
 records were read whole and what the item's Lenses recorded in them (`adapters/applied.py`). The context is built from
 them by `controller/pass_.context_of`, as one pass builds it, with no pass records before, so `passes_since` is
 unreadable, which defers nothing. What cannot be read raises, named by its stage (`harness/shared.unread`), a fault of
-a read's own code as a read GitHub did not answer, and the job that asked records whose fault it was."""
+a read's own code as a read GitHub did not answer, and the job that asked records whose fault it was. The Pause's port
+raises nothing: a Pause it could not read is the context's, unless the job asks for it by name, and then it is raised
+as a read of the `pause` stage, its part the port's (decision NNNN)."""
 from __future__ import annotations
 
 from adapters import applied, facts as facts_, pause as pause_, records, timeline
@@ -16,9 +18,16 @@ from controller import pass_, reads as reads_
 from harness import shared
 
 
-def item(transport, config: dict, number: int, now: str, clock) -> tuple:
+def _parted(err: Exception, part: str) -> Exception:
+    err.part = part
+    return err
+
+
+def item(transport, config: dict, number: int, now: str, clock, name_pause: bool = False) -> tuple:
     """`(facts, head, runs, context)` of pull request `number` of the home repo, read through `transport`. `config` is
-    `controller/configuration.load`'s; `clock` gives the facts' `read_at`, `now` the time the context is built at."""
+    `controller/configuration.load`'s; `clock` gives the facts' `read_at`, `now` the time the context is built at. With
+    `name_pause`, a Pause that is unreadable because the port could not read a scope is raised, named by that scope's
+    part, the org's before the repo's; a scope that pauses, or a value that is no Pause, is the context's as before."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     with shared.staged("run_records"):
@@ -34,12 +43,19 @@ def item(transport, config: dict, number: int, now: str, clock) -> tuple:
         facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
                                          with_head=True, opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
                                          recorded=found[number], opened=opened)
+    unread = []
     with shared.staged("pause"):
-        paused = pause_.read(transport, home.split("/")[0], [home])
+        if name_pause:
+            paused, unread = pause_.explained(transport, home.split("/")[0], [home])
+        else:
+            paused = pause_.read(transport, home.split("/")[0], [home])
     with shared.staged("context"):     # no read: built from what the reads gave, and named as they are (decision 0187)
         rules = reads_.configured(controller)
         listed_, _, runs, _, _, _, context = pass_.context_of(listed, paused, [home], rules, now)
     if not listed_:
         with shared.staged("run_records"):
             raise Unanswered("the run records cannot be read")
+    if unread and context["paused"] is None:
+        with shared.staged("pause"):
+            raise _parted(Unanswered("the Pause cannot be read"), unread[0])
     return facts, head, runs, context

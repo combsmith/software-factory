@@ -613,6 +613,76 @@ class Pause(unittest.TestCase):
         pause.read(asked, "combsmith", ["combsmith/z", "combsmith/a"])
         self.assertEqual(asked.asked[0], pause.listed("combsmith/a"))
 
+    def test_a_pause_not_read_says_which_read_and_why(self):
+        # Decision NNNN, after pull request 688's seventh dry run stopped at `pause_unreadable` and no more: beside
+        # the same read, the port says why each scope it could not read was unreadable, by a code of its own. GitHub
+        # refused the list of the org's variables, 403 or 404; refused the repo's own variable, 403, since a 404 there
+        # is a variable GitHub holds none of; answered a list, read whole, that does not name it; or anything else.
+        home = "combsmith/software-factory"
+        entry = lambda name, value="false": {"name": name, "value": value}
+        whole = lambda *variables: (200, {"total_count": len(variables), "variables": list(variables)}, {})
+        nxt = {"link": '<https://api.github.com/repositories/1/actions/organization-variables?per_page=100&page=2>; '
+                       'rel="next"'}
+        full = [entry("V%d" % i) for i in range(pause.PAGE)]
+        own = lambda status=200, body=None: (status, {"name": pause.NAME, "value": "false"} if body is None else body, {})
+
+        class Answers:
+            """Answers the org's list by the pages given, then each repo's own variable by the answers given."""
+            def __init__(self, pages, variables):
+                self.pages, self.variables = list(pages), list(variables)
+
+            def send(self, req):
+                status, body, headers = (self.pages if "/organization-variables" in req["path"] else self.variables).pop(0)
+                if status is None:
+                    raise github.Unanswered("the connection dropped")
+                return {"status": status, "headers": headers, "body": body}
+        named = [whole(entry(pause.NAME))]
+        self.assertEqual((pause.ORG_REFUSED, pause.ORG_UNNAMED, pause.ORG_UNREAD, pause.REPO_REFUSED, pause.REPO_UNREAD),
+                         ("org_refused", "org_unnamed", "org", "repo_refused", "repo"))
+        for pages, variables, want in (
+                # Every scope read, set or not: no part.
+                (named, [own()], []), (named, [own(404, {"message": "Not Found"})], []),
+                # The org's list refused, on its first page or a later one.
+                ([(403, {"message": "Resource not accessible by personal access token"}, {})], [own()], ["org_refused"]),
+                ([(404, {"message": "Not Found"}, {})], [own()], ["org_refused"]),
+                ([(200, {"total_count": 101, "variables": full}, nxt), (403, {}, {})], [own()], ["org_refused"]),
+                # A list read whole that does not name it, with others or with none.
+                ([whole(entry("OTHER"))], [own()], ["org_unnamed"]), ([whole()], [own()], ["org_unnamed"]),
+                # Anything else of the org's read: an answer neither 200 nor a refusal, none at all, a list not read
+                # whole, an entry that is none, a name twice, a value that is no text.
+                ([(401, {}, {})], [own()], ["org"]), ([(500, {}, {})], [own()], ["org"]),
+                ([(None, None, None)], [own()], ["org"]),
+                ([(200, {"total_count": 2, "variables": [entry("OTHER")]}, {})], [own()], ["org"]),
+                ([(200, {"total_count": 1, "variables": [5]}, {})], [own()], ["org"]),
+                ([whole(entry(pause.NAME), entry("factory_paused"))], [own()], ["org"]),
+                ([whole(entry(pause.NAME, False))], [own()], ["org"]),
+                ([(200, ["false"], {})], [own()], ["org"]),
+                # The repo's own variable refused; and anything else of its read.
+                (named, [own(403, {"message": "Resource not accessible by personal access token"})], ["repo_refused"]),
+                (named, [own(401, {})], ["repo"]), (named, [own(500, {})], ["repo"]), (named, [(None, None, None)], ["repo"]),
+                (named, [own(200, {"name": "OTHER", "value": "false"})], ["repo"]),
+                # Both: the org's first, as they are read.
+                ([(403, {}, {})], [own(403, {})], ["org_refused", "repo_refused"]),
+                ([whole(entry("OTHER"))], [own(500, {})], ["org_unnamed", "repo"])):
+            read, parts = pause.explained(Answers(pages, variables), "combsmith", [home])
+            self.assertEqual(parts, want, (pages, variables))
+            # The read beside the parts is the port's own, and a part is given for each scope unreadable and no other.
+            self.assertEqual(read, pause.read(Answers(pages, variables), "combsmith", [home]))
+            unreadable = [read["org"] is pause.UNREADABLE, read["repos"][home] is pause.UNREADABLE]
+            self.assertEqual([p.split("_")[0] for p in parts], [s for s, u in zip(("org", "repo"), unreadable) if u])
+        # A scope not asked is anything else: no transport, no repo to read the org's through, a repo of another owner,
+        # and a repo that could name another path. Each repo's part follows the org's, in the order they are read.
+        self.assertEqual(pause.explained(None, "combsmith", ["combsmith/b", "combsmith/a"])[1], ["org", "repo", "repo"])
+        self.assertEqual(pause.explained(Answers([], []), "combsmith", []), ({"org": pause.UNREADABLE, "repos": {}}, ["org"]))
+        self.assertEqual(pause.explained(Answers([], [own()]), "other", [home])[1], ["org"])
+        self.assertEqual(pause.explained(Answers(named, []), "combsmith", ["combsmith/.."])[1], ["org", "repo"])
+        read, parts = pause.explained(Answers(named, [own(403, {}), own()]), "combsmith", ["combsmith/b", "combsmith/a"])
+        self.assertEqual((read["repos"], parts), ({"combsmith/a": pause.UNREADABLE, "combsmith/b": "false"}, ["repo_refused"]))
+        read, parts = pause.explained(Answers([(403, {}, {})], [own(), own(500, {})]), "combsmith",
+                                      ["combsmith/b", "combsmith/a"])
+        self.assertEqual((read["repos"], parts), ({"combsmith/a": "false", "combsmith/b": pause.UNREADABLE},
+                                                  ["org_refused", "repo"]))
+
 
 class Tracking(unittest.TestCase):
     HOME = "combsmith/software-factory"

@@ -446,6 +446,11 @@ class TheAct(unittest.TestCase):
         paused_unread.stage = "pause"     # a read the read again named, by its stage (pull request 688, the dry run)
         parted = IndexError("x")
         parted.part = "timeline"
+
+        def pause(part):     # a Pause the port could not read, raised by the read again by the port's part (NNNN)
+            err = Unanswered("no")
+            err.part = part
+            return failing(err, "pause")
         cases = [
             (GitHub(), failing(Moved("moved")), ("superseded", "head_moved"), "refused"),
             (GitHub(), failing(Unanswered("no")), ("environment", "facts_unreadable"), "refused"),
@@ -457,6 +462,13 @@ class TheAct(unittest.TestCase):
             (GitHub(), failing(KeyError("x"), "snapshot"), ("environment", "snapshot_unreadable"), "refused"),
             (GitHub(), failing(TypeError("x"), "context"), ("environment", "context_unreadable"), "refused"),
             (GitHub(), failing(parted, "snapshot"), ("environment", "snapshot_timeline_unreadable"), "refused"),
+            # A Pause the port could not read is named by which read it was and why (decision NNNN, after pull request
+            # 688's seventh dry run stopped at `pause_unreadable` alone).
+            (GitHub(), pause("org_refused"), ("environment", "pause_org_refused_unreadable"), "refused"),
+            (GitHub(), pause("org_unnamed"), ("environment", "pause_org_unnamed_unreadable"), "refused"),
+            (GitHub(), pause("org"), ("environment", "pause_org_unreadable"), "refused"),
+            (GitHub(), pause("repo_refused"), ("environment", "pause_repo_refused_unreadable"), "refused"),
+            (GitHub(), pause("repo"), ("environment", "pause_repo_unreadable"), "refused"),
             # A part read that is not as its schema holds it is named by the read that gave it, as a read GitHub did
             # not answer is (pull request 688's fifth dry run stopped at one code for all of them): the snapshot's,
             (GitHub(), reads(head="not a commit"), ("environment", "snapshot_unreadable"), "refused"),

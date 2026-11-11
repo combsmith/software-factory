@@ -10,7 +10,11 @@ org's Pause is read from that list, for the first repo the read is of, its owner
 until read whole: as many entries as `total_count` says, each page but the last a full one, each name once whatever its
 case. A list read whole that does not name it is unreadable, never unset, since the list holds only the org's variables
 shared with that repo (decision 0077); so is a list not read whole, an answer that is not 200, or an entry that cannot
-be read (issue 362, "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found")."""
+be read (issue 362, "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found").
+
+`explained` hands back, beside the same read, why each scope it could not read was unreadable, a code of this port's
+own and never what GitHub said: the approving act names its Pause by it (decision NNNN). The read itself is unchanged,
+and so is what the Controller reads of it."""
 from __future__ import annotations
 
 import re
@@ -20,6 +24,11 @@ from adapters.github import Unanswered, request
 NAME = "FACTORY_PAUSED"
 PAUSED, NOT_PAUSED = "true", "false"     # the two values a person sets, as `controller/pass_.py` reads them
 UNREADABLE = {"unreadable": True}      # no text a variable can hold: `human_pause` reads anything else as unreadable
+# Why a scope is unreadable, the part a caller names it by: GitHub refused the list of the org's variables, or the
+# repo's own variable; the list, read whole, does not name it; or anything else, of the org's read or of a repo's.
+ORG_REFUSED, ORG_UNNAMED, ORG_UNREAD = "org_refused", "org_unnamed", "org"
+REPO_REFUSED, REPO_UNREAD = "repo_refused", "repo"
+REFUSED = (403, 404)                   # how GitHub refuses a token the org's list, or hides the list from it
 ORG = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
 PAGE = 100                             # the most entries GitHub gives a page of the org's variables
@@ -43,59 +52,73 @@ def _named(repo: str) -> bool:
 
 def _org_value(transport, org: str, repo):
     """The org's FACTORY_PAUSED, as `repo`'s list of the org's variables names it, read whole (the module's rule): its
-    value, or UNREADABLE, never None."""
+    value, or UNREADABLE, never None, and beside it the part that says why it is unreadable, or None."""
     if repo is None or not ORG.fullmatch(org) or not _named(repo) or repo.split("/")[0] != org:
-        return UNREADABLE
+        return UNREADABLE, ORG_UNREAD
     entries, total, page = [], None, 1
     while True:
         try:
             answer = transport.send(request("GET", listed(repo, page)))
         except Unanswered:
-            return UNREADABLE
+            return UNREADABLE, ORG_UNREAD
         body = answer["body"]
+        if answer["status"] in REFUSED:
+            return UNREADABLE, ORG_REFUSED
         if answer["status"] != 200 or not isinstance(body, dict) or not isinstance(body.get("variables"), list) \
                 or type(body.get("total_count")) is not int or total not in (None, body["total_count"]):
-            return UNREADABLE
+            return UNREADABLE, ORG_UNREAD
         total = body["total_count"]
         entries += body["variables"]
         if not NEXT.search(str((answer.get("headers") or {}).get("link", ""))):
             break
         # A next page after one short of a full page, or after every entry the count names, contradicts the count.
         if len(body["variables"]) != PAGE or len(entries) >= total:
-            return UNREADABLE
+            return UNREADABLE, ORG_UNREAD
         page += 1
     if any(not isinstance(e, dict) or not isinstance(e.get("name"), str) for e in entries):
-        return UNREADABLE
+        return UNREADABLE, ORG_UNREAD
     names = [e["name"].upper() for e in entries]
     if len(entries) != total or len(set(names)) != len(names):
-        return UNREADABLE
+        return UNREADABLE, ORG_UNREAD
     pause = [e for e in entries if e["name"].upper() == NAME]
     if not pause:
-        return UNREADABLE
-    return pause[0]["value"] if isinstance(pause[0].get("value"), str) else UNREADABLE
+        return UNREADABLE, ORG_UNNAMED
+    return (pause[0]["value"], None) if isinstance(pause[0].get("value"), str) else (UNREADABLE, ORG_UNREAD)
 
 
 def _value(transport, scope: str):
+    """A repo's own FACTORY_PAUSED: its value, None where GitHub holds none, or UNREADABLE, and beside it the part that
+    says why it is unreadable, or None."""
     if not _named(scope):
-        return UNREADABLE
+        return UNREADABLE, REPO_UNREAD
     try:
         answer = transport.send(request("GET", path(scope)))
     except Unanswered:
-        return UNREADABLE
+        return UNREADABLE, REPO_UNREAD
     if answer["status"] == 404:
-        return None
+        return None, None
+    if answer["status"] == 403:           # a 404 is a variable GitHub holds none of, read above
+        return UNREADABLE, REPO_REFUSED
     body = answer["body"]
     if answer["status"] != 200 or not isinstance(body, dict) or body.get("name") != NAME \
             or not isinstance(body.get("value"), str):
-        return UNREADABLE
-    return body["value"]
+        return UNREADABLE, REPO_UNREAD
+    return body["value"], None
+
+
+def explained(transport, org: str, repos) -> tuple:
+    """`(read, parts)`: the Pause as `read` hands it back, and the part of each scope that is unreadable, the org's and
+    then each repo's as they are read. A scope read, set or not, has none."""
+    repos = sorted(set(repos))
+    if transport is None:
+        return ({"org": UNREADABLE, "repos": {repo: UNREADABLE for repo in repos}},
+                [ORG_UNREAD] + [REPO_UNREAD for repo in repos])
+    scopes = [_org_value(transport, org, repos[0] if repos else None)] + [_value(transport, repo) for repo in repos]
+    return ({"org": scopes[0][0], "repos": {repo: value for repo, (value, _) in zip(repos, scopes[1:])}},
+            [part for _, part in scopes if part is not None])
 
 
 def read(transport, org: str, repos) -> dict:
     """The Pause on `org`, read from the first of `repos`'s list of the org's variables, and on each of `repos`, each
     read once; with no transport, or no repo to read the org's through, the org's is unreadable."""
-    repos = sorted(set(repos))
-    if transport is None:
-        return {"org": UNREADABLE, "repos": {repo: UNREADABLE for repo in repos}}
-    return {"org": _org_value(transport, org, repos[0] if repos else None),
-            "repos": {repo: _value(transport, repo) for repo in repos}}
+    return explained(transport, org, repos)[0]
