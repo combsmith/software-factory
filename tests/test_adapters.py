@@ -1146,6 +1146,11 @@ class Records(unittest.TestCase):
         self.assertIs(got["complete"], False)
         got, _ = self.read(listing("P-17", 3, rows={"name": NAME}, total=2))
         self.assertIs(got["complete"], False)
+        # A list read short stays not whole when the jobs of the Runs it did give are read whole (decision 0193).
+        gid = exchanges("P-17")[3]["response"]["body"]["workflow_runs"][0]["id"]
+        got, _ = self.read(listing("P-17", 3, rows={"name": NAME, "status": "in_progress"}, total=2),
+                           jobs_read("P-64", 18, gid), began={})
+        self.assertEqual((got["runs"][0]["began_at"], got["complete"]), ("2026-11-10T19:44:48Z", False))
         broken = listing("P-17", 3)
         broken["response"]["body"]["workflow_runs"] = None
         self.assertIs(self.read(broken)[0]["complete"], False)
@@ -1334,7 +1339,7 @@ class Records(unittest.TestCase):
         self.assertEqual((record["began_at"], whole), (None, True))
         self.assertEqual(shared.errors(record, "run-record"), [])     # null is a run record's to hold
         # A runner's name alone tells a completed job that ran, and a job in progress needs none.
-        for name in ("", None, 7):
+        for name in ("", None):
             self.assertEqual(self.began("completed", jobs_read("P-64", 33, gid, runner_name=name)), (record, True), name)
         self.assertEqual(self.began("in_progress", jobs_read("P-64", 18, gid, runner_name=None))[0]["began_at"],
                          "2026-11-10T19:44:48Z")
@@ -1392,6 +1397,7 @@ class Records(unittest.TestCase):
                 ("completed", jobs_read("P-64", 9, gid), {}), ("completed", jobs_read("P-64", 18, gid), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, status=None), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, status=[]), {}),
+                ("completed", jobs_read("P-64", 33, gid, runner_name=7), {}),
                 ("in_progress", changed(18, total_count=0), {}),
                 ("in_progress", jobs_read("P-64", 9, gid, status="odd"), {})):
             record, whole = self.began(status, found, rows=rows)

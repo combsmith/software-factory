@@ -211,7 +211,7 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
     that are in progress, or completed with a runner named; `{"began_at": None}` for a run that is `done`, every job
     of it completed and none begun; and `{}` where it has not begun yet or cannot be read. A job that waits gives its
     creation as its start, and one cancelled or skipped while it waited ends with no runner (P-64, P-44): neither is
-    a start. Not whole: an answer that is no list of every job counted, each once, of the attempt the list gave and in a
+    a start. Not whole: an answer that is no list of every job counted, each once, of the attempt the list gave, its runner a name or none, and in a
     status GitHub gives a job, a start that is no time, or a job not yet completed of a run that is, which an answer
     older than the list would give."""
     answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/jobs" % (repo, github_id), headers=FRESH))
@@ -224,6 +224,7 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
                                                or j["run_attempt"] != attempt for j in jobs):
         return {}, False
     if any(not isinstance(j.get("status"), str) or j["status"] not in JOB_STATUSES
+           or not isinstance(j.get("runner_name"), (str, type(None)))
            or (done and j["status"] != "completed") for j in jobs):
         return {}, False
     starts = [j.get("started_at") for j in jobs if j.get("status") == "in_progress"
