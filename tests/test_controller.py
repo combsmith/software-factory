@@ -1185,7 +1185,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
                                             ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
-        # The port asks when a Run began only of the open pull requests' Runs, which are listed first (decision 0196).
+        # The port asks when a Run began only of the open pull requests' Runs, which are listed first (decision 0195).
         self.assertEqual(efforts["of"], [{"repo": self.HOME, "type": "pull_request", "number": n} for n in (7, 8)])
         since = "2026-10-11T06:00:00Z"
         item = lambda n: {"repo": self.HOME, "type": "pull_request", "number": n}
@@ -1475,6 +1475,8 @@ class Entry(unittest.TestCase):
         hub = Hub(self.table(numbers=[7], total=2))
         self.assertEqual(self.run_entry(hub)[:3], (1, "pull_requests_unreadable\n", {}))
         self.assertEqual((hub.sent[-1][0], hub.sent[-1][1]["path"]), (self.TOKEN, "/installation/token"))
+        # The run records are read after that list, for the port is handed its items: here they are not read at all.
+        self.assertEqual([r["path"] for _, r in hub.sent if "/actions/workflows/run.yml/runs" in r["path"]], [])
         # A token GitHub did not revoke fails the step, after the pass is written.
         table = self.table()
         table[("DELETE", "/installation/token")] = {"status": 500, "headers": {}, "body": None}
