@@ -537,7 +537,7 @@ class Fixture(unittest.TestCase):
         made = self.item(was_cut, "cut_and_move_of_next")
         self.assertEqual((was_cut["version"], made["asked"]["cut_commit"]), (event["release"], event["release_commit"]))
         cut_at = self.answered(made, "/repos/%s/actions/runs/%d" % (REPO, made["run"]))["body"]["updated_at"]
-        first = pushed[0]["commit"]["committer"]["date"]
+        first = min(c["commit"]["committer"]["date"] for c in pushed)
         self.assertLess(commit["committer"]["date"], cut_at)
         self.assertLess(cut_at, first, "the Release was cut before the pull request's first commit")
         # Each step is one pass's Decision, in the order the passes ran, and its record is the artifact GitHub lists.
@@ -545,8 +545,11 @@ class Fixture(unittest.TestCase):
                          [("verifying", "awaiting_checks", "nothing", None), ("verifying", "awaiting_review", "admit", None),
                           ("converged", "approval_due", "act", "issue_approval"), ("queued", "in_merge_queue", "nothing", None)])
         self.assertEqual([s["attention"] for s in steps], ["review", "review", "ready", "ready"])
-        self.assertEqual([s["now"] for s in steps], sorted(s["now"] for s in steps))
-        self.assertEqual(len({s["pass"] for s in steps}), len(steps))
+        # Each a pass of its own, by its id, its run and its record, after the head was pushed and one after another.
+        self.assertEqual([s["now"] for s in steps], sorted({s["now"] for s in steps}))
+        for key in ("pass", "poller_run", "artifact", "digest"):
+            self.assertEqual(len({s[key] for s in steps}), len(steps), key)
+        self.assertLess(pushed[-1]["commit"]["committer"]["date"], steps[0]["now"])
         for s in steps:
             with self.subTest(step=s["pass"]):
                 ran = body("%s/actions/runs/%d" % (api, s["poller_run"]))
@@ -596,7 +599,9 @@ class Fixture(unittest.TestCase):
         self.assertEqual((shown["name"], shown["app"]["slug"], shown["conclusion"], shown["head_sha"], shown["output"]["title"]),
                          (defaults["status_on_item"], apps["controller"]["name"], "neutral", event["head"],
                           "%s: %s" % (steps[-1]["state"], steps[-1]["reason"])))
-        said = dict(line.split(": ", 1) for line in shown["output"]["summary"].split("\n"))
+        lines = shown["output"]["summary"].split("\n")
+        said = dict(line.split(": ", 1) for line in lines)
+        self.assertEqual(len(said), len(lines), "each line of the status is said once")
         last = {k: "null" if steps[-1][k] is None else steps[-1][k] for k in ("attention", "outcome", "action", "content_id")}
         self.assertEqual(said, dict(last, **{"next_actor": said["next_actor"], "pass": steps[-1]["pass"], "release": event["release"]}))
 
