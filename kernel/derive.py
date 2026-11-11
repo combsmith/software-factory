@@ -235,12 +235,27 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     Another App's check, or another file's, under its check's name is read before any Lens (foreign_checks). Every check
     from its own App and file is read, never the last alone: any failing one fails the Lens; then any with no verdict
     leaves it unreadable; then any still running is a wait. It passes only when every one of them passes. A Lens that
-    has not reported is pending.
+    has not reported is pending. One exception: a run stopped before it judged, cancelled or at its timeout, is passed
+    over where another run of the Lens on the head did not stop, and every run stopped leaves the Lens unreadable; and a
+    failing check whose suite has not concluded is a wait (issue 681).
     """
     mine = [c for c in checks if reports_for(c, lens)]
     if not mine:
         return "pending"
-    readings = {check_reading(c, config) for c in mine}
+    runs = [run_of(c) for c in mine]
+    if False in runs:
+        return "unreadable"
+    # A run stopped before it judged, cancelled or at its timeout, gives no verdict where another run of the Lens on the
+    # head did not stop, finished or still running; never by which is later, which no id tells. Every run of it stopped,
+    # the Lens is unreadable. A check that carries no run, or no suite, neither is passed over nor passes another over,
+    # so it reads as before (issue 681, trials/P-65.json, the Factory Builder's ruling (B)).
+    going = {r[0] for r in runs if r is not None and r[1] not in t.STOPPED_SUITES}
+    if runs and all(r is not None and r[1] in t.STOPPED_SUITES for r in runs):
+        return "unreadable"
+    kept = [(c, r) for c, r in zip(mine, runs) if not (r is not None and r[1] in t.STOPPED_SUITES and going - {r[0]})]
+    # A failing check whose suite has not concluded is a wait: its run may yet be stopped (trials/P-65.json).
+    readings = {"pending" if r is not None and r[1] is None and check_reading(c, config) == "failing"
+                else check_reading(c, config) for c, r in kept}
     if "failing" in readings:
         return "failing"
     if readings - {"passing", "pending"}:
@@ -248,6 +263,18 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     if "pending" in readings:
         return "pending"
     return "passing"
+
+
+def run_of(check: dict):
+    """A check's workflow run and its suite's conclusion, `(run_id, suite_conclusion)`; None where it carries no run, a
+    check no workflow ran, or lacks either field, as facts a trial recorded before the port asked them do; False where
+    either is in any form but its own, which leaves the Lens unreadable (issue 681)."""
+    if "run_id" not in check or "suite_conclusion" not in check or check["run_id"] is None:
+        return None
+    run, suite = check["run_id"], check["suite_conclusion"]
+    if not (type(run) is int and run >= 1 and (suite is None or isinstance(suite, str) and suite != "")):
+        return False
+    return (run, suite)
 
 
 def readable_name(path) -> bool:
