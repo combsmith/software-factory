@@ -1611,16 +1611,27 @@ class Content(unittest.TestCase):
             # A run of a lower id than the stopped one supersedes it too: an id orders no runs (trials/P-65.json).
             self.assertEqual(reading(dict(stopped, run_id=4), check("success", 3, "success")), "issue_approval")
         # Every run of the Lens stopped: unreadable, alone, beside another stopped run, or in one run with a passing check.
-        for given in ((cancelled,), (cancelled, check("failure", 4, "cancelled")), (cancelled, check("success", 1, "cancelled")),
+        for given in ((cancelled,), (cancelled, check("failure", 4, "cancelled")), (cancelled, check("cancelled", 1, "cancelled")),
                       (timed_out, check("failure", 4, "timed_out"))):
             self.assertEqual(reading(*given), ("check_unreadable", [lens]), given)
         # A run never passes itself over, and stopped runs never pass each other over: beside a check with no run, two
         # stopped runs read as before.
-        self.assertEqual(reading(cancelled, check("success", 1, "success")), ("check_failed", [lens]))
+        self.assertEqual(reading(cancelled, check("success", 1, "success")), ("check_unreadable", [lens]))
         self.assertEqual(reading(cancelled, check("failure", 4, "cancelled"), dict(base)), ("check_failed", [lens]))
-        # A failing check whose suite has not concluded is a wait; concluded, it fails.
+        # A failing check whose suite has not concluded is a wait, beside another run that passed too; concluded, it fails.
         self.assertEqual(reading(check("failure", 3, None)), ("awaiting_checks", [lens]))
+        self.assertEqual(reading(check("failure", 1, None), check("success", 3, "success")), ("awaiting_checks", [lens]))
         self.assertEqual(reading(check("failure", 3, "failure")), ("check_failed", [lens]))
+        # A queued item reads past waits, but never past that one: a suite that never concludes would leave the failure
+        # unread in the queue. It leaves the queue as a failure does (decision 0026).
+        queued = go(facts(checks=GREEN[:i] + [check("failure", 3, None)] + GREEN[i + 1:], queue=True, reviews=APPROVED), REVIEWED)
+        self.assertEqual((queued["reason"], queued["evidence"], queued.get("action")), ("check_failed", [lens], "dequeue"))
+        waiting = go(facts(checks=GREEN[:i] + [check("in_progress", 3, None)] + GREEN[i + 1:], queue=True, reviews=APPROVED), REVIEWED)
+        self.assertEqual(waiting["reason"], "in_merge_queue")
+        # A suite word GitHub does not give is no reading of a suite: the Lens is unreadable, never passed.
+        self.assertEqual(reading(cancelled, check("success", 3, "banana")), ("check_unreadable", [lens]))
+        for word in [w for w in derive.t.SUITE_CONCLUSIONS if w not in derive.t.STOPPED_SUITES]:
+            self.assertNotEqual(reading(check("success", 3, word)), ("check_unreadable", [lens]), word)
         # The other side: a completed failure in a run not cancelled still sticks, beside a later run that passed; and a
         # failing duplicate job in a run not cancelled fails the Lens beside its passing twin (decision 0104).
         self.assertEqual(reading(check("failure", 1, "failure"), check("success", 3, "success")), ("check_failed", [lens]))
@@ -1633,6 +1644,16 @@ class Content(unittest.TestCase):
         for given in ((bare, check("success", 3, "success")), (cancelled, dict(base)), (cancelled, no_suite), (cancelled, no_run),
                       (cancelled, check("success", None, "success")), (check("failure", None, "cancelled"), check("success", 3, "success"))):
             self.assertEqual(reading(*given), ("check_failed", [lens]), given)
+        # A run given two suite conclusions is no reading of it, so no check of it is passed over by another run (Muse).
+        for twin in ("success", None):
+            self.assertEqual(reading(cancelled, check("success", 1, twin), check("success", 5, "success")), ("check_unreadable", [lens]))
+        # Only a failing check waits for its suite: one that gave no verdict, its suite not concluded, is unreadable.
+        self.assertEqual(reading(check("neutral", 3, None)), ("check_unreadable", [lens]))
+        # A field in its own form is read first, whatever the other says, a null run among them.
+        for wrong in (dict(base, conclusion="success", run_id=None, suite_conclusion=""), dict(base, conclusion="success", run_id=None, suite_conclusion=1),
+                      {k: v for k, v in check("success", 0, "success").items() if k != "suite_conclusion"},
+                      {k: v for k, v in check("success", 3, "").items() if k != "run_id"}):
+            self.assertEqual(reading(wrong), ("check_unreadable", [lens]), wrong)
         # Either field in any form but its own leaves the Lens unreadable, never read as none.
         for wrong in (check("success", 0, "success"), check("success", "3", "success"), check("success", True, "success"),
                       check("success", 3, ""), check("success", 3, 1)):

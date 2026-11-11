@@ -237,7 +237,7 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     leaves it unreadable; then any still running is a wait. It passes only when every one of them passes. A Lens that
     has not reported is pending. One exception: a run stopped before it judged, cancelled or at its timeout, is passed
     over where another run of the Lens on the head did not stop, and every run stopped leaves the Lens unreadable; and a
-    failing check whose suite has not concluded is a wait (issue 681).
+    failing check whose suite has not concluded is `concluding`: a wait, but a failure for a queued item (issue 681).
     """
     mine = [c for c in checks if reports_for(c, lens)]
     if not mine:
@@ -245,21 +245,27 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     runs = [run_of(c) for c in mine]
     if False in runs:
         return "unreadable"
+    # One run's checks share its suite: a run given two suite conclusions is no reading of it (Muse).
+    if len({r for r in runs if r is not None}) != len({r[0] for r in runs if r is not None}):
+        return "unreadable"
     # A run stopped before it judged, cancelled or at its timeout, gives no verdict where another run of the Lens on the
     # head did not stop, finished or still running; never by which is later, which no id tells. Every run of it stopped,
     # the Lens is unreadable. A check that carries no run, or no suite, neither is passed over nor passes another over,
     # so it reads as before (issue 681, trials/P-65.json, the Factory Builder's ruling (B)).
     going = {r[0] for r in runs if r is not None and r[1] not in t.STOPPED_SUITES}
-    if runs and all(r is not None and r[1] in t.STOPPED_SUITES for r in runs):
+    if all(r is not None and r[1] in t.STOPPED_SUITES for r in runs):
         return "unreadable"
-    kept = [(c, r) for c, r in zip(mine, runs) if not (r is not None and r[1] in t.STOPPED_SUITES and going - {r[0]})]
-    # A failing check whose suite has not concluded is a wait: its run may yet be stopped (trials/P-65.json).
-    readings = {"pending" if r is not None and r[1] is None and check_reading(c, config) == "failing"
+    kept = [(c, r) for c, r in zip(mine, runs) if not (r is not None and r[1] in t.STOPPED_SUITES and going)]
+    # A failing check whose suite has not concluded is concluding: its run may yet be stopped (trials/P-65.json). The
+    # caller reads it as a wait, and as a failure for a queued item, which reads past waits.
+    readings = {"concluding" if r is not None and r[1] is None and check_reading(c, config) == "failing"
                 else check_reading(c, config) for c, r in kept}
     if "failing" in readings:
         return "failing"
-    if readings - {"passing", "pending"}:
+    if readings - {"passing", "pending", "concluding"}:
         return "unreadable"
+    if "concluding" in readings:
+        return "concluding"
     if "pending" in readings:
         return "pending"
     return "passing"
@@ -269,12 +275,14 @@ def run_of(check: dict):
     """A check's workflow run and its suite's conclusion, `(run_id, suite_conclusion)`; None where it carries no run, a
     check no workflow ran, or lacks either field, as facts a trial recorded before the port asked them do; False where
     either is in any form but its own, which leaves the Lens unreadable (issue 681)."""
+    # Each field there is read in its form first, whatever the other says: one in another form is never read as none.
+    if "run_id" in check and not (check["run_id"] is None or type(check["run_id"]) is int and check["run_id"] >= 1):
+        return False
+    if "suite_conclusion" in check and not (check["suite_conclusion"] is None or check["suite_conclusion"] in t.SUITE_CONCLUSIONS):
+        return False
     if "run_id" not in check or "suite_conclusion" not in check or check["run_id"] is None:
         return None
-    run, suite = check["run_id"], check["suite_conclusion"]
-    if not (type(run) is int and run >= 1 and (suite is None or isinstance(suite, str) and suite != "")):
-        return False
-    return (run, suite)
+    return (check["run_id"], check["suite_conclusion"])
 
 
 def readable_name(path) -> bool:
@@ -1252,6 +1260,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
             failed.append(lens["lens"])
         elif reading == "pending":
             waiting.append(lens["lens"])
+        elif reading == "concluding":
+            # A failing check whose suite has not concluded is a wait, but never one a queued item reads past: a suite
+            # that never concludes would leave a failure on the head unread in the queue (issue 681).
+            (failed if "awaiting_checks" in past else waiting).append(lens["lens"])
         elif reading != "passing":
             unreadable.append(lens["lens"])
     # A failure is readable and decisive: whatever a check with no verdict would say, the content goes
