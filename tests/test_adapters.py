@@ -1046,7 +1046,8 @@ def jobs_read(name: str, at: int, github_id: int, **change) -> dict:
     """A fixture's read of a run's jobs, asked of the run GitHub numbers `github_id`, each job changed as named."""
     found = copy.deepcopy(exchanges(name)[at])
     words = found["request"]["call"].split()
-    found["request"]["call"] = " ".join([words[0], "/repos/%s/actions/runs/%d/jobs" % (canary(), github_id)] + words[2:])
+    found["request"]["call"] = " ".join([words[0], "/repos/%s/actions/runs/%d/jobs?per_page=100" % (canary(), github_id)]
+                                        + words[2:])
     for job in found["response"]["body"]["jobs"]:
         job.update(change)
     return found
@@ -1146,6 +1147,11 @@ class Records(unittest.TestCase):
         self.assertIs(got["complete"], False)
         got, _ = self.read(listing("P-17", 3, rows={"name": NAME}, total=2))
         self.assertIs(got["complete"], False)
+        # A list read short stays not whole when the jobs of the Runs it did give are read whole (decision 0193).
+        gid = exchanges("P-17")[3]["response"]["body"]["workflow_runs"][0]["id"]
+        got, _ = self.read(listing("P-17", 3, rows={"name": NAME, "status": "in_progress"}, total=2),
+                           jobs_read("P-64", 18, gid), began={})
+        self.assertEqual((got["runs"][0]["began_at"], got["complete"]), ("2026-11-10T19:44:48Z", False))
         broken = listing("P-17", 3)
         broken["response"]["body"]["workflow_runs"] = None
         self.assertIs(self.read(broken)[0]["complete"], False)
@@ -1334,7 +1340,7 @@ class Records(unittest.TestCase):
         self.assertEqual((record["began_at"], whole), (None, True))
         self.assertEqual(shared.errors(record, "run-record"), [])     # null is a run record's to hold
         # A runner's name alone tells a completed job that ran, and a job in progress needs none.
-        for name in ("", None, 7):
+        for name in ("", None):
             self.assertEqual(self.began("completed", jobs_read("P-64", 33, gid, runner_name=name)), (record, True), name)
         self.assertEqual(self.began("in_progress", jobs_read("P-64", 18, gid, runner_name=None))[0]["began_at"],
                          "2026-11-10T19:44:48Z")
@@ -1365,7 +1371,7 @@ class Records(unittest.TestCase):
                                         jobs_read("P-64", 18, gid)]))
         records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, began={})
         self.assertEqual((sent.sent[1]["path"], sent.sent[1]["headers"]),
-                         ("/repos/%s/actions/runs/%d/jobs" % (canary(), gid), {"Cache-Control": "no-cache"}))
+                         ("/repos/%s/actions/runs/%d/jobs?per_page=100" % (canary(), gid), {"Cache-Control": "no-cache"}))
 
         def changed(at, **change):
             found = jobs_read("P-64", at, gid)
@@ -1392,6 +1398,7 @@ class Records(unittest.TestCase):
                 ("completed", jobs_read("P-64", 9, gid), {}), ("completed", jobs_read("P-64", 18, gid), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, status=None), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, status=[]), {}),
+                ("completed", jobs_read("P-64", 33, gid, runner_name=7), {}),
                 ("in_progress", changed(18, total_count=0), {}),
                 ("in_progress", jobs_read("P-64", 9, gid, status="odd"), {})):
             record, whole = self.began(status, found, rows=rows)
@@ -1450,7 +1457,7 @@ class Records(unittest.TestCase):
             """What a read gave, and the runs whose jobs it asked for, by GitHub's id, in order."""
             sent = Recording(github.Replay(list(found)))
             got = records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, **kw)
-            return got, [int(r["path"].split("/")[-2]) for r in sent.sent if r["path"].endswith("/jobs")]
+            return got, [int(r["path"].split("/")[-2]) for r in sent.sent if "/jobs?" in r["path"]]
         first, asked = read(rows, *jobs, began={})
         self.assertEqual(([r.get("began_at", "none") for r in first["runs"]], first["complete"], asked),
                          (began + ["none"], True, [700, 701, 702, 703]))
