@@ -1161,6 +1161,9 @@ class Done(unittest.TestCase):
         merged_since = rival([("closed", WRITER, 11), ("reopened", WRITER, 12), ("closed", WRITER, 13)], merged=13, closed_issue=None)
         d = derive(facts(linked=[own, merged_since], **closed))
         self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
+        # A close in the merge's second whose event is dated the lag after it is no chronology at all: it defers.
+        d = derive(facts(linked=[own, rival([("closed", WRITER, 10)], shut_at=at(5))], **closed))
+        self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"))
         # With no limit that can be read, no close releases it: none can be told from one in the merge's second.
         for bad in (None, 0, "300"):
             cfg = config()
@@ -1174,13 +1177,13 @@ class Done(unittest.TestCase):
         # The other side: a close by anyone but a person releases nothing, nor does a person's reopening of a close
         # that did not; a close in the merge's second carries no order against it, so it stood, as a close there does;
         # and the rival's own merge after it is no close that releases, nor the first merge's own close.
-        for holding in (rival([("closed", AUTHOR_APP, 7)]), rival([("closed", OUTSIDER, 7)]),
-                        rival([("closed", MACHINE, 7)]), rival([("closed", CONTROLLER, 7)]),
-                        rival([("closed", {"kind": "lens", "name": "pr-review", "can_write": True}, 7)]),
-                        rival([("closed", {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": True}, 7)]),
+        for holding in (rival([("closed", AUTHOR_APP, 12)]), rival([("closed", OUTSIDER, 12)]),
+                        rival([("closed", MACHINE, 12)]), rival([("closed", CONTROLLER, 12)]),
+                        rival([("closed", {"kind": "lens", "name": "pr-review", "can_write": True}, 12)]),
+                        rival([("closed", {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": True}, 12)]),
                         # A writer's login with no write access read is no person.
-                        rival([("closed", dict(WRITER, can_write=False), 7)]),
-                        rival([("closed", AUTHOR_APP, 7), ("reopened", WRITER, 8)]),
+                        rival([("closed", dict(WRITER, can_write=False), 12)]),
+                        rival([("closed", AUTHOR_APP, 12), ("reopened", WRITER, 13)]),
                         rival([("closed", WRITER, 5)]),
                         # A close whose event is less than the lag after the merge's second may have been in that
                         # second: dated a second after it (Muse), or later, standing or undone since, it releases nothing.
