@@ -52,7 +52,7 @@ jobs:
           echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-updates main' >> /tmp/ubuntu.list
           echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-security main' >> /tmp/ubuntu.list
           sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10
-          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::https::Timeout=10 bubblewrap
+          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap
       - name: Read what the Task is built from
         id: read
         env:
