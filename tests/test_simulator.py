@@ -97,6 +97,7 @@ class Simulation(unittest.TestCase):
         for seed in SEEDS:
             w = World(seed)
             for _ in range(250):
+                waited = {r["run"] for r in w.runs if r["status"] == "queued"}
                 w.step()
                 for r in w.runs:
                     kind = ("waiting" if r["status"] == "queued"
@@ -112,6 +113,8 @@ class Simulation(unittest.TestCase):
                         self.assertEqual(r.get("began_at"), r["started_at"], (seed, r))
                     else:
                         self.assertGreater(r.get("began_at") or "", r["started_at"], (seed, r))
+                        # The step that took it out of its lane is when it began, to the minute.
+                        self.assertTrue(r["run"] not in waited or r["began_at"] == w.now(), (seed, r, w.now()))
         self.assertEqual(seen, {"waiting", "never", "at once", "superseded", "began"})
 
     def test_a_newer_run_cancels_the_one_waiting_in_each_world(self):
