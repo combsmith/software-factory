@@ -453,7 +453,8 @@ class Fixture(unittest.TestCase):
         # merge, after the fourth; run 42925869303 cut factory/v0.1.6 on 2026-11-10 at the commit eval run 42923463050
         # had passed, #717's merge, after the fifth and the sixth; run 43026745268 cut factory/v0.1.7 on 2026-11-11 at
         # the commit eval run 43024260112 had passed, #731's merge, after the seventh; run 43110557016 cut factory/v0.1.8
-        # on 2026-11-11 at the commit eval run 43107717326 had passed, #748's merge, the fix of the runners' Ubuntu mirror.
+        # on 2026-11-11 at the commit eval run 43107717326 had passed, #748's merge, after the runners' Ubuntu mirrors stopped
+        # resolving (#743).
         for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
                                         (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
                                         (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
