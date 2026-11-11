@@ -812,7 +812,7 @@ class TheSet(unittest.TestCase):
             # The CLI's install, before the fetch, at the Engine's pin by its checksum, word for
             # word as the Run's jobs install it (issue 309, amendment 1).
             # Bubblewrap is in the block, and the block comes before the fetch: it runs as root, before the cases are here.
-            "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- bubblewrap\n", ""),
+            "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::https::Timeout=10 bubblewrap\n", ""),
                               "its steps are"),
             "the install after the fetch": (EVAL_WORKFLOW.replace(FETCH_STEP, "").replace(
                 "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "its steps are"),
@@ -2136,7 +2136,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(canary.install({"PATH": "/bin"}, run), 7)
         (args, env, check), = calls
         self.assertEqual(args, ["bash", "-e", "-c", "\n".join(check_workflows.CLI_INSTALL_RUN)])
-        self.assertIn("sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2\nsudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- bubblewrap", args[3])
+        self.assertIn("sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10\nsudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::https::Timeout=10 bubblewrap", args[3])
         self.assertEqual(env, {"PATH": "/bin", "CLI_VERSION": pin, "CLI_CHECKSUM": check_workflows.CLI_CHECKSUMS[pin]})
         self.assertFalse(check)
 

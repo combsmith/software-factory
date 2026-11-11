@@ -4045,13 +4045,30 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
                                    "which only queue-job.yml names"), text)
 
+    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issue 743, decision 0106
+        # Bubblewrap is fetched as root, so every source the block names is held by Ubuntu's keyring and read over HTTPS,
+        # and every apt line reads that list alone, never the image's mirror list, each connection bounded inside the
+        # step's three minutes. Read from the one block both workflows hold word for word.
+        block = check_workflows.CLI_INSTALL_RUN
+        debs = [line for line in block if "'deb " in line]
+        self.assertEqual(sorted(line.split()[4] for line in debs), ["noble", "noble-security", "noble-updates"])
+        for line in debs:
+            self.assertIn("'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://", line)
+        apt = [line for line in block if "apt-get" in line]
+        self.assertEqual(len(apt), 2)
+        for line in apt:
+            for option in ("-o Dir::Etc::sourcelist=/tmp/ubuntu.list", "-o Dir::Etc::sourceparts=-", "-o Acquire::https::Timeout=10"):
+                self.assertIn(option, line)
+        for word in ("trusted=", "allow-unauthenticated", "AllowInsecure", "http://"):
+            self.assertFalse(any(word in line for line in block[5:]), word)
+
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
         good = (self.LIVE / "run-jobs.yml").read_text()
         self.assertEqual(check_workflows.run_jobs_problems(good), [])
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
         broken = {
-            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- bubblewrap\n", ""),
+            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::https::Timeout=10 bubblewrap\n", ""),
             "the reader's key beside the model": good.replace(model, model + reader),
             "the model beside the reader's key": good.replace(reader, reader + model),
             "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
