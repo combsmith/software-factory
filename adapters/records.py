@@ -341,10 +341,10 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             if record["began_at"] is not None or record["status"] == "completed":
                 continue
             del record["began_at"]
-        if asked == JOBS and on is None:
+        if asked == JOBS:
             whole = False
             continue
-        asked += 1
+        asked += 0 if on is not None else 1     # one item's Runs are all asked: a Run keeps nothing to work a cap off
         found, answered = _began(transport, repo, github_id, attempt, record["status"] == "completed")
         record.update(found)
         whole = whole and answered
