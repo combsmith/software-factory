@@ -1064,9 +1064,14 @@ ci_workflows: ["CI"]
 verify:
   setup: "scripts/factory-setup.sh"
   test: "scripts/factory-test.sh"
-  protected_paths: ["scripts/factory-setup.sh", "scripts/factory-test.sh", ".github/**", "CODEOWNERS"]
+  protected_paths: ["scripts/factory-setup.sh", "scripts/factory-test.sh", ".github/", "CODEOWNERS"]
 reviewers: [coderabbit, cubic, gemini-code-assist, sonarqube-cloud]
 ```
+
+Its `protected_paths` are in the one syntax of `config/hooks.json`, matched by the one matcher the Kernel and the
+session hooks share: a final `/` is the directory and everything below it, `*` is any part of one name, `**` as a
+whole name any run of names, and case is ignored. `schemas/consumer.schema.json` holds them to it ("Consumer entry:
+its protected_paths in the hooks' syntax", issue 141).
 
 Adopting the Factory is more than this entry. The repo also needs the two scripts, a ruleset that
 matches, the machine user as a code owner, and its Advisory reviewers configured. A **readiness

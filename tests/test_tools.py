@@ -1217,6 +1217,38 @@ class Apps(unittest.TestCase):
         names = {path.name for path in (ROOT / "examples" / "invalid").glob("machine-user.*.json")}
         self.assertEqual(len(names), 6)
 
+    def test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher(self):  # issue 141
+        # A Consumer entry's protected paths are config/hooks.json's own paths (decision 0020): the schema holds each
+        # to that syntax and refuses a list with none, and the Kernel and the session hooks read each alike.
+        from tools import jsonschema_lite
+        from tools.hooks import protected
+        self.assertEqual([p for p in check_examples.run(ROOT) if "consumer" in p], [])
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text()) for p in (ROOT / "schemas").glob("*.schema.json")}
+        entry = json.loads((ROOT / "examples" / "consumer.json").read_text())
+        patterns = entry["verify"]["protected_paths"]
+        for wrong in ([], ["CODEOWNERS", "CODEOWNERS"], ["/CODEOWNERS"], ["scripts/factory-?.sh"], ["../CODEOWNERS"],
+                      ["docs//CODEOWNERS"], ["./CODEOWNERS"], ["scripts/{a,b}.sh"], ["C:\\scripts"]):
+            bad = copy.deepcopy(entry)
+            bad["verify"]["protected_paths"] = wrong
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), wrong)
+        bad = copy.deepcopy(entry)
+        del bad["verify"]["protected_paths"]
+        self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas))
+        # Each the schema lets through is one the Kernel reads, and each the Kernel refuses the schema refuses too.
+        for pattern in patterns + ["*/__init__.*", "a/**/b/", "**"]:
+            self.assertTrue(derive.readable_pattern(pattern), pattern)
+        for pattern in ("/CODEOWNERS", "../CODEOWNERS", "docs//CODEOWNERS", "./CODEOWNERS"):
+            self.assertFalse(derive.readable_pattern(pattern), pattern)
+        # One matcher: what the Kernel finds each path to be, the session hooks find it to be, in any case.
+        hooks = protected.entries([(p, "") for p in patterns])
+        for path, want in (("scripts/factory-setup.sh", ["scripts/factory-setup.sh"]), ("SCRIPTS/Factory-Test.sh", ["scripts/factory-test.sh"]),
+                           (".github/workflows/ci.yml", [".github/"]), (".github", [".github/"]), ("CODEOWNERS", ["CODEOWNERS"]),
+                           ("docs/CODEOWNERS", []), ("tests/conftest.py", ["tests/**/conftest.py"]),
+                           ("tests/a/b/conftest.py", ["tests/**/conftest.py"]), ("poetry.lock", ["*.lock"]),
+                           ("a/poetry.lock", []), ("scripts/other.sh", []), (".githubx/a", [])):
+            self.assertEqual([p for p in patterns if derive.matches(p, path)], want, path)
+            self.assertEqual([p for p, _, _, whole in hooks if whole.match(path.casefold())], want, path)
+
     def machine_users_live_answers(self, held: dict) -> list:
         """What GitHub answers when nothing has drifted: the org's repos hold the two left out, an archived one and an
         advisory's fork, and each repo has another team beside the code owners'."""
