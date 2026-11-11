@@ -1416,7 +1416,7 @@ class World:
         act's Run on its content that started no later than it; else its own time, where a run of the item started no
         later, as a person approving in the browser reads as they approve; else "", before every time (issue 608). A
         run started when it was made and began when it left its lane: the act is dated by the one, as its Run is made
-        before it reads, and a run of the item is as old as the approval by the other (decision 0194). The
+        before it reads, and a run of the item is as old as the approval by the other (decision 0195). The
         world's act starts in its approval's own second, so it reads its approval's own time. The Kernel's reading has
         branches the world needs none of, as it makes no such record: a dispatch, a re-run, another item, a start that is
         no time."""

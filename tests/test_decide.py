@@ -1892,7 +1892,7 @@ class Convergence(unittest.TestCase):
         # A record reaches back by when its jobs began, which the item's lane holds after a running act's end: one
         # made while an act ran, whose record's start is when it was made (trials/P-44.json), and begun after the
         # approval (trials/P-64.json), shows nothing of when it read. Nor does one that has not begun, one that never
-        # began, one whose jobs were not read or whose beginning is no time (decision 0194), and none of them raises.
+        # began, one whose jobs were not read or whose beginning is no time (decision 0195), and none of them raises.
         during = [dict(run(at="2026-10-11T12:16:00Z"), dispatched_at="2026-10-11T12:14:30Z")]
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=during), "")
         made = run(at="2026-10-11T12:14:30Z")
