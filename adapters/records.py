@@ -265,7 +265,7 @@ def known(previous: list) -> dict:
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None, began=None) -> dict:
+         sleep=time.sleep, kept=None, began=None, on=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -282,7 +282,9 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     `began` is when each Run began as its caller kept it, by its Run id and when its attempt started, and None asks
     no job: no record then says when it began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
     holds, for a row that names when its attempt started, once in this list. A Run past the `JOBS` asked, or whose
-    jobs cannot be read, has no `began_at` and leaves the list not whole."""
+    jobs cannot be read, has no `began_at` and leaves the list not whole. `on`, an item, asks that item's Runs alone,
+    as a Run reading its own item does, and all of them: a Run keeps nothing from one read to the next, so a cap on
+    its item's Runs would never be worked off."""
     kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
@@ -329,13 +331,15 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         whole = whole and read_whole
     asked = 0
     for record, github_id, attempt, keyed in ran if began is not None else []:
+        if on is not None and record["item"] != on:
+            continue
         if keyed and (record["run"], record["started_at"]) in began:
             record["began_at"] = began[(record["run"], record["started_at"])]
             # Null is a completed Run's alone: a list that gives the Run as running still asks its jobs again.
             if record["began_at"] is not None or record["status"] == "completed":
                 continue
             del record["began_at"]
-        if asked == JOBS:
+        if asked == JOBS and on is None:
             whole = False
             continue
         asked += 1
