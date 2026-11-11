@@ -245,8 +245,10 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     runs = [run_of(c) for c in mine]
     if False in runs:
         return "unreadable"
-    # One run's checks share its suite: a run given two suite conclusions is no reading of it (Muse).
-    if len({r for r in runs if r is not None}) != len({r[0] for r in runs if r is not None}):
+    # One run's checks share its suite, whatever Lens each reports for: a run given two suite conclusions anywhere on the
+    # head is no reading of it (Muse, Astra).
+    shared = {r for r in (run_of(c) for c in checks) if r}
+    if any(r is not None and len({s for s in shared if s[0] == r[0]}) != 1 for r in runs):
         return "unreadable"
     # A run stopped before it judged, cancelled or at its timeout, gives no verdict where another run of the Lens on the
     # head did not stop, finished or still running; never by which is later, which no id tells. Every run of it stopped,

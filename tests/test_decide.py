@@ -1612,6 +1612,7 @@ class Content(unittest.TestCase):
             self.assertEqual(reading(dict(stopped, run_id=4), check("success", 3, "success")), "issue_approval")
         # Every run of the Lens stopped: unreadable, alone, beside another stopped run, or in one run with a passing check.
         for given in ((cancelled,), (cancelled, check("failure", 4, "cancelled")), (cancelled, check("cancelled", 1, "cancelled")),
+                      (check("success", 1, "cancelled"),), (check("success", 1, "timed_out"),), (check("success", 1, "cancelled"), check("success", 4, "timed_out")),
                       (timed_out, check("failure", 4, "timed_out"))):
             self.assertEqual(reading(*given), ("check_unreadable", [lens]), given)
         # A run never passes itself over, and stopped runs never pass each other over: beside a check with no run, two
@@ -1630,7 +1631,7 @@ class Content(unittest.TestCase):
         self.assertEqual(waiting["reason"], "in_merge_queue")
         # A suite word GitHub does not give is no reading of a suite: the Lens is unreadable, never passed.
         self.assertEqual(reading(cancelled, check("success", 3, "banana")), ("check_unreadable", [lens]))
-        for word in [w for w in derive.t.SUITE_CONCLUSIONS if w not in derive.t.STOPPED_SUITES]:
+        for word in ("success", "failure", "neutral", "action_required", "stale", "skipped", "startup_failure"):
             self.assertNotEqual(reading(check("success", 3, word)), ("check_unreadable", [lens]), word)
         # The other side: a completed failure in a run not cancelled still sticks, beside a later run that passed; and a
         # failing duplicate job in a run not cancelled fails the Lens beside its passing twin (decision 0104).
@@ -1644,6 +1645,13 @@ class Content(unittest.TestCase):
         for given in ((bare, check("success", 3, "success")), (cancelled, dict(base)), (cancelled, no_suite), (cancelled, no_run),
                       (cancelled, check("success", None, "success")), (check("failure", None, "cancelled"), check("success", 3, "success"))):
             self.assertEqual(reading(*given), ("check_failed", [lens]), given)
+        # A run's suite is shared across Lenses: given two conclusions on the head, under another Lens's check too, it is
+        # no reading of it (Astra).
+        other = next(c for j, c in enumerate(GREEN) if j != i and c["workflow"] is not None)
+        crossed = GREEN[:i] + [cancelled, check("success", 3, "success")] + GREEN[i + 1:]
+        crossed = [dict(other, run_id=1, suite_conclusion="failure") if c is GREEN[GREEN.index(other)] else c for c in crossed]
+        d = go(facts(checks=crossed), REVIEWED)
+        self.assertEqual(d["reason"], "check_unreadable")
         # A run given two suite conclusions is no reading of it, so no check of it is passed over by another run (Muse).
         for twin in ("success", None):
             self.assertEqual(reading(cancelled, check("success", 1, twin), check("success", 5, "success")), ("check_unreadable", [lens]))
