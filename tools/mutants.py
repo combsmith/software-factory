@@ -643,6 +643,13 @@ ISSUE = [
      'return any(ev["action"] == CLOSED and ev["at"] > when',
      'return entry["closed_at"] is not None and any(ev["action"] == CLOSED and ev["at"] > when',
      ('tests.test_issue.Done.test_a_persons_close_of_the_rival_after_the_merge_releases_the_hold',)),
+    ("only a pull request's first close is read for a release", ISSUE_PY,
+     'and (merged is None or ev["at"] < merged) for ev in entry["close_events"])',
+     'and (merged is None or ev["at"] < merged) for ev in entry["close_events"][:1])',
+     ('tests.test_issue.Done.test_a_persons_close_of_the_rival_after_the_merge_releases_the_hold',)),
+    ("a merged pull request's earlier close by a person releases nothing", ISSUE_PY,
+     '(merged is None or ev["at"] < merged)', 'merged is None',
+     ('tests.test_issue.Done.test_a_persons_close_of_the_rival_after_the_merge_releases_the_hold',)),
     # Issue 554: a draft event before its pull request opened is no chronology.
     ("a draft event before the pull request opened is read", ISSUE_PY,
      '    if events and events[0]["at"] < entry["opened_at"]:\n        return False\n', '',
