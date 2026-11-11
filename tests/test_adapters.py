@@ -1478,6 +1478,9 @@ class Records(unittest.TestCase):
         # The earlier record's word stands only for a Run the later does not list: one the later lists with no
         # beginning, or twice, is asked afresh.
         bare = {k: v for k, v in one.items() if k != "began_at"}
+        other = dict(one, run="r_000009Z")
+        self.assertEqual(records.begun([older, {"runs": [other]}]),
+                         {key: "2026-11-10T00:00:00Z", ("r_000009Z", one["started_at"]): began[0]})
         self.assertEqual((records.begun([older, {"runs": []}]), records.begun([older, {"runs": [bare]}]),
                           records.begun([older, {"runs": [one, one]}]), records.begun([{"runs": [one, bare]}])),
                          ({key: "2026-11-10T00:00:00Z"}, {}, {}, {}))

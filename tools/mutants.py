@@ -4436,6 +4436,8 @@ MUTANTS = ISSUE + [
     ('a beginning is kept for a record that names no Run or no start', 'adapters/records.py',
      '            if not all(isinstance(part, str) for part in key):\n                continue\n',
      '', BEGUN),
+    ("the earlier record's beginnings go once the later lists any Run", 'adapters/records.py',
+     '        kept = {key: kept[key] for key in kept if key not in listed}\n', '        kept = kept if not listed else {}\n', BEGUN),
     ("the earlier record's beginning stands for a Run the later lists", 'adapters/records.py',
      '        kept = {key: kept[key] for key in kept if key not in listed}\n', '', BEGUN),
     ('a key listed twice counts only its listings that give a beginning', 'adapters/records.py',
