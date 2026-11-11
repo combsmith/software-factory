@@ -1352,6 +1352,8 @@ MUTANTS = ISSUE + [
      '        if on is not None and record["item"] != on:\n            whole = whole and record["status"] != "in_progress"\n            continue\n', ('tests.test_adapters.Records.test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them',)),
     ("one item is told from another by its number alone", 'adapters/records.py',
      'if on is not None and record["item"] != on:', 'if on is not None and record["item"]["number"] != on["number"]:', ('tests.test_adapters.Records.test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them',)),
+    ("a read of one item is whole whatever jobs of its Runs cannot be read", 'adapters/records.py',
+     '        whole = whole and answered\n', '        whole = whole and (answered or on is not None)\n', ('tests.test_adapters.Records.test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them',)),
     ("one item is told from another by its repo alone", 'adapters/records.py',
      'if on is not None and record["item"] != on:', 'if on is not None and record["item"]["repo"] != on["repo"]:', ('tests.test_adapters.Records.test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them',)),
     ("apply's read again reads no Role's opening Runs", 'harness/reread.py',

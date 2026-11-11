@@ -1435,6 +1435,13 @@ class Records(unittest.TestCase):
                 self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"],
                                   [r["path"].split("/")[-2] for r in sent.sent[1:]]),
                                  (["none"] * 2 + ["2026-11-10T19:44:48Z"] * 3, True, ["702", "703", "704"]), status)
+                # One of the item's Runs whose jobs cannot be read, past the cap, has no beginning, and the read is
+                # not whole: the Run defers, as the pass does.
+                unread = dict(jobs[4], response=dict(jobs[4]["response"], status=404))
+                got = records.runs(github.Replay([rows, jobs[2], jobs[3], unread]), canary(), "main", [WORKFLOW], DISPATCHER,
+                                   per_page=10, began={}, on=item)
+                self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"]),
+                                 (["none"] * 2 + ["2026-11-10T19:44:48Z"] * 2 + ["none"], False), status)
                 # Asked of every item, the same list stops at the cap and is not whole.
                 got, _ = self.read(rows, jobs[0], jobs[1], began={})
                 self.assertEqual(got["complete"], False, status)
