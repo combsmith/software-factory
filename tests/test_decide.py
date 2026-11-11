@@ -1897,7 +1897,7 @@ class Convergence(unittest.TestCase):
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=during), "")
         made = run(at="2026-10-11T12:14:30Z")
         for waited in (dict(made, began_at="2026-10-11T12:15:01Z"), dict(made, began_at=None), dict(made, began_at="soon"),
-                       dict(made, began_at=7), dict(made, began_at="2026-10-11T12:14:60Z"),
+                       dict(made, began_at=7), dict(made, began_at="2026-10-11T12:14:60Z"), dict(made, began_at="2026-10-11T12:14:00Z"),
                        {k: v for k, v in made.items() if k != "began_at"}):
             self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=[waited]), "",
                              waited)
