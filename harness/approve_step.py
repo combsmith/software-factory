@@ -54,7 +54,7 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
             "kernel": dict(config["kernel"], lifecycle=config["lifecycles"]["pull_request"]),
             "github_run": environ.get("GITHUB_RUN_ID"), "release": release}
     return approve.job(record, parts["run"],
-                       lambda: reread.item(approving, config, parts["item"]["number"], utc(), utc),
+                       lambda: reread.item(approving, config, parts["item"]["number"], utc(), utc, name_pause=True),
                        approve.Port(transport, told["approver"]), told, utc())
 
 
