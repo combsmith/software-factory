@@ -13,7 +13,7 @@ shared with that repo (decision 0077); so is a list not read whole, an answer th
 be read (issue 362, "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found").
 
 `explained` hands back, beside the same read, why each scope it could not read was unreadable, a code of this port's
-own and never what GitHub said: the approving act names its Pause by it (decision NNNN). The read itself is unchanged,
+own and never what GitHub said: the approving act names its Pause by it (decision 0191). The read itself is unchanged,
 and so is what the Controller reads of it."""
 from __future__ import annotations
 
@@ -28,7 +28,8 @@ UNREADABLE = {"unreadable": True}      # no text a variable can hold: `human_pau
 # repo's own variable; the list, read whole, does not name it; or anything else, of the org's read or of a repo's.
 ORG_REFUSED, ORG_UNNAMED, ORG_UNREAD = "org_refused", "org_unnamed", "org"
 REPO_REFUSED, REPO_UNREAD = "repo_refused", "repo"
-REFUSED = (403, 404)                   # how GitHub refuses a token the org's list, or hides the list from it
+ORG_REFUSALS = (403, 404)              # how GitHub refuses a token the org's list, or hides the list from it
+REPO_REFUSALS = (403,)                 # a 404 on the repo's own variable is a variable GitHub holds none of
 ORG = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
 PAGE = 100                             # the most entries GitHub gives a page of the org's variables
@@ -50,6 +51,14 @@ def _named(repo: str) -> bool:
     return bool(REPO.fullmatch(repo)) and repo.split("/")[1] not in (".", "..")
 
 
+def _refused(answer: dict, statuses) -> bool:
+    """Whether GitHub refused the token the read: one of `statuses`, and no rate limit's, which GitHub answers 403 too,
+    with no request left or a time to wait. A limit is no grant's fault, and is anything else."""
+    headers = answer.get("headers") or {}
+    return answer["status"] in statuses and str(headers.get("x-ratelimit-remaining")) != "0" \
+        and "retry-after" not in headers
+
+
 def _org_value(transport, org: str, repo):
     """The org's FACTORY_PAUSED, as `repo`'s list of the org's variables names it, read whole (the module's rule): its
     value, or UNREADABLE, never None, and beside it the part that says why it is unreadable, or None."""
@@ -62,7 +71,7 @@ def _org_value(transport, org: str, repo):
         except Unanswered:
             return UNREADABLE, ORG_UNREAD
         body = answer["body"]
-        if answer["status"] in REFUSED:
+        if _refused(answer, ORG_REFUSALS):
             return UNREADABLE, ORG_REFUSED
         if answer["status"] != 200 or not isinstance(body, dict) or not isinstance(body.get("variables"), list) \
                 or type(body.get("total_count")) is not int or total not in (None, body["total_count"]):
@@ -97,7 +106,7 @@ def _value(transport, scope: str):
         return UNREADABLE, REPO_UNREAD
     if answer["status"] == 404:
         return None, None
-    if answer["status"] == 403:           # a 404 is a variable GitHub holds none of, read above
+    if _refused(answer, REPO_REFUSALS):
         return UNREADABLE, REPO_REFUSED
     body = answer["body"]
     if answer["status"] != 200 or not isinstance(body, dict) or body.get("name") != NAME \

@@ -447,7 +447,7 @@ class TheAct(unittest.TestCase):
         parted = IndexError("x")
         parted.part = "timeline"
 
-        def pause(part):     # a Pause the port could not read, raised by the read again by the port's part (NNNN)
+        def pause(part):     # a Pause the port could not read, raised by the read again by the port's part (0191)
             err = Unanswered("no")
             err.part = part
             return failing(err, "pause")
@@ -462,7 +462,7 @@ class TheAct(unittest.TestCase):
             (GitHub(), failing(KeyError("x"), "snapshot"), ("environment", "snapshot_unreadable"), "refused"),
             (GitHub(), failing(TypeError("x"), "context"), ("environment", "context_unreadable"), "refused"),
             (GitHub(), failing(parted, "snapshot"), ("environment", "snapshot_timeline_unreadable"), "refused"),
-            # A Pause the port could not read is named by which read it was and why (decision NNNN, after pull request
+            # A Pause the port could not read is named by which read it was and why (decision 0191, after pull request
             # 688's seventh dry run stopped at `pause_unreadable` alone).
             (GitHub(), pause("org_refused"), ("environment", "pause_org_refused_unreadable"), "refused"),
             (GitHub(), pause("org_unnamed"), ("environment", "pause_org_unnamed_unreadable"), "refused"),

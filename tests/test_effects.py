@@ -614,7 +614,7 @@ class Pause(unittest.TestCase):
         self.assertEqual(asked.asked[0], pause.listed("combsmith/a"))
 
     def test_a_pause_not_read_says_which_read_and_why(self):
-        # Decision NNNN, after pull request 688's seventh dry run stopped at `pause_unreadable` and no more: beside
+        # Decision 0191, after pull request 688's seventh dry run stopped at `pause_unreadable` and no more: beside
         # the same read, the port says why each scope it could not read was unreadable, by a code of its own. GitHub
         # refused the list of the org's variables, 403 or 404; refused the repo's own variable, 403, since a 404 there
         # is a variable GitHub holds none of; answered a list, read whole, that does not name it; or anything else.
@@ -657,6 +657,17 @@ class Pause(unittest.TestCase):
                 ([whole(entry(pause.NAME), entry("factory_paused"))], [own()], ["org"]),
                 ([whole(entry(pause.NAME, False))], [own()], ["org"]),
                 ([(200, ["false"], {})], [own()], ["org"]),
+                # A next page after a page short of a full one, or after every entry the count names, contradicts the
+                # count: a list not read whole, never one read whole that does not name it (the Claude review).
+                ([(200, {"total_count": 1, "variables": [entry("OTHER")]}, nxt)], [own()], ["org"]),
+                ([(200, {"total_count": pause.PAGE, "variables": full}, nxt)], [own()], ["org"]),
+                # A 403 that is GitHub's rate limit, with no request left or a time to wait, is no refusal of a grant.
+                ([(403, {}, {"x-ratelimit-remaining": "0"})], [own()], ["org"]),
+                ([(403, {}, {"retry-after": "60"})], [own()], ["org"]),
+                ([(403, {}, {"x-ratelimit-remaining": "4999"})], [own()], ["org_refused"]),
+                (named, [(403, {}, {"x-ratelimit-remaining": "0"})], ["repo"]),
+                (named, [(403, {}, {"retry-after": "60"})], ["repo"]),
+                (named, [(403, {}, {"x-ratelimit-remaining": "10"})], ["repo_refused"]),
                 # The repo's own variable refused; and anything else of its read.
                 (named, [own(403, {"message": "Resource not accessible by personal access token"})], ["repo_refused"]),
                 (named, [own(401, {})], ["repo"]), (named, [own(500, {})], ["repo"]), (named, [(None, None, None)], ["repo"]),

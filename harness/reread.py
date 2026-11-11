@@ -9,7 +9,7 @@ them by `controller/pass_.context_of`, as one pass builds it, with no pass recor
 unreadable, which defers nothing. What cannot be read raises, named by its stage (`harness/shared.unread`), a fault of
 a read's own code as a read GitHub did not answer, and the job that asked records whose fault it was. The Pause's port
 raises nothing: a Pause it could not read is the context's, unless the job asks for it by name, and then it is raised
-as a read of the `pause` stage, its part the port's (decision NNNN)."""
+as a read of the `pause` stage, its part the port's (decision 0191)."""
 from __future__ import annotations
 
 from adapters import applied, facts as facts_, pause as pause_, records, timeline

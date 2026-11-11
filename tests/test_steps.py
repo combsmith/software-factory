@@ -645,7 +645,7 @@ class Apply(unittest.TestCase):
             code, printed, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
         self.assertEqual((code, printed, ended), (1, "step_failed\n", None))
         # Apply asks the read again for no part of the Pause: it reads its Pause in the context, in its own order, as
-        # it did (decision NNNN).
+        # it did (decision 0191).
         asked_for = []
 
         def plain(*a, **k):
@@ -822,7 +822,7 @@ class Approve(unittest.TestCase):
         self.assertIsInstance(found, effects.Approving)
         # The item is read again through the approver's token held to its item, too.
         self.assertEqual([type(t) for t in reread_through], [effects.Approving])
-        # And asked for the Pause by name, so a Pause the port could not read says which read it was (decision NNNN).
+        # And asked for the Pause by name, so a Pause the port could not read says which read it was (decision 0191).
         self.assertEqual(asked_for, [{"name_pause": True}])
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
@@ -905,7 +905,7 @@ class Approve(unittest.TestCase):
         self.assertEqual(go(mine, context=dict(record["context"], paused=unread)),
                          (1, "pause_unreadable\n", "environment", "refused", []))
         # Asked by name, the read again raises that Pause as a read of its own stage, its part the port's, and the step
-        # ends by the code of both: which read GitHub refused, and nothing GitHub said (decision NNNN, after the
+        # ends by the code of both: which read GitHub refused, and nothing GitHub said (decision 0191, after the
         # seventh dry run stopped at the code above).
         from controller import configuration
         with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(tc.listed([]))), \
@@ -1105,7 +1105,7 @@ class Reread(unittest.TestCase):
                 self.assertIs(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["paused"], want, paused)
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
         # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
-        # part the port's for the first scope unreadable, the org's before the repo's (decision NNNN). Not asked, as
+        # part the port's for the first scope unreadable, the org's before the repo's (decision 0191). Not asked, as
         # apply reads it, the same Pause is the context's and nothing is raised.
         entry = {"name": reread.pause_.NAME, "value": "false"}
         clear, unset = (200, {"total_count": 1, "variables": [entry]}), (200, {"total_count": 0, "variables": []})
