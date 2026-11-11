@@ -20,6 +20,7 @@ from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, items, passes, pull, records, \
     pause, rules, texts, threads, timeline
+from controller import shared
 from harness import task
 from kernel import brakes
 from tests.support import pending
@@ -1041,11 +1042,23 @@ def stored(repo: str, github_id: int, zipped, ident: int = 9, store: str = STORE
     return found
 
 
+def jobs_read(name: str, at: int, github_id: int, **change) -> dict:
+    """A fixture's read of a run's jobs, asked of the run GitHub numbers `github_id`, each job changed as named."""
+    found = copy.deepcopy(exchanges(name)[at])
+    words = found["request"]["call"].split()
+    found["request"]["call"] = " ".join([words[0], "/repos/%s/actions/runs/%d/jobs?per_page=100" % (canary(), github_id)]
+                                        + words[2:])
+    for job in found["response"]["body"]["jobs"]:
+        job.update(change)
+    return found
+
+
 class Records(unittest.TestCase):
     def read(self, *found, **kw):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
-                           per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"))
+                           per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"),
+                           began=kw.get("began"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -1134,6 +1147,11 @@ class Records(unittest.TestCase):
         self.assertIs(got["complete"], False)
         got, _ = self.read(listing("P-17", 3, rows={"name": NAME}, total=2))
         self.assertIs(got["complete"], False)
+        # A list read short stays not whole when the jobs of the Runs it did give are read whole (decision 0193).
+        gid = exchanges("P-17")[3]["response"]["body"]["workflow_runs"][0]["id"]
+        got, _ = self.read(listing("P-17", 3, rows={"name": NAME, "status": "in_progress"}, total=2),
+                           jobs_read("P-64", 18, gid), began={})
+        self.assertEqual((got["runs"][0]["began_at"], got["complete"]), ("2026-11-10T19:44:48Z", False))
         broken = listing("P-17", 3)
         broken["response"]["body"]["workflow_runs"] = None
         self.assertIs(self.read(broken)[0]["complete"], False)
@@ -1289,6 +1307,199 @@ class Records(unittest.TestCase):
             self.assertEqual(records.known([dict(record(first), runs=[dict(first["runs"][0], **change)])]), {}, change)
         self.assertEqual((records.known(None), records.known(record(first)), records.known([{"runs": None}]),
                           records.known([{"runs": ["x"]}])), ({}, {}, {}, {}))
+
+    def began(self, status, *jobs, **kw):
+        """`(the one record, whether the list was whole)` of a Run GitHub lists with `status`, its jobs read as given."""
+        row = listing("P-17", 3, rows=dict({"name": NAME, "status": status, "run_attempt": 1,
+                                             "conclusion": "success" if status == "completed" else None},
+                                            **kw.get("rows", {})))
+        got, _ = self.read(row, *jobs, began=kw.get("began", {}))
+        return got["runs"][0], got["complete"]
+
+    def test_a_run_began_when_a_job_of_it_did(self):
+        # trials/P-64.json: a job that waited 53 s in its lane gave its creation as its `started_at` while `pending`,
+        # and 19:44:48Z once in progress and completed. trials/P-44.json: one cancelled while it waited ends completed
+        # with no runner. So only a job in progress, or completed with a runner, says when its Run began (0193).
+        gid = exchanges("P-17")[3]["response"]["body"]["workflow_runs"][0]["id"]
+        waiting, running, ran = (exchanges("P-64")[at]["response"]["body"]["jobs"][0] for at in (9, 18, 33))
+        gone = exchanges("P-44")[23]["response"]["body"]["jobs"][0]
+        self.assertEqual([(j["status"], j["started_at"] == j["created_at"], bool(j["runner_name"]))
+                          for j in (waiting, running, ran, gone)],
+                         [("pending", True, False), ("in_progress", False, True), ("completed", False, True),
+                          ("completed", True, False)])
+        self.assertEqual((running["started_at"], ran["started_at"]), ("2026-11-10T19:44:48Z",) * 2)
+        # Pending, nothing yet; in progress or completed with a runner, the job's start; completed with none, null.
+        # `started_at` stays the run's own.
+        record, whole = self.began("in_progress", jobs_read("P-64", 9, gid))
+        self.assertEqual(("began_at" in record, whole), (False, True))
+        for status, at in (("in_progress", 18), ("completed", 33)):
+            record, whole = self.began(status, jobs_read("P-64", at, gid))
+            self.assertEqual((record["began_at"], record["started_at"], whole),
+                             ("2026-11-10T19:44:48Z", "2026-10-18T01:29:07Z", True), status)
+        record, whole = self.began("completed", jobs_read("P-44", 23, gid))
+        self.assertEqual((record["began_at"], whole), (None, True))
+        self.assertEqual(shared.errors(record, "run-record"), [])     # null is a run record's to hold
+        # A runner's name alone tells a completed job that ran, and a job in progress needs none.
+        for name in ("", None):
+            self.assertEqual(self.began("completed", jobs_read("P-64", 33, gid, runner_name=name)), (record, True), name)
+        self.assertEqual(self.began("in_progress", jobs_read("P-64", 18, gid, runner_name=None))[0]["began_at"],
+                         "2026-11-10T19:44:48Z")
+        # A runner named on a job that still waits, which no trial has shown, is no start either.
+        for status in ("pending", "queued"):
+            record, whole = self.began("in_progress", jobs_read("P-64", 9, gid, status=status, runner_name="GitHub Actions 7"))
+            self.assertEqual(("began_at" in record, whole), (False, True), status)
+        # Of several jobs, the earliest that began; one that waits beside it says nothing.
+        both = jobs_read("P-64", 33, gid)
+        both["response"]["body"].update(total_count=3, jobs=[
+            dict(ran, id=1, started_at="2026-11-10T19:45:00Z"), ran, dict(waiting, id=2, started_at="2026-11-10T19:40:00Z")])
+        self.assertEqual(self.began("in_progress", both)[0]["began_at"], "2026-11-10T19:44:48Z")
+        # A job listed twice may stand where another was left out, and one start that is no time is no read of any.
+        both["response"]["body"]["jobs"][0]["id"] = ran["id"]
+        self.assertEqual(self.began("in_progress", both)[1], False)
+        both["response"]["body"]["jobs"][0].update(id=1, started_at="2026-02-30T19:45:00Z")
+        record, whole = self.began("in_progress", both)
+        self.assertEqual(("began_at" in record, whole), (False, False))
+        # A Run not yet started, or a caller that asks for none, has no job read: the replay holds no answer to one.
+        record, whole = self.began("queued")
+        self.assertEqual(("began_at" in record, whole), (False, True))
+        record, whole = self.began("completed", began=None)
+        self.assertEqual(("began_at" in record, whole), (False, True))
+
+    def test_jobs_that_cannot_be_read_say_no_start(self):
+        gid = exchanges("P-17")[3]["response"]["body"]["workflow_runs"][0]["id"]
+        sent = Recording(github.Replay([listing("P-17", 3, rows={"name": NAME, "status": "in_progress"}),
+                                        jobs_read("P-64", 18, gid)]))
+        records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, began={})
+        self.assertEqual((sent.sent[1]["path"], sent.sent[1]["headers"]),
+                         ("/repos/%s/actions/runs/%d/jobs?per_page=100" % (canary(), gid), {"Cache-Control": "no-cache"}))
+
+        def changed(at, **change):
+            found = jobs_read("P-64", at, gid)
+            found["response"].update({k: v for k, v in change.items() if k in ("status",)})
+            found["response"]["body"].update({k: v for k, v in change.items() if k != "status"})
+            return found
+        # An answer that is no list of every job counted, a job of another attempt than the list gave or one that is
+        # no job, a start that is no time, a job not yet completed of a run the list gave as completed, begun or
+        # not, and a status GitHub gives no job.
+        for status, found, rows in (
+                ("in_progress", changed(18, status=404), {}), ("in_progress", changed(18, total_count=2), {}),
+                ("in_progress", changed(18, total_count=True), {}), ("in_progress", changed(18, jobs=None), {}),
+                ("in_progress", changed(18, jobs=["lane"], total_count=1), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, run_attempt=2), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, run_attempt=True), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, id=[]), {}), ("in_progress", jobs_read("P-64", 18, gid, id="7"), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, run_attempt=1.0), {}),
+                ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": True}),
+                ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": None}),
+                ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-11-10 19:44:48"), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-02-30T19:44:48Z"), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-11-10T19:44:8Z"), {}),
+                ("completed", jobs_read("P-64", 33, gid, started_at=None), {}),
+                ("completed", jobs_read("P-64", 9, gid), {}), ("completed", jobs_read("P-64", 18, gid), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, status=None), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, status=[]), {}),
+                ("completed", jobs_read("P-64", 33, gid, runner_name=7), {}),
+                ("in_progress", changed(18, total_count=0), {}),
+                ("in_progress", jobs_read("P-64", 9, gid, status="odd"), {})):
+            record, whole = self.began(status, found, rows=rows)
+            self.assertEqual(("began_at" in record, whole), (False, False), (status, found["response"], rows))
+        found = jobs_read("P-64", 18, gid)
+        found["response"]["body"] = ["lane"]
+        self.assertEqual(self.began("in_progress", found)[1], False)
+        # A completed run with no job at all never began; one in progress has not yet.
+        self.assertEqual(self.began("completed", changed(33, jobs=[], total_count=0)), (dict(
+            self.began("completed", jobs_read("P-44", 23, gid))[0]), True))
+        record, whole = self.began("in_progress", changed(18, jobs=[], total_count=0))
+        self.assertEqual(("began_at" in record, whole), (False, True))
+
+    def test_when_a_run_began_is_asked_once_and_kept(self):
+        # A job's start stands once given (P-64), and a completed run's jobs change no more: what a pass record
+        # holds is not asked again. A Run that has not begun is.
+        rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success", "run_attempt": 1})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(4)]
+        rows["response"]["body"].update(total_count=4, workflow_runs=[
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(4)])
+        rows["response"]["body"]["workflow_runs"][2].update(status="in_progress", conclusion=None)
+        rows["response"]["body"]["workflow_runs"][3].update(status="in_progress", conclusion=None)
+        jobs = [jobs_read("P-64", 33, 700), jobs_read("P-44", 23, 701), jobs_read("P-64", 18, 702),
+                jobs_read("P-64", 9, 703)]
+        began = ["2026-11-10T19:44:48Z", None, "2026-11-10T19:44:48Z"]
+
+        def record(got):
+            # What a caller keeps of a read: when each Run began, by its Run id and when its attempt started.
+            return {(r["run"], r["started_at"]): r["began_at"] for r in got["runs"] if "began_at" in r}
+
+        def read(*found, **kw):
+            """What a read gave, and the runs whose jobs it asked for, by GitHub's id, in order."""
+            sent = Recording(github.Replay(list(found)))
+            got = records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, **kw)
+            return got, [int(r["path"].split("/")[-2]) for r in sent.sent if "/jobs?" in r["path"]]
+        first, asked = read(rows, *jobs, began={})
+        self.assertEqual(([r.get("began_at", "none") for r in first["runs"]], first["complete"], asked),
+                         (began + ["none"], True, [700, 701, 702, 703]))
+        kept = record(first)
+        self.assertEqual(kept, {("r_%06dZ" % n, "2026-10-21T0%d:00:00Z" % n): began[n] for n in range(3)})
+        second, asked = read(rows, jobs[3], began=kept)
+        self.assertEqual((second["runs"], asked), (first["runs"], [703]))
+        # Null kept for a completed Run is not said of one the list gives as running still: its jobs are asked.
+        stale = copy.deepcopy(rows)
+        stale["response"]["body"]["workflow_runs"][1].update(status="in_progress", conclusion=None)
+        got, asked = read(stale, jobs_read("P-64", 9, 701), jobs[3], began=kept)
+        self.assertEqual(("began_at" in got["runs"][1], asked), (False, [701, 703]))
+        # What is kept is said of no Run the list gives as not yet started, which has no job asked either.
+        early = copy.deepcopy(rows)
+        early["response"]["body"]["workflow_runs"][0].update(status="queued", conclusion=None)
+        got, asked = read(early, jobs[3], began=kept)
+        self.assertEqual(("began_at" in got["runs"][0], asked), (False, [703]))
+        # A re-run starts again, at another time, and a row that names no start of its attempt, or a key listed twice,
+        # is asked whatever is kept.
+        rerun = copy.deepcopy(rows)
+        rerun["response"]["body"]["workflow_runs"][0]["run_started_at"] = "2026-10-21T09:00:00Z"
+        self.assertEqual(read(rerun, jobs[0], jobs[3], began=kept)[1], [700, 703])
+        untimed = copy.deepcopy(rows)
+        untimed["response"]["body"]["workflow_runs"][0].update(run_started_at=None, created_at="2026-10-21T00:00:00Z")
+        self.assertEqual(read(untimed, jobs[0], jobs[3], began=kept)[1], [700, 703])
+        twice = copy.deepcopy(rows)
+        twice["response"]["body"]["workflow_runs"][1] = dict(twice["response"]["body"]["workflow_runs"][0], id=799)
+        self.assertEqual(read(twice, jobs[0], jobs_read("P-64", 33, 799), jobs[3], began=kept)[1], [700, 799, 703])
+        # A list read a second time, for a run not yet named, is asked by the second read's rows, whose records
+        # are the ones returned: a Run in progress only by then is asked, and says when it began.
+        early, late = copy.deepcopy(rows), copy.deepcopy(rows)
+        for found in (early, late):
+            found["response"]["body"]["workflow_runs"].append(dict(template, id=704, name="not yet named", status="queued",
+                                                                   conclusion=None))
+            found["response"]["body"]["total_count"] = 5
+        early["response"]["body"]["workflow_runs"][2].update(status="queued")
+        got, asked = read(early, late, *jobs, began={}, sleep=lambda s: None)
+        self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], asked),
+                         (began + ["none"], [700, 701, 702, 703]))
+        # A re-run of some jobs lists the others with the starts an earlier attempt gave them (seen on this repo's
+        # runs, in no trial): the earliest, before the attempt's own start, is what the record says.
+        carried = jobs_read("P-64", 33, 700)
+        carried["response"]["body"].update(total_count=2, jobs=[
+            dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], id=1, started_at="2026-10-20T23:50:00Z"),
+            dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], started_at="2026-10-21T00:00:05Z")])
+        got, _ = read(rows, carried, *jobs[1:], began={})
+        self.assertEqual((got["runs"][0]["began_at"], got["runs"][0]["started_at"]),
+                         ("2026-10-20T23:50:00Z", "2026-10-21T00:00:00Z"))
+        # No more than the cap are asked in one read: the rest say nothing, and the list is not whole until a later
+        # read, with what this one kept, has asked them.
+        with mock.patch.object(records, "JOBS", 2):
+            capped, asked = read(rows, jobs[0], jobs[1], began={})
+            self.assertEqual(([r.get("began_at", "none") for r in capped["runs"]], capped["complete"], asked),
+                             (began[:2] + ["none", "none"], False, [700, 701]))
+            rest, asked = read(rows, jobs[2], jobs[3], began=record(capped))
+            self.assertEqual((rest["runs"], rest["complete"], asked), (first["runs"], True, [702, 703]))
+        # One Run's jobs that cannot be read leave the list not whole, whatever the Runs after it give.
+        got, asked = read(rows, dict(jobs[0], response=dict(jobs[0]["response"], status=404)), *jobs[1:], began={})
+        self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"]), (["none"] + began[1:] + ["none"], False))
+        self.assertEqual(records.JOBS, 50)
+        # What is kept is still said of a Run listed after one the cap left unasked.
+        with mock.patch.object(records, "JOBS", 1):
+            got, asked = read(rows, jobs[0], began={k: v for k, v in kept.items() if k[0] == "r_000002Z"})
+            self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"], asked),
+                             ([began[0], "none", began[2], "none"], False, [700]))
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],
