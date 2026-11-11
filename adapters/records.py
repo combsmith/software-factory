@@ -365,7 +365,10 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             continue
         if keyed and (record["run"], record["started_at"]) in began:
             record["began_at"] = began[(record["run"], record["started_at"])]
-            continue
+            # Null is a completed Run's alone: a list that gives the Run as running still asks its jobs again.
+            if record["began_at"] is not None or record["status"] == "completed":
+                continue
+            del record["began_at"]
         if asked == JOBS and on is None:
             whole = False
             continue

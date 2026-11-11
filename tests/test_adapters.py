@@ -1422,6 +1422,11 @@ class Records(unittest.TestCase):
         self.assertEqual(kept, {("r_%06dZ" % n, "2026-10-21T0%d:00:00Z" % n): began[n] for n in range(3)})
         second, asked = read(rows, jobs[3], began=kept)
         self.assertEqual((second["runs"], asked), (first["runs"], [703]))
+        # Null kept for a completed Run is not said of one the list gives as running still: its jobs are asked.
+        stale = copy.deepcopy(rows)
+        stale["response"]["body"]["workflow_runs"][1].update(status="in_progress", conclusion=None)
+        got, asked = read(stale, jobs_read("P-64", 9, 701), jobs[3], began=kept)
+        self.assertEqual(("began_at" in got["runs"][1], asked), (False, [701, 703]))
         # A re-run starts again, at another time, and a row that names no start of its attempt, or a key listed twice,
         # is asked whatever is kept.
         rerun = copy.deepcopy(rows)
