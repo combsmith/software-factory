@@ -18,8 +18,9 @@ leaves the list not whole, so that no failed Run is ever read as no attempt.
 When a Run began is read from its jobs, for a caller that asks (decision 0193): `run_started_at` is the run's
 creation even while it waits in its item's lane (trials/P-44.json), and a job's `started_at` is its creation too until
 the job is `in_progress`, or `completed` with a runner named (trials/P-64.json). `began_at` is the earliest such start
-among the latest attempt's jobs, null for a completed Run none of whose jobs began, and absent where it has not begun
-or was not read. A start, once given, stands at every later read (P-64), so what the pass records before kept is not
+among the jobs GitHub lists for the latest attempt, null for a completed Run none of whose jobs began, and absent where
+it has not begun or was not read. A re-run may list a job an earlier attempt ran, with its start: that is a start of
+the same run, and may be earlier than the record's `started_at`. A start, once given, stands at every later read (P-64), so what the pass records before kept is not
 asked again, and no more than `JOBS` Runs are asked in one read: what is left unasked leaves the list not whole.
 """
 from __future__ import annotations
@@ -207,17 +208,19 @@ def _time(value) -> bool:
     return True
 
 
-def _began(answer: dict, attempt, done: bool) -> tuple:
-    """`(found, whole)` from one read of a run's jobs: `found` is `{"began_at": time}`, the earliest start among the jobs
+def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
+    """`(found, whole)` from one read of a run's jobs, uncached: `found` is `{"began_at": time}`, the earliest start among the jobs
     that are in progress, or completed with a runner named; `{"began_at": None}` for a run that is `done`, every job
     of it completed and none begun; and `{}` where it has not begun yet or cannot be read. A job that waits gives its
     creation as its start, and one cancelled or skipped while it waited ends with no runner (P-64, P-44): neither is
     a start. Not whole: an answer that is no list of every job counted, each of the attempt the list gave, a start
     that is no time, or a job not yet completed of a run that is, which an answer older than the list would give."""
+    answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/jobs" % (repo, github_id), headers=FRESH))
     body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
     jobs = body.get("jobs")
     if not isinstance(jobs, list) or type(body.get("total_count")) is not int or body["total_count"] != len(jobs) \
-            or type(attempt) is not int or any(not isinstance(j, dict) or j.get("run_attempt") != attempt for j in jobs):
+            or type(attempt) is not int or any(not isinstance(j, dict) or type(j.get("run_attempt")) is not int
+                                               or j["run_attempt"] != attempt for j in jobs):
         return {}, False
     starts = [j.get("started_at") for j in jobs if j.get("status") == "in_progress"
               or (j.get("status") == "completed" and isinstance(j.get("runner_name"), str) and j["runner_name"] != "")]
@@ -232,14 +235,15 @@ def _began(answer: dict, attempt, done: bool) -> tuple:
 
 def begun(previous: list) -> dict:
     """When each Run began, as the pass records before this one read it from its jobs, by its Run id and when its
-    attempt started: the last two at most, the later's word where both give one. A time is kept for any Run, since a
-    job's start stands once given (P-64), and null for a completed Run alone, whose jobs change no more. A key a
-    record lists twice is kept from neither listing, and nothing is kept from a record that is not a `pass/1`
-    record's runs. A re-run starts again, at another time, and is asked afresh."""
-    def read(record) -> dict:
+    attempt started: the last two at most, and the earlier's word only for a Run the later does not list. A time is
+    kept for any Run, since a job's start stands once given (P-64), and null for a completed Run alone, whose jobs
+    change no more. A key a record lists twice, with a beginning or without, is kept from neither listing, and
+    nothing is kept from a record that is not a `pass/1` record's runs. A re-run starts again, at another time, and
+    is asked afresh."""
+    def read(record) -> tuple:
         runs_ = record.get("runs") if isinstance(record, dict) else None
         if not isinstance(runs_, list):
-            return {}
+            return {}, []
         found, listed = {}, []
         for r in runs_:
             key = (r.get("run"), r.get("started_at")) if isinstance(r, dict) else (None, None)
@@ -248,10 +252,12 @@ def begun(previous: list) -> dict:
             listed.append(key)
             if "began_at" in r and (_time(r["began_at"]) or (r["began_at"] is None and r.get("status") == "completed")):
                 found[key] = r["began_at"]
-        return {key: found[key] for key in found if listed.count(key) == 1}
+        return {key: found[key] for key in found if listed.count(key) == 1}, listed
     kept = {}
     for record in (list(previous[-2:]) if isinstance(previous, list) else []):
-        kept.update(read(record))
+        found, listed = read(record)
+        kept = {key: kept[key] for key in kept if key not in listed}
+        kept.update(found)
     return kept
 
 
@@ -364,9 +370,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             whole = False
             continue
         asked += 1
-        found, answered = _began(
-            transport.send(request("GET", "/repos/%s/actions/runs/%d/jobs" % (repo, github_id), headers=FRESH)),
-            attempt, record["status"] == "completed")
+        found, answered = _began(transport, repo, github_id, attempt, record["status"] == "completed")
         record.update(found)
         whole = whole and answered
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}

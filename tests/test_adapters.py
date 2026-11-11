@@ -1338,6 +1338,10 @@ class Records(unittest.TestCase):
             self.assertEqual(self.began("completed", jobs_read("P-64", 33, gid, runner_name=name)), (record, True), name)
         self.assertEqual(self.began("in_progress", jobs_read("P-64", 18, gid, runner_name=None))[0]["began_at"],
                          "2026-11-10T19:44:48Z")
+        # A runner named on a job that still waits, which no trial has shown, is no start either.
+        for status in ("pending", "queued"):
+            record, whole = self.began("in_progress", jobs_read("P-64", 9, gid, status=status, runner_name="GitHub Actions 7"))
+            self.assertEqual(("began_at" in record, whole), (False, True), status)
         # Of several jobs, the earliest that began; one that waits beside it says nothing.
         both = jobs_read("P-64", 33, gid)
         both["response"]["body"].update(total_count=3, jobs=[
@@ -1369,10 +1373,13 @@ class Records(unittest.TestCase):
                 ("in_progress", changed(18, total_count=True), {}), ("in_progress", changed(18, jobs=None), {}),
                 ("in_progress", changed(18, jobs=["lane"], total_count=1), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, run_attempt=2), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, run_attempt=True), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, run_attempt=1.0), {}),
                 ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": True}),
                 ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": None}),
                 ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-11-10 19:44:48"), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-02-30T19:44:48Z"), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-11-10T19:44:8Z"), {}),
                 ("completed", jobs_read("P-64", 33, gid, started_at=None), {}),
                 ("completed", jobs_read("P-64", 9, gid), {})):
             record, whole = self.began(status, found, rows=rows)
@@ -1426,6 +1433,27 @@ class Records(unittest.TestCase):
         twice = copy.deepcopy(rows)
         twice["response"]["body"]["workflow_runs"][1] = dict(twice["response"]["body"]["workflow_runs"][0], id=799)
         self.assertEqual(read(twice, jobs[0], jobs_read("P-64", 33, 799), jobs[3], began=kept)[1], [700, 799, 703])
+        # A list read a second time, for a run not yet named, is asked by the second read's rows, whose records
+        # are the ones returned: a Run in progress only by then is asked, and says when it began.
+        early, late = copy.deepcopy(rows), copy.deepcopy(rows)
+        for found in (early, late):
+            found["response"]["body"]["workflow_runs"].append(dict(template, id=704, name="not yet named", status="queued",
+                                                                   conclusion=None))
+            found["response"]["body"]["total_count"] = 5
+        early["response"]["body"]["workflow_runs"][2].update(status="queued")
+        got, asked = read(early, late, *jobs, began={}, sleep=lambda s: None)
+        self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], asked),
+                         (began + ["none"], [700, 701, 702, 703]))
+        # A re-run of some jobs lists the others as an earlier attempt ran them, under the new attempt and with their
+        # old starts (seen on runs of this repo and the canary, in no trial): the earliest is a start of the same run,
+        # before the attempt's own, and is what the record says.
+        carried = jobs_read("P-64", 33, 700)
+        carried["response"]["body"].update(total_count=2, jobs=[
+            dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], started_at="2026-10-20T23:50:00Z"),
+            dict(exchanges("P-64")[9]["response"]["body"]["jobs"][0])])
+        got, _ = read(rows, carried, *jobs[1:], began={})
+        self.assertEqual((got["runs"][0]["began_at"], got["runs"][0]["started_at"]),
+                         ("2026-10-20T23:50:00Z", "2026-10-21T00:00:00Z"))
         # No more than the cap are asked in one read: the rest say nothing, and the list is not whole until a later
         # read, with what this one kept, has asked them.
         with mock.patch.object(records, "JOBS", 2):
@@ -1450,8 +1478,15 @@ class Records(unittest.TestCase):
         self.assertEqual((records.begun([older, newer])[key], records.begun([newer, older])[key],
                           records.begun([older, newer, {"runs": []}])), (began[0], "2026-11-10T00:00:00Z", {key: began[0]}))
         self.assertEqual(records.begun([older, {"runs": []}, {"runs": []}]), {})
+        # The earlier record's word stands only for a Run the later does not list: one the later lists with no
+        # beginning, or twice, is asked afresh.
+        bare = {k: v for k, v in one.items() if k != "began_at"}
+        self.assertEqual((records.begun([older, {"runs": []}]), records.begun([older, {"runs": [bare]}]),
+                          records.begun([older, {"runs": [one, one]}]), records.begun([{"runs": [one, bare]}])),
+                         ({key: "2026-11-10T00:00:00Z"}, {}, {}, {}))
         for change in ({"began_at": None, "status": "in_progress"}, {"began_at": "soon"}, {"began_at": 7},
-                       {"began_at": "2026-02-30T00:00:00Z"}, {"run": None}, {"started_at": None}):
+                       {"began_at": "2026-02-30T00:00:00Z"}, {"began_at": "2026-2-3T1:2:3Z"}, {"run": None},
+                       {"started_at": None}):
             self.assertEqual(records.begun([{"runs": [dict(one, **change)]}]), {}, change)
         self.assertEqual(records.begun([{"runs": [{k: v for k, v in one.items() if k != "began_at"}]}]), {})
         self.assertEqual(records.begun([{"runs": [one, dict(one, began_at=None)]}]), {})
