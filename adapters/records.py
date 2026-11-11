@@ -242,8 +242,8 @@ def begun(previous: list) -> dict:
     attempt started: the last two at most, and the earlier's word only for a Run the later does not list. A time is
     kept for any Run, since a job's start stands once given (P-64), and null for a completed Run alone, whose jobs
     change no more. A key a record lists twice, with a beginning or without, is kept from neither listing, and
-    nothing is kept from a record that is not a `pass/1` record's runs. A re-run starts again, at another time, and
-    is asked afresh."""
+    nothing from what lists no runs: the pass's entry hands it `pass/1` records alone, each from before its pass. A
+    re-run starts again, at another time, and is asked afresh."""
     def read(record) -> tuple:
         runs_ = record.get("runs") if isinstance(record, dict) else None
         if not isinstance(runs_, list):

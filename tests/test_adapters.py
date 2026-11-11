@@ -1523,7 +1523,8 @@ class Records(unittest.TestCase):
                          ({key: "2026-11-10T00:00:00Z"}, {}, {}, {}))
         # Null is kept for a completed Run alone, and nothing from a key a record lists twice, a beginning that is no
         # time, a record that names no Run or no start, or what is no pass record's runs.
-        for change in ({"began_at": None, "status": "in_progress"}, {"began_at": "soon"}, {"began_at": 7},
+        for change in ({"began_at": None, "status": "in_progress"}, {"began_at": None, "status": "queued"},
+                       {"began_at": "soon"}, {"began_at": 7},
                        {"began_at": "2026-02-30T00:00:00Z"}, {"began_at": "2026-2-3T1:2:3Z"}, {"run": None},
                        {"started_at": None}):
             self.assertEqual(records.begun([{"runs": [dict(one, **change)]}]), {}, change)

@@ -1154,7 +1154,8 @@ class Entry(unittest.TestCase):
         served = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
             before["pull_requests"][0]["facts"]["item"], number=n))) for n in (7, 9)]
         before["pull_requests"] = served
-        # When a Run began, as the record before read it from its jobs, is handed to the records port (decision 0193).
+        # When a Run began, as the records before read it from its jobs, is handed to the records port (decision 0193):
+        # the last record's word, and the one before's for a Run the last does not list.
         before["runs"][0]["began_at"] = "2026-10-11T12:05:04Z"
         listed = entry.records.runs
 
@@ -1166,7 +1167,9 @@ class Entry(unittest.TestCase):
                                 "dispatched": [], "owed": [11]}
         # The last of two records says what has left: the one before it names another that has not been served since.
         older = dict(before, now="2026-10-12T10:00:00Z", reconciled=dict(before["reconciled"], owed=[], runs=[]),
-                     pull_requests=[dict(served[0], facts=dict(served[0]["facts"], item=dict(served[0]["facts"]["item"], number=12)))])
+                     pull_requests=[dict(served[0], facts=dict(served[0]["facts"], item=dict(served[0]["facts"]["item"], number=12)))],
+                     runs=[dict(before["runs"][0], began_at="2026-10-11T12:05:01Z"),
+                           dict(before["runs"][0], run="r_01JA5Y", began_at="2026-10-11T12:05:09Z")])
         table = self.table(numbers=[7, 8])
         pull = copy.deepcopy(exchanges("P-17")[4]["response"])
         pull["headers"] = {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}
@@ -1180,7 +1183,8 @@ class Entry(unittest.TestCase):
                 unittest.mock.patch.object(entry.passes, "written", written_read):
             code, _, files, _ = self.run_entry(Hub(table))
         self.assertEqual(code, 0)
-        self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z"})
+        self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
+                                            ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
         since = "2026-10-11T06:00:00Z"
         item = lambda n: {"repo": self.HOME, "type": "pull_request", "number": n}
         identities, apps = spied[0][2], spied[0][3]
@@ -1250,6 +1254,18 @@ class Entry(unittest.TestCase):
             self.assertEqual(code, 0, headers)
             self.assertEqual([r for r in files["pass.json"]["reads"] if r["read"] == "facts"], [], headers)
             self.assertEqual([e["facts"]["item"]["number"] for e in files["pass.json"]["pull_requests"]], [7], headers)
+        # Beginnings are kept from pass records alone, each from before this pass. With one that is neither, or with
+        # none, the port is still asked, with nothing kept: every Run's jobs are read afresh.
+        for held in ([older, dict(before, now="2026-10-12T12:00:00Z")], [older, dict(before, release=7)], None):
+            del efforts["began"]
+            with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: held), \
+                    unittest.mock.patch.object(entry.seen_, "read", whole), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
+                    unittest.mock.patch.object(entry.applied, "effects", applied_read), \
+                    unittest.mock.patch.object(entry.records, "runs", runs), \
+                    unittest.mock.patch.object(entry.passes, "written", written_read):
+                self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual(efforts["began"], {}, held and held[1]["now"])
         # With no record before it, nothing is known, so everything in the window is read.
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(entry.passes, "records", lambda *a: None), \
