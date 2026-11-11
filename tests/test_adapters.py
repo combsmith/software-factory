@@ -2171,8 +2171,11 @@ class Checks(unittest.TestCase):
         # P-32 asked no suite its conclusion, so none is given; each run's id is, as given above.
         self.assertEqual(got["checks"][0], {"name": "Analyze (actions)", "app_id": 15368, "workflow": None,
                                             "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z", "run_id": 1001})
-        self.assertIn("checks", [c["name"] for c in got["checks"] if c["workflow"] == ".github/workflows/verify.yml"
-                                 and c["conclusion"] == "success" and c["completed_at"] == "2026-10-20T01:01:25Z"])
+        verify = [c for c in got["checks"] if c["name"] == "checks" and c["workflow"] == ".github/workflows/verify.yml"]
+        self.assertEqual([{k: v for k, v in c.items() if k != "run_id"} for c in verify],
+                         [{"name": "checks", "app_id": 15368, "workflow": ".github/workflows/verify.yml",
+                           "conclusion": "success", "completed_at": "2026-10-20T01:01:25Z"}])
+        self.assertTrue(all(type(c["run_id"]) is int for c in verify))
         self.assertEqual((got["complete"], got["queue"]), (True, True))
 
     def test_a_check_still_running_gives_its_status_and_no_time(self):

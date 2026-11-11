@@ -402,7 +402,7 @@
             "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
           },
           "run_id": {
-            "description": "The id of the workflow run of the check run's suite, as GitHub gives it, its workflowRun's databaseId; null for a check no workflow ran. A re-run keeps its run's id and its suite, and ids follow the order runs were created, so an id orders no runs (trials/P-65.json). The live port always gives it; absent, in facts a trial recorded before the port asked it or a person wrote, the Kernel reads no supersession from it, so a cancelled run's failure stands, which fails closed (issue 681, the Factory Builder's ruling (B))",
+            "description": "The id of the workflow run of the check run's suite, as GitHub gives it, its workflowRun's databaseId; null for a check no workflow ran. A re-run keeps its run's id and its suite, and ids follow the order runs were created, so an id does not tell a re-run's later attempt from an earlier run (trials/P-65.json). The live port always gives it; absent, in facts a trial recorded before the port asked it or a person wrote, the Kernel reads no supersession from it, so a cancelled run's failure stands, which fails closed (issue 681, the Factory Builder's ruling (B))",
             "type": ["integer", "null"],
             "minimum": 1
           },
