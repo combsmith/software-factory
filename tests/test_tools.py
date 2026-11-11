@@ -1217,6 +1217,29 @@ class Apps(unittest.TestCase):
         names = {path.name for path in (ROOT / "examples" / "invalid").glob("machine-user.*.json")}
         self.assertEqual(len(names), 6)
 
+    def test_an_acceptance_contracts_protected_paths_are_in_the_hooks_syntax_and_read_alike(self):  # issue 740
+        # A contract's protected paths are config/hooks.json's own paths (decision 0020): the schema holds each to that
+        # syntax, and the Kernel's matcher and the session hooks' read each alike.
+        from tools import jsonschema_lite
+        from tools.hooks import protected
+        self.assertEqual([p for p in check_examples.run(ROOT) if "acceptance" in p], [])
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text()) for p in (ROOT / "schemas").glob("*.schema.json")}
+        contract = json.loads((ROOT / "examples" / "acceptance.json").read_text())
+        patterns = contract["protected_paths"]
+        for wrong in ([], ["/acceptance/512.json"], ["../acceptance/512.json"], ["tests//a.py"], ["./a.py"], ["tests/a?.py"],
+                      ["tests/{a,b}.py"], ["a b.py"], [""], [1]):
+            bad = copy.deepcopy(contract)
+            bad["protected_paths"] = wrong
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["acceptance"], schemas=schemas), wrong)
+        for pattern in patterns:
+            self.assertTrue(derive.readable_pattern(pattern), pattern)
+        hooks = protected.entries([(p, "") for p in patterns])
+        for path, want in (("acceptance/512.json", ["acceptance/512.json"]), ("ACCEPTANCE/512.JSON", ["acceptance/512.json"]),
+                           ("tests/acceptance/test_availability.py", ["tests/acceptance/test_availability.py"]),
+                           ("acceptance/513.json", []), ("tests/acceptance/test_availability.pyc", []), ("x/acceptance/512.json", [])):
+            self.assertEqual([p for p in patterns if derive.matches(p, path)], want, path)
+            self.assertEqual([p for p, _, _, whole in hooks if whole.match(path.casefold())], want, path)
+
     def machine_users_live_answers(self, held: dict) -> list:
         """What GitHub answers when nothing has drifted: the org's repos hold the two left out, an archived one and an
         advisory's fork, and each repo has another team beside the code owners'."""

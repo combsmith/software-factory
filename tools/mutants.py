@@ -4717,6 +4717,11 @@ MUTANTS = ISSUE + [
     ('a preflight case keeps no mark in the ledger', 'harness/eval/__init__.py',
      '                                alternates=beside, surplus=away, usages=spent)["cases"]]',
      '                                usages=spent)["cases"]]', ('tests.test_evals.EvalJob.test_a_preflight_case_keeps_its_marks_in_the_ledger_as_the_sets_do',)),
+    # Issue 740: an acceptance contract's protected paths are in the hooks' syntax.
+    ("a contract's protected path may be in any syntax", 'schemas/acceptance.schema.json',
+     '"$ref": "hooks.schema.json#/$defs/path"', '"type": "string"', ('tests.test_tools.Apps.test_an_acceptance_contracts_protected_paths_are_in_the_hooks_syntax_and_read_alike',)),
+    ("a contract may protect no path", 'schemas/acceptance.schema.json',
+     '      "type": "array",\n      "minItems": 1,\n      "items": {\n        "$ref"', '      "type": "array",\n      "items": {\n        "$ref"', ('tests.test_tools.Apps.test_an_acceptance_contracts_protected_paths_are_in_the_hooks_syntax_and_read_alike',)),
     ('a ledger need hold no preflight', 'schemas/eval-ledger.schema.json',
      '    "cases",\n    "preflight"\n',
      '    "cases"\n', ('tests.test_evals.TheSet.test_a_case_dropped_under_evals_in_any_file_is_caught',)),
