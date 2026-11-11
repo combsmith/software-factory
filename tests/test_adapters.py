@@ -1365,7 +1365,8 @@ class Records(unittest.TestCase):
             found["response"]["body"].update({k: v for k, v in change.items() if k != "status"})
             return found
         # An answer that is no list of every job counted, a job of another attempt than the list gave or one that is
-        # no job, a start that is no time, and a job still waiting of a run the list gave as completed.
+        # no job, a start that is no time, a job not yet completed of a run the list gave as completed, begun or
+        # not, and a status GitHub gives no job.
         for status, found, rows in (
                 ("in_progress", changed(18, status=404), {}), ("in_progress", changed(18, total_count=2), {}),
                 ("in_progress", changed(18, total_count=True), {}), ("in_progress", changed(18, jobs=None), {}),
@@ -1379,7 +1380,9 @@ class Records(unittest.TestCase):
                 ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-02-30T19:44:48Z"), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, started_at="2026-11-10T19:44:8Z"), {}),
                 ("completed", jobs_read("P-64", 33, gid, started_at=None), {}),
-                ("completed", jobs_read("P-64", 9, gid), {})):
+                ("completed", jobs_read("P-64", 9, gid), {}), ("completed", jobs_read("P-64", 18, gid), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, status=None), {}),
+                ("in_progress", jobs_read("P-64", 9, gid, status="odd"), {})):
             record, whole = self.began(status, found, rows=rows)
             self.assertEqual(("began_at" in record, whole), (False, False), (status, found["response"], rows))
         found = jobs_read("P-64", 18, gid)
@@ -1453,7 +1456,7 @@ class Records(unittest.TestCase):
         carried = jobs_read("P-64", 33, 700)
         carried["response"]["body"].update(total_count=2, jobs=[
             dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], started_at="2026-10-20T23:50:00Z"),
-            dict(exchanges("P-64")[9]["response"]["body"]["jobs"][0])])
+            dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], started_at="2026-10-21T00:00:05Z")])
         got, _ = read(rows, carried, *jobs[1:], began={})
         self.assertEqual((got["runs"][0]["began_at"], got["runs"][0]["started_at"]),
                          ("2026-10-20T23:50:00Z", "2026-10-21T00:00:00Z"))

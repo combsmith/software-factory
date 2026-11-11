@@ -48,6 +48,7 @@ ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms
 # attempt otherwise (decision 0111). A word not here would leave the list not whole for as long as GitHub serves the
 # row, and admit nothing anywhere.
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
+JOB_STATUSES = NOT_STARTED | {"in_progress", "completed"}     # a job's, as a run's: any other cannot be read
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "skipped": "cancelled", "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
@@ -210,8 +211,9 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
     that are in progress, or completed with a runner named; `{"began_at": None}` for a run that is `done`, every job
     of it completed and none begun; and `{}` where it has not begun yet or cannot be read. A job that waits gives its
     creation as its start, and one cancelled or skipped while it waited ends with no runner (P-64, P-44): neither is
-    a start. Not whole: an answer that is no list of every job counted, each of the attempt the list gave, a start
-    that is no time, or a job not yet completed of a run that is, which an answer older than the list would give."""
+    a start. Not whole: an answer that is no list of every job counted, each of the attempt the list gave and in a
+    status GitHub gives a job, a start that is no time, or a job not yet completed of a run that is, which an answer
+    older than the list would give."""
     answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/jobs" % (repo, github_id), headers=FRESH))
     body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
     jobs = body.get("jobs")
@@ -219,15 +221,15 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
             or type(attempt) is not int or any(not isinstance(j, dict) or type(j.get("run_attempt")) is not int
                                                or j["run_attempt"] != attempt for j in jobs):
         return {}, False
+    if any(j.get("status") not in JOB_STATUSES or (done and j["status"] != "completed") for j in jobs):
+        return {}, False
     starts = [j.get("started_at") for j in jobs if j.get("status") == "in_progress"
               or (j.get("status") == "completed" and isinstance(j.get("runner_name"), str) and j["runner_name"] != "")]
     if not all(_time(start) for start in starts):
         return {}, False
     if starts:
         return {"began_at": min(starts)}, True
-    if not done:
-        return {}, True
-    return ({"began_at": None}, True) if all(j.get("status") == "completed" for j in jobs) else ({}, False)
+    return ({"began_at": None} if done else {}), True
 
 
 def known(previous: list) -> dict:
