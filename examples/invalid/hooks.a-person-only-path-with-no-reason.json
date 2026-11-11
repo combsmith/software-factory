@@ -1,0 +1,80 @@
+{
+  "schema": "hooks/1",
+  "maintainer": {
+    "login": "don-petry",
+    "name": "Don Petry",
+    "email": "36422719+don-petry@users.noreply.github.com"
+  },
+  "openers": [
+    {
+      "login": "don-petry",
+      "id": 36422719,
+      "is": "the Maintainer, the one account that opens a pull request here until a record adds the Factory's App (decision 0102)"
+    }
+  ],
+  "protected": [
+    {
+      "path": "lifecycle/",
+      "is": "the Lifecycle"
+    }
+  ],
+  "reported": [
+    {
+      "path": "kernel/",
+      "is": "the Kernel"
+    }
+  ],
+  "lens_inputs": [
+    {
+      "path": "Makefile",
+      "is": "how verify runs the checks and the tests",
+      "lens": "verify"
+    }
+  ],
+  "merging": {
+    "branch": "main",
+    "commands": [
+      "pr merge --admin"
+    ],
+    "mutations": [
+      "mergePullRequest"
+    ],
+    "endpoints": [
+      "repos/*/*/pulls/*/merge"
+    ]
+  },
+  "sessions": {
+    "programs": [
+      "claude",
+      "claude-code"
+    ],
+    "words": [
+      "--dangerously-skip-permissions",
+      "--allow-dangerously-skip-permissions",
+      "bypassPermissions"
+    ],
+    "environment": [
+      "CLAUDE_CONFIG_DIR",
+      "HOME"
+    ]
+  },
+  "settings": {
+    "commands": [
+      "ruleset"
+    ],
+    "reads": [
+      "ruleset list"
+    ],
+    "mutations": [
+      "*RepositoryRuleset"
+    ],
+    "endpoints": [
+      "repos/*/*/rulesets/**"
+    ]
+  },
+  "person_only": [
+    {
+      "path": "release/decision-points.json"
+    }
+  ]
+}

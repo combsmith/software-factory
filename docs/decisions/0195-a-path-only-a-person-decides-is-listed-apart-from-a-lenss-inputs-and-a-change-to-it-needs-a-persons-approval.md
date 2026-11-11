@@ -1,0 +1,26 @@
+# 0195. A path only a person decides is listed apart from a Lens's inputs, and a change to it needs a person's approval
+
+Status: accepted. The Factory Builder's ruling of 2026-11-11, on the Maintainer's behalf, on what 0193's row "What is not held" left open: "A change to the continue-or-stop file must need a person's approval, as a model-Lens input does; a model review alone isn't enough." It adds a second kind of path to what 0052's rows "Which paths" and "How the Kernel is told" give the Kernel; 0052 and 0193 both stand.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| The list | `config/hooks.json` gains `person_only`: each path only a person decides, with what it is. Its first row is `release/decision-points.json`, the Maintainer's continue or stop. It is its own list, not rows of `lens_inputs` | `lens_inputs` is each file a Lens reads to judge a change, and 0052 is built on that meaning. No Lens reads the decision file; a row for it there would make the list mean two things |
+| How the Kernel is told | `tools/hooks/protected.py` reads the list in the one reading of `config/hooks.json`, and what the Kernel is given as `model_lens_inputs` is the model Lenses' own inputs and then the person-only paths, each once. The Kernel changes by no line: a change to such a path waits until a person with write access other than its author and its last pusher approves its head, and in the merge queue without one it is taken out, as 0052 has it for a model Lens's input. A Role's push may not touch one | One function, one reading and one rule in the Kernel leave nothing to drift. 0052 already says whose approval counts and why the machine user's never does |
+| The code it waits in | `model_lens_input_needs_person`, unchanged. From this record the code also covers a person-only path, which is no Lens's input; the evidence beside it names the path | A new code is a change to the Kernel, the feed and the Decision's schema. The name is narrower than what it now holds, and renaming it is its own change |
+| The edit is asked | The file is a protected path as well, so a session hook asks the person before an edit to it, and a stop lists it | A session should meet the question at the edit, before the pull request |
+| A commit with no such list | A `config/hooks.json` with no `person_only` names none, and is read as before. One that has the list holds at least one path, each of the shape every path here has, or the file is not read at all | A pull request's base may be a commit from before this record, and its list is that commit's. The schema asks nothing of the list's presence for the same reason |
+| What it means for the Maintainer's decision | His own change to the decision file is never converged by the Factory: his approval is its author's, and the machine user's is nobody's. It merges by his hand, as the machine user (0194), and that approval is the act that shows a person decided. A session may type the three fields on his word; it cannot bring them to `main` | 0193 said the check holds the name written and not the hand. The hand is now the approval, which a session cannot give |
+| From when | The Kernel is given the list by the Factory's own checkout, so the rule holds from the first Release cut after this record merges | The Controller reads its configuration from the Release it runs |
+
+## Why
+
+The continue-or-stop record is the one file in the repo whose content is a person's decision and nothing else. 0193 held the name written in it and said plainly that a session could type that name, since every commit names the Maintainer and the Factory would approve the change as any other. The Kernel already has a rule for a change no model may be the only judge of. Putting the decision file under it, by a list that says what the file is, closes the gap without a new rule to test in the Kernel.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A change to a person-only path waits for a person other than its author and last pusher, of any class, the machine user's approval counting for none; in the merge queue without one it is taken out; and with the path off what the Kernel is given, it waits for no one | `tests/test_decide.py::test_a_change_to_a_path_only_a_person_decides_waits_for_a_person`, `tools/hooks/protected.py`, `config/hooks.json`; mutant: "a path only a person decides is not given to the Kernel"; mutant: "the decision points are on no person-only list" |
+| The list is read in the one reading, given to the Kernel after a model Lens's own inputs and once; each path on it is protected; a file with no list names none; and a list that is there and is not at least one well-shaped path is not read | `tests/test_hooks.py::test_a_path_only_a_person_decides_is_read_with_the_lists_and_given_after_a_model_lenss_inputs`, `tools/hooks/protected.py`, `config/hooks.json`; mutant: "a path on both lists is given to the Kernel twice"; mutant: "the person-only paths are given before a model Lens's inputs"; mutant: "a file with no person-only list cannot be read"; mutant: "a person-only list of nothing is read as none"; mutant: "a person-only path is held to no shape"; mutant: "the hooks hand on no person-only path"; mutant: "the decision points are not protected, so no edit of them is asked" |

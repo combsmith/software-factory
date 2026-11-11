@@ -209,6 +209,8 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
     """The data the hook asks from. Raises Unreadable when it is missing or has not the shape the hook reads.
 
     A Lens's input is reported, as a stop lists it, and never asked about: `lens_inputs` keeps each with its Lens.
+    `person_only` is each path only a person decides (decision 0195), or none where the file has no such list, as
+    a commit before that decision has none.
     """
     try:
         text = path.read_text()
@@ -224,6 +226,7 @@ def parse(text: str) -> dict:
         data = json.loads(text)
         protected = [(e["path"], e["is"]) for e in data["protected"]]
         inputs = [(e["lens"], e["path"], e["is"]) for e in data["lens_inputs"]]
+        persons = [(e["path"], e["is"]) for e in data["person_only"]] if "person_only" in data else []
         reported = [(e["path"], e["is"]) for e in data["reported"]] + [(p, what) for _, p, what in inputs]
         lists = {group: {key: list(data[group][key]) for key in ("commands", "mutations", "endpoints")}
                  for group in ("merging", "settings")}
@@ -232,10 +235,10 @@ def parse(text: str) -> dict:
         sessions = {key: list(data["sessions"][key]) for key in ("programs", "words", "environment")}
     except (ValueError, KeyError, TypeError) as err:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
-    paths = protected + reported
+    paths = protected + reported + persons
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
     words += [lens for lens, _, _ in inputs] + [w for v in sessions.values() for w in v]
-    if not protected or not inputs or not all(sessions.values()) or not all(
+    if not protected or not inputs or ("person_only" in data and not persons) or not all(sessions.values()) or not all(
             isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
     # Where a command writes below a directory, Rules.where reads each name of a path as one name, so a `**` there would
@@ -246,8 +249,8 @@ def parse(text: str) -> dict:
     # unreadable, for the Kernel's configuration and a push's refusal alike, never read as protecting less.
     if any(re.search(r"[\x00-\x1f\x7f\\]", p) for p, _ in paths):
         raise Unreadable("config/hooks.json names a path with a control character or a backslash")
-    return {"protected": protected, "reported": reported, "lens_inputs": inputs, "branch": branch, "sessions": sessions,
-            **lists}
+    return {"protected": protected, "reported": reported, "lens_inputs": inputs, "person_only": persons,
+            "branch": branch, "sessions": sessions, **lists}
 
 
 def protected_paths(path: pathlib.Path = ROOT / "config" / "hooks.json") -> list:
@@ -264,15 +267,17 @@ def protected_of(data: dict) -> list:
 
 def model_lens_inputs(models: list, path: pathlib.Path = ROOT / "config" / "hooks.json") -> list:
     """What the Kernel is given as `model_lens_inputs`: each Lens's input whose Lens is one of `models`, the model
-    Lenses config/defaults.json names, as a pattern in the one syntax of config/hooks.json. The same list as
-    protected_paths, read by the same load(), so the two never drift: a change to one of these converges only once a
-    person has approved its head as well (issue 140). Raises Unreadable as load() does."""
+    Lenses config/defaults.json names, as a pattern in the one syntax of config/hooks.json, and then each path only a
+    person decides, which no Lens reads (decision 0195). The same list as protected_paths, read by the same load(),
+    so the two never drift: a change to one of these converges only once a person has approved its head as well
+    (issue 140). Raises Unreadable as load() does."""
     return model_inputs_of(load(path), models)
 
 
 def model_inputs_of(data: dict, models: list) -> list:
-    """model_lens_inputs() of data load() or parse() read."""
-    return [p for lens, p, _ in data["lens_inputs"] if lens in models]
+    """model_lens_inputs() of data load() or parse() read: the model Lenses' inputs, then the person-only paths."""
+    own = [p for lens, p, _ in data["lens_inputs"] if lens in models]
+    return own + [p for p, _ in data["person_only"] if p not in own]
 
 
 def push_of(data: dict, models: list) -> list:
