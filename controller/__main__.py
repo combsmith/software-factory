@@ -153,18 +153,20 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    earlier = pass_.earlier(reads_.previous_records(previous), now) or []
-    try:
-        runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
-                            kept=records.known(earlier), began=records.begun(earlier))
-    except Unanswered:
-        runs = None
+    # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
     try:
         numbers, whole = items.open_pull_requests(transport, home)
     except Unanswered:
         numbers, whole = [], False
     if not whole:
         raise Stop("pull_requests_unreadable")
+    earlier = pass_.earlier(reads_.previous_records(previous), now) or []
+    try:
+        runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
+                            kept=records.known(earlier), began=records.begun(earlier),
+                            of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
+    except Unanswered:
+        runs = None
     identities, approver, lenses, factory = accounts(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory, queue_of(controller))
     opens = opener(controller, config["kernel"], config["apps"])
