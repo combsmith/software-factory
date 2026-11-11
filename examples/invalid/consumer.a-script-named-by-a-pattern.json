@@ -14,8 +14,9 @@
       "scripts/factory-test.sh",
       ".github/",
       "CODEOWNERS",
+      "docs/CODEOWNERS",
       "tests/**/conftest.py",
-      "*.lock",
+      "**/*.lock",
       "scripts/"
     ]
   },

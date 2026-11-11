@@ -59,7 +59,7 @@
      "$ref": "#/$defs/file"
     },
     "protected_paths": {
-     "description": "What apply refuses a Role's push to without a person (slice 3's): relative to the top of the repo; a path ending in / is a directory and all below it; * stands for any part of one name, and ** as a whole name for any run of names; case is ignored (issue 141, decision 0020). Its setup and test scripts are among them.",
+     "description": "What apply refuses a Role's push to without a person (slice 3's): relative to the top of the repo; a path ending in / is a directory and all below it; * stands for any part of one name; ** as a whole name for any run of names, which both matchers read, as a rubric's paths use it (decision 0029), though config/hooks.json itself names none; case is ignored (issue 141, decision 0020). Its setup and test scripts are among them.",
      "type": "array",
      "minItems": 1,
      "uniqueItems": true,
@@ -70,8 +70,9 @@
    }
   },
   "reviewers": {
-   "description": "The repo's Advisory reviewers, by the name the Factory gives each.",
+   "description": "The repo's Advisory reviewers, by the name the Factory gives each, one at least: adopting the Factory needs them configured (design section 3.12).",
    "type": "array",
+   "minItems": 1,
    "uniqueItems": true,
    "items": {
     "type": "string",

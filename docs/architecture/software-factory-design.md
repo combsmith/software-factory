@@ -1068,10 +1068,11 @@ verify:
 reviewers: [coderabbit, cubic, gemini-code-assist, sonarqube-cloud]
 ```
 
-Its `protected_paths` are in the one syntax of `config/hooks.json`, read alike by the Kernel's matcher and the session
-hooks': a final `/` is the directory and everything below it, `*` is any part of one name, `**` as a
-whole name any run of names, and case is ignored. So `.github/*` leaves `.github/workflows/` open, and `CODEOWNERS`
-leaves `.github/CODEOWNERS`. They name the setup and test scripts. `schemas/consumer.schema.json` and
+Its `protected_paths` are in the syntax of `config/hooks.json`'s paths, read alike by the Kernel's matcher and the
+session hooks': a final `/` is the directory and everything below it, `*` is any part of one name, and case is
+ignored. `**` as a whole name is any run of names, which both matchers read, as a rubric's paths use it (decision 0029),
+though `config/hooks.json` itself names none. So `.github/*` leaves `.github/workflows/` open, and `CODEOWNERS` leaves
+`.github/CODEOWNERS` open. They name the setup and test scripts. `schemas/consumer.schema.json` and
 `tools/check_examples.py` hold them to it ("Consumer entry: its protected_paths in the hooks' syntax", issue 141).
 
 Adopting the Factory is more than this entry. The repo also needs the two scripts, a ruleset that

@@ -242,7 +242,9 @@ def _unprotected(value) -> list:
     (design section 3.12, issue 141). One problem, naming each such script."""
     verify = value["verify"]
     left = [verify[k] for k in ("setup", "test") if not any(derive.matches(p, verify[k]) for p in verify["protected_paths"])]
-    return ["$.verify: protects neither its own %s" % " nor ".join(left)] if left else []
+    if len(left) > 1:
+        return ["$.verify: protects neither its own %s nor %s" % tuple(left)]
+    return ["$.verify: does not protect its own %s" % left[0]] if left else []
 
 
 def _uncovered(value, root: pathlib.Path) -> list:

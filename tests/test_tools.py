@@ -1238,7 +1238,7 @@ class Apps(unittest.TestCase):
         for where, wrong in ((("repo",), "markets"), (("ring",), "canary"), (("owner_role",), "devops-"), (("ci_workflows",), []),
                              (("ci_workflows",), ["CI", "CI"]), (("ci_workflows",), [""]), (("verify", "setup"), "/bin/sh"),
                              (("verify", "test"), "../t.sh"), (("verify", "test"), "scripts/factory-*.sh"),
-                             (("reviewers",), ["cubic", "cubic"]), (("reviewers",), ["Cubic"]), (("extra",), True),
+                             (("reviewers",), ["cubic", "cubic"]), (("reviewers",), ["Cubic"]), (("reviewers",), []), (("extra",), True),
                              (("owner_role",), None), (("repo",), 1), (("reviewers",), "cubic"), (("ci_workflows",), "CI"),
                              (("verify",), "scripts/"), (("verify", "protected_paths"), "CODEOWNERS"), (("verify", "setup"), 1),
                              (("verify", "extra"), True)):
@@ -1258,16 +1258,16 @@ class Apps(unittest.TestCase):
         # Its setup and test scripts are among its protected paths, read by the Kernel's matcher, in an example as in a
         # counter-example, or an author could weaken the tests it is judged by.
         self.assertEqual(check_examples._unprotected(entry), [])
-        for paths, said in ((["scripts/factory-setup.sh"], "protects neither its own scripts/factory-test.sh"),
+        for paths, said in ((["scripts/factory-setup.sh"], "does not protect its own scripts/factory-test.sh"),
                             (["CODEOWNERS"], "protects neither its own scripts/factory-setup.sh nor scripts/factory-test.sh"),
-                            (["scripts/factory-test.sh"], "protects neither its own scripts/factory-setup.sh"),
+                            (["scripts/factory-test.sh"], "does not protect its own scripts/factory-setup.sh"),
                             (["scripts/*-setup.sh", "SCRIPTS/"], "")):
             bad = copy.deepcopy(entry)
             bad["verify"]["protected_paths"] = paths
             self.assertEqual(check_examples._unprotected(bad), ["$.verify: " + said] if said else [], paths)
         bad["verify"]["protected_paths"] = ["scripts/factory-setup.sh"]
         root = clone({"examples/consumer.json": json.dumps(bad)})
-        self.assertTrue(caught(check_examples.run(root), "consumer.json: $.verify: protects neither its own scripts/factory-test.sh"))
+        self.assertTrue(caught(check_examples.run(root), "consumer.json: $.verify: does not protect its own scripts/factory-test.sh"))
         # Each the schema lets through is one the Kernel reads, and each the Kernel refuses the schema refuses too.
         for pattern in patterns + ["*/__init__.*", "a/**/b/", "**"]:
             self.assertTrue(derive.readable_pattern(pattern), pattern)
@@ -1277,9 +1277,9 @@ class Apps(unittest.TestCase):
         hooks = protected.entries([(p, "") for p in patterns])
         for path, want in (("scripts/factory-setup.sh", ["scripts/factory-setup.sh"]), ("SCRIPTS/Factory-Test.sh", ["scripts/factory-test.sh"]),
                            (".github/workflows/ci.yml", [".github/"]), (".github", [".github/"]), ("CODEOWNERS", ["CODEOWNERS"]),
-                           ("docs/CODEOWNERS", []), ("tests/conftest.py", ["tests/**/conftest.py"]),
-                           ("tests/a/b/conftest.py", ["tests/**/conftest.py"]), ("poetry.lock", ["*.lock"]),
-                           ("a/poetry.lock", []), ("scripts/other.sh", []), (".githubx/a", [])):
+                           ("tests/conftest.py", ["tests/**/conftest.py"]),
+                           ("tests/a/b/conftest.py", ["tests/**/conftest.py"]), ("poetry.lock", ["**/*.lock"]),
+                           ("a/b/poetry.lock", ["**/*.lock"]), ("docs/CODEOWNERS", ["docs/CODEOWNERS"]), ("scripts/other.sh", []), (".githubx/a", [])):
             self.assertEqual([p for p in patterns if derive.matches(p, path)], want, path)
             self.assertEqual([p for p, _, _, whole in hooks if whole.match(path.casefold())], want, path)
 

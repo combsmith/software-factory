@@ -3,11 +3,26 @@
   "repo": "combsmith/markets",
   "ring": "next",
   "owner_role": "devops-lead",
-  "ci_workflows": ["CI"],
+  "ci_workflows": [
+    "CI"
+  ],
   "verify": {
     "setup": "scripts/factory-setup.sh",
     "test": "scripts/factory-test.sh",
-    "protected_paths": ["scripts/factory-setup.sh", "scripts/factory-test.sh", ".github/", "CODEOWNERS", "tests/**/conftest.py", "*.lock"]
+    "protected_paths": [
+      "scripts/factory-setup.sh",
+      "scripts/factory-test.sh",
+      ".github/",
+      "CODEOWNERS",
+      "docs/CODEOWNERS",
+      "tests/**/conftest.py",
+      "**/*.lock"
+    ]
   },
-  "reviewers": ["coderabbit", "cubic", "gemini-code-assist", "sonarqube-cloud"]
+  "reviewers": [
+    "coderabbit",
+    "cubic",
+    "gemini-code-assist",
+    "sonarqube-cloud"
+  ]
 }
