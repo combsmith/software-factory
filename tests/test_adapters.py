@@ -1347,9 +1347,12 @@ class Records(unittest.TestCase):
         both["response"]["body"].update(total_count=3, jobs=[
             dict(ran, id=1, started_at="2026-11-10T19:45:00Z"), ran, dict(waiting, id=2, started_at="2026-11-10T19:40:00Z")])
         self.assertEqual(self.began("in_progress", both)[0]["began_at"], "2026-11-10T19:44:48Z")
-        # A job listed twice may stand where another was left out: no read of the jobs.
+        # A job listed twice may stand where another was left out, and one start that is no time is no read of any.
         both["response"]["body"]["jobs"][0]["id"] = ran["id"]
         self.assertEqual(self.began("in_progress", both)[1], False)
+        both["response"]["body"]["jobs"][0].update(id=1, started_at="2026-02-30T19:45:00Z")
+        record, whole = self.began("in_progress", both)
+        self.assertEqual(("began_at" in record, whole), (False, False))
         # A Run not yet started, or a caller that asks for none, has no job read: the replay holds no answer to one.
         record, whole = self.began("queued")
         self.assertEqual(("began_at" in record, whole), (False, True))
@@ -1378,6 +1381,7 @@ class Records(unittest.TestCase):
                 ("in_progress", changed(18, jobs=["lane"], total_count=1), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, run_attempt=2), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, run_attempt=True), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, id=[]), {}), ("in_progress", jobs_read("P-64", 18, gid, id="7"), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, run_attempt=1.0), {}),
                 ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": True}),
                 ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": None}),

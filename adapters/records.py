@@ -218,8 +218,9 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
     body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
     jobs = body.get("jobs")
     if not isinstance(jobs, list) or type(body.get("total_count")) is not int or body["total_count"] != len(jobs) \
-            or len({j.get("id") for j in jobs if isinstance(j, dict)}) != len(jobs) \
+            or len({str(j.get("id")) for j in jobs if isinstance(j, dict)}) != len(jobs) \
             or type(attempt) is not int or any(not isinstance(j, dict) or type(j.get("run_attempt")) is not int
+                                               or type(j.get("id")) is not int
                                                or j["run_attempt"] != attempt for j in jobs):
         return {}, False
     if any(not isinstance(j.get("status"), str) or j["status"] not in JOB_STATUSES
