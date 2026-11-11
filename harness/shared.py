@@ -32,8 +32,9 @@ def staged(stage: str):
 
 
 def unread(err) -> str:
-    """The code of a read that failed, GitHub's refusal or a fault of its own code: `<stage>_unreadable`, and a
-    snapshot's `snapshot_<part>_unreadable` (`adapters/facts.py`), or `facts_unreadable` for a fault no stage named.
+    """The code of a read that failed, GitHub's refusal or a fault of its own code: `<stage>_unreadable`; with the part
+    its port gave, a snapshot's `snapshot_<part>_unreadable` (`adapters/facts.py`) and a Pause's
+    `pause_<part>_unreadable` (`adapters/pause.py`, decision 0191); or `facts_unreadable` for a fault no stage named.
     Codes of the Harness's own, never what GitHub or the fault said, so a Run that stops says which read it was (pull
     request 688, the dry run, stopped twice at one code for every read)."""
     stage, part = getattr(err, "stage", None), getattr(err, "part", None)
