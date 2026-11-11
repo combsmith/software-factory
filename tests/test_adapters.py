@@ -3184,6 +3184,26 @@ class DescriptionEdits(unittest.TestCase):
             self.assertEqual(found["request"]["body"]["query"], edits.QUERY)
             self.assertEqual(edits.last_edited_at(github.Replay([found]), canary96), "2026-11-03T19:24:25Z")
 
+    def test_a_revision_deleted_from_the_history_is_read_as_the_trial_recorded_it(self):  # trials/P-58.deleted.json
+        # Issue 549: a person deleted a middle revision from a description's history. GitHub still lists its node, with
+        # its editedAt and a deletedAt, and moves neither lastEditedAt nor the count, so the port reads the same time
+        # before the deletion and after it, and refuses neither. Two later edits stood above it, so this holds the shape
+        # the port is answered, not the time: test_the_last_edit_is_told_by_its_edited_at_never_its_created_at holds
+        # that a deleted node's time counts, on a shape no trial recorded: the Maintainer found the browser to offer no
+        # deletion of the newest revision.
+        canary101 = {"number": 101, "base": {"repo": {"full_name": canary()}}}
+        before, after, later = exchanges("P-58.deleted")[2:]
+        for found, time in ((before, "2026-11-10T20:48:14Z"), (after, "2026-11-10T20:48:14Z"), (later, "2026-11-10T23:13:57Z")):
+            self.assertEqual(found["request"]["body"]["query"], edits.QUERY)
+            self.assertEqual(edits.last_edited_at(github.Replay([found]), canary101), time)
+        listed = [ex["response"]["body"]["data"]["repository"]["pullRequest"]["userContentEdits"]
+                  for ex in (before, after, later)]
+        self.assertEqual([[n["deletedAt"] for n in edited["nodes"]] for edited in listed],
+                         [[None] * 5, [None, None, "2026-11-10T23:02:37Z", None, None],
+                          [None, None, None, "2026-11-10T23:02:37Z", None, None]])
+        times = [[n["editedAt"] for n in edited["nodes"]] for edited in listed]
+        self.assertEqual((times[0], times[1]), (times[1], times[2][1:]))
+
     def test_the_last_edit_is_told_by_its_edited_at_never_its_created_at(self):  # trials/P-58.json
         # P-58: the opening text's entry was made with the first later edit, so its createdAt is that edit's, 23 seconds
         # after its editedAt. The time read is the later of lastEditedAt and every editedAt, never a createdAt.
@@ -3804,13 +3824,26 @@ class Contract(unittest.TestCase):
         edited, the head pushed, a workflow's bot's edit, a minute on."""
         return [e["response"]["body"]["data"]["repository"]["pullRequest"]["lastEditedAt"] for e in exchanges("P-58")]
 
+    @staticmethod
+    def p58_deleted_reads() -> list:
+        """What the port reads of P-58's deleted-revision leg, and the pull request it read, after each step in turn:
+        opened, a person's two edits, CodeRabbit's, one revision deleted from the history, a person's edit more."""
+        canary101 = {"number": 101, "base": {"repo": {"full_name": canary()}}}
+        return [(edits.last_edited_at(github.Replay([e]), canary101), e["response"]["body"]["data"]["repository"]["pullRequest"])
+                for e in exchanges("P-58.deleted")]
+
     def description_edit_read(self) -> bool:
         # A title's edit and a push move nothing; a person's and a bot's edit each move it; and the port reads the reader
-        # App's answer, a day on, as the last of them.
+        # App's answer, a day on, as the last of them. On another pull request the port's time moves with a person's
+        # edits, a bot's and a person's again, each read as GitHub's lastEditedAt, and not when a revision is deleted.
         opened, later, titled, edited, pushed, bot, after = self.p58_last_edits()
         canary96 = {"number": 96, "base": {"repo": {"full_name": canary()}}}
         port = edits.last_edited_at(github.Replay([exchanges("P-58.reader")[0]]), canary96)
-        return titled == later and edited > titled and pushed == edited and bot > pushed and after == bot == port
+        first, person, app, deleted, again = self.p58_deleted_reads()
+        return titled == later and edited > titled and pushed == edited and bot > pushed and after == bot == port \
+            and first[0] < person[0] < app[0] == deleted[0] < again[0] \
+            and all(time == pr["lastEditedAt"] for time, pr in (first, person, app, deleted, again)) \
+            and [pr["editor"]["__typename"] for _, pr in (person, app, again)] == ["User", "Bot", "User"]
 
     def app_edit_read(self) -> bool:
         # cubic's edit, the App's, is the first: 23 seconds after the opening text, and before anything was asked of it.
@@ -3821,8 +3854,15 @@ class Contract(unittest.TestCase):
         bots = [n["editedAt"] for n in nodes if n["editor"]["__typename"] == "Bot"]
         canary96 = {"number": 96, "base": {"repo": {"full_name": canary()}}}
         port = edits.last_edited_at(github.Replay([exchanges("P-58.reader")[0]]), canary96)
+        # On another pull request cubic's edit is again the first, nine seconds after the opening text, and the port
+        # gives its time; CodeRabbit's, minutes on, is the time the port gives then.
+        (early, opening), _, (summed, summary) = self.p58_deleted_reads()[:3]
+        once = opening["userContentEdits"]["nodes"]
         return opened is None and first["editor"]["__typename"] == "Bot" and later is not None and len(bots) == 3 \
-            and max(bots) == port
+            and max(bots) == port \
+            and [n["editor"]["__typename"] for n in once] == ["Bot", "User"] and early == once[0]["editedAt"] \
+            and (once[0]["editedAt"], once[1]["editedAt"]) == ("2026-11-10T20:46:42Z", "2026-11-10T20:46:33Z") \
+            and summary["editor"]["__typename"] == "Bot" and summed == summary["userContentEdits"]["nodes"][0]["editedAt"]
 
     def reads(self) -> dict:
         """Each grounded rule the port reads, from the fixture that grounds it, as the rule states it: the fixtures it
@@ -3905,8 +3945,8 @@ class Contract(unittest.TestCase):
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
-            "a_description_edit_moves_its_time": ({"P-58", "P-58.reader"}, self.description_edit_read()),
-            "an_app_edits_a_description": ({"P-58", "P-58.reader"}, self.app_edit_read()),
+            "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
+            "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
             "the_pusher_is_the_last_pusher": ({"P-28", "P-28.app"},
                 pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
                 and pull.last_pusher(replay("P-28.app", 1), body("P-28.app", 0)) == "combsmith-sf-trial-author[bot]"),
