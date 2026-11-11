@@ -696,8 +696,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # seen gone before it (issue 552): the port keeps listing a pull request once a pass saw its keyword, so no edit
         # after the merge moves the issue, and a keyword first seen after it, or taken out before it and put back after,
         # reaches back to nothing. A link in the merge's second, or one no pass timed, reads as before: the Factory's merge
-        # beside another in its second is done (decision 0132). A person's close of a rival after the merge's second
-        # releases it for good, as an unlinking does; anyone else's close, and a merge, release nothing (ruling (2) (a)).
+        # beside another in its second is done (decision 0132). A person's close of a rival, its event at least
+        # max_close_lag_seconds after the merge's second, releases it for good, as an unlinking does; anyone else's close,
+        # one that may have been in that second, and a merge, release nothing (ruling (2) (a)).
         stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
                  and (linked_by_hand_before(p, first)
                       and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
