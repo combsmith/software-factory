@@ -693,6 +693,12 @@ class Pause(unittest.TestCase):
                                       ["combsmith/b", "combsmith/a"])
         self.assertEqual((read["repos"], parts), ({"combsmith/a": "false", "combsmith/b": pause.UNREADABLE},
                                                   ["org_refused", "repo"]))
+        # Two repos unreadable in two ways: each part in the order its repo is read, by name, not the parts' own order
+        # and not the order the repos were given in (Carbon's read).
+        for variables, want in (([own(403, {}), own(500, {})], ["repo_refused", "repo"]),
+                                ([own(500, {}), own(403, {})], ["repo", "repo_refused"])):
+            self.assertEqual(pause.explained(Answers(named, variables), "combsmith", ["combsmith/b", "combsmith/a"])[1],
+                             want, variables)
 
 
 class Tracking(unittest.TestCase):

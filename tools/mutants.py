@@ -12039,6 +12039,8 @@ MUTANTS = ISSUE + [
      '[part for _, part in scopes if part is not None]', '[part for _, part in scopes]', ('tests.test_effects.Pause.test_a_pause_not_read_says_which_read_and_why',)),
     ("the Pause's parts name a repo before the org", 'adapters/pause.py',
      '[part for _, part in scopes if part is not None]', '[part for _, part in reversed(scopes) if part is not None]', ('tests.test_effects.Pause.test_a_pause_not_read_says_which_read_and_why',)),
+    ("the Pause's parts are told in an order of their own", 'adapters/pause.py',
+     '[part for _, part in scopes if part is not None]', 'sorted(part for _, part in scopes if part is not None)', ('tests.test_effects.Pause.test_a_pause_not_read_says_which_read_and_why',)),
     ("with no transport no scope of the Pause is named", 'adapters/pause.py',
      '                [ORG_UNREAD] + [REPO_UNREAD for repo in repos])', '                [])', ('tests.test_effects.Pause.test_a_pause_not_read_says_which_read_and_why',)),
     ("with no transport the org's Pause alone is named", 'adapters/pause.py',
