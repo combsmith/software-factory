@@ -325,6 +325,7 @@ class Fixture(unittest.TestCase):
     FIFTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-4.json"
     SIXTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-5.json"
     SEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-6.json"
+    EIGHTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-7.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
     EVENT = ROOT / "release" / "fixtures" / "event.slice-1.json"
 
@@ -449,7 +450,8 @@ class Fixture(unittest.TestCase):
         # factory/v0.1.4 on 2026-11-10 at the commit eval run 42865325326 had passed, #714's merge, after the third;
         # run 42885151917 cut factory/v0.1.5 on 2026-11-10 at the commit eval run 42882105104 had passed, #720's
         # merge, after the fourth; run 42925869303 cut factory/v0.1.6 on 2026-11-10 at the commit eval run 42923463050
-        # had passed, #717's merge, after the fifth and the sixth.
+        # had passed, #717's merge, after the fifth and the sixth; run 43026745268 cut factory/v0.1.7 on 2026-11-11 at
+        # the commit eval run 43024260112 had passed, #731's merge, after the seventh.
         for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
                                         (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
                                         (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
@@ -460,7 +462,10 @@ class Fixture(unittest.TestCase):
                                           self.CUT]),
                                         (self.SEVENTH_CUT, 42923463050,
                                          [self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT,
-                                          self.NEXT_CUT, self.CUT])):
+                                          self.NEXT_CUT, self.CUT]),
+                                        (self.EIGHTH_CUT, 43024260112,
+                                         [self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT,
+                                          self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
 
