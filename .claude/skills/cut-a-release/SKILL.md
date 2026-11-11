@@ -23,7 +23,8 @@ next, and roll back in one action".
 
 ## Before anything runs
 
-- **The Pause.** Read `FACTORY_PAUSED` on the org and this repo. A rollback runs under a Pause; a cut waits.
+- **The Pause.** Read `FACTORY_PAUSED` on the org and this repo. A rollback runs under a Pause; a cut waits, but for
+  the one cut "When the Factory cannot approve" has the Maintainer dispatch under it.
 - **The commit.** It is on `main`, and `verify` concluded `success` on it.
 - **The eval gate (ruling 4″).** `next` moves only to a commit whose eval report for the cases `evals/pr-review` names at that
   commit, scored against the review's rubric, clears the bar of decision 0150: at least 90% of the clean cases passed and
@@ -127,7 +128,9 @@ the merge group is still required. The next pass raises the alert `write_unmatch
 it (decision 0061), and its merge may read `merged_by_override`. He matches the alert's entry, which names the
 review, to the approval he gave: that match is what tells his own act from another's use of the login. It is one
 alert however many writes it holds, so every entry is read for as long as it stands. An entry that is not his
-approval is another's use of the login, and asks for the token's rotation.
+approval is another's use of the login, and asks for the token's rotation. The match clears nothing else: the design
+asks for that rotation on any reconciliation alert, his own entry's among them, and the rule stands until he says
+otherwise. No session rotates or revokes the token.
 
 A session stops before the hand approval and hands him the steps: the pull request, its head, and the reads to make
 before and after. It approves nothing, signs in to no account, and sets no variable.

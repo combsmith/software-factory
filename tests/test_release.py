@@ -27,7 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
 # The skill's section "When the Factory cannot approve", word for word (decision 0195): what it says of who approves,
 # and by what, changes only with this line.
-CANNOT_APPROVE_SHA256 = "6f75eb20f53061e10798a8a327666dbb8edee65718262749fbdd16f748677fa1"
+CANNOT_APPROVE_SHA256 = "909f0b3cf62dc82fe2ce236d1254e9ccfa2987bb0e40b9d688fafd35e73e0d24"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
@@ -1021,6 +1021,8 @@ class Skill(unittest.TestCase):
         # A hand approval alarms, the section says so, and every entry of the alert is read while it stands.
         self.assertIn("The next pass raises the alert `write_unmatched` for it", section)
         self.assertIn("so every entry is read for as long as it stands", section)
+        self.assertIn("The match clears nothing else", section)
+        self.assertIn("No session rotates or revokes the token.", section)
         # It gives nothing to run, in a fence, an indented block or a span; and beyond these, word for word it is the
         # text this file names, so a command put in any other way, or any other change, fails here until it is read.
         self.assertNotRegex(section, r"```|~~~|``")
