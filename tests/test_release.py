@@ -16,7 +16,7 @@ import shlex
 import tempfile
 import unittest
 
-from adapters import github, tags
+from adapters import effects, github, tags
 from harness import eval as eval_gate
 from release import current, cut, move
 from tools import check_release, check_rulesets
@@ -326,6 +326,7 @@ class Fixture(unittest.TestCase):
     SIXTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-5.json"
     SEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-6.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
+    EVENT = ROOT / "release" / "fixtures" / "event.slice-1.json"
 
     def item(self, fixture, name):
         found = [item for item in fixture["items"] if item["item"] == name]
@@ -462,6 +463,154 @@ class Fixture(unittest.TestCase):
                                           self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
+
+    def test_the_slice_1_event_is_whole(self):  # issue 198's ruling 6
+        # Slice 1's event: a pull request the Maintainer opened after `main` began to count an approval (decision
+        # 0191), which a Release on `next` reviewed, whose head the Factory's approving act approved as the machine
+        # user, and which merged through the queue on that approval. It is the switch's own record, the pull request
+        # the rulings name; two others merged on the approval minutes before it, and "first" is no read's to show. The
+        # fixture holds what GitHub answered of it afterwards, and each pass whose Decision on the merged head differed
+        # from the pass before's. The Maintainer's login enqueued it, as it enqueues every pull request; no enqueue by
+        # the Factory's queue step is claimed.
+        fixture = json.loads(self.EVENT.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, "event.slice-1.json"), [])
+        self.assertEqual(fixture["repo"], REPO)
+        event, steps, api = fixture["event"], fixture["steps"], "/repos/%s" % REPO
+        body = lambda path, method="GET": (lambda answer: self.assertEqual(answer["status"], 200, path) or answer["body"])(
+            self.answered(fixture, path, method))
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        maintainer = json.loads((ROOT / "config" / "hooks.json").read_text())["maintainer"]["login"]
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        pull = body("%s/pulls/%d" % (api, event["pull_request"]))
+        self.assertEqual((pull["number"], pull["state"], pull["merged"], pull["base"]["ref"], pull["head"]["sha"],
+                          pull["merge_commit_sha"]),
+                         (event["pull_request"], "closed", True, "main", event["head"], event["merged"]["commit"]))
+        # Opened after `main` began to count an approval: the ruleset, read afterwards, counts one as the repo's record
+        # of it says, and was last changed before the pull request was opened.
+        ruleset = body("%s/rulesets/%d" % (api, event["ruleset"]))
+        recorded = json.loads((ROOT / "config" / "rulesets.json").read_text())["rulesets"]["main"]
+        counted, = [r["parameters"] for r in ruleset["rules"] if r["type"] == "pull_request"]
+        self.assertEqual((ruleset["id"], ruleset["name"], ruleset["target"], ruleset["enforcement"], ruleset["bypass_actors"]),
+                         (recorded["id"], "main", "branch", "active", []))
+        # It covers the default branch, which the pull request's base is, and leaves no branch out.
+        self.assertEqual(ruleset["conditions"]["ref_name"], {"include": recorded["include"], "exclude": []})
+        self.assertEqual(recorded["include"], ["~DEFAULT_BRANCH"])
+        self.assertEqual(body(api), {"full_name": REPO, "default_branch": pull["base"]["ref"]})
+        self.assertEqual(counted, {k: recorded["rules"]["pull_request"][k] for k in (
+            "required_approving_review_count", "require_code_owner_review", "require_last_push_approval",
+            "dismiss_stale_reviews_on_push", "required_reviewers")})
+        self.assertEqual((counted["required_approving_review_count"], counted["require_code_owner_review"],
+                          counted["require_last_push_approval"], counted["dismiss_stale_reviews_on_push"]), (1, True, True, True))
+        utc = lambda at: datetime.datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone(datetime.timezone.utc)
+        self.assertLess(utc(ruleset["updated_at"]), utc(pull["created_at"]))
+        pushed = body("%s/pulls/%d/commits" % (api, event["pull_request"]))
+        # Its author is the Maintainer, whose own approval GitHub does not count: the one that counted is the approver's.
+        self.assertEqual((pull["user"]["login"], pull["user"]["type"]), (maintainer, "User"))
+        reviews = body("%s/pulls/%d/reviews" % (api, event["pull_request"]))
+        approved = [r for r in reviews if r["state"] == "APPROVED"]
+        self.assertEqual([(r["id"], r["user"]["login"], r["user"]["type"], r["commit_id"], r["submitted_at"]) for r in approved],
+                         [(event["approval"]["review"], defaults["approver"], "User", pull["head"]["sha"], event["approval"]["at"])])
+        self.assertEqual((event["approval"]["by"], event["approval"]["commit"]), (defaults["approver"], event["head"]))
+        # It is of the last push, the last review made, and no review asks for changes or was dismissed.
+        self.assertEqual(pushed[-1]["sha"], pull["head"]["sha"])
+        self.assertLess(pushed[-1]["commit"]["committer"]["date"], event["approval"]["at"])
+        self.assertEqual(max(r["submitted_at"] for r in reviews), event["approval"]["at"])
+        self.assertLessEqual({r["state"] for r in reviews}, {"APPROVED", "COMMENTED"})
+        # The queue took the head the approval is of, after it, and the merge is the pull request's own.
+        asked, = [e["request"]["body"]["variables"] for e in fixture["exchanges"] if e["request"]["call"].startswith("POST /graphql")]
+        self.assertEqual(asked, dict(zip(("owner", "name"), REPO.split("/")), n=event["pull_request"]))
+        told = body("/graphql", "POST")["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"]
+        self.assertEqual([n["__typename"] for n in told],
+                         ["AddedToMergeQueueEvent", "MergedEvent", "RemovedFromMergeQueueEvent"])
+        queued, merged, left = told
+        self.assertEqual((queued["enqueuer"]["login"], queued["actor"]["login"], queued["actor"]["__typename"],
+                          queued["createdAt"]), (maintainer, maintainer, "User", event["enqueued"]["at"]))
+        self.assertEqual(event["enqueued"]["by"], maintainer)
+        self.assertEqual((merged["commit"]["oid"], merged["createdAt"], merged["mergeRefName"], merged["actor"]["login"],
+                          left["reason"]), (event["merged"]["commit"], pull["merged_at"], pull["base"]["ref"], maintainer, "merged"))
+        self.assertEqual(event["merged"]["at"], pull["merged_at"])
+        # One Release, on `next`, at every step, and cut before the change existed (FR-50).
+        self.assertEqual({s["release"] for s in steps}, {event["release"]})
+        channel = move.next_channel(json.loads(move.RINGS.read_text()))
+        for tag in (channel, event["release"]):
+            ref = body("%s/git/ref/tags/%s" % (api, tag))
+            self.assertEqual((ref["ref"], ref["object"]["type"], ref["object"]["sha"]),
+                             ("refs/tags/" + tag, "commit", event["release_commit"]), tag)
+        commit = body("%s/git/commits/%s" % (api, event["release_commit"]))
+        self.assertEqual(commit["sha"], event["release_commit"])
+        # The cut itself, as its own fixture holds it, ended before the first commit, not only the commit it cut at.
+        was_cut = json.loads(self.SEVENTH_CUT.read_text())
+        made = self.item(was_cut, "cut_and_move_of_next")
+        self.assertEqual((was_cut["version"], made["asked"]["cut_commit"]), (event["release"], event["release_commit"]))
+        cut_at = self.answered(made, "/repos/%s/actions/runs/%d" % (REPO, made["run"]))["body"]["updated_at"]
+        first = min(c["commit"]["committer"]["date"] for c in pushed)
+        self.assertLess(commit["committer"]["date"], cut_at)
+        self.assertLess(cut_at, first, "the Release was cut before the pull request's first commit")
+        # Each step is one pass's Decision, in the order the passes ran, and its record is the artifact GitHub lists.
+        self.assertEqual([(s["state"], s["reason"], s["outcome"], s["action"]) for s in steps],
+                         [("verifying", "awaiting_checks", "nothing", None), ("verifying", "awaiting_review", "admit", None),
+                          ("converged", "approval_due", "act", "issue_approval"), ("queued", "in_merge_queue", "nothing", None)])
+        self.assertEqual([s["attention"] for s in steps], ["review", "review", "ready", "ready"])
+        # Each a pass of its own, by its id, its run and its record, after the head was pushed and one after another.
+        self.assertEqual([s["now"] for s in steps], sorted({s["now"] for s in steps}))
+        for key in ("pass", "poller_run", "artifact", "digest"):
+            self.assertEqual(len({s[key] for s in steps}), len(steps), key)
+        self.assertLess(pushed[-1]["commit"]["committer"]["date"], steps[0]["now"])
+        # Each pass read the head that merged: a commit's date is its author's word, the head a pass read is the pass's.
+        self.assertEqual({s["head"] for s in steps}, {event["head"]})
+        for s in steps:
+            with self.subTest(step=s["pass"]):
+                ran = body("%s/actions/runs/%d" % (api, s["poller_run"]))
+                self.assertEqual((ran["id"], ran["path"], ran["status"], ran["conclusion"], ran["head_branch"]),
+                                 (s["poller_run"], ".github/workflows/poller.yml", "completed", "success", "main"))
+                self.assertTrue(ran["created_at"] <= s["now"] <= ran["updated_at"], s)
+                held = [a for a in body("%s/actions/runs/%d/artifacts" % (api, s["poller_run"]))["artifacts"] if a["name"] == "pass"]
+                self.assertEqual([(a["id"], a["digest"], a["expired"]) for a in held], [(s["artifact"], s["digest"], False)])
+        # The review Run and the approving act are the Runs those passes admitted, by the name each carries: the item,
+        # its Intent, the Role and the Run's id, and for the act the content the Decision approved. Each succeeded.
+        admitted, acted = steps[1], steps[2]
+        self.assertEqual((event["review_run"]["run"], event["approving_run"]["run"]), (admitted["run"], acted["run"]))
+        item = "sf %s#%d" % (fixture["repo"], event["pull_request"])
+        for which, step, path, intent in (("review_run", admitted, "run.yml", "review-change"),
+                                          ("approving_run", acted, "approve.yml", "issue-approval")):
+            with self.subTest(run=which):
+                ran = body("%s/actions/runs/%d" % (api, event[which]["github_run"]))
+                self.assertEqual((ran["id"], ran["path"], ran["event"], ran["status"], ran["conclusion"], ran["run_attempt"],
+                                  ran["head_branch"]), (event[which]["github_run"], ".github/workflows/" + path,
+                                                        "workflow_dispatch", "completed", "success", 1, "main"))
+                # The name is the item, the Intent, the Role, the content and the Run's id: the review was of the
+                # content the act approved.
+                self.assertEqual(ran["name"].split(" "),
+                                 item.split(" ") + [intent, defaults["owner_role"], acted["content_id"], step["run"]])
+                self.assertLessEqual(step["now"], ran["created_at"])
+                kept = body("%s/actions/runs/%d/artifacts" % (api, event[which]["github_run"]))["artifacts"]
+                self.assertEqual(len([a for a in kept if a["name"] == "applied"]), 1)
+                # The Run's own outcome names the Release it ran under, the event's, and no fault.
+                ended = event[which]["outcome"]
+                self.assertEqual([(a["id"], a["digest"]) for a in kept if a["name"] == "outcome"], [(ended["artifact"], ended["digest"])])
+                self.assertEqual((ended["release"], ended["outcome"], ended["reason"]), (event["release"], None, None))
+        act = body("%s/actions/runs/%d" % (api, event["approving_run"]["github_run"]))
+        self.assertTrue(act["created_at"] <= event["approval"]["at"] <= act["updated_at"])
+        review = body("%s/actions/runs/%d" % (api, event["review_run"]["github_run"]))
+        self.assertLessEqual(review["updated_at"], acted["now"])
+        # The Role's own review, a comment by its App on the head, was posted within its Run.
+        posted = [r for r in reviews if r["user"]["login"] == apps[defaults["owner_role"]]["name"] + "[bot]"]
+        self.assertEqual([(r["user"]["type"], r["state"], r["commit_id"]) for r in posted], [("Bot", "COMMENTED", event["head"])])
+        self.assertTrue(review["created_at"] <= posted[0]["submitted_at"] <= review["updated_at"])
+        self.assertLess(event["approval"]["at"], event["enqueued"]["at"])
+        self.assertLess(event["enqueued"]["at"], steps[-1]["now"])
+        self.assertLess(steps[-1]["now"], event["merged"]["at"])
+        # The status on the item, read back after the merge, is the last step's: its State and code, never a sentence.
+        status = body("%s/commits/%s/check-runs?check_name=%s" % (api, event["head"], defaults["status_on_item"]))
+        self.assertEqual(status["total_count"], 1)
+        shown, = status["check_runs"]
+        self.assertEqual((shown["name"], shown["app"]["slug"], shown["conclusion"], shown["head_sha"]),
+                         (defaults["status_on_item"], apps["controller"]["name"], "neutral", event["head"]))
+        # Word for word what the effects port writes for the last step's Decision under this pass and Release, who
+        # acts next among it, as `config/feed.json` gives it.
+        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        self.assertEqual(shown["output"], effects.status_output(dict(steps[-1], evidence=[]),
+                                                                {"pass": steps[-1]["pass"], "release": event["release"]}, feed))
 
     def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
         # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,
