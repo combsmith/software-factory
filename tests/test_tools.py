@@ -4073,13 +4073,36 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
                                    "which only queue-job.yml names"), text)
 
+    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issue 743, decision 0106
+        # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: three sources
+        # of Ubuntu's, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
+        # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
+        # retries capped and each connection's wait bounded (a name that never resolves is not, which the step's own
+        # timeout ends). Read from the one block both workflows hold word for word.
+        import shlex
+        block = check_workflows.CLI_INSTALL_RUN
+        self.assertEqual(len(block), 10)
+        source = re.compile(r"echo 'deb \[signed-by=/usr/share/keyrings/ubuntu-archive-keyring\.gpg\] https://[a-z0-9.-]+/ubuntu "
+                            r"(noble|noble-updates|noble-security) main' >>? /tmp/ubuntu\.list")
+        found = [source.fullmatch(line) for line in block[5:8]]
+        self.assertTrue(all(found), block[5:8])
+        self.assertEqual(sorted(m.group(1) for m in found), ["noble", "noble-security", "noble-updates"])
+        self.assertIn(" > /tmp/ubuntu.list", block[5])
+        given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=2", "Acquire::https::Timeout=10"]
+        for line, words in ((block[8], ["sudo", "apt-get", "update", "-q"]), (block[9], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"])):
+            said = shlex.split(line)
+            options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
+            rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
+            self.assertEqual(options, given, line)
+            self.assertEqual(rest, words + (["bubblewrap"] if "install" in words else []), line)
+
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
         good = (self.LIVE / "run-jobs.yml").read_text()
         self.assertEqual(check_workflows.run_jobs_problems(good), [])
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
         broken = {
-            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends bubblewrap\n", ""),
+            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
             "the reader's key beside the model": good.replace(model, model + reader),
             "the model beside the reader's key": good.replace(reader, reader + model),
             "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
