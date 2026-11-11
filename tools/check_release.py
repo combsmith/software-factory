@@ -103,9 +103,10 @@ def point_problems(value, maintainer) -> list:
     for i, point in enumerate(points if isinstance(points, list) else []):
         if not isinstance(point, dict):
             continue
-        if point.get("point") in seen:
-            problems.append("points[%d]: %s is recorded twice; a decision point is recorded once" % (i, point.get("point")))
-        seen.append(point.get("point"))
+        name = point.get("point")
+        if isinstance(name, str) and name in seen:
+            problems.append("points[%d]: %s is recorded twice; a decision point is recorded once" % (i, name))
+        seen.append(name)
         shown = point.get("shown") if isinstance(point.get("shown"), dict) else {}
         for share in SHARES:
             if _count(shown.get("merged")) and _count(shown.get(share)) and shown[share] > shown["merged"]:

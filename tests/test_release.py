@@ -866,7 +866,9 @@ class Points(unittest.TestCase):
         self.assertEqual(found(dict(open_, shown=dict(shown, merged=0, the_maintainers=True, touched_protected=0))), 0)
         # What the schema refuses is said there; this rule reads it without failing, each odd part alone.
         without = lambda name: {key: value for key, value in shown.items() if key != name}
+        nameless = {key: value for key, value in open_.items() if key != "point"}
         for odd in ({}, [], {"points": None}, {"points": ["x"]}, {"points": [{"point": ["x"], "shown": 3}]},
+                    {"points": [nameless, dict(nameless)]}, {"points": [dict(open_, point=7), dict(open_, point=7)]},
                     {"points": [dict(decided, shown=None)]}, {"points": [dict(decided, day=3)]},
                     {"points": [dict(decided, shown=without("read_on"))]}, {"points": [dict(open_, shown=without("before"))]},
                     {"points": [dict(decided, shown=dict(shown, read_on=3))]}, {"points": [dict(open_, shown=dict(shown, before=3))]},
